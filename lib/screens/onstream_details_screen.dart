@@ -1,0 +1,726 @@
+import 'package:flutter/material.dart';
+import 'package:youtube_player_flutter/youtube_player_flutter.dart';
+import 'package:shimmer/shimmer.dart';
+import '../database/db_helper.dart';
+import '../models/movie.dart';
+import '../services/tmdb_api_service.dart';
+import '../services/haptic_service.dart';
+import '../services/stream_extraction_service.dart';
+import 'modern_video_player_screen.dart';
+
+class OnStreamDetailsScreen extends StatefulWidget {
+  final Movie item;
+  final String mediaType;
+
+  const OnStreamDetailsScreen({
+    super.key,
+    required this.item,
+    required this.mediaType,
+  });
+
+  @override
+  State<OnStreamDetailsScreen> createState() => _OnStreamDetailsScreenState();
+}
+
+class _OnStreamDetailsScreenState extends State<OnStreamDetailsScreen> {
+  YoutubePlayerController? _youtubeController;
+  bool isSaved = false;
+  bool isLoading = true;
+  String? trailerUrl;
+  Map<String, dynamic>? details;
+  List<Map<String, dynamic>> cast = [];
+  List<Map<String, dynamic>> recommendations = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDetails();
+  }
+
+  @override
+  void dispose() {
+    _youtubeController?.dispose();
+    super.dispose();
+  }
+
+  void _initializeYouTubePlayer(String url) {
+    final videoId = YoutubePlayer.convertUrlToId(url);
+    if (videoId != null) {
+      setState(() {
+        trailerUrl = url;
+        _youtubeController = YoutubePlayerController(
+          initialVideoId: videoId,
+          flags: const YoutubePlayerFlags(
+            autoPlay: false,
+            mute: false,
+            enableCaption: true,
+          ),
+        );
+      });
+    }
+  }
+
+  Future<void> _loadDetails() async {
+    setState(() => isLoading = true);
+
+    try {
+      final id = int.parse(widget.item.id);
+      final detailsData = widget.mediaType == 'movie'
+          ? await TmdbApiService.getMovieDetails(id)
+          : await TmdbApiService.getSeriesDetails(id);
+
+      if (detailsData != null) {
+        setState(() {
+          details = detailsData;
+          cast = List<Map<String, dynamic>>.from(
+            detailsData['credits']?['cast'] ?? [],
+          );
+          recommendations = List<Map<String, dynamic>>.from(
+            detailsData['recommendations']?['results'] ?? [],
+          );
+        });
+
+        // Load trailer
+        final trailerUrlFromApi = await TmdbApiService.getTrailerUrl(
+          id,
+          isMovie: widget.mediaType == 'movie',
+        );
+        if (trailerUrlFromApi.isNotEmpty) {
+          _initializeYouTubePlayer(trailerUrlFromApi);
+        }
+      }
+      _checkWatchlistStatus();
+    } catch (e) {
+      print('Error loading details: $e');
+    } finally {
+      setState(() => isLoading = false);
+    }
+  }
+
+  Future<void> _checkWatchlistStatus() async {
+    final watchlist = await DBHelper.getWatchlistItems();
+    if (mounted) {
+      setState(() {
+        isSaved = watchlist.any((item) => item.id == widget.item.id);
+      });
+    }
+  }
+
+  Future<void> _toggleWatchlist() async {
+    try {
+      final wasAdded = !isSaved; // Store the action before state changes
+
+      // Add haptic feedback
+      if (wasAdded) {
+        await HapticService.success();
+      } else {
+        await HapticService.lightImpact();
+      }
+
+      if (isSaved) {
+        await DBHelper.removeFromWatchlist(widget.item.id);
+      } else {
+        await DBHelper.addToWatchlist(widget.item);
+      }
+      await _checkWatchlistStatus();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                Icon(
+                  wasAdded ? Icons.favorite : Icons.favorite_border,
+                  color: Colors.white,
+                  size: 20,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  wasAdded ? 'Added to Watchlist' : 'Removed from Watchlist',
+                ),
+              ],
+            ),
+            backgroundColor: wasAdded
+                ? Colors.green.shade600
+                : Colors.red.shade600,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      await HapticService.error();
+      print('Error toggling watchlist: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.error, color: Colors.white, size: 20),
+                const SizedBox(width: 8),
+                Text('Error updating watchlist: $e'),
+              ],
+            ),
+            backgroundColor: Colors.red.shade600,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: isLoading
+          ? buildLoadingShimmer()
+          : CustomScrollView(
+              slivers: [
+                buildSliverAppBar(),
+                SliverToBoxAdapter(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      buildDetailsSection(),
+                      if (cast.isNotEmpty) buildCastSection(),
+                      if (recommendations.isNotEmpty)
+                        buildRecommendationsSection(),
+                      const SizedBox(height: 20),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+    );
+  }
+
+  Widget buildLoadingShimmer() {
+    return Shimmer.fromColors(
+      baseColor: Colors.grey[800]!,
+      highlightColor: Colors.grey[600]!,
+      child: CustomScrollView(
+        slivers: [
+          SliverAppBar(
+            expandedHeight: 300,
+            flexibleSpace: Container(color: Colors.grey[800]),
+          ),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(height: 24, width: 200, color: Colors.grey[800]),
+                  const SizedBox(height: 8),
+                  Container(height: 16, width: 150, color: Colors.grey[800]),
+                  const SizedBox(height: 16),
+                  ...List.generate(
+                    5,
+                    (index) => Padding(
+                      padding: const EdgeInsets.only(bottom: 8.0),
+                      child: Container(height: 16, color: Colors.grey[800]),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget buildSliverAppBar() {
+    final backdropPath = details?['backdrop_path'] ?? widget.item.backdropPath;
+    final posterPath = details?['poster_path'] ?? widget.item.posterPath;
+
+    return SliverAppBar(
+      expandedHeight: 350,
+      pinned: true,
+      backgroundColor: const Color(0xFF1A1A1A),
+      flexibleSpace: FlexibleSpaceBar(
+        background: Stack(
+          fit: StackFit.expand,
+          children: [
+            if (backdropPath != null)
+              Image.network(
+                TmdbApiService.getBackdropUrl(backdropPath),
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) => Container(
+                  color: Colors.grey[900],
+                  child: const Icon(
+                    Icons.broken_image,
+                    size: 50,
+                    color: Colors.grey,
+                  ),
+                ),
+              )
+            else
+              Container(color: Colors.grey[900]),
+
+            Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Colors.transparent, Colors.black.withOpacity(0.8)],
+                ),
+              ),
+            ),
+
+            Positioned(
+              bottom: 16,
+              left: 16,
+              right: 16,
+              child: Row(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: posterPath != null
+                        ? Image.network(
+                            TmdbApiService.getPosterUrl(posterPath),
+                            width: 100,
+                            height: 150,
+                            fit: BoxFit.cover,
+                          )
+                        : Container(
+                            width: 100,
+                            height: 150,
+                            color: Colors.grey[800],
+                            child: const Icon(Icons.movie),
+                          ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          details?['title'] ??
+                              details?['name'] ??
+                              widget.item.title,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        if (details?['release_date'] != null ||
+                            details?['first_air_date'] != null)
+                          Text(
+                            getYear(),
+                            style: const TextStyle(
+                              color: Colors.grey,
+                              fontSize: 16,
+                            ),
+                          ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Icon(Icons.star, color: Colors.amber, size: 20),
+                            const SizedBox(width: 4),
+                            Text(
+                              '${details?['vote_average']?.toStringAsFixed(1) ?? 'N/A'}',
+                              style: const TextStyle(color: Colors.white),
+                            ),
+                            const SizedBox(width: 16),
+                            IconButton(
+                              onPressed: _toggleWatchlist,
+                              icon: Icon(
+                                isSaved
+                                    ? Icons.bookmark
+                                    : Icons.bookmark_border,
+                                color: isSaved ? Colors.red : Colors.white,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        // Watch Now button with modern player
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            onPressed: () => playContent(),
+                            icon: const Icon(
+                              Icons.play_arrow,
+                              color: Colors.white,
+                            ),
+                            label: const Text(
+                              'Watch Now',
+                              style: TextStyle(color: Colors.white),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.red,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget buildDetailsSection() {
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (_youtubeController != null) ...[
+            const Text(
+              'Trailer',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: YoutubePlayer(
+                controller: _youtubeController!,
+                showVideoProgressIndicator: true,
+                progressIndicatorColor: Colors.red,
+                progressColors: const ProgressBarColors(
+                  playedColor: Colors.red,
+                  handleColor: Colors.redAccent,
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+
+          const Text(
+            'Overview',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            details?['overview'] ??
+                widget.item.overview ??
+                widget.item.description ??
+                'No overview available.',
+            style: const TextStyle(
+              color: Colors.grey,
+              fontSize: 16,
+              height: 1.5,
+            ),
+          ),
+
+          const SizedBox(height: 16),
+          buildInfoGrid(),
+        ],
+      ),
+    );
+  }
+
+  Widget buildInfoGrid() {
+    final releaseDate = details?['release_date'] ?? details?['first_air_date'];
+    final runtime = details?['runtime']?.toString();
+    final genres = (details?['genres'] as List<dynamic>?)
+        ?.map((g) => g['name'].toString())
+        .join(', ');
+
+    return Column(
+      children: [
+        if (releaseDate != null)
+          buildInfoRow('Release Date', formatDate(releaseDate)),
+        if (runtime != null) buildInfoRow('Runtime', '$runtime minutes'),
+        if (genres != null) buildInfoRow('Genres', genres),
+        buildInfoRow(
+          'Language',
+          details?['original_language']?.toUpperCase() ?? 'N/A',
+        ),
+        buildInfoRow('Status', details?['status'] ?? 'Unknown'),
+      ],
+    );
+  }
+
+  Widget buildInfoRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 100,
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: Colors.grey,
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(color: Colors.white, fontSize: 14),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget buildCastSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Padding(
+          padding: EdgeInsets.all(16.0),
+          child: Text(
+            'Cast',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+        SizedBox(
+          height: 200,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            itemCount: cast.take(10).length,
+            itemBuilder: (context, index) {
+              final actor = cast[index];
+              return Container(
+                width: 120,
+                margin: const EdgeInsets.only(right: 12),
+                child: Column(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: actor['profile_path'] != null
+                          ? Image.network(
+                              TmdbApiService.getProfileUrl(
+                                actor['profile_path'],
+                              ),
+                              width: 120,
+                              height: 120,
+                              fit: BoxFit.cover,
+                            )
+                          : Container(
+                              width: 120,
+                              height: 120,
+                              color: Colors.grey[800],
+                              child: const Icon(
+                                Icons.person,
+                                color: Colors.grey,
+                              ),
+                            ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      actor['name'] ?? 'Unknown',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      textAlign: TextAlign.center,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    Text(
+                      actor['character'] ?? '',
+                      style: const TextStyle(color: Colors.grey, fontSize: 10),
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget buildRecommendationsSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Padding(
+          padding: EdgeInsets.all(16.0),
+          child: Text(
+            'More Like This',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+        SizedBox(
+          height: 200,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            itemCount: recommendations.take(10).length,
+            itemBuilder: (context, index) {
+              final item = recommendations[index];
+              return GestureDetector(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => OnStreamDetailsScreen(
+                        item: Movie.fromJson(item),
+                        mediaType: item['media_type'] ?? widget.mediaType,
+                      ),
+                    ),
+                  );
+                },
+                child: Container(
+                  width: 120,
+                  margin: const EdgeInsets.only(right: 12),
+                  child: Column(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: item['poster_path'] != null
+                            ? Image.network(
+                                TmdbApiService.getPosterUrl(
+                                  item['poster_path'],
+                                ),
+                                width: 120,
+                                height: 160,
+                                fit: BoxFit.cover,
+                              )
+                            : Container(
+                                width: 120,
+                                height: 160,
+                                color: Colors.grey[800],
+                                child: const Icon(
+                                  Icons.movie,
+                                  color: Colors.grey,
+                                ),
+                              ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        item['title'] ?? item['name'] ?? 'Unknown',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                        textAlign: TextAlign.center,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  String getYear() {
+    final date = details?['release_date'] ?? details?['first_air_date'];
+    if (date != null && date.length >= 4) {
+      return date.substring(0, 4);
+    }
+    return 'N/A';
+  }
+
+  String formatDate(String date) {
+    try {
+      final parsedDate = DateTime.parse(date);
+      return '${parsedDate.day}/${parsedDate.month}/${parsedDate.year}';
+    } catch (e) {
+      return date;
+    }
+  }
+
+  void playContent() async {
+    // Show a loading indicator
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
+    );
+
+    Map<String, dynamic>? streamData;
+    try {
+      streamData = await StreamExtractionService.extractStream(
+        widget.item.id,
+        widget.mediaType != 'tv',
+        season: 1,
+        episode: 1,
+      );
+    } catch (e) {
+      // Error during extraction
+      if (mounted) {
+        Navigator.pop(context); // Dismiss loading dialog
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to extract stream: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
+
+    if (!mounted) return;
+    Navigator.pop(context); // Dismiss loading dialog
+
+    if (streamData != null && streamData['streamUrl'] != null) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => ModernVideoPlayerScreen(
+            videoUrl: streamData!['streamUrl'],
+            title: widget.item.title,
+            tmdbId: widget.item.id,
+            isMovie: widget.mediaType == 'movie',
+            season: 1,
+            episode: 1,
+            posterUrl: widget.item.posterPath,
+            userRating: widget.item.rating,
+          ),
+        ),
+      );
+    } else {
+      // No stream URL found
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Failed to load video: No stream URL found.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+}

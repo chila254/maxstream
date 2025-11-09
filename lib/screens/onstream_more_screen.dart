@@ -1,0 +1,362 @@
+import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import '../services/user_service.dart';
+import '../services/auth_service.dart';
+import '../services/haptic_service.dart';
+import '../screens/sign_in_screen.dart';
+import '../screens/profile_settings_screen.dart';
+import '../screens/watch_history_screen.dart';
+import '../screens/general_settings_screen.dart';
+
+class OnStreamMoreScreen extends StatefulWidget {
+  const OnStreamMoreScreen({super.key});
+
+  @override
+  State<OnStreamMoreScreen> createState() => _OnStreamMoreScreenState();
+}
+
+class _OnStreamMoreScreenState extends State<OnStreamMoreScreen> {
+  String _userName = 'MaxStream User';
+  String _userEmail = 'user@maxstream.app';
+  final UserService _userService = UserService();
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserInfo();
+    _userService.loadAvatar();
+  }
+
+  void _loadUserInfo() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      setState(() {
+        _userName = user.displayName ?? 'MaxStream User';
+        _userEmail = user.email ?? 'user@maxstream.app';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF121212),
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF1A1A1A),
+        title: const Text(
+          'More',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
+      ),
+      body: SingleChildScrollView(
+        child: Column(
+          children: [
+            _buildUserSection(),
+            const SizedBox(height: 20),
+            _buildMenuItems(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildUserSection() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        children: [
+          ValueListenableBuilder<String>(
+            valueListenable: _userService.avatar,
+            builder: (context, selectedAvatar, child) {
+              return Container(
+                width: 80,
+                height: 80,
+                decoration: BoxDecoration(
+                  color: Colors.red,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white, width: 3),
+                ),
+                child: Center(
+                  child: Text(
+                    selectedAvatar.isNotEmpty ? selectedAvatar : '🐰',
+                    style: const TextStyle(fontSize: 50),
+                  ),
+                ),
+              );
+            },
+          ),
+          const SizedBox(height: 12),
+          Text(
+            _userName,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          if (_userEmail.isNotEmpty)
+            Text(
+              _userEmail,
+              style: const TextStyle(
+                color: Colors.grey,
+                fontSize: 14,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMenuItems() {
+    return Column(
+      children: [
+        _buildMenuItem(
+          icon: Icons.person,
+          title: 'Profile Settings',
+          onTap: () async {
+            await HapticService.selectionClick();
+            if (!mounted) return;
+            await Navigator.push(
+              context,
+              PageRouteBuilder(
+                pageBuilder: (context, animation, secondaryAnimation) =>
+                    const ProfileSettingsScreen(),
+                transitionsBuilder: (context, animation, secondaryAnimation, child) {
+                  return SlideTransition(
+                    position: Tween<Offset>(
+                      begin: const Offset(1.0, 0.0),
+                      end: Offset.zero,
+                    ).animate(CurvedAnimation(
+                      parent: animation,
+                      curve: Curves.easeInOut,
+                    )),
+                    child: child,
+                  );
+                },
+                transitionDuration: const Duration(milliseconds: 300),
+              ),
+            );
+            // No need to check result, ValueListenableBuilder will handle the update
+          },
+        ),
+        _buildMenuItem(
+          icon: Icons.history,
+          title: 'Watch History',
+          onTap: () async {
+            await HapticService.selectionClick();
+            if (!mounted) return;
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const WatchHistoryScreen()),
+            );
+          },
+        ),
+        _buildMenuItem(
+          icon: Icons.settings,
+          title: 'General Settings',
+          onTap: () async {
+            await HapticService.selectionClick();
+            if (!mounted) return;
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const GeneralSettingsScreen()),
+            );
+          },
+        ),
+
+        _buildMenuItem(
+          icon: Icons.help,
+          title: 'Help & Support',
+          onTap: () async {
+            await HapticService.selectionClick();
+            _showHelpDialog();
+          },
+        ),
+        _buildMenuItem(
+          icon: Icons.info,
+          title: 'About MaxStream',
+          onTap: () async {
+            await HapticService.selectionClick();
+            _showAboutDialog();
+          },
+        ),
+        _buildMenuItem(
+          icon: Icons.telegram,
+          title: 'Join Community',
+          onTap: () async {
+            await HapticService.selectionClick();
+            _launchUrl('https://t.me/maxstream254');
+          },
+        ),
+        const SizedBox(height: 20),
+        _buildMenuItem(
+          icon: Icons.logout,
+          title: 'Sign Out',
+          onTap: () async {
+            await HapticService.mediumImpact();
+            _signOut();
+          },
+          isDestructive: true,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMenuItem({
+    required IconData icon,
+    required String title,
+    required VoidCallback onTap,
+    bool isDestructive = false,
+  }) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      child: ListTile(
+        leading: Icon(
+          icon,
+          color: isDestructive ? Colors.red : Colors.white,
+        ),
+        title: Text(
+          title,
+          style: TextStyle(
+            color: isDestructive ? Colors.red : Colors.white,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        trailing: const Icon(
+          Icons.arrow_forward_ios,
+          color: Colors.grey,
+          size: 16,
+        ),
+        onTap: onTap,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+        ),
+        tileColor: Colors.transparent,
+        hoverColor: Colors.white.withAlpha(12),
+        splashColor: Colors.white.withAlpha(25),
+      ),
+    );
+  }
+
+
+  void _showHelpDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E1E),
+        title: const Text(
+          'Help & Support',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: const Text(
+          'For help and support, please join our community or contact us through the app.',
+          style: TextStyle(color: Colors.white),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showAboutDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E1E),
+        title: const Text(
+          'About MaxStream',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'MaxStream v1.0.0',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            SizedBox(height: 8),
+            Text(
+              'A modern movie and TV discovery app powered by The Movie Database (TMDb).',
+              style: TextStyle(color: Colors.white),
+            ),
+            SizedBox(height: 8),
+            Text(
+              'Discover, explore, and manage your watchlist with ease.',
+              style: TextStyle(color: Colors.grey),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _signOut() async {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E1E),
+        title: const Text(
+          'Sign Out',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: const Text(
+          'Are you sure you want to sign out?',
+          style: TextStyle(color: Colors.white),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              try {
+                await AuthService.signOut();
+                if (mounted) {
+                  Navigator.pushAndRemoveUntil(
+                    context,
+                    MaterialPageRoute(builder: (_) => const SignInScreen()),
+                    (route) => false,
+                  );
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Error signing out: $e'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              }
+            },
+            child: const Text('Sign Out', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _launchUrl(String url) async {
+    final uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
+  }
+}

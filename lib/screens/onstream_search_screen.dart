@@ -1,0 +1,490 @@
+import 'package:flutter/material.dart';
+import '../models/movie.dart';
+import '../services/tmdb_api_service.dart';
+import '../services/haptic_service.dart';
+import '../widgets/custom_loading_widget.dart';
+import 'onstream_details_screen.dart';
+import 'onstream_series_screen.dart';
+import 'actor_details_screen.dart';
+
+class OnStreamSearchScreen extends StatefulWidget {
+  const OnStreamSearchScreen({super.key});
+
+  @override
+  State<OnStreamSearchScreen> createState() => _OnStreamSearchScreenState();
+}
+
+class _OnStreamSearchScreenState extends State<OnStreamSearchScreen>
+    with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+  final TextEditingController _searchController = TextEditingController();
+  
+  bool isLoading = false;
+  List<Map<String, dynamic>> searchResults = [];
+  List<Map<String, dynamic>> actorResults = [];
+  
+  final List<String> _searchTabs = ['All', 'Movies', 'TV Shows', 'Actors'];
+  int _currentTabIndex = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: _searchTabs.length, vsync: this);
+    _tabController.addListener(() {
+      if (_tabController.indexIsChanging) {
+        setState(() {
+          _currentTabIndex = _tabController.index;
+        });
+        if (_searchController.text.isNotEmpty) {
+          _performSearch(_searchController.text);
+        }
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _performSearch(String query) async {
+    if (query.trim().isEmpty) {
+      setState(() {
+        searchResults = [];
+        actorResults = [];
+      });
+      return;
+    }
+
+    setState(() => isLoading = true);
+
+    try {
+      switch (_currentTabIndex) {
+        case 0: // All
+          final results = await TmdbApiService.searchAll(query);
+          setState(() {
+            searchResults = results;
+            actorResults = results.where((item) => item['media_type'] == 'person').toList();
+          });
+          break;
+        case 1: // Movies
+          final results = await TmdbApiService.searchMovies(query);
+          setState(() {
+            searchResults = results;
+            actorResults = [];
+          });
+          break;
+        case 2: // TV Shows
+          final results = await TmdbApiService.searchSeries(query);
+          setState(() {
+            searchResults = results;
+            actorResults = [];
+          });
+          break;
+        case 3: // Actors
+          final results = await TmdbApiService.searchActors(query);
+          setState(() {
+            searchResults = [];
+            actorResults = results;
+          });
+          break;
+      }
+    } catch (e) {
+      print('Error searching: $e');
+    } finally {
+      setState(() => isLoading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF121212),
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF1A1A1A),
+        title: const Text(
+          'Search',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
+        bottom: TabBar(
+          controller: _tabController,
+          indicatorColor: Colors.red,
+          labelColor: Colors.white,
+          unselectedLabelColor: Colors.grey,
+          tabs: _searchTabs.map((tab) => Tab(text: tab)).toList(),
+        ),
+      ),
+      body: Column(
+        children: [
+          _buildSearchBar(),
+          Expanded(
+            child: TabBarView(
+              controller: _tabController,
+              children: [
+                _buildAllResults(), // All
+                _buildMovieResults(), // Movies
+                _buildTVResults(), // TV Shows
+                _buildActorResults(), // Actors
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSearchBar() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      child: TextField(
+        controller: _searchController,
+        style: const TextStyle(color: Colors.white),
+        decoration: InputDecoration(
+          hintText: 'Search movies, TV shows, actors...',
+          hintStyle: const TextStyle(color: Colors.grey),
+          prefixIcon: const Icon(Icons.search, color: Colors.grey),
+          suffixIcon: _searchController.text.isNotEmpty
+              ? IconButton(
+                  onPressed: () async {
+                    await HapticService.lightImpact();
+                    _searchController.clear();
+                    setState(() {
+                      searchResults = [];
+                      actorResults = [];
+                    });
+                  },
+                  icon: const Icon(Icons.clear, color: Colors.grey),
+                )
+              : null,
+          filled: true,
+          fillColor: const Color(0xFF2A2A2A),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide.none,
+          ),
+        ),
+        onChanged: (value) {
+          setState(() {});
+          if (value.length >= 2) {
+            _performSearch(value);
+          } else {
+            setState(() {
+              searchResults = [];
+              actorResults = [];
+            });
+          }
+        },
+      ),
+    );
+  }
+
+  Widget _buildAllResults() {
+    if (isLoading) return _buildLoadingIndicator();
+    if (searchResults.isEmpty && actorResults.isEmpty && _searchController.text.isNotEmpty) {
+      return _buildNoResults();
+    }
+
+    final movies = searchResults.where((item) => item['media_type'] == 'movie').toList();
+    final tvShows = searchResults.where((item) => item['media_type'] == 'tv').toList();
+    final actors = searchResults.where((item) => item['media_type'] == 'person').toList();
+
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (movies.isNotEmpty) _buildSectionHeader('Movies'),
+          if (movies.isNotEmpty) _buildMovieGrid(movies),
+          if (tvShows.isNotEmpty) _buildSectionHeader('TV Shows'),
+          if (tvShows.isNotEmpty) _buildMovieGrid(tvShows),
+          if (actors.isNotEmpty) _buildSectionHeader('Actors'),
+          if (actors.isNotEmpty) _buildActorGrid(actors),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMovieResults() {
+    if (isLoading) return _buildLoadingIndicator();
+    if (searchResults.isEmpty && _searchController.text.isNotEmpty) {
+      return _buildNoResults();
+    }
+    return _buildMovieGrid(searchResults);
+  }
+
+  Widget _buildTVResults() {
+    if (isLoading) return _buildLoadingIndicator();
+    if (searchResults.isEmpty && _searchController.text.isNotEmpty) {
+      return _buildNoResults();
+    }
+    return _buildMovieGrid(searchResults);
+  }
+
+  Widget _buildActorResults() {
+    if (isLoading) return _buildLoadingIndicator();
+    if (actorResults.isEmpty && _searchController.text.isNotEmpty) {
+      return _buildNoResults();
+    }
+    return _buildActorGrid(actorResults);
+  }
+
+  Widget _buildSectionHeader(String title) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+      child: Text(
+        title,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 18,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMovieGrid(List<Map<String, dynamic>> items) {
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        childAspectRatio: 0.7,
+        crossAxisSpacing: 8,
+        mainAxisSpacing: 8,
+      ),
+      itemCount: items.length,
+      itemBuilder: (context, index) {
+        final item = items[index];
+        return _buildMovieCard(item);
+      },
+    );
+  }
+
+  Widget _buildActorGrid(List<Map<String, dynamic>> actors) {
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        childAspectRatio: 0.75,
+        crossAxisSpacing: 8,
+        mainAxisSpacing: 8,
+      ),
+      itemCount: actors.length,
+      itemBuilder: (context, index) {
+        final actor = actors[index];
+        return _buildActorCard(actor);
+      },
+    );
+  }
+
+  Widget _buildMovieCard(Map<String, dynamic> item) {
+    return GestureDetector(
+      onTap: () async {
+        await HapticService.selectionClick();
+        if (!mounted) return;
+        final mediaType = item['media_type'] ?? 
+                          (item['first_air_date'] != null ? 'tv' : 'movie');
+        Navigator.push(
+          context,
+          PageRouteBuilder(
+            pageBuilder: (context, animation, secondaryAnimation) =>
+                mediaType == 'tv'
+                    ? OnStreamSeriesScreen(seriesItem: Movie.fromJson(item))
+                    : OnStreamDetailsScreen(
+                        item: Movie.fromJson(item),
+                        mediaType: mediaType,
+                      ),
+            transitionsBuilder: (context, animation, secondaryAnimation, child) {
+              return SlideTransition(
+                position: Tween<Offset>(
+                  begin: const Offset(1.0, 0.0),
+                  end: Offset.zero,
+                ).animate(CurvedAnimation(
+                  parent: animation,
+                  curve: Curves.easeInOut,
+                )),
+                child: child,
+              );
+            },
+            transitionDuration: const Duration(milliseconds: 300),
+          ),
+        );
+      },
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Stack(
+                children: [
+                  item['poster_path'] != null
+                      ? Image.network(
+                          TmdbApiService.getPosterUrl(item['poster_path']),
+                          width: double.infinity,
+                          height: double.infinity,
+                          fit: BoxFit.cover,
+                        )
+                      : Container(
+                          width: double.infinity,
+                          height: double.infinity,
+                          color: Colors.grey[800],
+                          child: const Icon(Icons.movie, color: Colors.grey),
+                        ),
+                  if (item['vote_average'] != null)
+                    Positioned(
+                      top: 4,
+                      right: 4,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.7),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.star, color: Colors.amber, size: 10),
+                            const SizedBox(width: 2),
+                            Text(
+                              item['vote_average'].toStringAsFixed(1),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 8,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            item['title'] ?? item['name'] ?? 'Unknown',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+            ),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActorCard(Map<String, dynamic> actor) {
+    return GestureDetector(
+      onTap: () async {
+        await HapticService.selectionClick();
+        if (!mounted) return;
+        Navigator.push(
+          context,
+          PageRouteBuilder(
+            pageBuilder: (context, animation, secondaryAnimation) =>
+                ActorDetailsScreen(actorId: actor['id']),
+            transitionsBuilder: (context, animation, secondaryAnimation, child) {
+              return SlideTransition(
+                position: Tween<Offset>(
+                  begin: const Offset(1.0, 0.0),
+                  end: Offset.zero,
+                ).animate(CurvedAnimation(
+                  parent: animation,
+                  curve: Curves.easeInOut,
+                )),
+                child: child,
+              );
+            },
+            transitionDuration: const Duration(milliseconds: 300),
+          ),
+        );
+      },
+      child: Column(
+        children: [
+          Expanded(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: actor['profile_path'] != null
+                  ? Image.network(
+                      TmdbApiService.getProfileUrl(actor['profile_path']),
+                      width: double.infinity,
+                      height: double.infinity,
+                      fit: BoxFit.cover,
+                    )
+                  : Container(
+                      width: double.infinity,
+                      height: double.infinity,
+                      color: Colors.grey[800],
+                      child: const Icon(Icons.person, color: Colors.grey, size: 40),
+                    ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            actor['name'] ?? 'Unknown',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+            ),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+          ),
+          if (actor['known_for_department'] != null)
+            Text(
+              actor['known_for_department'],
+              style: const TextStyle(
+                color: Colors.grey,
+                fontSize: 12,
+              ),
+              textAlign: TextAlign.center,
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLoadingIndicator() {
+    return const Center(
+      child: SearchLoadingWidget(),
+    );
+  }
+
+  Widget _buildNoResults() {
+    return const Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.search_off, size: 64, color: Colors.grey),
+          SizedBox(height: 16),
+          Text(
+            'No results found',
+            style: TextStyle(
+              color: Colors.grey,
+              fontSize: 18,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          SizedBox(height: 8),
+          Text(
+            'Try searching with different keywords',
+            style: TextStyle(
+              color: Colors.grey,
+              fontSize: 14,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
