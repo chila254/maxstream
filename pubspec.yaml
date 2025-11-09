@@ -14,8 +14,8 @@ dependencies:
   cupertino_icons: ^1.0.8
   http: ^1.4.0
   cached_network_image: ^3.2.3
-  chewie: ^1.12.1
-  video_player: ^2.8.1  # Or latest
+  media_kit: ^1.0.0
+  media_kit_video: ^1.0.0
   provider: ^6.0.5
   logger: ^2.0.2
   youtube_player_flutter: ^9.1.1 

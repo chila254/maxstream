@@ -152,10 +152,29 @@ class StreamExtractor(private val activity: MainActivity) {
                     domStorageEnabled = true
                     databaseEnabled = true
                     mediaPlaybackRequiresUserGesture = false
-                    mixedContentMode = 0
+                    // Mixed content mode: allow both HTTP and HTTPS (0 = NEVER, 1 = COMPATIBILITY, 2 = ALWAYS)
+                    mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
                     userAgentString =
-                        "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                    // Allow for better network connectivity
+                    blockNetworkLoads = false
+                    blockNetworkImage = false
+                    // Improve TLS/SSL compatibility
+                    cacheMode = android.webkit.WebSettings.LOAD_DEFAULT
+                    // Additional settings for better network recovery
+                    saveFormData = false
+                    allowFileAccess = true
+                    // Enable local storage for better compatibility
+                    databasePath = activity.getDir("databases", 0).path
+                    offscreenPreRaster = true
                 }
+                
+                // Enable debug logging for WebView
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.KITKAT) {
+                    WebView.setWebContentsDebuggingEnabled(true)
+                }
+                
+                Log.d(TAG, "WebView created with optimized settings for stream extraction")
             }
         }
     }
@@ -190,15 +209,18 @@ typealias ExtractionCallback = (Map<String, Any?>) -> Unit
 class ExtractionWebViewClient(private val callback: ExtractionCallback) : WebViewClient() {
     private var pageLoadAttempts = 0
     private val maxLoadAttempts = 3
+    private val TAG = "ExtractionWebViewClient"
 
     override fun onPageFinished(view: WebView?, url: String?) {
         super.onPageFinished(view, url)
+        Log.d(TAG, "onPageFinished: Page loading completed for $url")
 
         view?.let {
-            // Wait a bit for JavaScript to execute
+            // Longer delay to allow JavaScript execution and resource loading
+            // Some pages have significant delays in rendering media elements
             it.postDelayed({
                 extractStreams(it)
-            }, 2000)
+            }, 4000)
         }
     }
 
@@ -208,17 +230,61 @@ class ExtractionWebViewClient(private val callback: ExtractionCallback) : WebVie
         error: android.webkit.WebResourceError?
     ) {
         super.onReceivedError(view, request, error)
+        
+        val errorCode = error?.errorCode ?: -1
+        val errorDesc = error?.description ?: "Unknown error"
+        
+        Log.e(TAG, "onReceivedError: Code=$errorCode, Desc=$errorDesc, URL=${request?.url}, IsMainFrame=${request?.isForMainFrame}")
 
-        if (pageLoadAttempts < maxLoadAttempts && request?.isForMainFrame == true) {
-            pageLoadAttempts++
-            view?.reload()
-        } else {
-            callback(
-                mapOf(
-                    "success" to false,
-                    "error" to "Failed to load embed page: ${error?.description}"
+        // Always continue if it's not the main frame
+        if (request?.isForMainFrame != true) {
+            Log.w(TAG, "Sub-resource error (not main frame): $errorDesc - allowing page to continue loading")
+            return
+        }
+
+        // Check if it's a network error that can be retried
+        // ORB errors (-220) should NOT be retried on main frame as they indicate actual blocking
+        val isRetryableError = errorCode in arrayOf(
+            android.webkit.WebViewClient.ERROR_HOST_LOOKUP,      // -2
+            android.webkit.WebViewClient.ERROR_CONNECT,          // -6
+            android.webkit.WebViewClient.ERROR_TIMEOUT,          // -7
+            android.webkit.WebViewClient.ERROR_UNKNOWN           // -1
+        )
+
+        // For ORB, EMPTY_RESPONSE errors on main frame, try alternative method
+        val isOrbOrEmptyError = errorCode == -220 || 
+                                errorCode == 100 ||  // ERR_UNKNOWN
+                                errorDesc.contains("ERR_EMPTY_RESPONSE") ||
+                                errorDesc.contains("ORB")
+
+        when {
+            isRetryableError && pageLoadAttempts < maxLoadAttempts -> {
+                pageLoadAttempts++
+                Log.d(TAG, "Retryable error detected (code=$errorCode), retrying... (attempt $pageLoadAttempts/$maxLoadAttempts)")
+                // Wait before retry to allow network to recover
+                view?.postDelayed({
+                    view.reload()
+                }, 3000)
+            }
+            isOrbOrEmptyError -> {
+                // For ORB/CORS or empty response, attempt extraction anyway
+                // The page may still have loaded partially or JavaScript may still work
+                Log.w(TAG, "ORB/CORS or empty response error ($errorCode), attempting extraction anyway...")
+                view?.let {
+                    it.postDelayed({
+                        extractStreams(it)
+                    }, 2000)
+                }
+            }
+            else -> {
+                Log.e(TAG, "Non-retryable error, aborting extraction: code=$errorCode")
+                callback(
+                    mapOf(
+                        "success" to false,
+                        "error" to "Failed to load embed page: $errorDesc (code: $errorCode)"
+                    )
                 )
-            )
+            }
         }
     }
 
@@ -250,7 +316,7 @@ class ExtractionWebViewClient(private val callback: ExtractionCallback) : WebVie
                 const iframes = document.querySelectorAll('iframe');
                 for (const iframe of iframes) {
                     const src = iframe.getAttribute('src');
-                    if (src && !src.startsWith('javascript:') && (src.includes('player') || src.includes('stream'))) {
+                    if (src && !src.startsWith('javascript:') && (src.includes('player') || src.includes('stream') || src.includes('vidsrc'))) {
                         streams.push(src);
                     }
                     
@@ -273,6 +339,7 @@ class ExtractionWebViewClient(private val callback: ExtractionCallback) : WebVie
                     /src["\s]*:[\s]*["']([^"']*\.m3u8[^"']*)["']/g,
                     /stream["\s]*:[\s]*["']([^"']*\.m3u8[^"']*)["']/g,
                     /manifest["\s]*:[\s]*["']([^"']*\.m3u8[^"']*)["']/g,
+                    /url["\s]*:[\s]*["']([^"']*\.m3u8[^"']*)["']/g,
                 ];
                 
                 for (const pattern of patterns) {
@@ -284,6 +351,29 @@ class ExtractionWebViewClient(private val callback: ExtractionCallback) : WebVie
                     }
                 }
                 
+                // Method 5: Look for data attributes
+                const allElements = document.querySelectorAll('[data-url], [data-src], [data-stream], [data-m3u8], [data-hls]');
+                for (const el of allElements) {
+                    const attrs = ['data-url', 'data-src', 'data-stream', 'data-m3u8', 'data-hls'];
+                    for (const attr of attrs) {
+                        const value = el.getAttribute(attr);
+                        if (value && (value.includes('.m3u8') || value.includes('stream'))) {
+                            streams.push(value);
+                        }
+                    }
+                }
+                
+                // Method 6: Check localStorage and sessionStorage for stream URLs
+                try {
+                    for (let key in localStorage) {
+                        const value = localStorage.getItem(key);
+                        if (value && value.includes('.m3u8')) {
+                            const matches = value.match(/https?:\/\/[^\s"'<>]*\.m3u8[^\s"'<>]*/g);
+                            if (matches) streams.push(...matches);
+                        }
+                    }
+                } catch(e) {}
+                
                 // Remove duplicates
                 streams = [...new Set(streams)];
                 
@@ -291,7 +381,7 @@ class ExtractionWebViewClient(private val callback: ExtractionCallback) : WebVie
                 const validStreams = streams.filter(s => {
                     try {
                         new URL(s);
-                        return true;
+                        return s.includes('http');
                     } catch {
                         return false;
                     }
@@ -316,6 +406,19 @@ class ExtractionWebViewClient(private val callback: ExtractionCallback) : WebVie
 
         webView.evaluateJavascript(extractionScript) { value ->
             try {
+                Log.d(TAG, "extractStreams: JavaScript result: $value")
+                
+                // Handle null or empty response
+                if (value == null || value.isEmpty() || value == "null") {
+                    callback(
+                        mapOf(
+                            "success" to false,
+                            "error" to "No extraction result from JavaScript"
+                        )
+                    )
+                    return@evaluateJavascript
+                }
+                
                 // Parse JSON result from JavaScript
                 val jsonResult = org.json.JSONObject(value)
 
@@ -324,7 +427,8 @@ class ExtractionWebViewClient(private val callback: ExtractionCallback) : WebVie
                 val error = jsonResult.optString("error", null)
                 val source = jsonResult.optString("source", "native_android_webview")
 
-                if (success && streamUrl != null) {
+                if (success && streamUrl != null && streamUrl.isNotEmpty()) {
+                    Log.d(TAG, "extractStreams: Successfully extracted stream URL")
                     callback(
                         mapOf(
                             "success" to true,
@@ -334,6 +438,7 @@ class ExtractionWebViewClient(private val callback: ExtractionCallback) : WebVie
                         )
                     )
                 } else {
+                    Log.w(TAG, "extractStreams: No stream URL found - $error")
                     callback(
                         mapOf(
                             "success" to false,
@@ -342,6 +447,7 @@ class ExtractionWebViewClient(private val callback: ExtractionCallback) : WebVie
                     )
                 }
             } catch (e: Exception) {
+                Log.e(TAG, "extractStreams: Failed to parse extraction result: ${e.message}", e)
                 callback(
                     mapOf(
                         "success" to false,
