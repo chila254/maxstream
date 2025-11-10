@@ -167,27 +167,35 @@ class _OnStreamDetailsScreenState extends State<OnStreamDetailsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: isLoading
-          ? buildLoadingShimmer()
-          : CustomScrollView(
-              physics: const BouncingScrollPhysics(),
-              slivers: [
-                buildSliverAppBar(),
-                SliverToBoxAdapter(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      buildDetailsSection(),
-                      if (cast.isNotEmpty) buildCastSection(),
-                      if (recommendations.isNotEmpty)
-                        buildRecommendationsSection(),
-                      const SizedBox(height: 20),
-                    ],
+    return PopScope(
+      canPop: true,
+      onPopInvoked: (didPop) {
+        if (didPop) {
+          _youtubeController?.pause();
+        }
+      },
+      child: Scaffold(
+        body: isLoading
+            ? buildLoadingShimmer()
+            : CustomScrollView(
+                physics: const BouncingScrollPhysics(),
+                slivers: [
+                  buildSliverAppBar(),
+                  SliverToBoxAdapter(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        buildDetailsSection(),
+                        if (cast.isNotEmpty) buildCastSection(),
+                        if (recommendations.isNotEmpty)
+                          buildRecommendationsSection(),
+                        const SizedBox(height: 20),
+                      ],
+                    ),
                   ),
-                ),
-              ],
-            ),
+                ],
+              ),
+      ),
     );
   }
 
@@ -375,29 +383,35 @@ class _OnStreamDetailsScreenState extends State<OnStreamDetailsScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (_youtubeController != null) ...[
-            const Text(
-              'Trailer',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 8),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: YoutubePlayer(
-                controller: _youtubeController!,
-                showVideoProgressIndicator: true,
-                progressIndicatorColor: Colors.red,
-                progressColors: const ProgressBarColors(
-                  playedColor: Colors.red,
-                  handleColor: Colors.redAccent,
+          const Text(
+          'Trailer',
+          style: TextStyle(
+          color: Colors.white,
+          fontSize: 20,
+          fontWeight: FontWeight.bold,
+          ),
+          ),
+          const SizedBox(height: 8),
+          ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: IgnorePointer(
+          ignoring: false,
+          child: YoutubePlayer(
+            controller: _youtubeController!,
+            showVideoProgressIndicator: true,
+          progressIndicatorColor: Colors.red,
+          progressColors: const ProgressBarColors(
+              playedColor: Colors.red,
+                handleColor: Colors.redAccent,
                 ),
-              ),
-            ),
-            const SizedBox(height: 16),
-          ],
+                onReady: () {
+                    _youtubeController?.pause();
+                   },
+                 ),
+               ),
+             ),
+             const SizedBox(height: 16),
+           ],
 
           const Text(
             'Overview',

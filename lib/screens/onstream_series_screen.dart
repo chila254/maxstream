@@ -241,27 +241,35 @@ class _OnStreamSeriesScreenState extends State<OnStreamSeriesScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: isLoading
-          ? buildLoadingShimmer()
-          : CustomScrollView(
-              slivers: [
-                buildSliverAppBar(),
-                SliverToBoxAdapter(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      buildDetailsSection(),
-                      if (cast.isNotEmpty) buildCastSection(),
-                      if (seasons.isNotEmpty) buildSeasonsSection(),
-                      if (recommendations.isNotEmpty)
-                        buildRecommendationsSection(),
-                      const SizedBox(height: 20),
-                    ],
+    return PopScope(
+      canPop: true,
+      onPopInvoked: (didPop) {
+        if (didPop) {
+          _youtubeController?.pause();
+        }
+      },
+      child: Scaffold(
+        body: isLoading
+            ? buildLoadingShimmer()
+            : CustomScrollView(
+                slivers: [
+                  buildSliverAppBar(),
+                  SliverToBoxAdapter(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        buildDetailsSection(),
+                        if (cast.isNotEmpty) buildCastSection(),
+                        if (seasons.isNotEmpty) buildSeasonsSection(),
+                        if (recommendations.isNotEmpty)
+                          buildRecommendationsSection(),
+                        const SizedBox(height: 20),
+                      ],
+                    ),
                   ),
-                ),
-              ],
-            ),
+                ],
+              ),
+      ),
     );
   }
 
@@ -458,29 +466,32 @@ class _OnStreamSeriesScreenState extends State<OnStreamSeriesScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (_youtubeController != null) ...[
-            const Text(
-              'Trailer',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
+          const Text(
+          'Trailer',
+          style: TextStyle(
+          color: Colors.white,
+          fontSize: 20,
+          fontWeight: FontWeight.bold,
+          ),
+          ),
+          const SizedBox(height: 8),
+          ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: YoutubePlayer(
+          controller: _youtubeController!,
+          showVideoProgressIndicator: true,
+          progressIndicatorColor: Colors.red,
+          progressColors: const ProgressBarColors(
+          playedColor: Colors.red,
+          handleColor: Colors.redAccent,
+          ),
+            onReady: () {
+                _youtubeController?.pause();
+              },
               ),
-            ),
-            const SizedBox(height: 8),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: YoutubePlayer(
-                controller: _youtubeController!,
-                showVideoProgressIndicator: true,
-                progressIndicatorColor: Colors.red,
-                progressColors: const ProgressBarColors(
-                  playedColor: Colors.red,
-                  handleColor: Colors.redAccent,
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-          ],
+             ),
+             const SizedBox(height: 16),
+           ],
 
           const Text(
             'Overview',
