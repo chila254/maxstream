@@ -5,7 +5,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 import 'package:dio/dio.dart';
 import '../services/watch_history_service.dart';
 import '../services/settings_service.dart';
-import '../services/stream_extraction_service.dart';
+import '../services/combined_stream_service.dart';
 import 'dart:async';
 
 void initMediaKit() {
@@ -177,7 +177,7 @@ class _ModernVideoPlayerScreenState extends State<ModernVideoPlayerScreen>
 
       // If videoUrl is not provided, extract the stream
       if (bestUrl == null) {
-        final streamData = await StreamExtractionService.extractStream(
+        final streamData = await CombinedStreamService.extractStream(
           widget.tmdbId,
           widget.isMovie,
           season: widget.season,

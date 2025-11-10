@@ -126,15 +126,16 @@ lib/
 ├── services/                    # Business logic services
 │   ├── auth_service.dart       # Firebase authentication
 │   ├── tmdb_api_service.dart   # TMDB API integration
-│   ├── stream_extraction_service.dart # Video stream handling
+│   ├── combined_stream_service.dart # Unified stream extraction (native + scrapper)
+│   ├── native_stream_extractor_service.dart # Native WebView stream extraction
+│   ├── scrapper_api_service.dart # Direct m3u8 HTTP scraping
 │   ├── theme_service.dart      # Dark/Light theme management
 │   ├── notification_service.dart # Push notifications
 │   ├── watch_history_service.dart # Watch history tracking
 │   ├── user_service.dart       # User profile management
 │   ├── settings_service.dart   # User settings storage
 │   ├── update_service.dart     # App update checking
-│   ├── api_service.dart        # Generic API client
-│   └── native_stream_extractor_service.dart # Native stream extraction
+│   └── api_service.dart        # Generic API client
 ├── widgets/                     # Reusable UI components
 │   ├── hero_banner.dart        # Featured content banner
 │   ├── series_hero_banner.dart # Series featured banner

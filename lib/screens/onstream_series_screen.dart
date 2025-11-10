@@ -281,7 +281,9 @@ class _OnStreamSeriesScreenState extends State<OnStreamSeriesScreen> {
         slivers: [
           SliverAppBar(
             expandedHeight: 350,
-            flexibleSpace: Container(color: Colors.grey[800]),
+            flexibleSpace: FlexibleSpaceBar(
+              background: Container(color: Colors.grey[800]),
+            ),
           ),
           SliverToBoxAdapter(
             child: Padding(
@@ -289,16 +291,69 @@ class _OnStreamSeriesScreenState extends State<OnStreamSeriesScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Container(height: 24, width: 200, color: Colors.grey[800]),
-                  const SizedBox(height: 8),
-                  Container(height: 16, width: 150, color: Colors.grey[800]),
-                  const SizedBox(height: 16),
+                  // Poster and title skeleton
+                  Row(
+                    children: [
+                      Container(
+                        width: 100,
+                        height: 150,
+                        color: Colors.grey[800],
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(height: 24, width: 150, color: Colors.grey[800]),
+                            const SizedBox(height: 8),
+                            Container(height: 16, width: 100, color: Colors.grey[800]),
+                            const SizedBox(height: 8),
+                            Container(height: 16, width: 80, color: Colors.grey[800]),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+                  
+                  // Overview skeleton
+                  Container(height: 24, width: 100, color: Colors.grey[800]),
+                  const SizedBox(height: 12),
                   ...List.generate(
-                    5,
+                    4,
                     (index) => Padding(
                       padding: const EdgeInsets.only(bottom: 8.0),
-                      child: Container(height: 16, color: Colors.grey[800]),
+                      child: Container(height: 12, color: Colors.grey[800]),
                     ),
+                  ),
+                  const SizedBox(height: 24),
+                  
+                  // Cast section skeleton
+                  Container(height: 24, width: 80, color: Colors.grey[800]),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Container(
+                          height: 160,
+                          color: Colors.grey[800],
+                          margin: const EdgeInsets.only(right: 8),
+                        ),
+                      ),
+                      Expanded(
+                        child: Container(
+                          height: 160,
+                          color: Colors.grey[800],
+                          margin: const EdgeInsets.only(right: 8),
+                        ),
+                      ),
+                      Expanded(
+                        child: Container(
+                          height: 160,
+                          color: Colors.grey[800],
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),

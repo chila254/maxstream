@@ -162,7 +162,7 @@ class StreamExtractor(private val activity: MainActivity) {
                     // Mixed content mode: allow both HTTP and HTTPS (0 = NEVER, 1 = COMPATIBILITY, 2 = ALWAYS)
                     mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
                     userAgentString =
-                        "Mozilla/5.0 (Linux; Android 10; SM-G973F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.120 Mobile Safari/537.36"
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
                     // Allow for better network connectivity
                     blockNetworkLoads = false
                     blockNetworkImage = false
@@ -346,24 +346,30 @@ private val TAG = "ExtractionWebViewClient"
                 // Method 1: Look for M3U8 URLs in scripts (enhanced)
                 const scripts = document.querySelectorAll('script');
                 for (const script of scripts) {
-                    const content = script.textContent || script.src || '';
-                    const matches = content.match(/https?:\/\/[^\s"'<>]*\.m3u8[^\s"'<>]*/g);
-                    if (matches) {
-                        streams.push(...matches);
-                    }
-                    // Also check for base64 encoded streams
-                    const b64Matches = content.match(/["']([A-Za-z0-9+/=]{20,})["']/g);
-                    if (b64Matches) {
-                        for (const match of b64Matches) {
-                            try {
-                                const decoded = atob(match.slice(1, -1));
-                                if (decoded.includes('.m3u8')) {
-                                    streams.push(decoded);
-                                }
-                            } catch(e) {}
-                        }
-                    }
+                const content = script.textContent || script.src || '';
+                // Look for M3U8 URLs
+                const matches = content.match(/https?:\/\/[^\s"'<>]*\.m3u8[^\s"'<>]*/g);
+                if (matches) {
+                    streams.push(...matches);
                 }
+                // Look for stream URLs without .m3u8 extension
+                const streamMatches = content.match(/https?:\/\/[^\s"'<>]*stream[^\s"'<>]*/gi);
+                if (streamMatches) {
+                streams.push(...streamMatches.filter(s => !s.includes('.js')));
+                }
+                // Also check for base64 encoded streams
+                const b64Matches = content.match(/["']([A-Za-z0-9+/=]{20,})["']/g);
+                if (b64Matches) {
+                for (const match of b64Matches) {
+                    try {
+                            const decoded = atob(match.slice(1, -1));
+                                if (decoded.includes('.m3u8') || decoded.includes('stream')) {
+                                     streams.push(decoded);
+                                 }
+                             } catch(e) {}
+                         }
+                     }
+                 }
 
                 // Method 2: Look for video/source tags (enhanced)
                 const videos = document.querySelectorAll('video, source, audio');
