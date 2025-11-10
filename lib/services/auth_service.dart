@@ -7,7 +7,10 @@ class AuthService {
 
   static Future<User?> signUpWithEmail(String email, String password) async {
     try {
-      final result = await _auth.createUserWithEmailAndPassword(email: email, password: password);
+      final result = await _auth.createUserWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
       return result.user;
     } catch (e) {
       print('Email sign-up error: $e');
@@ -17,7 +20,10 @@ class AuthService {
 
   static Future<User?> signInWithEmail(String email, String password) async {
     try {
-      final result = await _auth.signInWithEmailAndPassword(email: email, password: password);
+      final result = await _auth.signInWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
       return result.user;
     } catch (e) {
       print('Email sign-in error: $e');
@@ -29,10 +35,10 @@ class AuthService {
     try {
       // Sign out from any previous Google Sign-In to ensure clean state
       await _googleSignIn.signOut();
-      
+
       // Attempt to sign in with Google
       final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
-      
+
       // If user cancels the sign-in flow
       if (googleUser == null) {
         print('Google sign-in was cancelled by the user');
@@ -40,26 +46,31 @@ class AuthService {
       }
 
       // Get the authentication details
-      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
-      
+      final GoogleSignInAuthentication googleAuth =
+          await googleUser.authentication;
+
       // Verify we have the required tokens
       if (googleAuth.accessToken == null || googleAuth.idToken == null) {
         print('Failed to retrieve Google authentication tokens');
-        throw Exception('Failed to retrieve Google authentication tokens. Please try again.');
+        throw Exception(
+          'Failed to retrieve Google authentication tokens. Please try again.',
+        );
       }
-      
+
       // Create the credential
       final credential = GoogleAuthProvider.credential(
         accessToken: googleAuth.accessToken,
         idToken: googleAuth.idToken,
       );
-      
+
       // Sign in to Firebase with the Google credential
       final result = await _auth.signInWithCredential(credential);
       print('Successfully signed in with Google: ${result.user?.displayName}');
       return result.user;
     } on FirebaseAuthException catch (e) {
-      print('Firebase Auth Exception during Google sign-in: ${e.code} - ${e.message}');
+      print(
+        'Firebase Auth Exception during Google sign-in: ${e.code} - ${e.message}',
+      );
       // Re-throw FirebaseAuthException with more context
       rethrow;
     } catch (e) {
@@ -88,7 +99,7 @@ class AuthService {
     try {
       // Wait for Firebase Auth to fully initialize and restore any persisted session
       await Future.delayed(const Duration(milliseconds: 500));
-      
+
       // Get current user
       final user = _auth.currentUser;
       if (user != null) {
@@ -112,7 +123,7 @@ class AuthService {
       } else {
         print('No current user found');
       }
-      
+
       return null;
     } catch (e) {
       print('Auth check failed: $e');
@@ -127,9 +138,15 @@ class AuthService {
   }
 
   /// Enhanced sign-in with better error handling
-  static Future<User?> signInWithEmailEnhanced(String email, String password) async {
+  static Future<User?> signInWithEmailEnhanced(
+    String email,
+    String password,
+  ) async {
     try {
-      final result = await _auth.signInWithEmailAndPassword(email: email, password: password);
+      final result = await _auth.signInWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
       return result.user;
     } catch (e) {
       print('Enhanced email sign-in error: $e');

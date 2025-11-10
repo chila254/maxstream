@@ -21,11 +21,11 @@ dependencies:
   youtube_player_flutter: ^9.1.1 
   sqflite: ^2.3.2
   path: ^1.8.3
-  android_intent_plus: 5.0.2
+  android_intent_plus: ^6.0.0
   url_launcher: ^6.2.6
   firebase_core: ^4.2.0
-  firebase_auth: ^6.1.1
-  google_sign_in: ">=6.0.0 <7.0.0"
+  firebase_auth: ^6.1.2
+  google_sign_in: ^6.3.0
   glassmorphism: ^3.0.0
   shimmer: ^3.0.0
   shared_preferences: ^2.2.2
