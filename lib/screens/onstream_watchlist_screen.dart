@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import '../database/db_helper.dart';
 import '../models/movie.dart';
-import '../services/haptic_service.dart';
 import '../widgets/custom_loading_widget.dart';
 import 'onstream_details_screen.dart';
 import 'onstream_series_screen.dart';
@@ -52,7 +51,6 @@ class _OnStreamWatchlistScreenState extends State<OnStreamWatchlistScreen>
 
   Future<void> _removeFromWatchlist(Movie item) async {
     try {
-      await HapticService.lightImpact();
       await DBHelper.removeFromWatchlist(item.id);
       await _loadWatchlist();
       if (mounted) {
@@ -74,7 +72,6 @@ class _OnStreamWatchlistScreenState extends State<OnStreamWatchlistScreen>
         );
       }
     } catch (e) {
-      await HapticService.error();
       print('Error removing from watchlist: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -186,8 +183,7 @@ class _OnStreamWatchlistScreenState extends State<OnStreamWatchlistScreen>
 
   Widget _buildWatchlistItem(Movie item) {
     return GestureDetector(
-      onTap: () async {
-        await HapticService.selectionClick();
+      onTap: () {
         if (!mounted) return;
         Navigator.push(
           context,
@@ -206,12 +202,12 @@ class _OnStreamWatchlistScreenState extends State<OnStreamWatchlistScreen>
                   end: Offset.zero,
                 ).animate(CurvedAnimation(
                   parent: animation,
-                  curve: Curves.easeInOut,
+                  curve: Curves.fastOutSlowIn,
                 )),
                 child: child,
               );
             },
-            transitionDuration: const Duration(milliseconds: 300),
+            transitionDuration: const Duration(milliseconds: 250),
           ),
         );
       },

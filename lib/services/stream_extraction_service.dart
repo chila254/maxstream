@@ -28,22 +28,24 @@ class StreamExtractionService {
           await NativeStreamExtractorService.isAvailable();
 
       if (!isNativeAvailable) {
-        debugPrint(
-          'StreamExtractionService: Native extractor not available',
-        );
+        debugPrint('StreamExtractionService: Native extractor not available');
         return null;
       }
 
       // Try multiple sources in case one fails
       final sources = [
-        // Primary source
-        isMovie
-            ? 'https://vidsrc.to/embed/movie/$tmdbId'
-            : 'https://vidsrc.to/embed/tv/$tmdbId/$season/$episode',
-        // Alternative sources (backup)
-        isMovie
-            ? 'https://vidsrc.in/embed/movie/$tmdbId'
-            : 'https://vidsrc.in/embed/tv/$tmdbId/$season/$episode',
+      // Primary source - vidsrc.pro (most reliable)
+      isMovie
+      ? 'https://vidsrc.pro/embed/movie/$tmdbId'
+      : 'https://vidsrc.pro/embed/tv/$tmdbId/$season/$episode',
+      // Fallback sources (tested working)
+      isMovie
+      ? 'https://vidsrc.net/embed/movie/$tmdbId'
+      : 'https://vidsrc.net/embed/tv/$tmdbId/$season/$episode',
+      // Alternative backup
+      isMovie
+      ? 'https://vidsrc.me/embed/movie/$tmdbId'
+      : 'https://vidsrc.me/embed/tv/$tmdbId/$season/$episode',
       ];
 
       for (int sourceIndex = 0; sourceIndex < sources.length; sourceIndex++) {
@@ -79,10 +81,10 @@ class StreamExtractionService {
             debugPrint(
               'StreamExtractionService: Source ${sourceIndex + 1} failed - $errorMsg',
             );
-            
+
             // Check if error is ORB/SSL related - might work with next source
-            if (errorMsg.contains('ORB') || 
-                errorMsg.contains('SSL') || 
+            if (errorMsg.contains('ORB') ||
+                errorMsg.contains('SSL') ||
                 errorMsg.contains('ERR_BLOCKED') ||
                 errorMsg.contains('handshake')) {
               debugPrint(
@@ -98,14 +100,10 @@ class StreamExtractionService {
         }
       }
 
-      debugPrint(
-        'StreamExtractionService: All extraction sources failed',
-      );
+      debugPrint('StreamExtractionService: All extraction sources failed');
       return null;
     } catch (e, stackTrace) {
-      debugPrint(
-        'StreamExtractionService: Error during extraction: $e',
-      );
+      debugPrint('StreamExtractionService: Error during extraction: $e');
       debugPrint('StreamExtractionService: Stack trace: $stackTrace');
       return null;
     }

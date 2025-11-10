@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/movie.dart';
 import '../services/tmdb_api_service.dart';
-import '../services/haptic_service.dart';
 import '../services/watch_history_service.dart';
 import '../widgets/hero_banner.dart';
 import '../widgets/custom_loading_widget.dart';
@@ -71,11 +70,10 @@ class _OnStreamHomeScreenState extends State<OnStreamHomeScreen> {
       body: RefreshIndicator(
         onRefresh: _loadContent,
         child: CustomScrollView(
+          physics: const ClampingScrollPhysics(),
           slivers: [
             _buildAppBar(),
-            if (isLoading)
-              SliverToBoxAdapter(child: _buildLoadingIndicator())
-            else ...[
+            if (!isLoading) ...[
               const SliverToBoxAdapter(child: HeroBanner()),
               SliverToBoxAdapter(
                 child: ContinueWatchingSection(continueWatching: continueWatching),
@@ -140,15 +138,6 @@ class _OnStreamHomeScreenState extends State<OnStreamHomeScreen> {
     );
   }
 
-  Widget _buildLoadingIndicator() {
-    return const Center(
-      child: Padding(
-        padding: EdgeInsets.all(50.0),
-        child: MovieLoadingWidget(text: 'Loading content...'),
-      ),
-    );
-  }
-
   Widget _buildSection(String title, List<Map<String, dynamic>> items, String mediaType) {
     if (items.isEmpty) return const SliverToBoxAdapter(child: SizedBox());
 
@@ -203,8 +192,7 @@ class _OnStreamHomeScreenState extends State<OnStreamHomeScreen> {
 
   Widget _buildMovieCard(Map<String, dynamic> item, String mediaType) {
     return GestureDetector(
-      onTap: () async {
-        await HapticService.selectionClick();
+      onTap: () {
         if (!mounted) return;
         Navigator.push(
           context,
@@ -223,12 +211,12 @@ class _OnStreamHomeScreenState extends State<OnStreamHomeScreen> {
                   end: Offset.zero,
                 ).animate(CurvedAnimation(
                   parent: animation,
-                  curve: Curves.easeInOut,
+                  curve: Curves.fastOutSlowIn,
                 )),
                 child: child,
               );
             },
-            transitionDuration: const Duration(milliseconds: 300),
+            transitionDuration: const Duration(milliseconds: 250),
           ),
         );
       },
@@ -459,6 +447,7 @@ class _FullListScreenState extends State<_FullListScreen> {
           Expanded(
             child: GridView.builder(
               controller: _scrollController,
+              physics: const ClampingScrollPhysics(),
               padding: const EdgeInsets.all(16),
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: 3,
@@ -470,19 +459,33 @@ class _FullListScreenState extends State<_FullListScreen> {
               itemBuilder: (context, index) {
                 final item = _allItems[index];
           return GestureDetector(
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => widget.mediaType == 'tv' 
-                      ? OnStreamSeriesScreen(seriesItem: Movie.fromJson(item))
-                      : OnStreamDetailsScreen(
-                          item: Movie.fromJson(item),
-                          mediaType: widget.mediaType,
-                        ),
-                ),
-              );
-            },
+          onTap: () {
+          Navigator.push(
+          context,
+          PageRouteBuilder(
+          pageBuilder: (context, animation, secondaryAnimation) =>
+          widget.mediaType == 'tv' 
+              ? OnStreamSeriesScreen(seriesItem: Movie.fromJson(item))
+          : OnStreamDetailsScreen(
+              item: Movie.fromJson(item),
+                mediaType: widget.mediaType,
+                      ),
+              transitionsBuilder: (context, animation, secondaryAnimation, child) {
+                  return SlideTransition(
+                       position: Tween<Offset>(
+                         begin: const Offset(1.0, 0.0),
+                         end: Offset.zero,
+                       ).animate(CurvedAnimation(
+                         parent: animation,
+                         curve: Curves.fastOutSlowIn,
+                       )),
+                       child: child,
+                     );
+                   },
+                   transitionDuration: const Duration(milliseconds: 250),
+                 ),
+               );
+             },
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [

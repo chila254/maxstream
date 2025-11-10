@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/movie.dart';
 import '../services/tmdb_api_service.dart';
-import '../services/haptic_service.dart';
 import '../widgets/custom_loading_widget.dart';
 import 'onstream_details_screen.dart';
 import 'onstream_series_screen.dart';
@@ -146,18 +145,17 @@ class _OnStreamSearchScreenState extends State<OnStreamSearchScreen>
           hintStyle: const TextStyle(color: Colors.grey),
           prefixIcon: const Icon(Icons.search, color: Colors.grey),
           suffixIcon: _searchController.text.isNotEmpty
-              ? IconButton(
-                  onPressed: () async {
-                    await HapticService.lightImpact();
-                    _searchController.clear();
-                    setState(() {
-                      searchResults = [];
-                      actorResults = [];
-                    });
-                  },
-                  icon: const Icon(Icons.clear, color: Colors.grey),
-                )
-              : null,
+          ? IconButton(
+          onPressed: () {
+          _searchController.clear();
+          setState(() {
+            searchResults = [];
+          actorResults = [];
+          });
+          },
+          icon: const Icon(Icons.clear, color: Colors.grey),
+          )
+          : null,
           filled: true,
           fillColor: const Color(0xFF2A2A2A),
           border: OutlineInputBorder(
@@ -283,8 +281,7 @@ class _OnStreamSearchScreenState extends State<OnStreamSearchScreen>
 
   Widget _buildMovieCard(Map<String, dynamic> item) {
     return GestureDetector(
-      onTap: () async {
-        await HapticService.selectionClick();
+      onTap: () {
         if (!mounted) return;
         final mediaType = item['media_type'] ?? 
                           (item['first_air_date'] != null ? 'tv' : 'movie');
@@ -384,8 +381,7 @@ class _OnStreamSearchScreenState extends State<OnStreamSearchScreen>
 
   Widget _buildActorCard(Map<String, dynamic> actor) {
     return GestureDetector(
-      onTap: () async {
-        await HapticService.selectionClick();
+      onTap: () {
         if (!mounted) return;
         Navigator.push(
           context,

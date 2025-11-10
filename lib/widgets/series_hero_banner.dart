@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../models/movie.dart';
 import '../screens/onstream_series_screen.dart';
 import '../services/api_service.dart';
-import '../services/haptic_service.dart';
 import '../database/db_helper.dart';
 import '../utils/responsive_utils.dart';
 
@@ -22,6 +21,7 @@ class _SeriesHeroBannerState extends State<SeriesHeroBanner> {
   Timer? _timer;
   int _currentPage = 0;
   final Set<int> _watchlistIds = {};
+  bool _isPlayingVideo = false;
 
   @override
   void initState() {
@@ -73,13 +73,6 @@ class _SeriesHeroBannerState extends State<SeriesHeroBanner> {
 
   Future<void> _toggleWatchlist(Movie series) async {
     final wasInWatchlist = _watchlistIds.contains(int.parse(series.id));
-
-    // Add haptic feedback
-    if (!wasInWatchlist) {
-      await HapticService.success();
-    } else {
-      await HapticService.lightImpact();
-    }
 
     if (wasInWatchlist) {
       await DBHelper.removeMovie(int.parse(series.id));
@@ -136,6 +129,8 @@ class _SeriesHeroBannerState extends State<SeriesHeroBanner> {
     try {
       if (!mounted) return;
 
+      setState(() => _isPlayingVideo = true);
+
       Navigator.push(
         context,
         MaterialPageRoute(
@@ -147,9 +142,14 @@ class _SeriesHeroBannerState extends State<SeriesHeroBanner> {
             episode: 1,
           ),
         ),
-      );
+      ).then((_) {
+        if (mounted) {
+          setState(() => _isPlayingVideo = false);
+        }
+      });
     } catch (e) {
       if (mounted) {
+        setState(() => _isPlayingVideo = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Failed to load video: $e'),
@@ -313,24 +313,41 @@ class _SeriesHeroBannerState extends State<SeriesHeroBanner> {
                         Expanded(
                           flex: 2,
                           child: ElevatedButton.icon(
-                            onPressed: () => _playVideo(series),
-                            icon: const Icon(
-                              Icons.play_arrow,
-                              color: Colors.black,
-                            ),
-                            label: const Text(
-                              'Play S1:E1',
-                              style: TextStyle(
+                            onPressed: _isPlayingVideo
+                                ? null
+                                : () => _playVideo(series),
+                            icon: _isPlayingVideo
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                        Colors.black,
+                                      ),
+                                    ),
+                                  )
+                                : const Icon(
+                                    Icons.play_arrow,
+                                    color: Colors.black,
+                                  ),
+                            label: Text(
+                              _isPlayingVideo ? 'Loading...' : 'Play S1:E1',
+                              style: const TextStyle(
                                 color: Colors.black,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.white,
+                              backgroundColor: _isPlayingVideo
+                                  ? Colors.grey.shade300
+                                  : Colors.white,
                               padding: const EdgeInsets.symmetric(vertical: 12),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(6),
                               ),
+                              elevation: _isPlayingVideo ? 0 : 4,
+                              shadowColor: Colors.black.withValues(alpha: 0.3),
                             ),
                           ),
                         ),

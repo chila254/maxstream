@@ -3,7 +3,6 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../services/user_service.dart';
 import '../services/auth_service.dart';
-import '../services/haptic_service.dart';
 import '../screens/sign_in_screen.dart';
 import '../screens/profile_settings_screen.dart';
 import '../screens/watch_history_screen.dart';
@@ -114,10 +113,9 @@ class _OnStreamMoreScreenState extends State<OnStreamMoreScreen> {
         _buildMenuItem(
           icon: Icons.person,
           title: 'Profile Settings',
-          onTap: () async {
-            await HapticService.selectionClick();
+          onTap: () {
             if (!mounted) return;
-            await Navigator.push(
+            Navigator.push(
               context,
               PageRouteBuilder(
                 pageBuilder: (context, animation, secondaryAnimation) =>
@@ -129,12 +127,12 @@ class _OnStreamMoreScreenState extends State<OnStreamMoreScreen> {
                       end: Offset.zero,
                     ).animate(CurvedAnimation(
                       parent: animation,
-                      curve: Curves.easeInOut,
+                      curve: Curves.fastOutSlowIn,
                     )),
                     child: child,
                   );
                 },
-                transitionDuration: const Duration(milliseconds: 300),
+                transitionDuration: const Duration(milliseconds: 250),
               ),
             );
             // No need to check result, ValueListenableBuilder will handle the update
@@ -143,8 +141,7 @@ class _OnStreamMoreScreenState extends State<OnStreamMoreScreen> {
         _buildMenuItem(
           icon: Icons.history,
           title: 'Watch History',
-          onTap: () async {
-            await HapticService.selectionClick();
+          onTap: () {
             if (!mounted) return;
             Navigator.push(
               context,
@@ -155,8 +152,7 @@ class _OnStreamMoreScreenState extends State<OnStreamMoreScreen> {
         _buildMenuItem(
           icon: Icons.settings,
           title: 'General Settings',
-          onTap: () async {
-            await HapticService.selectionClick();
+          onTap: () {
             if (!mounted) return;
             Navigator.push(
               context,
@@ -168,24 +164,21 @@ class _OnStreamMoreScreenState extends State<OnStreamMoreScreen> {
         _buildMenuItem(
           icon: Icons.help,
           title: 'Help & Support',
-          onTap: () async {
-            await HapticService.selectionClick();
+          onTap: () {
             _showHelpDialog();
           },
         ),
         _buildMenuItem(
           icon: Icons.info,
           title: 'About MaxStream',
-          onTap: () async {
-            await HapticService.selectionClick();
+          onTap: () {
             _showAboutDialog();
           },
         ),
         _buildMenuItem(
           icon: Icons.telegram,
           title: 'Join Community',
-          onTap: () async {
-            await HapticService.selectionClick();
+          onTap: () {
             _launchUrl('https://t.me/maxstream254');
           },
         ),
@@ -193,8 +186,7 @@ class _OnStreamMoreScreenState extends State<OnStreamMoreScreen> {
         _buildMenuItem(
           icon: Icons.logout,
           title: 'Sign Out',
-          onTap: () async {
-            await HapticService.mediumImpact();
+          onTap: () {
             _signOut();
           },
           isDestructive: true,

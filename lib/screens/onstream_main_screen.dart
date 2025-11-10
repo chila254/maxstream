@@ -86,7 +86,13 @@ class _OnStreamMainScreenState extends State<OnStreamMainScreen> {
         return true; // Allow popping the screen
       },
       child: Scaffold(
-        body: _screens[_currentIndex],
+        body: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 200),
+          transitionBuilder: (child, animation) {
+            return FadeTransition(opacity: animation, child: child);
+          },
+          child: _screens[_currentIndex],
+        ),
         bottomNavigationBar: BottomNavigationBar(
           type: BottomNavigationBarType.fixed,
           backgroundColor: const Color(0xFF1A1A1A),

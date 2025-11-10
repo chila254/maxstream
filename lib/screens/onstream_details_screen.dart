@@ -4,8 +4,6 @@ import 'package:shimmer/shimmer.dart';
 import '../database/db_helper.dart';
 import '../models/movie.dart';
 import '../services/tmdb_api_service.dart';
-import '../services/haptic_service.dart';
-import '../services/stream_extraction_service.dart';
 import 'modern_video_player_screen.dart';
 
 class OnStreamDetailsScreen extends StatefulWidget {
@@ -110,13 +108,6 @@ class _OnStreamDetailsScreenState extends State<OnStreamDetailsScreen> {
     try {
       final wasAdded = !isSaved; // Store the action before state changes
 
-      // Add haptic feedback
-      if (wasAdded) {
-        await HapticService.success();
-      } else {
-        await HapticService.lightImpact();
-      }
-
       if (isSaved) {
         await DBHelper.removeFromWatchlist(widget.item.id);
       } else {
@@ -152,7 +143,6 @@ class _OnStreamDetailsScreenState extends State<OnStreamDetailsScreen> {
         );
       }
     } catch (e) {
-      await HapticService.error();
       print('Error toggling watchlist: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -181,6 +171,7 @@ class _OnStreamDetailsScreenState extends State<OnStreamDetailsScreen> {
       body: isLoading
           ? buildLoadingShimmer()
           : CustomScrollView(
+              physics: const BouncingScrollPhysics(),
               slivers: [
                 buildSliverAppBar(),
                 SliverToBoxAdapter(
@@ -244,6 +235,7 @@ class _OnStreamDetailsScreenState extends State<OnStreamDetailsScreen> {
       expandedHeight: 350,
       pinned: true,
       backgroundColor: const Color(0xFF1A1A1A),
+      scrolledUnderElevation: 0,
       flexibleSpace: FlexibleSpaceBar(
         background: Stack(
           fit: StackFit.expand,
@@ -590,11 +582,25 @@ class _OnStreamDetailsScreenState extends State<OnStreamDetailsScreen> {
                 onTap: () {
                   Navigator.push(
                     context,
-                    MaterialPageRoute(
-                      builder: (context) => OnStreamDetailsScreen(
-                        item: Movie.fromJson(item),
-                        mediaType: item['media_type'] ?? widget.mediaType,
-                      ),
+                    PageRouteBuilder(
+                      pageBuilder: (context, animation, secondaryAnimation) =>
+                          OnStreamDetailsScreen(
+                            item: Movie.fromJson(item),
+                            mediaType: item['media_type'] ?? widget.mediaType,
+                          ),
+                      transitionsBuilder: (context, animation, secondaryAnimation, child) {
+                        return SlideTransition(
+                          position: Tween<Offset>(
+                            begin: const Offset(1.0, 0.0),
+                            end: Offset.zero,
+                          ).animate(CurvedAnimation(
+                            parent: animation,
+                            curve: Curves.fastOutSlowIn,
+                          )),
+                          child: child,
+                        );
+                      },
+                      transitionDuration: const Duration(milliseconds: 250),
                     ),
                   );
                 },
@@ -664,63 +670,20 @@ class _OnStreamDetailsScreenState extends State<OnStreamDetailsScreen> {
     }
   }
 
-  void playContent() async {
-    // Show a loading indicator
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => const Center(child: CircularProgressIndicator()),
+  void playContent() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ModernVideoPlayerScreen(
+          title: widget.item.title,
+          tmdbId: widget.item.id.toString(),
+          isMovie: widget.mediaType == 'movie',
+          season: 1,
+          episode: 1,
+          posterUrl: widget.item.posterPath,
+          userRating: widget.item.rating,
+        ),
+      ),
     );
-
-    Map<String, dynamic>? streamData;
-    try {
-      streamData = await StreamExtractionService.extractStream(
-        widget.item.id,
-        widget.mediaType != 'tv',
-        season: 1,
-        episode: 1,
-      );
-    } catch (e) {
-      // Error during extraction
-      if (mounted) {
-        Navigator.pop(context); // Dismiss loading dialog
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to extract stream: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-      return;
-    }
-
-    if (!mounted) return;
-    Navigator.pop(context); // Dismiss loading dialog
-
-    if (streamData != null && streamData['streamUrl'] != null) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => ModernVideoPlayerScreen(
-            videoUrl: streamData!['streamUrl'],
-            title: widget.item.title,
-            tmdbId: widget.item.id,
-            isMovie: widget.mediaType == 'movie',
-            season: 1,
-            episode: 1,
-            posterUrl: widget.item.posterPath,
-            userRating: widget.item.rating,
-          ),
-        ),
-      );
-    } else {
-      // No stream URL found
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Failed to load video: No stream URL found.'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
   }
 }

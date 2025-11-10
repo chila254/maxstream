@@ -4,7 +4,6 @@ import '../models/movie.dart';
 import '../screens/onstream_details_screen.dart';
 import '../screens/onstream_series_screen.dart';
 import '../services/tmdb_api_service.dart';
-import '../services/haptic_service.dart';
 import '../database/db_helper.dart';
 import '../utils/responsive_utils.dart';
 import '../screens/modern_video_player_screen.dart';
@@ -24,6 +23,7 @@ class _HeroBannerState extends State<HeroBanner> {
   final Set<int> _watchlistIds = {};
   bool _isLoading = true;
   bool _hasError = false;
+  bool _isPlayingVideo = false;
 
   @override
   void initState() {
@@ -95,13 +95,6 @@ class _HeroBannerState extends State<HeroBanner> {
     try {
       final wasInWatchlist = _watchlistIds.contains(int.parse(item.id));
 
-      // Add haptic feedback
-      if (!wasInWatchlist) {
-        await HapticService.success();
-      } else {
-        await HapticService.lightImpact();
-      }
-
       if (wasInWatchlist) {
         await DBHelper.removeMovie(int.parse(item.id));
         setState(() => _watchlistIds.remove(int.parse(item.id)));
@@ -152,7 +145,6 @@ class _HeroBannerState extends State<HeroBanner> {
         }
       }
     } catch (e) {
-      await HapticService.error();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -178,6 +170,8 @@ class _HeroBannerState extends State<HeroBanner> {
     try {
       if (!mounted) return;
 
+      setState(() => _isPlayingVideo = true);
+
       Navigator.push(
         context,
         MaterialPageRoute(
@@ -189,9 +183,14 @@ class _HeroBannerState extends State<HeroBanner> {
             episode: 1,
           ),
         ),
-      );
+      ).then((_) {
+        if (mounted) {
+          setState(() => _isPlayingVideo = false);
+        }
+      });
     } catch (e) {
       if (mounted) {
+        setState(() => _isPlayingVideo = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Failed to load video: $e'),
@@ -409,16 +408,31 @@ class _HeroBannerState extends State<HeroBanner> {
                           child: AnimatedContainer(
                             duration: const Duration(milliseconds: 150),
                             child: ElevatedButton.icon(
-                              onPressed: () async {
-                                await HapticService.mediumImpact();
-                                _playVideo(item);
-                              },
-                              icon: const Icon(
-                                Icons.play_arrow,
-                                color: Colors.black,
-                              ),
+                              onPressed: _isPlayingVideo
+                                  ? null
+                                  : () => _playVideo(item),
+                              icon: _isPlayingVideo
+                                  ? const SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        valueColor:
+                                            AlwaysStoppedAnimation<Color>(
+                                              Colors.black,
+                                            ),
+                                      ),
+                                    )
+                                  : const Icon(
+                                      Icons.play_arrow,
+                                      color: Colors.black,
+                                    ),
                               label: Text(
-                                item.mediaType == 'tv' ? 'Play S1:E1' : 'Play',
+                                _isPlayingVideo
+                                    ? 'Loading...'
+                                    : (item.mediaType == 'tv'
+                                          ? 'Play S1:E1'
+                                          : 'Play'),
                                 style: const TextStyle(
                                   color: Colors.black,
                                   fontWeight: FontWeight.bold,
@@ -426,14 +440,16 @@ class _HeroBannerState extends State<HeroBanner> {
                               ),
                               style:
                                   ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.white,
+                                    backgroundColor: _isPlayingVideo
+                                        ? Colors.grey.shade300
+                                        : Colors.white,
                                     padding: const EdgeInsets.symmetric(
                                       vertical: 12,
                                     ),
                                     shape: RoundedRectangleBorder(
                                       borderRadius: BorderRadius.circular(6),
                                     ),
-                                    elevation: 4,
+                                    elevation: _isPlayingVideo ? 0 : 4,
                                     shadowColor: Colors.black.withValues(
                                       alpha: 0.3,
                                     ),
@@ -474,10 +490,7 @@ class _HeroBannerState extends State<HeroBanner> {
                                 : null,
                           ),
                           child: IconButton(
-                            onPressed: () async {
-                              await HapticService.selectionClick();
-                              _toggleWatchlist(item);
-                            },
+                            onPressed: () => _toggleWatchlist(item),
                             icon: AnimatedSwitcher(
                               duration: const Duration(milliseconds: 300),
                               transitionBuilder: (child, animation) {
@@ -507,8 +520,7 @@ class _HeroBannerState extends State<HeroBanner> {
                             border: Border.all(color: Colors.white, width: 1),
                           ),
                           child: IconButton(
-                            onPressed: () async {
-                              await HapticService.selectionClick();
+                            onPressed: () {
                               if (!mounted) return;
                               Navigator.push(
                                 context,

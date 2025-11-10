@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../services/haptic_service.dart';
 import '../screens/modern_video_player_screen.dart';
 
 class ContinueWatchingSection extends StatelessWidget {
@@ -49,8 +48,7 @@ class ContinueWatchingSection extends StatelessWidget {
     final progressPercent = (progress * 100).round();
 
     return GestureDetector(
-      onTap: () async {
-        await HapticService.selectionClick();
+      onTap: () {
         Navigator.push(
           context,
           MaterialPageRoute(

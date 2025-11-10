@@ -4,7 +4,6 @@ import 'package:shimmer/shimmer.dart';
 import '../models/movie.dart';
 import '../models/series.dart';
 import '../services/tmdb_api_service.dart';
-import '../services/haptic_service.dart';
 import '../database/db_helper.dart';
 import 'modern_video_player_screen.dart';
 
@@ -146,13 +145,6 @@ class _OnStreamSeriesScreenState extends State<OnStreamSeriesScreen> {
     try {
       final wasAdded = !isInWatchlist;
 
-      // Add haptic feedback
-      if (wasAdded) {
-        await HapticService.success();
-      } else {
-        await HapticService.lightImpact();
-      }
-
       if (isInWatchlist) {
         await DBHelper.removeFromWatchlist(widget.seriesItem.id);
       } else {
@@ -188,7 +180,6 @@ class _OnStreamSeriesScreenState extends State<OnStreamSeriesScreen> {
         );
       }
     } catch (e) {
-      await HapticService.error();
       print('Error toggling watchlist: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -844,16 +835,30 @@ class _OnStreamSeriesScreenState extends State<OnStreamSeriesScreen> {
             itemBuilder: (context, index) {
               final item = recommendations[index];
               return GestureDetector(
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => OnStreamSeriesScreen(
-                        seriesItem: Movie.fromJson(item),
-                      ),
+              onTap: () {
+              Navigator.push(
+              context,
+              PageRouteBuilder(
+              pageBuilder: (context, animation, secondaryAnimation) =>
+                OnStreamSeriesScreen(
+                    seriesItem: Movie.fromJson(item),
                     ),
-                  );
-                },
+                  transitionsBuilder: (context, animation, secondaryAnimation, child) {
+                      return SlideTransition(
+                           position: Tween<Offset>(
+                             begin: const Offset(1.0, 0.0),
+                             end: Offset.zero,
+                           ).animate(CurvedAnimation(
+                             parent: animation,
+                             curve: Curves.fastOutSlowIn,
+                           )),
+                           child: child,
+                         );
+                       },
+                       transitionDuration: const Duration(milliseconds: 250),
+                     ),
+                   );
+                 },
                 child: Container(
                   width: 120,
                   margin: const EdgeInsets.only(right: 12),
