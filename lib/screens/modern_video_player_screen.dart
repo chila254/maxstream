@@ -91,6 +91,7 @@ class _ModernVideoPlayerScreenState extends State<ModernVideoPlayerScreen>
   bool _showSkipIntroButton = false;
   bool _showSkipRecapButton = false;
   bool _showAudioTracksPanel = false;
+  bool _showPlayButton = false;
   List<Map<String, dynamic>> _availableSubtitles = [];
   List<Map<String, dynamic>> _availableAudioTracks = [];
 
@@ -201,8 +202,11 @@ class _ModernVideoPlayerScreenState extends State<ModernVideoPlayerScreen>
           httpHeaders: _getOptimizedHeaders(bestUrl),
         );
 
-        // Open the media
+        // Open the media with explicit play: false
         await _player.open(media, play: false);
+
+        // Wait for the player to be ready before proceeding
+        await Future.delayed(const Duration(milliseconds: 200));
 
         // Get duration
         _totalDuration = _player.state.duration;
@@ -217,7 +221,13 @@ class _ModernVideoPlayerScreenState extends State<ModernVideoPlayerScreen>
 
         // Apply autoplay setting from preferences
         if (_autoPlay) {
-          await _player.play();
+          // Add a small delay to ensure the player is fully ready
+          await Future.delayed(const Duration(milliseconds: 500));
+          try {
+            await _player.play();
+          } catch (e) {
+            debugPrint('Initial autoplay failed, will retry: $e');
+          }
         }
 
         _startProgressTracking();
@@ -230,6 +240,15 @@ class _ModernVideoPlayerScreenState extends State<ModernVideoPlayerScreen>
               _isBuffering = buffering;
             });
           }
+        });
+
+        // Listen for player errors
+        _player.streams.error.listen((error) {
+          debugPrint('Player error: $error');
+          setState(() {
+            _isLoading = false;
+            _errorMessage = 'Video playback failed. Please try again.';
+          });
         });
 
         _player.streams.position.listen((position) {
@@ -280,6 +299,24 @@ class _ModernVideoPlayerScreenState extends State<ModernVideoPlayerScreen>
           _isLoading = false;
           _errorMessage =
               'Failed to load video. Please check your internet connection and try again.';
+        });
+      }
+
+      // Add a retry mechanism for failed autoplay
+      if (_autoPlay && !_player.state.playing) {
+        Future.delayed(const Duration(seconds: 2), () async {
+          if (mounted && !_player.state.playing && _isPlayerReady) {
+            try {
+              await _player.play();
+              debugPrint('Retry autoplay succeeded');
+            } catch (e) {
+              debugPrint('Retry autoplay failed: $e');
+              // Show a play button overlay if autoplay fails
+              setState(() {
+                _showPlayButton = true;
+              });
+            }
+          }
         });
       }
     } catch (e) {
@@ -360,6 +397,9 @@ class _ModernVideoPlayerScreenState extends State<ModernVideoPlayerScreen>
 
           // Audio tracks panel
           if (_showAudioTracksPanel) _buildAudioTracksPanel(),
+
+          // Play button overlay for failed autoplay
+          if (_showPlayButton) _buildPlayButtonOverlay(),
         ],
       ),
     );
@@ -398,7 +438,15 @@ class _ModernVideoPlayerScreenState extends State<ModernVideoPlayerScreen>
             height: _resizeMode == 'Stretch' || _resizeMode == 'Fill'
                 ? double.infinity
                 : null,
-            child: Video(controller: _videoController),
+            child: Video(
+              controller: _videoController,
+              // Add fit parameter to ensure video fills the container
+              fit: _resizeMode == 'Stretch'
+                  ? BoxFit.fill
+                  : _resizeMode == 'Fill'
+                  ? BoxFit.cover
+                  : BoxFit.contain,
+            ),
           ),
         ),
       ),
@@ -887,6 +935,31 @@ class _ModernVideoPlayerScreenState extends State<ModernVideoPlayerScreen>
     );
   }
 
+  Widget _buildPlayButtonOverlay() {
+    return Center(
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.black.withOpacity(0.7),
+          shape: BoxShape.circle,
+        ),
+        child: IconButton(
+          iconSize: 80,
+          icon: const Icon(Icons.play_circle_fill, color: Colors.white),
+          onPressed: () async {
+            setState(() {
+              _showPlayButton = false;
+            });
+            try {
+              await _player.play();
+            } catch (e) {
+              debugPrint('Manual play failed: $e');
+            }
+          },
+        ),
+      ),
+    );
+  }
+
   void _toggleControlsVisibility() {
     setState(() {
       _showControls = !_showControls;
@@ -916,11 +989,21 @@ class _ModernVideoPlayerScreenState extends State<ModernVideoPlayerScreen>
     });
   }
 
-  void _togglePlayPause() {
+  void _togglePlayPause() async {
     if (_player.state.playing) {
       _player.pause();
     } else {
-      _player.play();
+      try {
+        await _player.play();
+        // Hide play button overlay if it was showing
+        if (_showPlayButton) {
+          setState(() {
+            _showPlayButton = false;
+          });
+        }
+      } catch (e) {
+        debugPrint('Play failed: $e');
+      }
     }
     setState(() {});
   }

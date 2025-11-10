@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shimmer/shimmer.dart';
 import '../models/movie.dart';
 import '../services/tmdb_api_service.dart';
 import '../services/watch_history_service.dart';
@@ -69,25 +70,173 @@ class _OnStreamHomeScreenState extends State<OnStreamHomeScreen> {
       backgroundColor: const Color(0xFF121212),
       body: RefreshIndicator(
         onRefresh: _loadContent,
-        child: CustomScrollView(
-          physics: const ClampingScrollPhysics(),
-          slivers: [
-            _buildAppBar(),
-            if (!isLoading) ...[
-              const SliverToBoxAdapter(child: HeroBanner()),
-              SliverToBoxAdapter(
-                child: ContinueWatchingSection(continueWatching: continueWatching),
+        child: isLoading
+            ? _buildLoadingShimmer()
+            : CustomScrollView(
+                physics: const ClampingScrollPhysics(),
+                slivers: [
+                  _buildAppBar(),
+                  const SliverToBoxAdapter(child: HeroBanner()),
+                  SliverToBoxAdapter(
+                    child: ContinueWatchingSection(continueWatching: continueWatching),
+                  ),
+                  _buildSection('Trending Movies', trendingMovies, 'movie'),
+                  _buildSection('Popular Movies', popularMovies, 'movie'),
+                  _buildSection('Top Rated Movies', topRatedMovies, 'movie'),
+                  _buildSection('Trending TV Shows', trendingSeries, 'tv'),
+                  _buildSection('Popular TV Shows', popularSeries, 'tv'),
+                  _buildSection('Top Rated TV Shows', topRatedSeries, 'tv'),
+                  const SliverToBoxAdapter(child: SizedBox(height: 20)),
+                ],
               ),
-              _buildSection('Trending Movies', trendingMovies, 'movie'),
-              _buildSection('Popular Movies', popularMovies, 'movie'),
-              _buildSection('Top Rated Movies', topRatedMovies, 'movie'),
-              _buildSection('Trending TV Shows', trendingSeries, 'tv'),
-              _buildSection('Popular TV Shows', popularSeries, 'tv'),
-              _buildSection('Top Rated TV Shows', topRatedSeries, 'tv'),
-              const SliverToBoxAdapter(child: SizedBox(height: 20)),
-            ],
-          ],
-        ),
+      ),
+    );
+  }
+
+  Widget _buildLoadingShimmer() {
+    return Shimmer.fromColors(
+      baseColor: Colors.grey[800]!,
+      highlightColor: Colors.grey[600]!,
+      child: CustomScrollView(
+        slivers: [
+          SliverAppBar(
+            floating: true,
+            backgroundColor: const Color(0xFF1A1A1A),
+            title: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[800],
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    Icons.play_arrow,
+                    color: Colors.grey[800],
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  width: 100,
+                  height: 24,
+                  color: Colors.grey[800],
+                ),
+              ],
+            ),
+          ),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Hero banner skeleton
+                  Container(
+                    height: 200,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[800],
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  
+                  // Continue watching skeleton
+                  Container(height: 24, width: 150, color: Colors.grey[800]),
+                  const SizedBox(height: 12),
+                  Container(height: 150, color: Colors.grey[800]),
+                  const SizedBox(height: 24),
+                  
+                  // Section 1 skeleton
+                  Container(height: 24, width: 150, color: Colors.grey[800]),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Container(
+                          height: 160,
+                          color: Colors.grey[800],
+                          margin: const EdgeInsets.only(right: 8),
+                        ),
+                      ),
+                      Expanded(
+                        child: Container(
+                          height: 160,
+                          color: Colors.grey[800],
+                          margin: const EdgeInsets.only(right: 8),
+                        ),
+                      ),
+                      Expanded(
+                        child: Container(
+                          height: 160,
+                          color: Colors.grey[800],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+                  
+                  // Section 2 skeleton
+                  Container(height: 24, width: 150, color: Colors.grey[800]),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Container(
+                          height: 160,
+                          color: Colors.grey[800],
+                          margin: const EdgeInsets.only(right: 8),
+                        ),
+                      ),
+                      Expanded(
+                        child: Container(
+                          height: 160,
+                          color: Colors.grey[800],
+                          margin: const EdgeInsets.only(right: 8),
+                        ),
+                      ),
+                      Expanded(
+                        child: Container(
+                          height: 160,
+                          color: Colors.grey[800],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+                  
+                  // Section 3 skeleton
+                  Container(height: 24, width: 150, color: Colors.grey[800]),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Container(
+                          height: 160,
+                          color: Colors.grey[800],
+                          margin: const EdgeInsets.only(right: 8),
+                        ),
+                      ),
+                      Expanded(
+                        child: Container(
+                          height: 160,
+                          color: Colors.grey[800],
+                          margin: const EdgeInsets.only(right: 8),
+                        ),
+                      ),
+                      Expanded(
+                        child: Container(
+                          height: 160,
+                          color: Colors.grey[800],
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
