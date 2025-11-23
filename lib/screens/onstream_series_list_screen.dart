@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shimmer/shimmer.dart';
 import '../models/movie.dart';
 import '../services/tmdb_api_service.dart';
 import '../widgets/series_hero_banner.dart';
@@ -8,7 +9,8 @@ class OnStreamSeriesListScreen extends StatefulWidget {
   const OnStreamSeriesListScreen({super.key});
 
   @override
-  State<OnStreamSeriesListScreen> createState() => _OnStreamSeriesListScreenState();
+  State<OnStreamSeriesListScreen> createState() =>
+      _OnStreamSeriesListScreenState();
 }
 
 class _OnStreamSeriesListScreenState extends State<OnStreamSeriesListScreen> {
@@ -81,11 +83,7 @@ class _OnStreamSeriesListScreenState extends State<OnStreamSeriesListScreen> {
               color: Colors.red,
               borderRadius: BorderRadius.circular(8),
             ),
-            child: const Icon(
-              Icons.tv,
-              color: Colors.white,
-              size: 20,
-            ),
+            child: const Icon(Icons.tv, color: Colors.white, size: 20),
           ),
           const SizedBox(width: 8),
           const Text(
@@ -102,21 +100,95 @@ class _OnStreamSeriesListScreenState extends State<OnStreamSeriesListScreen> {
   }
 
   Widget _buildLoadingIndicator() {
-    return const Center(
-      child: Padding(
-        padding: EdgeInsets.all(50.0),
-        child: CircularProgressIndicator(color: Colors.red),
+    return Shimmer.fromColors(
+      baseColor: Colors.grey[800]!,
+      highlightColor: Colors.grey[600]!,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Hero banner shimmer
+          Container(
+            height: 200,
+            margin: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.grey[800],
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+
+          // Section 1 shimmer
+          _buildShimmerSection(),
+
+          // Section 2 shimmer
+          _buildShimmerSection(),
+
+          // Section 3 shimmer
+          _buildShimmerSection(),
+        ],
       ),
     );
   }
 
-  Widget _buildHeroBannerSection() {
-    return const SliverToBoxAdapter(
-      child: SeriesHeroBanner(),
+  Widget _buildShimmerSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Section title shimmer
+        Container(
+          margin: const EdgeInsets.fromLTRB(16, 24, 16, 8),
+          height: 24,
+          width: 150,
+          color: Colors.grey[800],
+        ),
+
+        // Horizontal list shimmer
+        SizedBox(
+          height: 200,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            itemCount: 5,
+            itemBuilder: (context, index) {
+              return Container(
+                width: 120,
+                margin: const EdgeInsets.only(right: 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Poster shimmer
+                    Container(
+                      width: 120,
+                      height: 160,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[800],
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    // Title shimmer
+                    Container(height: 12, width: 100, color: Colors.grey[800]),
+                    const SizedBox(height: 4),
+                    // Year shimmer
+                    Container(height: 10, width: 40, color: Colors.grey[800]),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 
-  Widget _buildSection(String title, List<Map<String, dynamic>> items, String mediaType) {
+  Widget _buildHeroBannerSection() {
+    return const SliverToBoxAdapter(child: SeriesHeroBanner());
+  }
+
+  Widget _buildSection(
+    String title,
+    List<Map<String, dynamic>> items,
+    String mediaType,
+  ) {
     if (items.isEmpty) return const SliverToBoxAdapter(child: SizedBox());
 
     return SliverToBoxAdapter(
@@ -142,10 +214,7 @@ class _OnStreamSeriesListScreenState extends State<OnStreamSeriesListScreen> {
                   },
                   child: const Text(
                     'See All',
-                    style: TextStyle(
-                      color: Colors.red,
-                      fontSize: 14,
-                    ),
+                    style: TextStyle(color: Colors.red, fontSize: 14),
                   ),
                 ),
               ],
@@ -174,7 +243,8 @@ class _OnStreamSeriesListScreenState extends State<OnStreamSeriesListScreen> {
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => OnStreamSeriesScreen(seriesItem: Movie.fromJson(item)),
+            builder: (context) =>
+                OnStreamSeriesScreen(seriesItem: Movie.fromJson(item)),
           ),
         );
       },
@@ -205,7 +275,10 @@ class _OnStreamSeriesListScreenState extends State<OnStreamSeriesListScreen> {
                     top: 4,
                     right: 4,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.black.withOpacity(0.7),
                         borderRadius: BorderRadius.circular(4),
@@ -243,10 +316,7 @@ class _OnStreamSeriesListScreenState extends State<OnStreamSeriesListScreen> {
             ),
             Text(
               _getYear(item),
-              style: const TextStyle(
-                color: Colors.grey,
-                fontSize: 10,
-              ),
+              style: const TextStyle(color: Colors.grey, fontSize: 10),
             ),
           ],
         ),
@@ -258,10 +328,8 @@ class _OnStreamSeriesListScreenState extends State<OnStreamSeriesListScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => _FullListScreen(
-          title: title,
-          mediaType: mediaType,
-        ),
+        builder: (context) =>
+            _FullListScreen(title: title, mediaType: mediaType),
       ),
     );
   }
@@ -279,10 +347,7 @@ class _FullListScreen extends StatefulWidget {
   final String title;
   final String mediaType;
 
-  const _FullListScreen({
-    required this.title,
-    required this.mediaType,
-  });
+  const _FullListScreen({required this.title, required this.mediaType});
 
   @override
   _FullListScreenState createState() => _FullListScreenState();
@@ -308,13 +373,14 @@ class _FullListScreenState extends State<_FullListScreen> {
 
     try {
       List<Map<String, dynamic>> initialItems = [];
-      
+
       // Determine which API method to call based on the title
       if (widget.title.contains('Trending') && widget.mediaType == 'tv') {
         initialItems = await TmdbApiService.fetchTrendingSeries(page: 1);
       } else if (widget.title.contains('Popular') && widget.mediaType == 'tv') {
         initialItems = await TmdbApiService.fetchPopularSeries(page: 1);
-      } else if (widget.title.contains('Top Rated') && widget.mediaType == 'tv') {
+      } else if (widget.title.contains('Top Rated') &&
+          widget.mediaType == 'tv') {
         initialItems = await TmdbApiService.fetchTopRatedSeries(page: 1);
       }
 
@@ -337,14 +403,16 @@ class _FullListScreenState extends State<_FullListScreen> {
   }
 
   void _scrollListener() {
-    if (_scrollController.position.pixels == _scrollController.position.maxScrollExtent && !_isLoading) {
+    if (_scrollController.position.pixels ==
+            _scrollController.position.maxScrollExtent &&
+        !_isLoading) {
       _loadMoreItems();
     }
   }
 
   Future<void> _loadMoreItems() async {
     if (_isLoading) return;
-    
+
     setState(() {
       _isLoading = true;
     });
@@ -358,7 +426,8 @@ class _FullListScreenState extends State<_FullListScreen> {
         newItems = await TmdbApiService.fetchTrendingSeries(page: _currentPage);
       } else if (widget.title.contains('Popular') && widget.mediaType == 'tv') {
         newItems = await TmdbApiService.fetchPopularSeries(page: _currentPage);
-      } else if (widget.title.contains('Top Rated') && widget.mediaType == 'tv') {
+      } else if (widget.title.contains('Top Rated') &&
+          widget.mediaType == 'tv') {
         newItems = await TmdbApiService.fetchTopRatedSeries(page: _currentPage);
       }
 
@@ -376,24 +445,61 @@ class _FullListScreenState extends State<_FullListScreen> {
     }
   }
 
+  Widget _buildShimmerGrid() {
+    return Shimmer.fromColors(
+      baseColor: Colors.grey[800]!,
+      highlightColor: Colors.grey[600]!,
+      child: GridView.builder(
+        padding: const EdgeInsets.all(16),
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 3,
+          crossAxisSpacing: 12,
+          mainAxisSpacing: 12,
+          childAspectRatio: 0.6,
+        ),
+        itemCount: 12, // Show 12 shimmer items
+        itemBuilder: (context, index) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Poster shimmer
+              Expanded(
+                child: Container(
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[800],
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              // Title shimmer
+              Container(
+                height: 12,
+                width: double.infinity,
+                color: Colors.grey[800],
+              ),
+              const SizedBox(height: 4),
+              // Year shimmer
+              Container(height: 10, width: 40, color: Colors.grey[800]),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
       appBar: AppBar(
         backgroundColor: const Color(0xFF1A1A1A),
-        title: Text(
-          widget.title,
-          style: const TextStyle(color: Colors.white),
-        ),
+        title: Text(widget.title, style: const TextStyle(color: Colors.white)),
         iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: _isLoading && _allItems.isEmpty
-          ? const Center(
-              child: CircularProgressIndicator(
-                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-              ),
-            )
+          ? _buildShimmerGrid()
           : GridView.builder(
               controller: _scrollController,
               padding: const EdgeInsets.all(16),
@@ -412,7 +518,9 @@ class _FullListScreenState extends State<_FullListScreen> {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (context) => OnStreamSeriesScreen(seriesItem: Movie.fromJson(item)),
+                          builder: (context) => OnStreamSeriesScreen(
+                            seriesItem: Movie.fromJson(item),
+                          ),
                         ),
                       );
                     },
@@ -424,14 +532,20 @@ class _FullListScreenState extends State<_FullListScreen> {
                             borderRadius: BorderRadius.circular(8),
                             child: item['poster_path'] != null
                                 ? Image.network(
-                                    TmdbApiService.getPosterUrl(item['poster_path']),
+                                    TmdbApiService.getPosterUrl(
+                                      item['poster_path'],
+                                    ),
                                     width: double.infinity,
                                     fit: BoxFit.cover,
                                   )
                                 : Container(
                                     width: double.infinity,
                                     color: Colors.grey[800],
-                                    child: const Icon(Icons.tv, color: Colors.grey, size: 40),
+                                    child: const Icon(
+                                      Icons.tv,
+                                      color: Colors.grey,
+                                      size: 40,
+                                    ),
                                   ),
                           ),
                         ),
