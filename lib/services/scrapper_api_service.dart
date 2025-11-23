@@ -236,7 +236,7 @@ class ScrapperApiService {
 
         if (streamUrl != null && streamUrl.isNotEmpty) {
           return StreamExtractionResult.success(
-            streamUrl: _cleanStreamUrl(streamUrl),
+            streamUrl: _cleanStreamUrl(streamUrl, baseUrl),
             source: providerName,
             message: message ?? 'Stream extracted from API',
           );
@@ -311,7 +311,7 @@ class ScrapperApiService {
 
         if (streamUrl != null) {
           return StreamExtractionResult.success(
-            streamUrl: _cleanStreamUrl(streamUrl),
+            streamUrl: _cleanStreamUrl(streamUrl, baseUrl),
             source: providerName,
             message: 'Stream extracted from embed page',
           );
@@ -523,7 +523,7 @@ class ScrapperApiService {
   }
 
   /// Clean and validate stream URL
-  static String _cleanStreamUrl(String url) {
+  static String _cleanStreamUrl(String url, String baseUrl) {
     // Remove any surrounding whitespace and quotes
     url = url.trim().replaceAll(RegExp('["\']'), '');
 
@@ -531,7 +531,7 @@ class ScrapperApiService {
     if (url.startsWith('//')) {
       url = 'https:$url';
     } else if (url.startsWith('/')) {
-      url = 'https://vidsrc.to$url';
+      url = '$baseUrl$url';
     }
 
     return url;
