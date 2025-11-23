@@ -25,6 +25,9 @@ class CombinedStreamService {
     );
 
     // Try scrapper API extraction
+    debugPrint(
+      '$_tag: Attempting scrapper API extraction for ${isMovie ? 'movie' : 'tv'} $tmdbId',
+    );
     final scrapperResult = await _tryScrapperExtraction(
       tmdbId,
       isMovie,
@@ -33,11 +36,15 @@ class CombinedStreamService {
     );
 
     if (scrapperResult != null) {
-      debugPrint('$_tag: ✓ Scrapper API extraction succeeded');
+      debugPrint(
+        '$_tag: ✓ Scrapper API extraction succeeded - URL: ${scrapperResult['streamUrl']}',
+      );
       return {...scrapperResult, 'method': 'scrapper_api', 'priority': 1};
     }
 
-    debugPrint('$_tag: ✗ Scrapper API extraction failed');
+    debugPrint(
+      '$_tag: ✗ Scrapper API extraction failed - no valid stream URL found',
+    );
     return null;
   }
 
