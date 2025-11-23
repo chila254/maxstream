@@ -126,8 +126,7 @@ lib/
 ├── services/                    # Business logic services
 │   ├── auth_service.dart       # Firebase authentication
 │   ├── tmdb_api_service.dart   # TMDB API integration
-│   ├── combined_stream_service.dart # Unified stream extraction (native + scrapper)
-│   ├── native_stream_extractor_service.dart # Native WebView stream extraction
+│   ├── combined_stream_service.dart # Stream extraction service (scrapper API)
 │   ├── scrapper_api_service.dart # Direct m3u8 HTTP scraping
 │   ├── theme_service.dart      # Dark/Light theme management
 │   ├── notification_service.dart # Push notifications

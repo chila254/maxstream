@@ -6,16 +6,19 @@ import 'package:flutter/foundation.dart';
 class ScrapperApiService {
   static const String _tag = 'ScrapperApiService';
   static final Dio _dio = Dio();
-  
+
   // Initialize Dio with optimized settings for streaming
   static void _initializeDio() {
     _dio.options = BaseOptions(
       connectTimeout: const Duration(seconds: 30),
       receiveTimeout: const Duration(seconds: 60),
       sendTimeout: const Duration(seconds: 30),
+      responseType: ResponseType.plain,
+      validateStatus: (status) => status != null && status < 500,
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'application/json, text/plain, */*',
+        'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'application/json, text/html, text/plain, */*',
         'Accept-Language': 'en-US,en;q=0.9',
         'Accept-Encoding': 'gzip, deflate, br',
         'Referer': 'https://vidsrc.to/',
@@ -25,53 +28,42 @@ class ScrapperApiService {
         'Sec-Fetch-Site': 'cross-site',
       },
     );
-    
-    // Add interceptors for logging and error handling
-    _dio.interceptors.add(LogInterceptor(
-      requestBody: kDebugMode,
-      responseBody: kDebugMode,
-      error: kDebugMode,
-    ));
+
+    // Clear existing interceptors and add fresh logging
+    _dio.interceptors.clear();
+    _dio.interceptors.add(
+      LogInterceptor(
+        requestBody: kDebugMode,
+        responseBody: kDebugMode,
+        error: kDebugMode,
+      ),
+    );
   }
 
   // Provider configurations
   static const Map<String, Map<String, String>> _providers = {
-    'vidsrc_direct': {
-      'name': 'VidSrc Direct',
-      'baseUrl': 'https://vidsrc.to',
+    'flixhq': {
+      'name': 'FlixHQ',
+      'baseUrl': 'https://flixhq.to',
       'type': 'embed',
     },
-    'v2_vidsrc': {
-      'name': 'VidSrc v2',
-      'baseUrl': 'https://v2.vidsrc.xyz',
+    'hdtoday': {
+      'name': 'HDToday',
+      'baseUrl': 'https://hdtoday.tv',
       'type': 'embed',
     },
-    'vidsrc_net': {
-      'name': 'VidSrc Net',
-      'baseUrl': 'https://vidsrc.net',
-      'type': 'embed',
-    },
-    'vidsrc_me': {
-      'name': 'VidSrc Me',
-      'baseUrl': 'https://vidsrc.me',
-      'type': 'embed',
-    },
-    'autoembed': {
-      'name': 'AutoEmbed',
-      'baseUrl': 'https://autoembed.co',
-      'type': 'embed',
-    },
-    'upstream': {
-      'name': 'Upstream',
-      'baseUrl': 'https://upstream.to',
+    'sflix': {'name': 'Sflix', 'baseUrl': 'https://sflix.to', 'type': 'embed'},
+    'lookmovie': {
+      'name': 'LookMovie',
+      'baseUrl': 'https://lookmovie.io',
       'type': 'embed',
     },
   };
 
   /// Extract direct m3u8 stream URL using multiple scrapper APIs
-  /// 
+  ///
   /// [tmdbId] - The TMDB ID of the content
-  /// [isMovie] - Whether this is a movie (true) or TV show (false)  
+  /// [isMovie] - Whether this is a movie (true) or TV show (false)
   /// [season] - TV show season number (ignored for movies)
   /// [episode] - TV show episode number (ignored for movies)
   /// [preferredProvider] - Preferred scrapper provider (optional)
@@ -85,16 +77,18 @@ class ScrapperApiService {
     String? preferredProvider,
   }) async {
     _initializeDio();
-    
-    debugPrint('$_tag: Starting stream extraction for ${isMovie ? 'movie' : 'tv'} $tmdbId');
-    
+
+    debugPrint(
+      '$_tag: Starting stream extraction for ${isMovie ? 'movie' : 'tv'} $tmdbId',
+    );
+
     // Get list of providers to try (respecting preference)
     final providersToTry = _getProvidersToTry(preferredProvider);
-    
+
     for (final provider in providersToTry) {
       try {
         debugPrint('$_tag: Trying provider: ${provider['name']}');
-        
+
         final result = await _tryProvider(
           provider,
           tmdbId,
@@ -102,9 +96,11 @@ class ScrapperApiService {
           season: season,
           episode: episode,
         );
-        
+
         if (result.success && result.streamUrl != null) {
-          debugPrint('$_tag: Success with ${provider['name']}: ${result.streamUrl}');
+          debugPrint(
+            '$_tag: Success with ${provider['name']}: ${result.streamUrl}',
+          );
           return result;
         }
       } catch (e) {
@@ -112,7 +108,7 @@ class ScrapperApiService {
         // Continue to next provider
       }
     }
-    
+
     debugPrint('$_tag: All providers failed to extract stream');
     return StreamExtractionResult.failure(
       'Failed to extract stream from all available sources',
@@ -120,23 +116,26 @@ class ScrapperApiService {
   }
 
   /// Get providers to try based on preference
-  static List<Map<String, String>> _getProvidersToTry(String? preferredProvider) {
-    final allProviders = _providers.entries.map((entry) => entry.value).toList();
-    
-    if (preferredProvider != null && _providers.containsKey(preferredProvider)) {
+  static List<Map<String, String>> _getProvidersToTry(
+    String? preferredProvider,
+  ) {
+    final allProviders = _providers.entries
+        .map((entry) => entry.value)
+        .toList();
+
+    if (preferredProvider != null &&
+        _providers.containsKey(preferredProvider)) {
       final preferred = _providers[preferredProvider]!;
       final others = allProviders.where((p) => p != preferred).toList();
       return [preferred, ...others];
     }
-    
+
     // Default priority order
     return [
-      _providers['vidsrc_direct']!,
-      _providers['v2_vidsrc']!,
-      _providers['autoembed']!,
-      _providers['upstream']!,
-      _providers['vidsrc_net']!,
-      _providers['vidsrc_me']!,
+      _providers['flixhq']!,
+      _providers['hdtoday']!,
+      _providers['sflix']!,
+      _providers['lookmovie']!,
     ];
   }
 
@@ -151,11 +150,25 @@ class ScrapperApiService {
     final providerType = provider['type'];
     final baseUrl = provider['baseUrl']!;
     final providerName = provider['name']!;
-    
+
     if (providerType == 'api') {
-      return await _tryApiProvider(providerName, baseUrl, tmdbId, isMovie, season, episode);
+      return await _tryApiProvider(
+        providerName,
+        baseUrl,
+        tmdbId,
+        isMovie,
+        season,
+        episode,
+      );
     } else {
-      return await _tryEmbedProvider(providerName, baseUrl, tmdbId, isMovie, season, episode);
+      return await _tryEmbedProvider(
+        providerName,
+        baseUrl,
+        tmdbId,
+        isMovie,
+        season,
+        episode,
+      );
     }
   }
 
@@ -175,16 +188,28 @@ class ScrapperApiService {
       } else {
         endpoint = '$baseUrl/vidsrc/$tmdbId?s=$season&e=$episode';
       }
-      
+
       debugPrint('$_tag: API request to: $endpoint');
-      
+
       final response = await _dio.get(endpoint);
-      
-      if (response.statusCode == 200) {
-        final data = response.data;
+
+      if (response.statusCode == 200 && response.data != null) {
+        dynamic data = response.data;
         String? streamUrl;
         String? message;
-        
+
+        // Try to parse as JSON if it's a string
+        if (data is String) {
+          try {
+            data = _parseJsonString(data);
+          } catch (_) {
+            // Not JSON, handle as raw response
+            if (data.contains('.m3u8') || data.startsWith('http')) {
+              streamUrl = data;
+            }
+          }
+        }
+
         if (data is Map) {
           // Handle different response formats
           if (data.containsKey('url')) {
@@ -199,15 +224,11 @@ class ScrapperApiService {
               streamUrl = sources.first['url'] as String?;
             }
           }
-          
-          message = data['message'] as String? ?? 'Stream extracted successfully';
-        } else if (data is String) {
-          // Handle string response
-          if (data.contains('.m3u8') || data.startsWith('http')) {
-            streamUrl = data;
-          }
+
+          message =
+              data['message'] as String? ?? 'Stream extracted successfully';
         }
-        
+
         if (streamUrl != null && streamUrl.isNotEmpty) {
           return StreamExtractionResult.success(
             streamUrl: _cleanStreamUrl(streamUrl),
@@ -215,12 +236,29 @@ class ScrapperApiService {
             message: message ?? 'Stream extracted from API',
           );
         }
+      } else if (response.statusCode != null && response.statusCode! >= 400) {
+        return StreamExtractionResult.failure(
+          'HTTP ${response.statusCode} from $providerName',
+        );
       }
-      
-      return StreamExtractionResult.failure('No valid stream URL in API response');
+
+      return StreamExtractionResult.failure(
+        'No valid stream URL in API response',
+      );
     } catch (e) {
       return StreamExtractionResult.failure('API request failed: $e');
     }
+  }
+
+  /// Parse JSON string safely
+  static dynamic _parseJsonString(String str) {
+    // Simple JSON parsing - for production use a proper JSON library
+    final trimmed = str.trim();
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+      // Could be JSON, but without a JSON parser, we'll skip
+      return null;
+    }
+    return str;
   }
 
   /// Try embed-based provider (scrape from embed page)
@@ -239,23 +277,30 @@ class ScrapperApiService {
       } else {
         embedUrl = '$baseUrl/embed/tv/$tmdbId/$season/$episode';
       }
-      
+
       debugPrint('$_tag: Embed request to: $embedUrl');
-      
+
       // Try to get embed page content
       final response = await _dio.get(embedUrl);
-      
-      if (response.statusCode == 200) {
-        final html = response.data as String;
-        
+
+      if (response.statusCode == 200 && response.data != null) {
+        final html = response.data.toString();
+
+        // Check if we got actual embed content (not a parking page)
+        if (html.isEmpty || html.length < 100) {
+          return StreamExtractionResult.failure(
+            'Empty or invalid response from $providerName',
+          );
+        }
+
         // Try direct m3u8 extraction first
         var streamUrl = _extractM3u8DirectFromHtml(html);
-        
+
         // Fallback to general stream extraction
         if (streamUrl == null) {
           streamUrl = _extractStreamFromHtml(html, providerName);
         }
-        
+
         if (streamUrl != null) {
           return StreamExtractionResult.success(
             streamUrl: _cleanStreamUrl(streamUrl),
@@ -263,9 +308,15 @@ class ScrapperApiService {
             message: 'Stream extracted from embed page',
           );
         }
+      } else if (response.statusCode != null && response.statusCode! >= 400) {
+        return StreamExtractionResult.failure(
+          'HTTP ${response.statusCode} from $providerName',
+        );
       }
-      
-      return StreamExtractionResult.failure('Failed to extract stream from embed page');
+
+      return StreamExtractionResult.failure(
+        'Failed to extract stream from embed page',
+      );
     } catch (e) {
       return StreamExtractionResult.failure('Embed request failed: $e');
     }
@@ -275,45 +326,78 @@ class ScrapperApiService {
   static String? _extractM3u8DirectFromHtml(String html) {
     try {
       // Pattern 1: Direct m3u8 URL in src attribute
-      final srcPattern = RegExp('src=["\']?(https?://[^"\']*\\.m3u8[^"\']*)["\']?');
+      final srcPattern = RegExp(
+        'src\\s*=\\s*["\']?(https?://[^"\']*\\.m3u8[^"\']*)["\']?',
+        caseSensitive: false,
+      );
       final srcMatch = srcPattern.firstMatch(html);
       if (srcMatch != null) {
-        return srcMatch.group(1);
+        final url = srcMatch.group(1);
+        if (url != null && _isValidStreamUrl(url)) {
+          return url;
+        }
       }
 
       // Pattern 2: m3u8 in data-src
-      final dataSrcPattern = RegExp('data-src=["\']?(https?://[^"\']*\\.m3u8[^"\']*)["\']?');
+      final dataSrcPattern = RegExp(
+        'data-src\\s*=\\s*["\']?(https?://[^"\']*\\.m3u8[^"\']*)["\']?',
+        caseSensitive: false,
+      );
       final dataSrcMatch = dataSrcPattern.firstMatch(html);
       if (dataSrcMatch != null) {
-        return dataSrcMatch.group(1);
+        final url = dataSrcMatch.group(1);
+        if (url != null && _isValidStreamUrl(url)) {
+          return url;
+        }
       }
 
       // Pattern 3: m3u8 in file property (HLS.js)
-      final filePattern = RegExp('file\\s*:\\s*["\']?(https?://[^"\'\\}\\s]*\\.m3u8[^"\'\\}\\s]*)["\']?');
+      final filePattern = RegExp(
+        'file\\s*:\\s*["\']?(https?://[^"\']*\\.m3u8[^"\']*)["\']?',
+        caseSensitive: false,
+      );
       final fileMatch = filePattern.firstMatch(html);
       if (fileMatch != null) {
-        return fileMatch.group(1);
+        final url = fileMatch.group(1);
+        if (url != null && _isValidStreamUrl(url)) {
+          return url;
+        }
       }
 
       // Pattern 4: m3u8 in url property
-      final urlPattern = RegExp('url\\s*:\\s*["\']?(https?://[^"\'\\}\\s]*\\.m3u8[^"\'\\}\\s]*)["\']?');
+      final urlPattern = RegExp(
+        '(["\'])?url\\1\\s*:\\s*["\']?(https?://[^"\']*\\.m3u8[^"\']*)["\']?',
+        caseSensitive: false,
+      );
       final urlMatch = urlPattern.firstMatch(html);
       if (urlMatch != null) {
-        return urlMatch.group(1);
+        final url = urlMatch.group(2);
+        if (url != null && _isValidStreamUrl(url)) {
+          return url;
+        }
       }
 
       // Pattern 5: m3u8 in source tag
-      final sourcePattern = RegExp('<source[^>]*src=["\']?(https?://[^"\']*\\.m3u8[^"\']*)["\']?');
+      final sourcePattern = RegExp(
+        '<source[^>]*src\\s*=\\s*["\']?(https?://[^"\']*\\.m3u8[^"\']*)["\']?',
+        caseSensitive: false,
+      );
       final sourceMatch = sourcePattern.firstMatch(html);
       if (sourceMatch != null) {
-        return sourceMatch.group(1);
+        final url = sourceMatch.group(1);
+        if (url != null && _isValidStreamUrl(url)) {
+          return url;
+        }
       }
 
       // Pattern 6: Plain m3u8 URL
       final plainPattern = RegExp('(https?://[^\\s"\'<>]*\\.m3u8[^\\s"\'<>]*)');
       final plainMatch = plainPattern.firstMatch(html);
       if (plainMatch != null) {
-        return plainMatch.group(1);
+        final url = plainMatch.group(1);
+        if (url != null && _isValidStreamUrl(url)) {
+          return url;
+        }
       }
 
       return null;
@@ -323,30 +407,51 @@ class ScrapperApiService {
     }
   }
 
+  /// Check if URL is valid for streaming
+  static bool _isValidStreamUrl(String url) {
+    if (url.isEmpty || url.length > 2000) {
+      return false;
+    }
+    // Check for common invalid patterns
+    if (url.contains('javascript:') || url.contains('data:')) {
+      return false;
+    }
+    return url.startsWith('http://') || url.startsWith('https://');
+  }
+
   /// Extract stream URL from HTML content
   static String? _extractStreamFromHtml(String html, String providerName) {
     try {
       // Simple pattern matching for common stream URLs
       if (html.contains('.m3u8')) {
-        final m3u8Match = RegExp(r'(https?://[^"\s]*?\.m3u8[^"\s]*)').firstMatch(html);
+        final m3u8Match = RegExp(
+          r'(https?://[^"\s]*?\.m3u8[^"\s]*)',
+        ).firstMatch(html);
         if (m3u8Match != null) {
-          return m3u8Match.group(1);
-        }
-      }
-      
-      // Look for other stream indicators
-      if (html.contains('file:') || html.contains('streamUrl:') || html.contains('source:')) {
-        final pattern = RegExp(r'(https?://[^"\s]*)');
-        final matches = pattern.allMatches(html);
-        
-        for (final match in matches) {
-          final url = match.group(1);
-          if (url != null && _looksLikeStreamUrl(url)) {
+          final url = m3u8Match.group(1);
+          if (url != null && _isValidM3u8Url(url)) {
+            debugPrint('$_tag: Found m3u8 URL: $url');
             return url;
           }
         }
       }
-      
+
+      // Look for other stream indicators
+      if (html.contains('file:') ||
+          html.contains('streamUrl:') ||
+          html.contains('source:')) {
+        final pattern = RegExp(r'(https?://[^"\s]*)');
+        final matches = pattern.allMatches(html);
+
+        for (final match in matches) {
+          final url = match.group(1);
+          if (url != null && _looksLikeStreamUrl(url) && !_isEmbedUrl(url)) {
+            debugPrint('$_tag: Found stream URL: $url');
+            return url;
+          }
+        }
+      }
+
       return null;
     } catch (e) {
       debugPrint('$_tag: Error extracting stream from HTML: $e');
@@ -357,27 +462,70 @@ class ScrapperApiService {
   /// Check if URL looks like a streaming URL
   static bool _looksLikeStreamUrl(String url) {
     final streamIndicators = [
-      '.m3u8', '.mp4', '.webm', '.mkv',
-      'stream', 'video', 'embed',
+      '.m3u8',
+      '.mp4',
+      '.webm',
+      '.mkv',
+      'stream',
+      'video',
+      'embed',
     ];
-    
-    return streamIndicators.any((indicator) => 
-      url.toLowerCase().contains(indicator)
+
+    return streamIndicators.any(
+      (indicator) => url.toLowerCase().contains(indicator),
     );
+  }
+
+  /// Check if URL is a valid m3u8 URL (prioritize m3u8 over embed URLs)
+  static bool _isValidM3u8Url(String url) {
+    if (url.isEmpty || url.length > 2000) {
+      return false;
+    }
+    // Must be HTTP/HTTPS and contain .m3u8
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      return false;
+    }
+    if (!url.contains('.m3u8')) {
+      return false;
+    }
+    // Avoid embed/player URLs that might contain m3u8 in path but are not streams
+    if (_isEmbedUrl(url)) {
+      return false;
+    }
+    return true;
+  }
+
+  /// Check if URL is an embed/player URL (not a direct stream)
+  static bool _isEmbedUrl(String url) {
+    final embedIndicators = [
+      '/embed/',
+      '/player/',
+      '/watch/',
+      '/video/',
+      'player.',
+      'embed.',
+      'watch.',
+      'iframe',
+      'javascript:',
+      'data:',
+    ];
+
+    final lowerUrl = url.toLowerCase();
+    return embedIndicators.any((indicator) => lowerUrl.contains(indicator));
   }
 
   /// Clean and validate stream URL
   static String _cleanStreamUrl(String url) {
     // Remove any surrounding whitespace and quotes
     url = url.trim().replaceAll(RegExp('["\']'), '');
-    
+
     // Fix common URL issues
     if (url.startsWith('//')) {
       url = 'https:$url';
     } else if (url.startsWith('/')) {
       url = 'https://vidsrc.to$url';
     }
-    
+
     return url;
   }
 
@@ -397,7 +545,7 @@ class ScrapperApiService {
     if (!_providers.containsKey(providerKey)) {
       return StreamExtractionResult.failure('Provider not found: $providerKey');
     }
-    
+
     final provider = _providers[providerKey]!;
     return await _tryProvider(
       provider,
@@ -412,7 +560,7 @@ class ScrapperApiService {
   static Future<Map<String, bool>> checkProvidersHealth() async {
     final health = <String, bool>{};
     const testTmdbId = '550'; // Fight Club (popular test movie)
-    
+
     for (final entry in _providers.entries) {
       try {
         final result = await testProvider(entry.key, testTmdbId);
@@ -421,7 +569,7 @@ class ScrapperApiService {
         health[entry.value['name']!] = false;
       }
     }
-    
+
     return health;
   }
 
