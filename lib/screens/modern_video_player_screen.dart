@@ -175,35 +175,21 @@ class _ModernVideoPlayerScreenState extends State<ModernVideoPlayerScreen>
 
       String? bestUrl = widget.videoUrl;
 
-      // If videoUrl is not provided, extract the stream
-      if (bestUrl == null) {
-        final streamData = await CombinedStreamService.extractStream(
-          widget.tmdbId,
-          widget.isMovie,
-          season: widget.season,
-          episode: widget.episode,
-        );
-        if (streamData != null && streamData['streamUrl'] != null) {
-          bestUrl = streamData['streamUrl'];
-        } else {
-          setState(() {
-            _isLoading = false;
-            _errorMessage =
-                'Failed to load video stream. Check your internet connection and try again.';
-          });
-          return;
-        }
-      }
-
       try {
+        debugPrint('VideoPlayer: Attempting to load URL: $bestUrl');
+
         // Create Media with optimized headers
         final media = Media(
           bestUrl!,
           httpHeaders: _getOptimizedHeaders(bestUrl),
         );
 
+        debugPrint('VideoPlayer: Created media with headers');
+
         // Open the media with explicit play: false
         await _player.open(media, play: false);
+
+        debugPrint('VideoPlayer: Media opened successfully');
 
         // Wait for the player to be ready before proceeding
         await Future.delayed(const Duration(milliseconds: 200));

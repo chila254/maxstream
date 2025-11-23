@@ -102,6 +102,10 @@ class ScrapperApiService {
             '$_tag: Success with ${provider['name']}: ${result.streamUrl}',
           );
           return result;
+        } else {
+          debugPrint(
+            '$_tag: Failed with ${provider['name']}: ${result.error ?? 'Unknown error'}',
+          );
         }
       } catch (e) {
         debugPrint('$_tag: Error with ${provider['name']}: $e');
