@@ -173,31 +173,21 @@ class _ModernVideoPlayerScreenState extends State<ModernVideoPlayerScreen>
         _errorMessage = null;
       });
 
-      String? bestUrl = widget.videoUrl;
+      // Extract stream URL using CombinedStreamService
+      final streamResult = await CombinedStreamService.extractStream(
+        widget.tmdbId,
+        widget.isMovie,
+        season: widget.season,
+        episode: widget.episode,
+      );
 
-      // If no video URL provided, try to extract stream using scrapper services
-      if (bestUrl == null) {
-        debugPrint(
-          'VideoPlayer: No videoUrl provided, attempting to extract stream',
-        );
-        final streamResult = await CombinedStreamService.extractStream(
-          widget.tmdbId,
-          widget.isMovie,
-          season: widget.season,
-          episode: widget.episode,
-        );
-
-        if (streamResult != null && streamResult['streamUrl'] != null) {
-          bestUrl = streamResult['streamUrl'];
-          debugPrint('VideoPlayer: Stream extracted successfully: $bestUrl');
-        } else {
-          debugPrint('VideoPlayer: Failed to extract stream');
-          setState(() {
-            _isLoading = false;
-            _errorMessage = 'Unable to find streaming source for this content.';
-          });
-          return;
-        }
+      String? bestUrl;
+      if (streamResult != null && streamResult['streamUrl'] != null) {
+        bestUrl = streamResult['streamUrl'];
+        debugPrint('VideoPlayer: Using extracted stream URL: $bestUrl');
+      } else {
+        bestUrl = widget.videoUrl;
+        debugPrint('VideoPlayer: Using fallback video URL: $bestUrl');
       }
 
       try {
