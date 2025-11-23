@@ -8,6 +8,13 @@ import '../services/settings_service.dart';
 import '../services/combined_stream_service.dart';
 import 'dart:async';
 
+const Map<String, String> _providerBaseUrls = {
+  'FlixHQ': 'https://flixhq.to',
+  'HDToday': 'https://hdtoday.tv',
+  'Sflix': 'https://sflix.to',
+  'LookMovie': 'https://lookmovie.io',
+};
+
 void initMediaKit() {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
@@ -72,6 +79,9 @@ class _ModernVideoPlayerScreenState extends State<ModernVideoPlayerScreen>
   // Settings from SettingsService
   Map<String, dynamic> _playerSettings = {};
   Map<String, dynamic> _subtitleSettings = {};
+
+  // Stream source for headers
+  String? _streamSource;
 
   // Subtitle state
   List<Map<String, dynamic>> _currentSubtitles = [];
@@ -184,9 +194,13 @@ class _ModernVideoPlayerScreenState extends State<ModernVideoPlayerScreen>
       String? bestUrl;
       if (streamResult != null && streamResult['streamUrl'] != null) {
         bestUrl = streamResult['streamUrl'];
-        debugPrint('VideoPlayer: Using extracted stream URL: $bestUrl');
+        _streamSource = streamResult['source'];
+        debugPrint(
+          'VideoPlayer: Using extracted stream URL: $bestUrl from $_streamSource',
+        );
       } else {
         bestUrl = widget.videoUrl;
+        _streamSource = null;
         debugPrint('VideoPlayer: Using fallback video URL: $bestUrl');
       }
 
@@ -336,10 +350,20 @@ class _ModernVideoPlayerScreenState extends State<ModernVideoPlayerScreen>
 
   /// Get optimized HTTP headers for streaming URLs
   Map<String, String> _getOptimizedHeaders(String? url) {
+    // Determine referer and origin based on stream source
+    String referer = 'https://vidsrc.to/';
+    String origin = 'https://vidsrc.to';
+
+    if (_streamSource != null && _providerBaseUrls.containsKey(_streamSource)) {
+      final baseUrl = _providerBaseUrls[_streamSource]!;
+      referer = '$baseUrl/';
+      origin = baseUrl;
+    }
+
     final headers = {
       'User-Agent':
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Referer': 'https://vidsrc.to/',
+      'Referer': referer,
       'Accept': '*/*',
       'Accept-Encoding': 'gzip, deflate, br',
       'Accept-Language': 'en-US,en;q=0.9',
@@ -348,7 +372,7 @@ class _ModernVideoPlayerScreenState extends State<ModernVideoPlayerScreen>
     // For HLS streams, add additional headers
     if (url != null && url.contains('.m3u8')) {
       headers.addAll({
-        'Origin': 'https://vidsrc.to',
+        'Origin': origin,
         'Sec-Fetch-Dest': 'video',
         'Sec-Fetch-Mode': 'cors',
         'Sec-Fetch-Site': 'cross-site',

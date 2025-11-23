@@ -21,8 +21,6 @@ class ScrapperApiService {
         'Accept': 'application/json, text/html, text/plain, */*',
         'Accept-Language': 'en-US,en;q=0.9',
         'Accept-Encoding': 'gzip, deflate, br',
-        'Referer': 'https://vidsrc.to/',
-        'Origin': 'https://vidsrc.to',
         'Sec-Fetch-Dest': 'empty',
         'Sec-Fetch-Mode': 'cors',
         'Sec-Fetch-Site': 'cross-site',
@@ -195,7 +193,10 @@ class ScrapperApiService {
 
       debugPrint('$_tag: API request to: $endpoint');
 
-      final response = await _dio.get(endpoint);
+      final response = await _dio.get(
+        endpoint,
+        options: Options(headers: {'Referer': '$baseUrl/', 'Origin': baseUrl}),
+      );
 
       if (response.statusCode == 200 && response.data != null) {
         dynamic data = response.data;
@@ -285,7 +286,10 @@ class ScrapperApiService {
       debugPrint('$_tag: Embed request to: $embedUrl');
 
       // Try to get embed page content
-      final response = await _dio.get(embedUrl);
+      final response = await _dio.get(
+        embedUrl,
+        options: Options(headers: {'Referer': '$baseUrl/', 'Origin': baseUrl}),
+      );
 
       if (response.statusCode == 200 && response.data != null) {
         final html = response.data.toString();
