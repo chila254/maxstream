@@ -31,10 +31,13 @@ MaxStream is a comprehensive entertainment streaming platform that offers seamle
 
 ### Content & Streaming
 - **TMDB Integration**: Access to extensive movie and series metadata
-- **Stream Extraction**: Multiple streaming source support
-- **Adaptive Streaming**: Quality adjustment based on network conditions
+- **Stremio Provider Discovery**: Automatically discovers available streaming sources (VidSrc.to, VidSrc.xyz)
+- **WebView-based Stream Resolution**: JavaScript extraction of playable stream URLs from embed pages
+- **Multi-provider Fallback**: Automatically tries next provider if one fails
+- **Quality Detection**: Automatic quality ranking (1080p → 720p)
+- **Adaptive Streaming**: Dynamic stream type detection (HLS, DASH, MP4)
 - **Continue Watching**: Pick up where you left off with smart resume functionality
-- **Video Caching**: Efficient caching of frequently accessed content
+- **Proper Headers**: CORS-compliant headers (Referer, User-Agent) for stream playback
 
 ### Additional Features
 - **Settings & Preferences**: Granular control over app behavior and playback options
@@ -126,8 +129,10 @@ lib/
 ├── services/                    # Business logic services
 │   ├── auth_service.dart       # Firebase authentication
 │   ├── tmdb_api_service.dart   # TMDB API integration
-│   ├── combined_stream_service.dart # Stream extraction service (scrapper API)
-│   ├── scrapper_api_service.dart # Direct m3u8 HTTP scraping
+│   ├── combined_stream_service.dart # Stream orchestration (Stremio + WebView resolver)
+│   ├── stremio_provider_service.dart # Stremio provider discovery (VidSrc.to, VidSrc.xyz)
+│   ├── stream_resolver_service.dart # WebView-based stream URL extraction
+│   ├── stream_extraction_tester.dart # Testing utilities
 │   ├── theme_service.dart      # Dark/Light theme management
 │   ├── notification_service.dart # Push notifications
 │   ├── watch_history_service.dart # Watch history tracking
@@ -241,6 +246,44 @@ flutter build web --release
 - **Minimum SDK**: 3.8.0
 - **Target SDK**: Flutter 4.0.0 (when released)
 
+## Architecture Overview
+
+### Stream Extraction Pipeline
+The app uses a three-layer streaming architecture:
+
+```
+User selects movie/series
+         ↓
+CombinedStreamService.extractStream()
+         ↓
+    ┌────────────────────────────────────┐
+    │ Layer 1: Provider Discovery        │
+    │ StremioProviderService             │
+    │ - Tests available providers        │
+    │ - Returns embed URLs               │
+    │ - Quality detection (1080p/720p)   │
+    └────────────────────────────────────┘
+         ↓
+    ┌────────────────────────────────────┐
+    │ Layer 2: Stream Resolution         │
+    │ StreamResolverService (WebView)    │
+    │ - Loads embed URL in WebView       │
+    │ - Injects JavaScript               │
+    │ - Extracts playable stream URL     │
+    │ - Detects stream type (HLS/DASH)   │
+    └────────────────────────────────────┘
+         ↓
+    ┌────────────────────────────────────┐
+    │ Layer 3: Video Playback            │
+    │ media_kit Player                   │
+    │ - Plays resolved stream URL        │
+    │ - Applies CORS headers             │
+    │ - Handles adaptive bitrate         │
+    └────────────────────────────────────┘
+         ↓
+    Video plays with proper quality
+```
+
 ## Key Services
 
 ### Authentication Service
@@ -257,12 +300,31 @@ Integrates with The Movie Database API for:
 - Search functionality
 - Trending content discovery
 
-### Stream Extraction Service
-Manages video streaming by:
-- Extracting playable streams from multiple sources
-- Handling DRM and adaptive bitrate streaming
-- Managing playback quality
-- Caching streaming data
+### Stream Extraction Services
+Three complementary services manage video streaming:
+
+**1. StremioProviderService**
+- Discovers streaming providers (VidSrc.to, VidSrc.xyz, MoviesAPI, VidSrc Pro)
+- Tests provider availability via HTTP HEAD
+- Returns StreamProvider objects with URL, quality, and source
+- Supports both movies and TV series
+
+**2. StreamResolverService**
+- Initializes WebView controller with unrestricted JavaScript
+- Loads embed URLs in hidden WebView
+- Injects intelligent JavaScript extraction script with 8 strategies
+- Handles retry logic (up to 8 attempts) for dynamic content
+- Extracts playable stream URLs from provider pages
+- Detects stream types (HLS, DASH, MP4)
+- Manages provider-specific headers (Referer, User-Agent)
+
+**3. CombinedStreamService**
+- Orchestrates the complete extraction pipeline
+- Coordinates provider discovery and stream resolution
+- Implements automatic fallback to next provider on failure
+- Provides comprehensive logging for debugging
+- Health check functionality for provider availability
+- Proper resource cleanup and disposal
 
 ### Theme Service
 Provides theming capabilities:

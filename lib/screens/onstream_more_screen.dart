@@ -7,7 +7,6 @@ import '../screens/sign_in_screen.dart';
 import '../screens/profile_settings_screen.dart';
 import '../screens/watch_history_screen.dart';
 import '../screens/general_settings_screen.dart';
-import '../screens/torrent_stream_screen.dart';
 
 class OnStreamMoreScreen extends StatefulWidget {
   const OnStreamMoreScreen({super.key});
@@ -158,17 +157,6 @@ class _OnStreamMoreScreenState extends State<OnStreamMoreScreen> {
             Navigator.push(
               context,
               MaterialPageRoute(builder: (context) => const GeneralSettingsScreen()),
-            );
-          },
-        ),
-        _buildMenuItem(
-          icon: Icons.cloud_download,
-          title: 'Stream Torrent',
-          onTap: () {
-            if (!mounted) return;
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => const TorrentStreamScreen()),
             );
           },
         ),

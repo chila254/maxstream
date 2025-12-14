@@ -1,159 +1,215 @@
 import 'package:flutter/foundation.dart';
-import 'torrent_stream_service.dart';
-import 'webrtc_torrent_service.dart';
+import 'stremio_provider_service.dart';
+import 'stream_resolver_service.dart';
 
-/// Stream extraction service using WebRTC P2P torrent technology
-/// Uses distributed hash table (DHT) for peer discovery and magnet link extraction
+/// Combined stream extraction service
+/// Orchestrates Stremio provider discovery and stream resolution for movies and TV series
 class CombinedStreamService {
   static const String _tag = 'CombinedStreamService';
 
-  /// Extract stream URL using WebRTC P2P torrent technology
+  /// Extract and resolve stream URL for movies and TV shows
+  ///
+  /// This is the main entry point for getting playable streams.
+  /// It handles both embed discovery and resolution:
+  /// 1. Gets embed URLs from Stremio providers (VidSrc, VidSrc Pro, etc.)
+  /// 2. Resolves embeds to actual playable URLs using WebView
+  /// 3. Returns ready-to-play stream URL
   ///
   /// [tmdbId] - The TMDB ID of the content
   /// [isMovie] - Whether this is a movie (true) or TV show (false)
   /// [season] - TV show season number (ignored for movies)
   /// [episode] - TV show episode number (ignored for movies)
   ///
-  /// Returns a map with magnet link and metadata
+  /// Returns a map with playable stream URL and metadata
   static Future<Map<String, dynamic>?> extractStream(
     String tmdbId,
     bool isMovie, {
     int season = 1,
     int episode = 1,
   }) async {
-    debugPrint(
-      '$_tag: Starting WebRTC P2P stream extraction for ${isMovie ? 'movie' : 'tv'} $tmdbId',
-    );
+    try {
+      debugPrint('');
+      debugPrint('$_tag: ╔════════════════════════════════════════════╗');
+      debugPrint('$_tag: ║       STREAM EXTRACTION STARTED             ║');
+      debugPrint('$_tag: ╚════════════════════════════════════════════╝');
+      debugPrint('$_tag: Content Type: ${isMovie ? 'MOVIE' : 'TV SERIES'}');
+      debugPrint('$_tag: TMDB ID: $tmdbId');
+      if (!isMovie) {
+        debugPrint('$_tag: Season: $season, Episode: $episode');
+      }
+      debugPrint('');
 
-    // Use torrent/magnet extraction via WebRTC
-    final torrentResult = await _extractTorrentMagnet(
-      tmdbId,
-      isMovie,
-      season: season,
-      episode: episode,
-    );
+      // Step 1: Get embed URLs from Stremio providers
+      debugPrint('$_tag: 📍 STEP 1: Discovering Stremio Providers');
+      debugPrint('$_tag: ─────────────────────────────────────');
+      List<StreamProvider> providers;
 
-    if (torrentResult != null) {
-      debugPrint(
-        '$_tag: ✓ WebRTC torrent extraction succeeded - Found ${torrentResult['magnetCount']} sources',
+      if (isMovie) {
+        providers = await StremioProviderService.getMovieStreams(tmdbId);
+      } else {
+        providers = await StremioProviderService.getSeriesStreams(
+          tmdbId,
+          season,
+          episode,
+        );
+      }
+
+      if (providers.isEmpty) {
+        debugPrint('$_tag: ❌ STEP 1 FAILED: No Stremio providers found');
+        return null;
+      }
+
+      debugPrint('$_tag: ✓ STEP 1 SUCCESS: Found ${providers.length} providers');
+      debugPrint('');
+
+      // Step 2: Resolve embeds to playable URLs (ordered by quality)
+      debugPrint('$_tag: 📍 STEP 2: Resolving Embed URLs via WebView');
+      debugPrint('$_tag: ─────────────────────────────────────');
+      final providersToResolve = providers
+          .map((p) => (url: p.url, source: p.source, quality: p.quality))
+          .toList();
+
+      debugPrint('$_tag: Attempting to resolve ${providersToResolve.length} providers...');
+      debugPrint('$_tag: Provider order (by quality):');
+      for (int i = 0; i < providersToResolve.length; i++) {
+        final p = providersToResolve[i];
+        debugPrint('$_tag:   ${i + 1}. ${p.source} (${p.quality})');
+      }
+      debugPrint('');
+
+      final resolvedStream = await StreamResolverService.resolveBestSource(
+        providersToResolve,
       );
-      return torrentResult;
-    }
 
-    debugPrint(
-      '$_tag: ✗ WebRTC torrent extraction failed',
-    );
-    return null;
+      if (resolvedStream == null || !resolvedStream.isPlayable) {
+        debugPrint('$_tag: ❌ STEP 2 FAILED: Could not resolve any stream');
+        return null;
+      }
+
+      debugPrint('');
+      debugPrint('$_tag: ✓ STEP 2 SUCCESS: Stream resolved');
+      debugPrint('');
+      debugPrint('$_tag: ╔════════════════════════════════════════════╗');
+      debugPrint('$_tag: ║       STREAM EXTRACTION COMPLETED ✓         ║');
+      debugPrint('$_tag: ╚════════════════════════════════════════════╝');
+      debugPrint('$_tag: 📺 Source: ${resolvedStream.source}');
+      debugPrint('$_tag: 🎬 Quality: ${resolvedStream.quality}');
+      debugPrint('$_tag: 🔗 Type: ${resolvedStream.type}');
+      final urlPreview = resolvedStream.url.substring(0, resolvedStream.url.length > 100 ? 100 : resolvedStream.url.length);
+      debugPrint('$_tag: 📡 URL: $urlPreview...');
+      debugPrint('');
+
+      // Return playable stream data
+      return {
+        'streamUrl': resolvedStream.url,
+        'source': resolvedStream.source,
+        'type': resolvedStream.type,
+        'quality': resolvedStream.quality,
+        'method': 'stremio_webview',
+        'message': 'Stream resolved from ${resolvedStream.source}',
+        'headers': resolvedStream.headers,
+        'isPlayable': resolvedStream.isPlayable,
+      };
+    } catch (e) {
+      debugPrint('$_tag: ❌ FATAL ERROR: $e');
+      return null;
+    }
   }
 
-  /// Extract magnet links for WebRTC P2P streaming
-  static Future<Map<String, dynamic>?> _extractTorrentMagnet(
+  /// Get all available Stremio providers
+  static Future<List<StreamProvider>> getAvailableProviders(
     String tmdbId,
     bool isMovie, {
-    required int season,
-    required int episode,
+    int season = 1,
+    int episode = 1,
   }) async {
     try {
-      final result = await TorrentStreamService.extractTorrentStreams(
+      if (isMovie) {
+        return await StremioProviderService.getMovieStreams(tmdbId);
+      } else {
+        return await StremioProviderService.getSeriesStreams(
+          tmdbId,
+          season,
+          episode,
+        );
+      }
+    } catch (e) {
+      debugPrint('$_tag: Error getting providers: $e');
+      return [];
+    }
+  }
+
+  /// Verify and get only working providers
+  static Future<List<StreamProvider>> getWorkingProviders(
+    String tmdbId,
+    bool isMovie, {
+    int season = 1,
+    int episode = 1,
+  }) async {
+    try {
+      final providers = await getAvailableProviders(
         tmdbId,
-        isMovie: isMovie,
+        isMovie,
         season: season,
         episode: episode,
       );
 
-      if (result.success && result.magnets != null && result.magnets!.isNotEmpty) {
-        debugPrint(
-          '$_tag: Torrent extraction success with ${result.magnets!.length} sources',
-        );
-
-        // Return best quality magnet with WebRTC metadata
-        final bestMagnet = result.magnets!.first;
-        return {
-          'streamUrl': bestMagnet.url,
-          'source': result.source,
-          'type': 'magnet',
-          'method': 'webrtc_p2p',
-          'title': bestMagnet.title,
-          'quality': bestMagnet.quality,
-          'seeders': bestMagnet.seeders,
-          'magnetCount': result.magnets!.length,
-          'message':
-              'WebRTC P2P Stream: ${bestMagnet.title} (${bestMagnet.seeders} peers)',
-          'magnets': result.magnets!
-              .map((m) => {
-                    'url': m.url,
-                    'title': m.title,
-                    'quality': m.quality,
-                    'seeders': m.seeders,
-                  })
-              .toList(),
-        };
+      if (providers.isEmpty) {
+        return [];
       }
 
-      debugPrint('$_tag: Torrent extraction failed: ${result.error}');
-      return null;
+      return await StremioProviderService.getWorkingProviders(providers);
     } catch (e) {
-      debugPrint('$_tag: Torrent extraction error: $e');
-      return null;
+      debugPrint('$_tag: Error verifying providers: $e');
+      return [];
     }
   }
 
-  /// Health check - verify torrent sources are available
+  /// Health check - verify Stremio providers are available
   static Future<Map<String, bool>> checkHealth() async {
     try {
-      // Check if torrent service can discover peers
-      final testResult =
-          await TorrentStreamService.extractTorrentStreams('550', isMovie: true);
-
+      // Test with a popular movie (The Shawshank Redemption - TMDB ID: 278)
+      final providers = await StremioProviderService.getMovieStreams('278');
+      final isHealthy = providers.isNotEmpty;
       return {
-        'webrtc_p2p': testResult.success,
-        'overall': testResult.success,
+        'stremio_providers': isHealthy,
+        'overall': isHealthy,
       };
     } catch (e) {
       debugPrint('$_tag: Health check error: $e');
-      return {'webrtc_p2p': false, 'overall': false};
+      return {'stremio_providers': false, 'overall': false};
     }
   }
 
-  /// Test a magnet link source
-  static Future<bool> testMagnetSource(String magnetLink) async {
-    try {
-      if (!magnetLink.startsWith('magnet:')) {
-        return false;
-      }
-
-      // Test by trying to start a session
-      final session = await WebRTCTorrentService.streamMagnet(magnetLink);
-      if (session != null) {
-        await WebRTCTorrentService.stopStream(session.infoHash);
-        return true;
-      }
-      return false;
-    } catch (e) {
-      debugPrint('$_tag: Test magnet source error: $e');
-      return false;
-    }
-  }
-
-  /// Clear caches
+  /// Clear all caches
   static Future<void> clearCaches() async {
     try {
-      TorrentStreamService.dispose();
-      await WebRTCTorrentService.disposeAll();
-      debugPrint('$_tag: All caches cleared');
+      await StreamResolverService.clearCache();
+      debugPrint('$_tag: Caches cleared');
     } catch (e) {
       debugPrint('$_tag: Cache clear error: $e');
     }
   }
 
-  /// Dispose resources
+  /// Dispose and cleanup resources
   static Future<void> dispose() async {
     try {
-      TorrentStreamService.dispose();
-      await WebRTCTorrentService.disposeAll();
+      await StremioProviderService.dispose();
+      await StreamResolverService.dispose();
       debugPrint('$_tag: All services disposed');
     } catch (e) {
       debugPrint('$_tag: Dispose error: $e');
+    }
+  }
+
+  /// Initialize required services
+  static Future<void> initialize() async {
+    try {
+      debugPrint('$_tag: Initializing services...');
+      await StreamResolverService.initialize();
+      debugPrint('$_tag: Services initialized');
+    } catch (e) {
+      debugPrint('$_tag: Initialization error: $e');
     }
   }
 }

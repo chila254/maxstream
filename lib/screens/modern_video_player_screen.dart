@@ -6,7 +6,6 @@ import 'package:dio/dio.dart';
 import '../services/watch_history_service.dart';
 import '../services/settings_service.dart';
 import '../services/combined_stream_service.dart';
-import '../services/webrtc_torrent_service.dart';
 import 'dart:async';
 
 const Map<String, String> _providerBaseUrls = {
@@ -95,10 +94,7 @@ class _ModernVideoPlayerScreenState extends State<ModernVideoPlayerScreen>
   Color _subtitleTextColor = Colors.white;
   Color _subtitleBackgroundColor = const Color.fromARGB(179, 0, 0, 0);
 
-  // WebRTC Torrent streaming state
-  TorrentStreamSession? _torrentSession;
-  StreamProgress? _torrentProgress;
-  bool _isTorrentStream = false;
+
 
   // Netflix-like features
   bool _showMoreInfo = false;
@@ -182,86 +178,7 @@ class _ModernVideoPlayerScreenState extends State<ModernVideoPlayerScreen>
     }
   }
 
-  Future<void> _initializeWebRTCTorrent(String magnetLink) async {
-    try {
-      setState(() {
-        _isLoading = true;
-        _errorMessage = null;
-      });
 
-      debugPrint('VideoPlayer: Initializing WebRTC torrent stream');
-
-      // Start torrent streaming via WebRTC
-      _torrentSession = await WebRTCTorrentService.streamMagnet(
-        magnetLink,
-        onProgress: (progress) {
-          if (mounted) {
-            setState(() {
-              _torrentProgress = progress;
-            });
-            debugPrint(
-              'Torrent Progress: ${progress.downloadPercent.toStringAsFixed(1)}% | Speed: ${progress.downloadSpeedStr}',
-            );
-          }
-        },
-      );
-
-      if (_torrentSession == null) {
-        throw Exception('Failed to initialize torrent stream');
-      }
-
-      setState(() {
-        _isTorrentStream = true;
-      });
-
-      // Get stream URL from torrent session
-      final streamUrl = WebRTCTorrentService.getStreamUrl(
-        _torrentSession!.infoHash,
-      );
-      debugPrint('VideoPlayer: WebRTC stream URL: $streamUrl');
-
-      // Create Media with torrent stream
-      final media = Media(streamUrl);
-      await _player.open(media, play: false);
-
-      debugPrint('VideoPlayer: Torrent media opened successfully');
-
-      await Future.delayed(const Duration(milliseconds: 200));
-      _totalDuration = _player.state.duration;
-
-      if (_rememberPosition && _lastPosition.inSeconds > 0) {
-        await _player.seek(_lastPosition);
-      }
-
-      await _player.setVolume(100);
-
-      if (_autoPlay) {
-        await Future.delayed(const Duration(milliseconds: 500));
-        try {
-          await _player.play();
-        } catch (e) {
-          debugPrint('Initial autoplay failed: $e');
-        }
-      }
-
-      _startProgressTracking();
-      _startControlsTimer();
-      _setupPlayerListeners();
-
-      setState(() {
-        _isPlayerReady = true;
-        _isLoading = false;
-      });
-
-      _showControlsWithAnimation();
-    } catch (e) {
-      debugPrint('VideoPlayer: Torrent initialization error: $e');
-      setState(() {
-        _isLoading = false;
-        _errorMessage = 'Failed to load torrent stream: $e';
-      });
-    }
-  }
 
   void _setupPlayerListeners() {
     _player.streams.buffering.listen((buffering) {
@@ -344,20 +261,15 @@ class _ModernVideoPlayerScreenState extends State<ModernVideoPlayerScreen>
       try {
         debugPrint('VideoPlayer: Attempting to load URL: $bestUrl');
 
-        // Handle magnet links with WebRTC
-        if (bestUrl!.startsWith('magnet:')) {
-          debugPrint(
-            'VideoPlayer: Detected magnet link, using WebRTC torrent streaming',
-          );
-          await _initializeWebRTCTorrent(bestUrl);
-          return;
+        if (bestUrl == null) {
+          throw Exception('No video URL available');
         }
 
         // Create Media with optimized headers
-        final media = Media(
-          bestUrl,
-          httpHeaders: _getOptimizedHeaders(bestUrl),
-        );
+         final media = Media(
+           bestUrl,
+           httpHeaders: _getOptimizedHeaders(bestUrl),
+         );
 
         debugPrint('VideoPlayer: Created media with headers');
 
@@ -524,113 +436,11 @@ class _ModernVideoPlayerScreenState extends State<ModernVideoPlayerScreen>
           if (_showAudioTracksPanel) _buildAudioTracksPanel(),
 
           // Play button overlay for failed autoplay
-          if (_showPlayButton) _buildPlayButtonOverlay(),
-
-          // Torrent info overlay
-          if (_isTorrentStream && _torrentProgress != null)
-            _buildTorrentInfoOverlay(),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTorrentInfoOverlay() {
-    return Positioned(
-      top: 80,
-      left: 16,
-      right: 16,
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Colors.black.withOpacity(0.8),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.green.withOpacity(0.5), width: 1),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  'P2P Streaming',
-                  style: TextStyle(
-                    color: Colors.green,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 12,
-                  ),
-                ),
-                Text(
-                  '${(_torrentProgress!.downloadPercent * 100).toStringAsFixed(1)}%',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(4),
-              child: LinearProgressIndicator(
-                value: _torrentProgress!.downloadPercent,
-                minHeight: 4,
-                backgroundColor: Colors.grey.withOpacity(0.3),
-                valueColor: AlwaysStoppedAnimation<Color>(
-                  Colors.green.withOpacity(0.7),
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '${_torrentProgress!.downloadSpeedStr} ↓',
-                        style: const TextStyle(
-                          color: Colors.greenAccent,
-                          fontSize: 11,
-                        ),
-                      ),
-                      Text(
-                        'Peers: ${_torrentProgress!.peers}',
-                        style: const TextStyle(
-                          color: Colors.grey,
-                          fontSize: 10,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      '${_torrentProgress!.uploadSpeedStr} ↑',
-                      style: const TextStyle(
-                        color: Colors.orangeAccent,
-                        fontSize: 11,
-                      ),
-                    ),
-                    Text(
-                      'ETA: ${_torrentProgress!.etaStr}',
-                      style: const TextStyle(color: Colors.grey, fontSize: 10),
-                    ),
-                  ],
-                ),
-              ],
-            ),
+           if (_showPlayButton) _buildPlayButtonOverlay(),
           ],
-        ),
-      ),
-    );
-  }
+          ),
+          );
+          }
 
   Widget _buildVideoPlayer() {
     if (!_isPlayerReady) {
@@ -1583,14 +1393,10 @@ class _ModernVideoPlayerScreenState extends State<ModernVideoPlayerScreen>
     _progressTimer?.cancel();
     _subtitleTimer?.cancel();
 
-    // Cleanup torrent stream
-    if (_torrentSession != null) {
-      WebRTCTorrentService.stopStream(_torrentSession!.infoHash).ignore();
-    }
-
     _player.dispose();
     _controlsAnimationController.dispose();
     _loadingAnimationController.dispose();
+    CombinedStreamService.dispose();
 
     SystemChrome.setEnabledSystemUIMode(
       SystemUiMode.manual,

@@ -9,6 +9,7 @@ import 'screens/onstream_main_screen.dart';
 import 'services/notification_service.dart';
 import 'services/theme_service.dart';
 import 'services/update_service.dart';
+import 'services/combined_stream_service.dart';
 
 void _checkForUpdates() async {
   final hasUpdate = await UpdateService.checkForUpdate();
@@ -30,6 +31,7 @@ void main() async {
 
     await NotificationService().initialize();
     await ThemeService.instance.loadTheme();
+    await CombinedStreamService.initialize();
 
     // Check for updates after initialization
     WidgetsBinding.instance.addPostFrameCallback((_) {
