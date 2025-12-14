@@ -4,56 +4,49 @@ class ApiConfig {
   static const String tmdbApiKey = '3b65c5fdee212a85a4e4ef208d31d74e';
   static const String tmdbBaseUrl = 'https://api.themoviedb.org/3';
 
-  // ==================== Scrapper API Configuration ====================
-  // Multiple Scrapper API endpoints for direct m3u8 extraction
-  static const Map<String, String> scrapperEndpoints = {
-    'flixhq': 'https://flixhq.to',
-    'hdtoday': 'https://hdtoday.tv',
-    'sflix': 'https://sflix.to',
-    'lookmovie': 'https://lookmovie.io',
-  };
+  // ==================== WebRTC P2P Torrent Configuration ====================
+  // WebRTC P2P streaming configuration
+  static const int webrtcP2pTimeout = 30;
+  static const String webrtcProtocol = 'webrtc-stream://';
 
-  // Scrapper API extraction timeout (in seconds)
-  static const int scrapperApiTimeout = 30;
-
-  // ==================== Deprecated/Legacy Configuration ====================
-  // VidSrc API Configuration (for streaming) - maintained for backward compatibility
-  static const String vidsrcBaseUrl = 'https://vidsrc.to/embed';
-  static const String vidsrcMovieUrl = '$vidsrcBaseUrl/movie';
-  static const String vidsrcTvUrl = '$vidsrcBaseUrl/tv';
+  // DHT nodes for peer discovery
+  static const List<String> dhtNodes = [
+    'dht.transmissionbt.com:6881',
+    'router.bittorrent.gdn:6881',
+    'router.utorrent.com:6881',
+  ];
 
   // ==================== Stream Extraction Strategy ====================
-  // Scrapper API is the primary and only method for stream extraction
-  static const List<String> extractionMethodPriority = ['scrapper_api'];
+  // WebRTC P2P Torrent is the primary method for stream extraction
+  static const List<String> extractionMethodPriority = ['webrtc_p2p'];
 
   // ==================== Validation & Configuration Status ====================
   static bool get isTmdbConfigured => tmdbApiKey.isNotEmpty;
 
-  static bool get isScrapperAvailable => scrapperEndpoints.isNotEmpty;
+  static bool get isWebRTCAvailable => dhtNodes.isNotEmpty;
 
   // Get configured services
   static List<String> get configuredServices {
     final services = <String>[];
     if (isTmdbConfigured) services.add('TMDb');
-    if (isScrapperAvailable)
-      services.add('Scrapper API'); // Primary extraction method
+    if (isWebRTCAvailable) services.add('WebRTC P2P Torrent'); // Primary extraction method
     return services;
   }
 
   // ==================== URL Generators ====================
-  // VidSrc URL generators
+  // WebRTC stream URL generator
+  static String getWebRTCStreamUrl(String infoHash) {
+    return '$webrtcProtocol$infoHash';
+  }
+
+  // Legacy VidSrc URL generators (for backward compatibility)
   static String getMovieStreamUrl(String id) {
-    return '$vidsrcMovieUrl/$id';
+    // Now redirects to torrent stream
+    return getWebRTCStreamUrl(id);
   }
 
   static String getTvStreamUrl(String id, {int? season, int? episode}) {
-    String url = '$vidsrcTvUrl/$id';
-    if (season != null) {
-      url += '/$season';
-      if (episode != null) {
-        url += '/$episode';
-      }
-    }
-    return url;
+    // Now redirects to torrent stream
+    return getWebRTCStreamUrl(id);
   }
 }
