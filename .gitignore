@@ -47,3 +47,13 @@ app.*.map.json
 # Keystore files
 *.jks
 key.jks
+
+# Firebase/Google Services configuration (contains sensitive credentials)
+google-services.json
+**/android/**/google-services.json
+**/ios/**/GoogleService-Info.plist
+
+# Signing credentials (contains sensitive keystore passwords)
+keystore.properties
+**/android/**/keystore.properties
+local.properties
