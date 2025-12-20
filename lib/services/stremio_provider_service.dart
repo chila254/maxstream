@@ -33,17 +33,20 @@ class StreamProvider {
 class StremioProviderService {
   static const String _tag = 'StremioProviderService';
 
-  static final Dio _dio = Dio(
-    BaseOptions(
-      connectTimeout: const Duration(seconds: 10),
-      receiveTimeout: const Duration(seconds: 10),
-      sendTimeout: const Duration(seconds: 10),
-      headers: {
-        'User-Agent':
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      },
-    ),
-  );
+  /// Create a fresh Dio instance for each request to avoid connection pool issues
+  static Dio _createDioInstance() {
+    return Dio(
+      BaseOptions(
+        connectTimeout: const Duration(seconds: 10),
+        receiveTimeout: const Duration(seconds: 10),
+        sendTimeout: const Duration(seconds: 10),
+        headers: {
+          'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        },
+      ),
+    );
+  }
 
   /// Stream providers (embed URLs + direct sources)
   static const Map<String, String> _providers = {
@@ -55,6 +58,7 @@ class StremioProviderService {
 
   /// Get movie streams from Stremio providers
   static Future<List<StreamProvider>> getMovieStreams(String tmdbId) async {
+    Dio dio = _createDioInstance();
     try {
       debugPrint('');
       debugPrint('$_tag: ═══════════════════════════════════════════');
@@ -72,7 +76,7 @@ class StremioProviderService {
           debugPrint('$_tag: Making HEAD request to: $url');
 
           // Verify provider is reachable
-          final response = await _dio.head(
+          final response = await dio.head(
             url,
             options: Options(validateStatus: (status) => status! < 500),
           );
@@ -132,6 +136,8 @@ class StremioProviderService {
     } catch (e) {
       debugPrint('$_tag: ❌ Error fetching movie streams: $e');
       return [];
+    } finally {
+      dio.close();
     }
   }
 
@@ -141,6 +147,7 @@ class StremioProviderService {
     int season,
     int episode,
   ) async {
+    Dio dio = _createDioInstance();
     try {
       debugPrint(
         '$_tag: Fetching streams for series $tmdbId S$season E$episode',
@@ -156,7 +163,7 @@ class StremioProviderService {
           debugPrint('$_tag: Making HEAD request to: $url');
 
           // Verify provider is reachable
-          final response = await _dio.head(
+          final response = await dio.head(
             url,
             options: Options(validateStatus: (status) => status! < 500),
           );
@@ -205,6 +212,8 @@ class StremioProviderService {
     } catch (e) {
       debugPrint('$_tag: Error fetching series streams: $e');
       return [];
+    } finally {
+      dio.close();
     }
   }
 
@@ -239,8 +248,9 @@ class StremioProviderService {
 
   /// Verify provider is working
   static Future<bool> verifyProvider(StreamProvider provider) async {
+    Dio dio = _createDioInstance();
     try {
-      final response = await _dio.head(
+      final response = await dio.head(
         provider.url,
         options: Options(validateStatus: (status) => status! < 500),
       );
@@ -249,6 +259,8 @@ class StremioProviderService {
     } catch (e) {
       debugPrint('$_tag: Provider verification failed: $e');
       return false;
+    } finally {
+      dio.close();
     }
   }
 
@@ -300,19 +312,9 @@ class StremioProviderService {
   static Future<void> dispose() async {
     try {
       debugPrint('$_tag: Disposing service...');
-      _dio.close(force: true);
       debugPrint('$_tag: Service disposed');
     } catch (e) {
       debugPrint('$_tag: Error disposing: $e');
-    }
-  }
-
-  /// Close connections to reset the pool
-  static Future<void> resetConnections() async {
-    try {
-      _dio.close(force: true);
-    } catch (e) {
-      debugPrint('$_tag: Error resetting connections: $e');
     }
   }
 }

@@ -19,6 +19,7 @@ class _SignUpScreenState extends State<SignUpScreen> with SingleTickerProviderSt
 
   bool _loading = false;
   String? _errorMessage;
+  bool _showPassword = false;
 
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
@@ -218,9 +219,22 @@ class _SignUpScreenState extends State<SignUpScreen> with SingleTickerProviderSt
                                   const SizedBox(height: 12),
                                   TextFormField(
                                     controller: _passwordController,
-                                    obscureText: true,
+                                    obscureText: !_showPassword,
                                     style: const TextStyle(color: Colors.white),
-                                    decoration: _inputDecoration(label: 'Password'),
+                                    decoration: _inputDecoration(
+                                      label: 'Password',
+                                      suffix: IconButton(
+                                        icon: Icon(
+                                          _showPassword ? Icons.visibility : Icons.visibility_off,
+                                          color: Colors.white,
+                                        ),
+                                        onPressed: () {
+                                          setState(() {
+                                            _showPassword = !_showPassword;
+                                          });
+                                        },
+                                      ),
+                                    ),
                                     validator: (value) =>
                                         value == null || value.length < 6 ? 'Enter 6+ characters' : null,
                                   ),
@@ -234,13 +248,19 @@ class _SignUpScreenState extends State<SignUpScreen> with SingleTickerProviderSt
                                       backgroundColor: Colors.blueAccent,
                                       padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 14),
                                     ),
-                                    child: const Text('Sign Up'),
+                                    child: const Text(
+                                      'Sign Up',
+                                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                                    ),
                                   ),
                                   const SizedBox(height: 12),
                                   ElevatedButton.icon(
                                     onPressed: _signUpWithGoogle,
-                                    icon: const Icon(Icons.g_mobiledata),
-                                    label: const Text('Sign Up with Google'),
+                                    icon: const Icon(Icons.g_mobiledata, color: Colors.white),
+                                    label: const Text(
+                                      'Sign Up with Google',
+                                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                                    ),
                                     style: ElevatedButton.styleFrom(
                                       backgroundColor: Colors.redAccent,
                                       padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 14),
@@ -273,10 +293,11 @@ class _SignUpScreenState extends State<SignUpScreen> with SingleTickerProviderSt
     );
   }
 
-  InputDecoration _inputDecoration({required String label}) {
+  InputDecoration _inputDecoration({required String label, Widget? suffix}) {
     return InputDecoration(
       labelText: label,
       labelStyle: const TextStyle(color: Colors.white),
+      suffixIcon: suffix,
       enabledBorder: OutlineInputBorder(
         borderSide: const BorderSide(color: Colors.white),
         borderRadius: BorderRadius.circular(12),

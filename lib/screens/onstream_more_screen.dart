@@ -268,7 +268,7 @@ class _OnStreamMoreScreenState extends State<OnStreamMoreScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'MaxStream v1.0.0',
+              'MaxStream v1.1.0',
               style: TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.bold,

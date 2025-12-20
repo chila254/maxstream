@@ -65,15 +65,20 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
 
   // New player features
   double _volume = 1.0;
+  // ignore: unused_field
   double _playbackSpeed = 1.0;
   bool _isTheaterMode = false;
   double _subtitleSync = 0.0; // in seconds
   int _selectedAudioTrack = 0;
   List<String> _availableAudioTracks = ['Default'];
-  bool _showVolumeSlider = false;
-  bool _showSpeedMenu = false;
   bool _showAudioTracksMenu = false;
   bool _showSubtitleSyncMenu = false;
+
+  // Gesture controls
+  bool _showRewindIndicator = false;
+  bool _showForwardIndicator = false;
+  Timer? _hideRewindTimer;
+  Timer? _hideForwardTimer;
 
   // Quality and PiP features
   String _currentQuality = 'Auto';
@@ -81,6 +86,10 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
   int _selectedQualityIndex = 0;
   bool _isPictureInPicture = false;
   bool _showQualityMenu = false;
+
+  // Volume gesture control
+  bool _showVolumeIndicator = false;
+  Timer? _hideVolumeTimer;
 
   // Ad-blocker enhancement
   int _blockedAdsCount = 0;
@@ -95,6 +104,11 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
   @override
   void initState() {
     super.initState();
+    // Force landscape orientation for better video viewing
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
 
     _setupAnimations();
@@ -409,18 +423,65 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
         .pip-indicator.active {
           display: block;
         }
+        .play-pause-button {
+          position: absolute;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          width: 80px;
+          height: 80px;
+          background: rgba(0, 0, 0, 0.5);
+          border: 3px solid white;
+          border-radius: 50%;
+          display: none;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          z-index: 10;
+          transition: background 0.3s ease;
+        }
+        .play-pause-button:hover {
+          background: rgba(255, 255, 255, 0.2);
+        }
+        .play-pause-button.hidden {
+          display: none;
+        }
+        .play-pause-button.show {
+          display: flex;
+        }
+        .play-pause-icon {
+          width: 0;
+          height: 0;
+          border-left: 25px solid white;
+          border-top: 15px solid transparent;
+          border-bottom: 15px solid transparent;
+          margin-left: 5px;
+        }
+        .pause-icon {
+          width: 6px;
+          height: 40px;
+          background: white;
+          margin: 0 5px;
+        }
       </style>
     </head>
     <body>
       <div class="container">
-        <video 
-          id="videoPlayer" 
-          ${_autoPlay ? 'autoplay' : ''} 
-          controlsList="nodownload"
-          style="width: 100%; height: 100%;">
-          <source src="$videoUrl" type="video/mp4">
-          Your browser does not support the video tag.
-        </video>
+         <video 
+           id="videoPlayer" 
+           controlsList="nodownload"
+           playsinline
+           crossorigin="anonymous"
+           style="width: 100%; height: 100%; object-fit: contain;">
+           Your browser does not support the video tag.
+         </video>
+        <div id="playPauseButton" class="play-pause-button">
+          <div id="playIcon" class="play-pause-icon"></div>
+          <div id="pauseIcon" style="display: none;">
+            <div class="pause-icon"></div>
+            <div class="pause-icon"></div>
+          </div>
+        </div>
         <div id="theaterIndicator" class="theater-indicator">Theater Mode</div>
         <div id="qualityIndicator" class="quality-indicator">Auto</div>
         <div id="pipIndicator" class="pip-indicator">Picture in Picture</div>
@@ -430,32 +491,171 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
         ${_getAdBlockingScript()}
         
         // Save progress to Flutter
-        const player = document.getElementById('videoPlayer');
-        const theaterIndicator = document.getElementById('theaterIndicator');
-        let lastProgressUpdate = 0;
-        let introSkipped = false;
-        let outroSkipped = false;
-        
-        // Player state
-        let playerVolume = 1.0;
-        let playerSpeed = 1.0;
-        let isTheaterMode = false;
-        let subtitleSync = 0; // seconds offset
-        let currentAudioTrack = 0;
-        let currentQuality = 'Auto';
-        let isPictureInPicture = false;
-        
-        // Freeze detection
-        let lastPlaybackPosition = 0;
-        let frozenCheckCount = 0;
-        let reportedFrozen = false;
-        
-        // Skip intro detection (typically 0-30 seconds)
-        const INTRO_END = 30;
-        // Skip outro detection (typically 3-5 minutes before end or 85%+ of video)
-        const OUTRO_START_PERCENT = 0.85;
-        
-        player.addEventListener('timeupdate', function() {
+         const player = document.getElementById('videoPlayer');
+         const theaterIndicator = document.getElementById('theaterIndicator');
+         const playPauseButton = document.getElementById('playPauseButton');
+         const playIcon = document.getElementById('playIcon');
+         const pauseIcon = document.getElementById('pauseIcon');
+         let lastProgressUpdate = 0;
+         let introSkipped = false;
+         let outroSkipped = false;
+         
+         // Player state
+         let playerVolume = 1.0;
+         let playerSpeed = 1.0;
+         let isTheaterMode = false;
+         let subtitleSync = 0; // seconds offset
+         let currentAudioTrack = 0;
+         let currentQuality = 'Auto';
+         let isPictureInPicture = false;
+         
+         // Freeze detection
+         let lastPlaybackPosition = 0;
+         let frozenCheckCount = 0;
+         let reportedFrozen = false;
+         
+         // Skip intro detection (typically 0-30 seconds)
+         const INTRO_END = 30;
+         // Skip outro detection (typically 3-5 minutes before end or 85%+ of video)
+         const OUTRO_START_PERCENT = 0.85;
+         
+         // Play/Pause button functionality
+         function updatePlayPauseIcon() {
+           if (player.paused) {
+             playIcon.style.display = 'block';
+             pauseIcon.style.display = 'none';
+           } else {
+             playIcon.style.display = 'none';
+             pauseIcon.style.display = 'flex';
+           }
+         }
+         
+         playPauseButton.addEventListener('click', function() {
+           if (player.paused) {
+             player.play();
+           } else {
+             player.pause();
+           }
+           updatePlayPauseIcon();
+         });
+         
+         player.addEventListener('play', updatePlayPauseIcon);
+         player.addEventListener('pause', updatePlayPauseIcon);
+         
+         // Hide play button when playing, show when paused or ended
+         player.addEventListener('play', function() {
+           playPauseButton.style.opacity = '0.3';
+           playPauseButton.style.pointerEvents = 'auto';
+         });
+         
+         player.addEventListener('pause', function() {
+           playPauseButton.style.opacity = '1';
+           playPauseButton.style.pointerEvents = 'auto';
+         });
+         
+         // Initialize icon
+         updatePlayPauseIcon();
+         
+         // Load video source dynamically
+         const videoUrl = '$videoUrl';
+         console.log('📺 Video URL: ' + videoUrl);
+         
+         // Clear any existing sources
+         player.innerHTML = '';
+         
+         // Create source element dynamically
+         const source = document.createElement('source');
+         source.src = videoUrl;
+         
+         // Determine video type based on URL
+         if (videoUrl.includes('.m3u8') || videoUrl.includes('master.m3u8')) {
+           source.type = 'application/x-mpegURL';
+           console.log('🎬 Format: HLS (m3u8)');
+         } else if (videoUrl.includes('.mpd')) {
+           source.type = 'application/dash+xml';
+           console.log('🎬 Format: DASH (mpd)');
+         } else {
+           source.type = 'video/mp4';
+           console.log('🎬 Format: MP4');
+         }
+         
+         source.setAttribute('crossorigin', 'anonymous');
+         player.appendChild(source);
+         
+         console.log('✓ Source element appended');
+         
+         // Force reload to apply source
+         player.load();
+         console.log('✓ Player.load() called');
+         
+         // Error handling and logging
+         player.addEventListener('error', function() {
+           console.error('Video error:', player.error);
+           if (player.error) {
+             let errorMessage = 'Unknown error';
+             switch(player.error.code) {
+               case player.error.MEDIA_ERR_ABORTED:
+                 errorMessage = 'Video loading aborted';
+                 break;
+               case player.error.MEDIA_ERR_NETWORK:
+                 errorMessage = 'Network error loading video';
+                 break;
+               case player.error.MEDIA_ERR_DECODE:
+                 errorMessage = 'Error decoding video';
+                 break;
+               case player.error.MEDIA_ERR_SRC_NOT_SUPPORTED:
+                 errorMessage = 'Video source not supported';
+                 break;
+             }
+             console.error('Player error: ' + errorMessage);
+             if (Flutterplayer && Flutterplayer.postMessage) {
+               Flutterplayer.postMessage(JSON.stringify({
+                 action: 'playerError',
+                 message: errorMessage,
+                 code: player.error.code
+               }));
+             }
+           }
+         });
+         
+         // Log when metadata is loaded
+         player.addEventListener('loadedmetadata', function() {
+           console.log('✓ Video metadata loaded: ' + player.duration + 's');
+           // Show play button when metadata is loaded
+           playPauseButton.classList.add('show');
+           updatePlayPauseIcon();
+           
+           // Auto-play if enabled
+           if (${_autoPlay ? 'true' : 'false'}) {
+             console.log('▶ Auto-playing video...');
+             player.play().catch(function(error) {
+               console.error('Auto-play failed:', error);
+             });
+           }
+           
+           if (Flutterplayer && Flutterplayer.postMessage) {
+             Flutterplayer.postMessage(JSON.stringify({
+               action: 'videoMetadataLoaded',
+               duration: player.duration
+             }));
+           }
+         });
+         
+         // Log when video can play
+         player.addEventListener('canplay', function() {
+           console.log('Video can play');
+         });
+         
+         // Log loading states
+         player.addEventListener('loadstart', function() {
+           console.log('Video loading started');
+         });
+         
+         player.addEventListener('playing', function() {
+           console.log('Video started playing');
+         });
+         
+         player.addEventListener('timeupdate', function() {
           const currentTime = player.currentTime;
           const duration = player.duration;
           
@@ -774,6 +974,161 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
             },
           ),
 
+          // Left side gesture - double tap to rewind 10 seconds + volume control
+          Positioned(
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: MediaQuery.of(context).size.width * 0.25,
+            child: GestureDetector(
+              onDoubleTap: () {
+                _handleLeftDoubleTap();
+              },
+              onVerticalDragUpdate: (details) {
+                // Scroll up = increase volume
+                // Scroll down = decrease volume
+                final volumeChange = -details.delta.dy / 500;
+                setState(() {
+                  _volume = (_volume + volumeChange).clamp(0.0, 1.0);
+                  _showVolumeIndicator = true;
+                });
+                _webViewController.evaluateJavascript(
+                  source: 'window.setPlayerVolume($_volume);',
+                );
+                
+                // Restart timer to hide indicator
+                _hideVolumeTimer?.cancel();
+                _hideVolumeTimer = Timer(const Duration(seconds: 1), () {
+                  if (mounted) {
+                    setState(() => _showVolumeIndicator = false);
+                  }
+                });
+              },
+              child: Container(color: Colors.transparent),
+            ),
+          ),
+
+          // Right side gesture - double tap to forward 10 seconds
+          Positioned(
+            right: 0,
+            top: 0,
+            bottom: 0,
+            width: MediaQuery.of(context).size.width * 0.25,
+            child: GestureDetector(
+              onDoubleTap: () {
+                _handleRightDoubleTap();
+              },
+              child: Container(color: Colors.transparent),
+            ),
+          ),
+
+          // Volume indicator
+          if (_showVolumeIndicator)
+            Positioned(
+              right: 16,
+              top: MediaQuery.of(context).size.height / 2 - 50,
+              child: Container(
+                width: 60,
+                height: 100,
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.8),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.white, width: 2),
+                ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      _volume == 0
+                          ? Icons.volume_off
+                          : _volume < 0.5
+                              ? Icons.volume_down
+                              : Icons.volume_up,
+                      color: Colors.white,
+                      size: 24,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '${(_volume * 100).toStringAsFixed(0)}%',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+          // Rewind indicator (left side)
+          if (_showRewindIndicator)
+            Positioned(
+              left: 16,
+              top: MediaQuery.of(context).size.height / 2 - 40,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.8),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.white, width: 2),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: const [
+                    Icon(
+                      Icons.replay_10,
+                      color: Colors.white,
+                      size: 28,
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      '10s',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+          // Forward indicator (right side)
+          if (_showForwardIndicator)
+            Positioned(
+              right: 16,
+              top: MediaQuery.of(context).size.height / 2 - 40,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.8),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.white, width: 2),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: const [
+                    Icon(
+                      Icons.forward_10,
+                      color: Colors.white,
+                      size: 28,
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      '10s',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
           // Loading overlay
           if (_isLoading) _buildLoadingOverlay(),
 
@@ -949,10 +1304,6 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                         children: [
-                          // Volume control
-                          _buildVolumeControl(),
-                          // Speed control
-                          _buildSpeedControl(),
                           // Audio tracks
                           _buildAudioTracksControl(),
                           // Subtitle sync
@@ -975,98 +1326,6 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
           ),
         );
       },
-    );
-  }
-
-  Widget _buildVolumeControl() {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        IconButton(
-          icon: Icon(
-            _volume == 0 ? Icons.volume_off : Icons.volume_up,
-            color: Colors.white,
-            size: 20,
-          ),
-          onPressed: () {
-            setState(() {
-              _showVolumeSlider = !_showVolumeSlider;
-            });
-            _showControlsWithAnimation();
-          },
-        ),
-        if (_showVolumeSlider)
-          Container(
-            width: 100,
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: Slider(
-              value: _volume,
-              min: 0,
-              max: 1,
-              onChanged: (value) {
-                setState(() {
-                  _volume = value;
-                });
-                _webViewController.evaluateJavascript(
-                  source: 'window.setPlayerVolume($_volume);',
-                );
-                _showControlsWithAnimation();
-              },
-            ),
-          ),
-        const Text(
-          'Volume',
-          style: TextStyle(color: Colors.white, fontSize: 10),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildSpeedControl() {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        PopupMenuButton<double>(
-          onSelected: (speed) {
-            setState(() {
-              _playbackSpeed = speed;
-              _showSpeedMenu = false;
-            });
-            _webViewController.evaluateJavascript(
-              source: 'window.setPlaybackSpeed($_playbackSpeed);',
-            );
-            _showControlsWithAnimation();
-          },
-          itemBuilder: (context) => [
-            const PopupMenuItem(value: 0.5, child: Text('0.5x')),
-            const PopupMenuItem(value: 0.75, child: Text('0.75x')),
-            const PopupMenuItem(value: 1.0, child: Text('1.0x')),
-            const PopupMenuItem(value: 1.25, child: Text('1.25x')),
-            const PopupMenuItem(value: 1.5, child: Text('1.5x')),
-            const PopupMenuItem(value: 2.0, child: Text('2.0x')),
-          ],
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              IconButton(
-                icon: const Icon(Icons.speed, color: Colors.white, size: 20),
-                onPressed: () {
-                  setState(() => _showSpeedMenu = !_showSpeedMenu);
-                  _showControlsWithAnimation();
-                },
-              ),
-              Text(
-                '${_playbackSpeed}x',
-                style: const TextStyle(color: Colors.white, fontSize: 10),
-              ),
-            ],
-          ),
-        ),
-        const Text(
-          'Speed',
-          style: TextStyle(color: Colors.white, fontSize: 10),
-        ),
-      ],
     );
   }
 
@@ -1538,6 +1797,25 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
           _handleVideoEnded();
           break;
 
+        case 'playerError':
+          final errorMessage = data['message'] as String?;
+          final errorCode = data['code'] as int?;
+          debugPrint('InAppPlayer error from JS: $errorMessage (code: $errorCode)');
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Video playback error: $errorMessage'),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 5),
+            ),
+          );
+          break;
+
+        case 'videoMetadataLoaded':
+          final duration = data['duration'] as num?;
+          debugPrint('Video metadata loaded: ${duration}s');
+          break;
+
         default:
           debugPrint('Unknown player action: $action');
       }
@@ -1783,6 +2061,48 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
     );
   }
 
+  void _handleLeftDoubleTap() {
+    // Rewind 10 seconds
+    _webViewController.evaluateJavascript(
+      source: '''
+        const player = document.getElementById('videoPlayer');
+        player.currentTime = Math.max(0, player.currentTime - 10);
+      ''',
+    );
+
+    setState(() {
+      _showRewindIndicator = true;
+    });
+
+    _hideRewindTimer?.cancel();
+    _hideRewindTimer = Timer(const Duration(milliseconds: 600), () {
+      if (mounted) {
+        setState(() => _showRewindIndicator = false);
+      }
+    });
+  }
+
+  void _handleRightDoubleTap() {
+    // Forward 10 seconds
+    _webViewController.evaluateJavascript(
+      source: '''
+        const player = document.getElementById('videoPlayer');
+        player.currentTime = Math.min(player.duration, player.currentTime + 10);
+      ''',
+    );
+
+    setState(() {
+      _showForwardIndicator = true;
+    });
+
+    _hideForwardTimer?.cancel();
+    _hideForwardTimer = Timer(const Duration(milliseconds: 600), () {
+      if (mounted) {
+        setState(() => _showForwardIndicator = false);
+      }
+    });
+  }
+
   /// Cache management methods
   void _saveToCache(String key, dynamic value) {
     _streamCache[key] = value;
@@ -1885,9 +2205,20 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
     _controlsTimer?.cancel();
     _progressTimer?.cancel();
     _freezeDetectionTimer?.cancel();
+    _hideVolumeTimer?.cancel();
+    _hideRewindTimer?.cancel();
+    _hideForwardTimer?.cancel();
 
     _controlsAnimationController.dispose();
     CombinedStreamService.dispose();
+
+    // Reset orientation to allow both portrait and landscape
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
 
     SystemChrome.setEnabledSystemUIMode(
       SystemUiMode.manual,

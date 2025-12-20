@@ -2,7 +2,6 @@ import 'firebase_options.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:provider/provider.dart';
 import 'screens/splash_screen.dart';
 import 'screens/onstream_main_screen.dart';
 import 'services/notification_service.dart';
@@ -72,20 +71,12 @@ class OnStreamApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider.value(
-      value: ThemeService.instance,
-      child: Consumer<ThemeService>(
-        builder: (context, themeService, child) {
-          return MaterialApp(
-            title: 'MaxStream',
-            theme: ThemeService.lightTheme,
-            darkTheme: ThemeService.darkTheme,
-            themeMode: themeService.themeMode,
-            debugShowCheckedModeBanner: false,
-            home: const AuthGate(),
-          );
-        },
-      ),
+    return MaterialApp(
+      title: 'MaxStream',
+      theme: ThemeService.darkTheme,
+      themeMode: ThemeMode.dark,
+      debugShowCheckedModeBanner: false,
+      home: const AuthGate(),
     );
   }
 }

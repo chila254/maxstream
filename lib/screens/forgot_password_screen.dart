@@ -180,7 +180,10 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
                             backgroundColor: Colors.red,
                             padding: const EdgeInsets.symmetric(horizontal: 40),
                           ),
-                          child: const Text("Send Reset Link"),
+                          child: const Text(
+                            "Send Reset Link",
+                            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                          ),
                         ),
                         const SizedBox(height: 10),
                         TextButton(

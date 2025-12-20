@@ -37,8 +37,8 @@ android {
         applicationId = "com.maxstream.app"
         minSdk = 23
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 3
+        versionName = "1.1.0"
     }
 
     signingConfigs {
