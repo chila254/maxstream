@@ -29,12 +29,7 @@ android {
         versionName = "1.0"
     }
 
-    signingConfigs {
-        create("release") {
-            storeFile = file("C:\\FlutterProjects\\mx\\maxstream\\key.jks")
-            storePassword = "android"
-            keyAlias = "maxstreamkey"
-            keyPassword = "android"
+    
         }
     }
 
