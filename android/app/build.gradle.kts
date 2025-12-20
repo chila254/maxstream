@@ -8,9 +8,14 @@ plugins {
 
 // Load signing credentials from keystore.properties
 val keystorePropertiesFile = rootProject.file("android/keystore.properties")
-val keystoreProperties = java.util.Properties()
+val keystoreProperties = mutableMapOf<String, String>()
 if (keystorePropertiesFile.exists()) {
-    keystoreProperties.load(keystorePropertiesFile.inputStream())
+    keystorePropertiesFile.readLines().forEach { line ->
+        if (line.isNotBlank() && !line.startsWith("#")) {
+            val (key, value) = line.split("=", limit = 2)
+            keystoreProperties[key.trim()] = value.trim()
+        }
+    }
 }
 
 android {
@@ -39,10 +44,10 @@ android {
     signingConfigs {
         create("release") {
             if (keystoreProperties.isNotEmpty()) {
-                storeFile = file(keystoreProperties.getProperty("storeFile") ?: "")
-                storePassword = keystoreProperties.getProperty("storePassword")
-                keyAlias = keystoreProperties.getProperty("keyAlias")
-                keyPassword = keystoreProperties.getProperty("keyPassword")
+                storeFile = file(keystoreProperties["storeFile"] ?: "")
+                storePassword = keystoreProperties["storePassword"]
+                keyAlias = keystoreProperties["keyAlias"]
+                keyPassword = keystoreProperties["keyPassword"]
             }
         }
     }
