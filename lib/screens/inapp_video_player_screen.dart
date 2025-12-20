@@ -251,16 +251,18 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
       final cacheKey = '${widget.tmdbId}_${widget.season}_${widget.episode}';
       final cachedResult = _getFromCache(cacheKey);
 
+      Map<String, dynamic>? streamResult;
       String? bestUrl;
       if (cachedResult != null) {
         bestUrl = cachedResult['streamUrl'];
         _streamSource = cachedResult['source'];
+        streamResult = cachedResult;
         debugPrint(
           'InAppPlayer: Using cached stream URL: $bestUrl from $_streamSource',
         );
       } else {
         // Extract stream URL using CombinedStreamService
-        final streamResult = await CombinedStreamService.extractStream(
+        streamResult = await CombinedStreamService.extractStream(
           widget.tmdbId,
           widget.isMovie,
           season: widget.season,
@@ -286,17 +288,51 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
         throw Exception('No video URL available');
       }
 
-      // Build HTML5 video player with controls
-      final htmlContent = _buildVideoHtml(bestUrl);
+      final embedUrl = streamResult?['embedUrl'] as String?;
 
       if (!mounted) return;
 
-      // Load HTML content
-      await _webViewController.loadData(
-        data: htmlContent,
-        mimeType: 'text/html',
-        encoding: 'utf8',
-      );
+      if (embedUrl != null) {
+        // Load the embed URL directly
+        await _webViewController.loadUrl(
+          urlRequest: URLRequest(url: WebUri(embedUrl)),
+        );
+        // Inject JavaScript to auto-play and hide controls
+        await Future.delayed(const Duration(seconds: 3));
+        try {
+          await _webViewController.evaluateJavascript(
+            source: '''
+            // Hide page controls
+            const style = document.createElement('style');
+            style.textContent = \`
+              .jw-controls, .jw-controlbar, .jw-icon-play, .jw-icon-pause, .jw-icon-fullscreen, .jw-icon-settings, .jw-icon-cc, .jw-icon-audio, .jw-icon-rewind, .jw-icon-next, .jw-icon-prev {
+                display: none !important;
+              }
+              video {
+                width: 100% !important;
+                height: 100% !important;
+              }
+            \`;
+            document.head.appendChild(style);
+            // Auto-play
+            const videos = document.querySelectorAll('video');
+            videos.forEach(video => {
+              video.play();
+            });
+          ''',
+          );
+        } catch (e) {
+          debugPrint('Error injecting embed script: $e');
+        }
+      } else {
+        // Build HTML5 video player with controls
+        final htmlContent = _buildVideoHtml(bestUrl);
+        await _webViewController.loadData(
+          data: htmlContent,
+          mimeType: 'text/html',
+          encoding: 'utf8',
+        );
+      }
 
       // Resume from last position if enabled
       if (_rememberPosition && _lastPosition.inSeconds > 0) {
@@ -304,17 +340,35 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
         await _webViewController.evaluateJavascript(
           source:
               '''
-            const player = document.getElementById('videoPlayer');
-            player.addEventListener('loadedmetadata', function() {
-              player.currentTime = ${_lastPosition.inSeconds};
-            });
+            if (typeof player !== 'undefined') {
+              player.addEventListener('loadedmetadata', function() {
+                player.currentTime = ${_lastPosition.inSeconds};
+              });
+            }
           ''',
         );
       }
 
       _startProgressTracking();
       _startControlsTimer();
-      _startFreezeDetection();
+
+      // Force play after a delay to ensure video loads
+      await Future.delayed(const Duration(seconds: 3));
+      try {
+        await _webViewController.evaluateJavascript(
+          source: '''
+            if (typeof player !== 'undefined' && player.readyState >= 2) {
+              player.play().then(() => {
+                console.log('Delayed auto-play successful');
+              }).catch(e => {
+                console.error('Delayed auto-play failed:', e);
+              });
+            }
+          ''',
+        );
+      } catch (e) {
+        debugPrint('Error in delayed play: $e');
+      }
 
       setState(() {
         _isLoading = false;
@@ -340,6 +394,7 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <meta http-equiv="Cache-Control" content="max-age=3600">
       <meta http-equiv="Pragma" content="cache">
+      <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
       <style>
         * {
           margin: 0;
@@ -467,11 +522,10 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
     </head>
     <body>
       <div class="container">
-         <video 
-           id="videoPlayer" 
+         <video
+           id="videoPlayer"
            controlsList="nodownload"
            playsinline
-           crossorigin="anonymous"
            style="width: 100%; height: 100%; object-fit: contain;">
            Your browser does not support the video tag.
          </video>
@@ -488,10 +542,13 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
       </div>
       
       <script>
+        console.log('Video player HTML loaded');
+        // Ensure Flutterplayer is defined
+        window.Flutterplayer = window.Flutterplayer || { postMessage: function(msg) { console.log('Flutter message:', msg); } };
         ${_getAdBlockingScript()}
-        
+
         // Save progress to Flutter
-         const player = document.getElementById('videoPlayer');
+         let player = document.getElementById('videoPlayer');
          const theaterIndicator = document.getElementById('theaterIndicator');
          const playPauseButton = document.getElementById('playPauseButton');
          const playIcon = document.getElementById('playIcon');
@@ -531,8 +588,9 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
          }
          
          playPauseButton.addEventListener('click', function() {
+           console.log('Play button clicked, paused:', player.paused);
            if (player.paused) {
-             player.play();
+             player.play().then(() => console.log('Play successful')).catch(e => console.log('Play failed:', e));
            } else {
              player.pause();
            }
@@ -568,9 +626,9 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
          source.src = videoUrl;
          
          // Determine video type based on URL
-         if (videoUrl.includes('.m3u8') || videoUrl.includes('master.m3u8')) {
+         if (videoUrl.includes('.m3u8') || videoUrl.includes('master.m3u8') || videoUrl.includes('rcp')) {
            source.type = 'application/x-mpegURL';
-           console.log('🎬 Format: HLS (m3u8)');
+           console.log('🎬 Format: HLS (m3u8 or rcp)');
          } else if (videoUrl.includes('.mpd')) {
            source.type = 'application/dash+xml';
            console.log('🎬 Format: DASH (mpd)');
@@ -578,15 +636,34 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
            source.type = 'video/mp4';
            console.log('🎬 Format: MP4');
          }
-         
-         source.setAttribute('crossorigin', 'anonymous');
+
          player.appendChild(source);
-         
+
          console.log('✓ Source element appended');
-         
+
          // Force reload to apply source
          player.load();
          console.log('✓ Player.load() called');
+
+         // If HLS, use hls.js
+         if (source.type === 'application/x-mpegURL' && Hls.isSupported()) {
+           const hls = new Hls();
+           hls.loadSource(videoUrl);
+           hls.attachMedia(player);
+           hls.on(Hls.Events.MANIFEST_PARSED, function() {
+             console.log('HLS manifest parsed, auto-playing');
+             player.play();
+           });
+           hls.on(Hls.Events.ERROR, function(event, data) {
+             console.error('HLS error:', data);
+           });
+         }
+
+         // Show play button after a short delay
+         setTimeout(() => {
+           playPauseButton.classList.add('show');
+           updatePlayPauseIcon();
+         }, 1000);
          
          // Error handling and logging
          player.addEventListener('error', function() {
@@ -621,10 +698,12 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
          // Log when metadata is loaded
          player.addEventListener('loadedmetadata', function() {
            console.log('✓ Video metadata loaded: ' + player.duration + 's');
+           // Ensure not muted
+           player.muted = false;
            // Show play button when metadata is loaded
            playPauseButton.classList.add('show');
            updatePlayPauseIcon();
-           
+
            // Auto-play if enabled
            if (${_autoPlay ? 'true' : 'false'}) {
              console.log('▶ Auto-playing video...');
@@ -632,7 +711,7 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
                console.error('Auto-play failed:', error);
              });
            }
-           
+
            if (Flutterplayer && Flutterplayer.postMessage) {
              Flutterplayer.postMessage(JSON.stringify({
                action: 'videoMetadataLoaded',
@@ -644,6 +723,10 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
          // Log when video can play
          player.addEventListener('canplay', function() {
            console.log('Video can play');
+           player.muted = false;
+           player.play().catch(function(error) {
+             console.error('Canplay auto-play failed:', error);
+           });
          });
          
          // Log loading states
@@ -935,6 +1018,9 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
               databaseEnabled: false,
               domStorageEnabled: false,
             ),
+            onConsoleMessage: (controller, consoleMessage) {
+              debugPrint('WebView console: ${consoleMessage.message}');
+            },
             onWebViewCreated: (controller) {
               _webViewController = controller;
               // Add JavaScript channel for Flutter communication
@@ -955,6 +1041,7 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
             onLoadStop: (controller, url) {
               // Re-run ad blocking after page load
               controller.evaluateJavascript(source: _getAdBlockingScript());
+              _startFreezeDetection();
             },
             shouldOverrideUrlLoading: (controller, navigationAction) async {
               final uri = navigationAction.request.url;
@@ -972,6 +1059,20 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
 
               return NavigationActionPolicy.ALLOW;
             },
+          ),
+
+          // Temporary play button
+          Positioned(
+            top: MediaQuery.of(context).size.height / 2 - 25,
+            left: MediaQuery.of(context).size.width / 2 - 50,
+            child: ElevatedButton(
+              onPressed: () {
+                _webViewController.evaluateJavascript(
+                  source: 'if (typeof player !== "undefined") player.play();',
+                );
+              },
+              child: const Text('PLAY'),
+            ),
           ),
 
           // Left side gesture - double tap to rewind 10 seconds + volume control
@@ -995,7 +1096,7 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
                 _webViewController.evaluateJavascript(
                   source: 'window.setPlayerVolume($_volume);',
                 );
-                
+
                 // Restart timer to hide indicator
                 _hideVolumeTimer?.cancel();
                 _hideVolumeTimer = Timer(const Duration(seconds: 1), () {
@@ -1042,8 +1143,8 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
                       _volume == 0
                           ? Icons.volume_off
                           : _volume < 0.5
-                              ? Icons.volume_down
-                              : Icons.volume_up,
+                          ? Icons.volume_down
+                          : Icons.volume_up,
                       color: Colors.white,
                       size: 24,
                     ),
@@ -1067,7 +1168,10 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
               left: 16,
               top: MediaQuery.of(context).size.height / 2 - 40,
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.black.withValues(alpha: 0.8),
                   borderRadius: BorderRadius.circular(8),
@@ -1076,11 +1180,7 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: const [
-                    Icon(
-                      Icons.replay_10,
-                      color: Colors.white,
-                      size: 28,
-                    ),
+                    Icon(Icons.replay_10, color: Colors.white, size: 28),
                     SizedBox(height: 4),
                     Text(
                       '10s',
@@ -1101,7 +1201,10 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
               right: 16,
               top: MediaQuery.of(context).size.height / 2 - 40,
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.black.withValues(alpha: 0.8),
                   borderRadius: BorderRadius.circular(8),
@@ -1110,11 +1213,7 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: const [
-                    Icon(
-                      Icons.forward_10,
-                      color: Colors.white,
-                      size: 28,
-                    ),
+                    Icon(Icons.forward_10, color: Colors.white, size: 28),
                     SizedBox(height: 4),
                     Text(
                       '10s',
@@ -1800,7 +1899,9 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
         case 'playerError':
           final errorMessage = data['message'] as String?;
           final errorCode = data['code'] as int?;
-          debugPrint('InAppPlayer error from JS: $errorMessage (code: $errorCode)');
+          debugPrint(
+            'InAppPlayer error from JS: $errorMessage (code: $errorCode)',
+          );
           if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(

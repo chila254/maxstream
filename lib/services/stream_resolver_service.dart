@@ -10,6 +10,7 @@ class ResolvedStream {
   final String type; // 'hls' or 'mp4'
   final Map<String, String>? headers;
   final bool isPlayable;
+  final String? embedUrl;
 
   ResolvedStream({
     required this.url,
@@ -18,6 +19,7 @@ class ResolvedStream {
     required this.type,
     this.headers,
     this.isPlayable = true,
+    this.embedUrl,
   });
 
   Map<String, dynamic> toMap() {
@@ -28,6 +30,7 @@ class ResolvedStream {
       'type': type,
       'headers': headers,
       'isPlayable': isPlayable,
+      'embedUrl': embedUrl,
     };
   }
 }
@@ -168,6 +171,7 @@ class StreamResolverService {
         type: type,
         headers: _getHeadersForSource(source),
         isPlayable: true,
+        embedUrl: embedUrl,
       );
     } catch (e) {
       debugPrint('$_tag: ❌ ERROR: $e');

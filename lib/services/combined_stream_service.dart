@@ -59,7 +59,9 @@ class CombinedStreamService {
         return null;
       }
 
-      debugPrint('$_tag: ✓ STEP 1 SUCCESS: Found ${providers.length} providers');
+      debugPrint(
+        '$_tag: ✓ STEP 1 SUCCESS: Found ${providers.length} providers',
+      );
       debugPrint('');
 
       // Step 2: Resolve embeds to playable URLs (ordered by quality)
@@ -69,7 +71,9 @@ class CombinedStreamService {
           .map((p) => (url: p.url, source: p.source, quality: p.quality))
           .toList();
 
-      debugPrint('$_tag: Attempting to resolve ${providersToResolve.length} providers...');
+      debugPrint(
+        '$_tag: Attempting to resolve ${providersToResolve.length} providers...',
+      );
       debugPrint('$_tag: Provider order (by quality):');
       for (int i = 0; i < providersToResolve.length; i++) {
         final p = providersToResolve[i];
@@ -95,7 +99,10 @@ class CombinedStreamService {
       debugPrint('$_tag: 📺 Source: ${resolvedStream.source}');
       debugPrint('$_tag: 🎬 Quality: ${resolvedStream.quality}');
       debugPrint('$_tag: 🔗 Type: ${resolvedStream.type}');
-      final urlPreview = resolvedStream.url.substring(0, resolvedStream.url.length > 100 ? 100 : resolvedStream.url.length);
+      final urlPreview = resolvedStream.url.substring(
+        0,
+        resolvedStream.url.length > 100 ? 100 : resolvedStream.url.length,
+      );
       debugPrint('$_tag: 📡 URL: $urlPreview...');
       debugPrint('');
 
@@ -105,6 +112,7 @@ class CombinedStreamService {
         'source': resolvedStream.source,
         'type': resolvedStream.type,
         'quality': resolvedStream.quality,
+        'embedUrl': resolvedStream.embedUrl,
         'method': 'stremio_webview',
         'message': 'Stream resolved from ${resolvedStream.source}',
         'headers': resolvedStream.headers,
@@ -171,10 +179,7 @@ class CombinedStreamService {
       // Test with a popular movie (The Shawshank Redemption - TMDB ID: 278)
       final providers = await StremioProviderService.getMovieStreams('278');
       final isHealthy = providers.isNotEmpty;
-      return {
-        'stremio_providers': isHealthy,
-        'overall': isHealthy,
-      };
+      return {'stremio_providers': isHealthy, 'overall': isHealthy};
     } catch (e) {
       debugPrint('$_tag: Health check error: $e');
       return {'stremio_providers': false, 'overall': false};
