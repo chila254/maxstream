@@ -4,7 +4,7 @@ import 'package:shimmer/shimmer.dart';
 import '../database/db_helper.dart';
 import '../models/movie.dart';
 import '../services/tmdb_api_service.dart';
-import 'modern_video_player_screen.dart';
+import 'inapp_video_player_screen.dart';
 
 class OnStreamDetailsScreen extends StatefulWidget {
   final Movie item;
@@ -688,7 +688,7 @@ class _OnStreamDetailsScreenState extends State<OnStreamDetailsScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => ModernVideoPlayerScreen(
+        builder: (context) => InAppVideoPlayerScreen(
           title: widget.item.title,
           tmdbId: widget.item.id.toString(),
           isMovie: widget.mediaType == 'movie',

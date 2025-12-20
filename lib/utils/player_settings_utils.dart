@@ -1,12 +1,11 @@
-import 'package:media_kit/media_kit.dart';
 import '../services/settings_service.dart';
 
 /// Utility class for managing video player settings
 class PlayerSettingsUtils {
   /// Apply all saved player settings to a player instance
-  static Future<void> applyPlayerSettings(Player player) async {
+  static Future<void> applyPlayerSettings() async {
     try {
-      // Settings are applied directly in ModernVideoPlayerScreen via _loadSettings()
+      // Settings are applied directly in InAppVideoPlayerScreen via _loadSettings()
       // This method is kept for future extensibility if needed
     } catch (e) {
       print('Error applying player settings: $e');
@@ -19,7 +18,7 @@ class PlayerSettingsUtils {
   }
 
   /// Map resize mode string to CSS fit value
-  /// Video resize mode mapping used in ModernVideoPlayerScreen
+  /// Video resize mode mapping used in InAppVideoPlayerScreen
   static String mapResizeModeToFit(String mode) {
     switch (mode) {
       case 'Fill':

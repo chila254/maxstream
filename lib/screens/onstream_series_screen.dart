@@ -5,7 +5,7 @@ import '../models/movie.dart';
 import '../models/series.dart';
 import '../services/tmdb_api_service.dart';
 import '../database/db_helper.dart';
-import 'modern_video_player_screen.dart';
+import 'inapp_video_player_screen.dart';
 
 class OnStreamSeriesScreen extends StatefulWidget {
   final Movie seriesItem;
@@ -207,7 +207,7 @@ class _OnStreamSeriesScreenState extends State<OnStreamSeriesScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => ModernVideoPlayerScreen(
+        builder: (context) => InAppVideoPlayerScreen(
           title:
               '${widget.seriesItem.title} - S${season.seasonNumber}E${episode.episodeNumber}: ${episode.name}',
           tmdbId: widget.seriesItem.id.toString(),

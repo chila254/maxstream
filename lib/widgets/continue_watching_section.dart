@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../screens/modern_video_player_screen.dart';
+import '../screens/inapp_video_player_screen.dart';
 
 class ContinueWatchingSection extends StatelessWidget {
   final List<Map<String, dynamic>> continueWatching;
@@ -52,7 +52,7 @@ class ContinueWatchingSection extends StatelessWidget {
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => ModernVideoPlayerScreen(
+            builder: (context) => InAppVideoPlayerScreen(
               title: item['title'],
               tmdbId: item['tmdbId'],
               isMovie: item['isMovie'],

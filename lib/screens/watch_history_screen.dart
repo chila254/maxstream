@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/watch_history_service.dart';
 
-import 'package:maxstream/screens/modern_video_player_screen.dart';
+import 'package:maxstream/screens/inapp_video_player_screen.dart';
 
 class WatchHistoryScreen extends StatefulWidget {
   const WatchHistoryScreen({super.key});
@@ -86,7 +86,7 @@ class _WatchHistoryScreenState extends State<WatchHistoryScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => ModernVideoPlayerScreen(
+        builder: (context) => InAppVideoPlayerScreen(
           title: item['title'],
           tmdbId: item['tmdbId'],
           isMovie: item['isMovie'],

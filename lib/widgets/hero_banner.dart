@@ -6,7 +6,7 @@ import '../screens/onstream_series_screen.dart';
 import '../services/tmdb_api_service.dart';
 import '../database/db_helper.dart';
 import '../utils/responsive_utils.dart';
-import '../screens/modern_video_player_screen.dart';
+import '../screens/inapp_video_player_screen.dart';
 
 class HeroBanner extends StatefulWidget {
   const HeroBanner({super.key});
@@ -175,7 +175,7 @@ class _HeroBannerState extends State<HeroBanner> {
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (context) => ModernVideoPlayerScreen(
+          builder: (context) => InAppVideoPlayerScreen(
             title: item.title,
             tmdbId: item.id,
             isMovie: item.mediaType == 'movie',
