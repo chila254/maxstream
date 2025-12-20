@@ -36,7 +36,6 @@ class InAppVideoPlayerScreen extends StatefulWidget {
 class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
     with TickerProviderStateMixin {
   late InAppWebViewController _webViewController;
-  bool _isPlayerReady = false;
   bool _isLoading = true;
   String? _errorMessage;
 
@@ -50,8 +49,8 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
 
   // Playback settings
   bool _showControls = true;
-  bool _autoPlay = true;
-  bool _rememberPosition = true;
+  late bool _autoPlay;
+  late bool _rememberPosition;
 
   // Settings from SettingsService
   Map<String, dynamic> _playerSettings = {};
@@ -91,10 +90,10 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
       // Apply player settings to state variables
       _autoPlay = _playerSettings['autoPlay'] ?? true;
       _rememberPosition = _playerSettings['rememberPosition'] ?? true;
-
-      setState(() {});
     } catch (e) {
       debugPrint('Error loading settings: $e');
+      _autoPlay = true;
+      _rememberPosition = true;
     }
   }
 
@@ -218,11 +217,23 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
         encoding: 'utf8',
       );
 
+      // Resume from last position if enabled
+      if (_rememberPosition && _lastPosition.inSeconds > 0) {
+        // Position will be restored via JavaScript player API when ready
+        await _webViewController.evaluateJavascript(
+          source: '''
+            const player = document.getElementById('videoPlayer');
+            player.addEventListener('loadedmetadata', function() {
+              player.currentTime = ${_lastPosition.inSeconds};
+            });
+          ''',
+        );
+      }
+
       _startProgressTracking();
       _startControlsTimer();
 
       setState(() {
-        _isPlayerReady = true;
         _isLoading = false;
       });
 
@@ -281,7 +292,7 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
         <video 
           id="videoPlayer" 
           controls 
-          autoplay 
+          ${_autoPlay ? 'autoplay' : ''} 
           controlsList="nodownload"
           style="width: 100%; height: 100%;">
           <source src="$videoUrl" type="video/mp4">
@@ -344,8 +355,7 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
               useShouldOverrideUrlLoading: true,
               mediaPlaybackRequiresUserGesture: false,
               allowsInlineMediaPlayback: true,
-              mixedContentMode:
-                  AndroidMixedContentMode.MIXED_CONTENT_ALWAYS_ALLOW,
+              mixedContentMode: MixedContentMode.MIXED_CONTENT_ALWAYS_ALLOW,
               userAgent:
                   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
             ),
