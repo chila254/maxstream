@@ -49,8 +49,8 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
 
   // Playback settings
   bool _showControls = true;
-  late bool _autoPlay;
-  late bool _rememberPosition;
+  bool _autoPlay = true;
+  bool _rememberPosition = true;
 
   // Skip detection
   bool _showSkipIntro = false;
@@ -415,7 +415,6 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
       <div class="container">
         <video 
           id="videoPlayer" 
-          controls 
           ${_autoPlay ? 'autoplay' : ''} 
           controlsList="nodownload"
           style="width: 100%; height: 100%;">
@@ -1461,6 +1460,20 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
           setState(() {
             _isTheaterMode = data['enabled'] as bool? ?? false;
           });
+          // Auto-rotate to landscape when theatre mode is enabled
+          if (_isTheaterMode) {
+            SystemChrome.setPreferredOrientations([
+              DeviceOrientation.landscapeLeft,
+              DeviceOrientation.landscapeRight,
+            ]);
+          } else {
+            SystemChrome.setPreferredOrientations([
+              DeviceOrientation.portraitUp,
+              DeviceOrientation.portraitDown,
+              DeviceOrientation.landscapeLeft,
+              DeviceOrientation.landscapeRight,
+            ]);
+          }
           break;
 
         case 'subtitleSyncChanged':

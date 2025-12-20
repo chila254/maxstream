@@ -55,8 +55,12 @@ class StreamResolverService {
             onPageFinished: (String url) {
               debugPrint('$_tag: Page HTML loaded: $url');
               debugPrint('$_tag: Waiting for JavaScript content to load...');
-              // Wait a bit for JavaScript to initialize, then extract
-              Future.delayed(const Duration(milliseconds: 500), () {
+              // Wait for JavaScript to initialize, then extract
+              // Different delay based on domain to allow for dynamic content
+              final delay = url.contains('vidsrc')
+                  ? const Duration(milliseconds: 800)
+                  : const Duration(milliseconds: 500);
+              Future.delayed(delay, () {
                 _extractStreamFromPage();
               });
             },
@@ -69,7 +73,9 @@ class StreamResolverService {
         ..addJavaScriptChannel(
           'StreamExtractor',
           onMessageReceived: (JavaScriptMessage message) {
-            final msgPreview = message.message.length > 100 ? message.message.substring(0, 100) : message.message;
+            final msgPreview = message.message.length > 100
+                ? message.message.substring(0, 100)
+                : message.message;
             debugPrint('$_tag: 📨 JavaScript message received: $msgPreview');
             if (message.message.isNotEmpty && !_urlCompleter!.isCompleted) {
               _urlCompleter?.complete(message.message);
@@ -90,14 +96,14 @@ class StreamResolverService {
   /// [embedUrl] - The embed URL from a streaming provider
   /// [source] - Name of the source (VidSrc, VidSrc Pro, etc.)
   /// [quality] - Quality label
-  /// [timeout] - Maximum time to wait for resolution (default 15 seconds)
+  /// [timeout] - Maximum time to wait for resolution (default 25 seconds)
   ///
   /// Returns ResolvedStream if successful, null if timeout or error
   static Future<ResolvedStream?> resolveStream(
     String embedUrl, {
     required String source,
     required String quality,
-    Duration timeout = const Duration(seconds: 15),
+    Duration timeout = const Duration(seconds: 25),
   }) async {
     try {
       debugPrint('$_tag: ═══════════════════════════════════════════');
@@ -175,16 +181,15 @@ class StreamResolverService {
 
     try {
       // JavaScript injection to extract stream URLs from providers like VidSrc.me
-      // VidSrc.me loads streams dynamically via JavaScript
+      // Uses multiple strategies for different provider implementations
       const String extractionScript = '''
         (function() {
           let streamUrl = null;
           let attempts = 0;
-          const maxAttempts = 8;
-          let debugMessages = [];
+          const maxAttempts = 15;
           
           function sendStreamUrl(url) {
-            if (url && url.trim()) {
+            if (url && url.trim() && url.length > 5) {
               console.log('Stream URL found: ' + url);
               StreamExtractor.postMessage(url);
             }
@@ -194,181 +199,207 @@ class StreamResolverService {
             attempts++;
             console.log('Extraction attempt ' + attempts + '/' + maxAttempts);
             
-            // VIDSRC.ME SPECIFIC: Check for player initialization
+            // VIDSRC.ME SPECIFIC: Check for player initialization in main window
             try {
+              // Strategy 1: VidSrc player object
               if (window.player && window.player.source) {
-                console.log('Found window.player.source (VidSrc pattern)');
+                console.log('Found window.player.source');
                 streamUrl = window.player.source;
-                return true;
+                if (streamUrl) return true;
               }
               if (window.__player && window.__player.src) {
-                console.log('Found window.__player.src (VidSrc pattern)');
+                console.log('Found window.__player.src');
                 streamUrl = window.__player.src;
-                return true;
+                if (streamUrl) return true;
               }
               if (window.source && window.source.src) {
-                console.log('Found window.source.src (VidSrc pattern)');
+                console.log('Found window.source.src');
                 streamUrl = window.source.src;
-                return true;
+                if (streamUrl) return true;
               }
             } catch (e) {
-              console.log('Error checking VidSrc patterns: ' + e);
+              console.log('Error checking window objects: ' + e);
             }
             
-            // 1. Try to find HLS/DASH manifests in script tags
-            const scripts = document.querySelectorAll('script');
-            for (let script of scripts) {
-              const text = script.textContent || '';
-              
-              // Look for m3u8 URLs
-              const m3u8Match = text.match(/https?:\\/\\/[^\\s"'<>]+\\.m3u8[^\\s"'<>]*/i);
-              if (m3u8Match) {
-                console.log('Found m3u8 in script: ' + m3u8Match[0]);
-                streamUrl = m3u8Match[0];
-                return true;
-              }
-              
-              // Look for mpd URLs
-              const mpdMatch = text.match(/https?:\\/\\/[^\\s"'<>]+\\.mpd[^\\s"'<>]*/i);
-              if (mpdMatch) {
-                console.log('Found mpd in script: ' + mpdMatch[0]);
-                streamUrl = mpdMatch[0];
-                return true;
-              }
-              
-              // Look for blob URLs
-              const blobMatch = text.match(/blob:[^\\s"'<>]+/i);
-              if (blobMatch) {
-                console.log('Found blob URL in script: ' + blobMatch[0]);
-                streamUrl = blobMatch[0];
-                return true;
-              }
-            }
-            
-            // 2. Try to find in video/audio tags
-            const videoElements = document.querySelectorAll('video, audio');
-            for (let video of videoElements) {
-              // Check src attribute
-              if (video.src && video.src.trim()) {
-                console.log('Found src in video tag: ' + video.src);
-                streamUrl = video.src;
-                return true;
-              }
-              
-              // Check source children
-              const sources = video.querySelectorAll('source');
-              for (let source of sources) {
-                const src = source.src || source.getAttribute('src') || source.getAttribute('data-src');
-                if (src && src.trim()) {
-                  console.log('Found source tag: ' + src);
-                  streamUrl = src;
-                  return true;
-                }
-              }
-            }
-            
-            // 3. Try data attributes commonly used by player libraries
-            const mediaContainers = document.querySelectorAll('[data-src], [data-url], [data-file]');
-            for (let container of mediaContainers) {
-              let url = container.getAttribute('data-src') || 
-                       container.getAttribute('data-url') || 
-                       container.getAttribute('data-file');
-              if (url && (url.includes('.m3u8') || url.includes('.mp4') || url.includes('.mpd') || url.includes('blob:'))) {
-                console.log('Found in data attribute: ' + url);
-                streamUrl = url;
-                return true;
-              }
-            }
-            
-            // 4. Try to find in window/global objects (common in JS players)
+            // Strategy 2: Check for nested iframes in sandbox
             try {
-              if (window.config && window.config.url) {
-                console.log('Found in window.config.url: ' + window.config.url);
-                streamUrl = window.config.url;
-                return true;
-              }
-              if (window.playerConfig && window.playerConfig.src) {
-                console.log('Found in window.playerConfig.src: ' + window.playerConfig.src);
-                streamUrl = window.playerConfig.src;
-                return true;
-              }
-              if (window.player && window.player.config && window.player.config.sources && window.player.config.sources[0]) {
-                console.log('Found in window.player.config.sources: ' + window.player.config.sources[0].src);
-                streamUrl = window.player.config.sources[0].src;
-                return true;
+              const iframes = document.querySelectorAll('iframe');
+              for (let iframe of iframes) {
+                try {
+                  if (iframe.contentWindow && iframe.contentWindow.player) {
+                    if (iframe.contentWindow.player.source) {
+                      console.log('Found iframe player.source');
+                      streamUrl = iframe.contentWindow.player.source;
+                      if (streamUrl) return true;
+                    }
+                  }
+                } catch (e) {
+                  console.log('Cannot access iframe: ' + e.message);
+                }
               }
             } catch (e) {
-              console.log('Error accessing window objects: ' + e);
+              console.log('Error checking iframes: ' + e);
             }
             
-            // 5. Try common player library patterns
+            // Strategy 3: Look for HLS/DASH manifests in script tags
             try {
-              // Plyr player
-              if (window.plyr && window.plyr.media) {
-                const src = window.plyr.media.src || window.plyr.media.currentSrc;
-                if (src) {
-                  console.log('Found in Plyr: ' + src);
-                  streamUrl = src;
+              const scripts = document.querySelectorAll('script');
+              for (let script of scripts) {
+                const text = script.textContent || '';
+                
+                // Look for m3u8 URLs (HLS)
+                const m3u8Matches = text.match(/https?:\\/\\/[^\\s"'<>]+\\.m3u8[^\\s"'<>]*/gi);
+                if (m3u8Matches && m3u8Matches.length > 0) {
+                  for (let match of m3u8Matches) {
+                    if (!match.includes('player') && !match.includes('js')) {
+                      console.log('Found m3u8 URL: ' + match);
+                      streamUrl = match;
+                      return true;
+                    }
+                  }
+                }
+                
+                // Look for mp4 URLs
+                const mp4Matches = text.match(/https?:\\/\\/[^\\s"'<>]+\\.mp4[^\\s"'<>]*/gi);
+                if (mp4Matches && mp4Matches.length > 0) {
+                  console.log('Found mp4 URL: ' + mp4Matches[0]);
+                  streamUrl = mp4Matches[0];
+                  return true;
+                }
+                
+                // Look for mpd URLs (DASH)
+                const mpdMatches = text.match(/https?:\\/\\/[^\\s"'<>]+\\.mpd[^\\s"'<>]*/gi);
+                if (mpdMatches && mpdMatches.length > 0) {
+                  console.log('Found mpd URL: ' + mpdMatches[0]);
+                  streamUrl = mpdMatches[0];
                   return true;
                 }
               }
-              
-              // HLS.js
-              if (window.hlsPlayer && window.hlsPlayer.media && window.hlsPlayer.media.src) {
-                console.log('Found in HLS.js: ' + window.hlsPlayer.media.src);
-                streamUrl = window.hlsPlayer.media.src;
-                return true;
-              }
-              
-              // Shaka Player
-              if (window.player && window.player.getAssetUri) {
-                const uri = window.player.getAssetUri();
-                if (uri) {
-                  console.log('Found in Shaka: ' + uri);
-                  streamUrl = uri;
+            } catch (e) {
+              console.log('Error checking scripts: ' + e);
+            }
+            
+            // Strategy 4: Look in video/audio tags
+            try {
+              const mediaElements = document.querySelectorAll('video, audio');
+              for (let media of mediaElements) {
+                // Check src attribute
+                if (media.src && media.src.trim() && media.src.startsWith('http')) {
+                  console.log('Found media src: ' + media.src);
+                  streamUrl = media.src;
                   return true;
                 }
+                
+                // Check source children
+                const sources = media.querySelectorAll('source');
+                for (let source of sources) {
+                  const src = source.src || source.getAttribute('src') || source.getAttribute('data-src');
+                  if (src && src.trim() && (src.startsWith('http') || src.startsWith('blob:'))) {
+                    console.log('Found source tag: ' + src);
+                    streamUrl = src;
+                    return true;
+                  }
+                }
+              }
+            } catch (e) {
+              console.log('Error checking media elements: ' + e);
+            }
+            
+            // Strategy 5: Data attributes in containers
+            try {
+              const mediaContainers = document.querySelectorAll('[data-src], [data-url], [data-file], [data-media]');
+              for (let container of mediaContainers) {
+                let url = container.getAttribute('data-src') || 
+                         container.getAttribute('data-url') || 
+                         container.getAttribute('data-file') ||
+                         container.getAttribute('data-media');
+                if (url && url.trim() && (url.startsWith('http') || url.startsWith('blob:'))) {
+                  if (url.includes('.m3u8') || url.includes('.mp4') || url.includes('.mpd') || url.length > 20) {
+                    console.log('Found in data attribute: ' + url.substring(0, 100));
+                    streamUrl = url;
+                    return true;
+                  }
+                }
+              }
+            } catch (e) {
+              console.log('Error checking data attributes: ' + e);
+            }
+            
+            // Strategy 6: Window/global config objects
+            try {
+              for (let key in window) {
+                try {
+                  const obj = window[key];
+                  if (obj && typeof obj === 'object') {
+                    // Check common property names
+                    if (obj.url && typeof obj.url === 'string' && obj.url.startsWith('http')) {
+                      console.log('Found window.' + key + '.url');
+                      streamUrl = obj.url;
+                      return true;
+                    }
+                    if (obj.src && typeof obj.src === 'string' && obj.src.startsWith('http')) {
+                      console.log('Found window.' + key + '.src');
+                      streamUrl = obj.src;
+                      return true;
+                    }
+                    if (obj.source && typeof obj.source === 'string' && obj.source.startsWith('http')) {
+                      console.log('Found window.' + key + '.source');
+                      streamUrl = obj.source;
+                      return true;
+                    }
+                  }
+                } catch (e) {}
+              }
+            } catch (e) {
+              console.log('Error searching window object: ' + e);
+            }
+            
+            // Strategy 7: Common player library patterns
+            try {
+              const players = [
+                { name: 'hlsPlayer', path: 'media.src' },
+                { name: 'dashPlayer', path: 'media.src' },
+                { name: 'videoPlayer', path: 'src' },
+                { name: 'player', path: 'getAssetUri' },
+              ];
+              
+              for (let p of players) {
+                try {
+                  const player = window[p.name];
+                  if (player) {
+                    if (typeof player.getAssetUri === 'function') {
+                      const uri = player.getAssetUri();
+                      if (uri) {
+                        console.log('Found from ' + p.name + '.getAssetUri()');
+                        streamUrl = uri;
+                        return true;
+                      }
+                    }
+                    if (player.media && player.media.src) {
+                      console.log('Found from ' + p.name);
+                      streamUrl = player.media.src;
+                      return true;
+                    }
+                  }
+                } catch (e) {}
               }
             } catch (e) {
               console.log('Error checking player libraries: ' + e);
             }
             
-            // 6. Try iframe sources
-            const iframes = document.querySelectorAll('iframe');
-            for (let iframe of iframes) {
-              const src = iframe.src;
-              if (src && src.includes('stream')) {
-                console.log('Found iframe with stream: ' + src);
-                streamUrl = src;
-                return true;
-              }
-            }
-            
-            // 7. Look for links with streaming extensions
-            const links = document.querySelectorAll('a[href*=".m3u8"], a[href*=".mp4"], a[href*=".mpd"]');
-            for (let link of links) {
-              const href = link.getAttribute('href');
-              if (href && href.trim()) {
-                console.log('Found link: ' + href);
-                streamUrl = href;
-                return true;
-              }
-            }
-            
-            // 8. Final check: look in all attributes for URLs
-            const allElements = document.querySelectorAll('*');
-            for (let i = 0; i < Math.min(allElements.length, 100); i++) {
-              const elem = allElements[i];
-              const attrs = elem.attributes;
-              for (let attr of attrs) {
-                if (attr.value && (attr.value.includes('.m3u8') || attr.value.includes('.mp4') || attr.value.includes('.mpd'))) {
-                  if (attr.value.startsWith('http') || attr.value.startsWith('blob:')) {
-                    console.log('Found in attribute ' + attr.name + ': ' + attr.value);
-                    streamUrl = attr.value;
-                    return true;
-                  }
+            // Strategy 8: Look in href and src attributes
+            try {
+              const links = document.querySelectorAll('a[href], button[onclick], div[onclick]');
+              for (let link of links) {
+                let url = link.getAttribute('href') || link.getAttribute('data-url');
+                if (url && (url.includes('.m3u8') || url.includes('.mp4') || url.includes('.mpd'))) {
+                  console.log('Found in link/button: ' + url.substring(0, 100));
+                  streamUrl = url;
+                  return true;
                 }
               }
+            } catch (e) {
+              console.log('Error checking links: ' + e);
             }
             
             return false;
@@ -379,24 +410,16 @@ class StreamResolverService {
             sendStreamUrl(streamUrl);
           } else if (attempts < maxAttempts) {
             // Retry after delay for dynamic content
-            const delayMs = attempts < 3 ? 500 : 1000;
-            console.log('Retrying in ' + delayMs + 'ms...');
+            const delayMs = attempts < 5 ? 300 : 500;
             setTimeout(extractStream, delayMs);
           } else {
             console.log('Failed to extract stream after ' + maxAttempts + ' attempts');
             
             // Last resort: Log page structure for debugging
-            console.log('Page title: ' + document.title);
             console.log('Page domain: ' + window.location.hostname);
-            console.log('Number of scripts: ' + document.querySelectorAll('script').length);
-            console.log('Number of iframes: ' + document.querySelectorAll('iframe').length);
+            console.log('Page has player: ' + (window.player != undefined));
             
-            // Try one more time with a different strategy
-            const allText = document.body.innerText || '';
-            if (allText.includes('stream') || allText.includes('video')) {
-              console.log('Page contains stream-related text');
-            }
-            
+            // Send empty to timeout gracefully
             StreamExtractor.postMessage('');
           }
         })();

@@ -28,6 +28,8 @@ class CombinedStreamService {
     int episode = 1,
   }) async {
     try {
+      // Reset connections to prevent connection pool exhaustion
+      await StremioProviderService.resetConnections();
       debugPrint('');
       debugPrint('$_tag: ╔════════════════════════════════════════════╗');
       debugPrint('$_tag: ║       STREAM EXTRACTION STARTED             ║');
@@ -194,6 +196,7 @@ class CombinedStreamService {
   /// Dispose and cleanup resources
   static Future<void> dispose() async {
     try {
+      await StremioProviderService.resetConnections();
       await StremioProviderService.dispose();
       await StreamResolverService.dispose();
       debugPrint('$_tag: All services disposed');

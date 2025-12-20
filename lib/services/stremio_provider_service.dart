@@ -300,10 +300,19 @@ class StremioProviderService {
   static Future<void> dispose() async {
     try {
       debugPrint('$_tag: Disposing service...');
-      _dio.close();
+      _dio.close(force: true);
       debugPrint('$_tag: Service disposed');
     } catch (e) {
       debugPrint('$_tag: Error disposing: $e');
+    }
+  }
+
+  /// Close connections to reset the pool
+  static Future<void> resetConnections() async {
+    try {
+      _dio.close(force: true);
+    } catch (e) {
+      debugPrint('$_tag: Error resetting connections: $e');
     }
   }
 }
