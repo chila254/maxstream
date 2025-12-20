@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'dart:async';
+import 'dart:convert';
 import '../services/watch_history_service.dart';
 import '../services/settings_service.dart';
 import '../services/combined_stream_service.dart';
@@ -29,8 +30,7 @@ class InAppVideoPlayerScreen extends StatefulWidget {
   });
 
   @override
-  State<InAppVideoPlayerScreen> createState() =>
-      _InAppVideoPlayerScreenState();
+  State<InAppVideoPlayerScreen> createState() => _InAppVideoPlayerScreenState();
 }
 
 class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
@@ -52,11 +52,45 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
   late bool _autoPlay;
   late bool _rememberPosition;
 
+  // Skip detection
+  bool _showSkipIntro = false;
+  bool _showSkipOutro = false;
+  int _skipIntroEndTime = 30;
+
   // Settings from SettingsService
   Map<String, dynamic> _playerSettings = {};
 
   // Stream source
   String? _streamSource;
+
+  // New player features
+  double _volume = 1.0;
+  double _playbackSpeed = 1.0;
+  bool _isTheaterMode = false;
+  double _subtitleSync = 0.0; // in seconds
+  int _selectedAudioTrack = 0;
+  List<String> _availableAudioTracks = ['Default'];
+  bool _showVolumeSlider = false;
+  bool _showSpeedMenu = false;
+  bool _showAudioTracksMenu = false;
+  bool _showSubtitleSyncMenu = false;
+
+  // Quality and PiP features
+  String _currentQuality = 'Auto';
+  final List<String> _availableQualities = ['Auto'];
+  int _selectedQualityIndex = 0;
+  bool _isPictureInPicture = false;
+  bool _showQualityMenu = false;
+
+  // Ad-blocker enhancement
+  int _blockedAdsCount = 0;
+  bool _playerFrozen = false;
+  Timer? _freezeDetectionTimer;
+
+  // Performance & caching
+  static const Duration _cacheExpiration = Duration(hours: 1);
+  static final Map<String, dynamic> _streamCache = {};
+  static final Map<String, DateTime> _streamCacheTime = {};
 
   @override
   void initState() {
@@ -66,6 +100,7 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
     _setupAnimations();
     _loadSettings();
     _loadWatchHistory();
+    _clearExpiredCache(); // Clean up expired cache entries
     _initializePlayer();
   }
 
@@ -101,6 +136,13 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
   String _getAdBlockingScript() {
     return '''
     (function() {
+      // Initialize ad-blocking state
+      if (typeof window.adBlockerState === 'undefined') {
+        window.adBlockerState = {
+          blockedCount: 0
+        };
+      }
+      
       // Block common ad networks
       const adDomains = [
         'google', 'doubleclick', 'googlesyndication', 'googleadservices',
@@ -125,6 +167,7 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
         });
         
         if (shouldBlock || src.includes('ad') || src.includes('advertisement')) {
+          window.adBlockerState.blockedCount++;
           iframe.style.display = 'none';
           iframe.remove();
         }
@@ -138,6 +181,7 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
         const id = div.id || '';
         
         if (adClasses.some(cls => className.toLowerCase().includes(cls) || id.toLowerCase().includes(cls))) {
+          window.adBlockerState.blockedCount++;
           div.style.display = 'none';
         }
       });
@@ -155,6 +199,7 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
         });
         
         if (shouldBlock) {
+          window.adBlockerState.blockedCount++;
           script.remove();
         }
       });
@@ -169,6 +214,14 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
         pubads: function() { return this; },
         display: function() { return this; }
       };
+      
+      // Report blocked count to Flutter
+      if (Flutterplayer && Flutterplayer.postMessage && window.adBlockerState.blockedCount > 0) {
+        Flutterplayer.postMessage(JSON.stringify({
+          action: 'adsBlocked',
+          count: window.adBlockerState.blockedCount
+        }));
+      }
     })();
     ''';
   }
@@ -180,25 +233,39 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
         _errorMessage = null;
       });
 
-      // Extract stream URL using CombinedStreamService
-      final streamResult = await CombinedStreamService.extractStream(
-        widget.tmdbId,
-        widget.isMovie,
-        season: widget.season,
-        episode: widget.episode,
-      );
+      // Try to get cached stream result first
+      final cacheKey = '${widget.tmdbId}_${widget.season}_${widget.episode}';
+      final cachedResult = _getFromCache(cacheKey);
 
       String? bestUrl;
-      if (streamResult != null && streamResult['streamUrl'] != null) {
-        bestUrl = streamResult['streamUrl'];
-        _streamSource = streamResult['source'];
+      if (cachedResult != null) {
+        bestUrl = cachedResult['streamUrl'];
+        _streamSource = cachedResult['source'];
         debugPrint(
-          'InAppPlayer: Using extracted stream URL: $bestUrl from $_streamSource',
+          'InAppPlayer: Using cached stream URL: $bestUrl from $_streamSource',
         );
       } else {
-        bestUrl = widget.videoUrl;
-        _streamSource = null;
-        debugPrint('InAppPlayer: Using fallback video URL: $bestUrl');
+        // Extract stream URL using CombinedStreamService
+        final streamResult = await CombinedStreamService.extractStream(
+          widget.tmdbId,
+          widget.isMovie,
+          season: widget.season,
+          episode: widget.episode,
+        );
+
+        if (streamResult != null && streamResult['streamUrl'] != null) {
+          bestUrl = streamResult['streamUrl'];
+          _streamSource = streamResult['source'];
+          // Cache the result
+          _saveToCache(cacheKey, streamResult);
+          debugPrint(
+            'InAppPlayer: Using extracted stream URL: $bestUrl from $_streamSource',
+          );
+        } else {
+          bestUrl = widget.videoUrl;
+          _streamSource = null;
+          debugPrint('InAppPlayer: Using fallback video URL: $bestUrl');
+        }
       }
 
       if (bestUrl == null) {
@@ -221,7 +288,8 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
       if (_rememberPosition && _lastPosition.inSeconds > 0) {
         // Position will be restored via JavaScript player API when ready
         await _webViewController.evaluateJavascript(
-          source: '''
+          source:
+              '''
             const player = document.getElementById('videoPlayer');
             player.addEventListener('loadedmetadata', function() {
               player.currentTime = ${_lastPosition.inSeconds};
@@ -232,6 +300,7 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
 
       _startProgressTracking();
       _startControlsTimer();
+      _startFreezeDetection();
 
       setState(() {
         _isLoading = false;
@@ -255,6 +324,8 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
     <head>
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <meta http-equiv="Cache-Control" content="max-age=3600">
+      <meta http-equiv="Pragma" content="cache">
       <style>
         * {
           margin: 0;
@@ -285,6 +356,59 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
           justify-content: center;
           background: #000;
         }
+        .player-ui {
+          position: absolute;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          pointer-events: none;
+          display: flex;
+          flex-direction: column;
+        }
+        .player-controls {
+          pointer-events: auto;
+          color: white;
+          font-size: 14px;
+        }
+        .theater-indicator {
+          position: absolute;
+          top: 10px;
+          right: 10px;
+          background: rgba(0, 0, 0, 0.6);
+          color: white;
+          padding: 4px 8px;
+          border-radius: 3px;
+          font-size: 12px;
+          display: none;
+        }
+        .theater-indicator.active {
+          display: block;
+        }
+        .quality-indicator {
+          position: absolute;
+          top: 10px;
+          left: 10px;
+          background: rgba(0, 0, 0, 0.6);
+          color: white;
+          padding: 4px 8px;
+          border-radius: 3px;
+          font-size: 12px;
+        }
+        .pip-indicator {
+          position: absolute;
+          bottom: 10px;
+          left: 10px;
+          background: rgba(0, 0, 0, 0.6);
+          color: white;
+          padding: 4px 8px;
+          border-radius: 3px;
+          font-size: 12px;
+          display: none;
+        }
+        .pip-indicator.active {
+          display: block;
+        }
       </style>
     </head>
     <body>
@@ -298,6 +422,9 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
           <source src="$videoUrl" type="video/mp4">
           Your browser does not support the video tag.
         </video>
+        <div id="theaterIndicator" class="theater-indicator">Theater Mode</div>
+        <div id="qualityIndicator" class="quality-indicator">Auto</div>
+        <div id="pipIndicator" class="pip-indicator">Picture in Picture</div>
       </div>
       
       <script>
@@ -305,13 +432,95 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
         
         // Save progress to Flutter
         const player = document.getElementById('videoPlayer');
+        const theaterIndicator = document.getElementById('theaterIndicator');
+        let lastProgressUpdate = 0;
+        let introSkipped = false;
+        let outroSkipped = false;
+        
+        // Player state
+        let playerVolume = 1.0;
+        let playerSpeed = 1.0;
+        let isTheaterMode = false;
+        let subtitleSync = 0; // seconds offset
+        let currentAudioTrack = 0;
+        let currentQuality = 'Auto';
+        let isPictureInPicture = false;
+        
+        // Freeze detection
+        let lastPlaybackPosition = 0;
+        let frozenCheckCount = 0;
+        let reportedFrozen = false;
+        
+        // Skip intro detection (typically 0-30 seconds)
+        const INTRO_END = 30;
+        // Skip outro detection (typically 3-5 minutes before end or 85%+ of video)
+        const OUTRO_START_PERCENT = 0.85;
         
         player.addEventListener('timeupdate', function() {
-          if (Flutterplayer && Flutterplayer.postMessage) {
+          const currentTime = player.currentTime;
+          const duration = player.duration;
+          
+          // Auto-skip intro for TV series (only TV, not movies)
+          if (currentTime > 5 && currentTime < INTRO_END && !introSkipped && duration > 1200) {
+            // Only auto-skip if duration suggests it's a TV episode (>20 min)
+            if (Flutterplayer && Flutterplayer.postMessage) {
+              Flutterplayer.postMessage(JSON.stringify({
+                action: 'skipDetected',
+                skipType: 'intro',
+                startTime: 0,
+                endTime: INTRO_END
+              }));
+            }
+            introSkipped = true;
+          }
+          
+          // Detect outro for TV series
+          if (duration > 0 && currentTime > duration * OUTRO_START_PERCENT && !outroSkipped && duration > 1200) {
+            const outroStart = Math.floor(duration * OUTRO_START_PERCENT);
+            if (Flutterplayer && Flutterplayer.postMessage) {
+              Flutterplayer.postMessage(JSON.stringify({
+                action: 'skipDetected',
+                skipType: 'outro',
+                startTime: outroStart,
+                endTime: Math.floor(duration)
+              }));
+            }
+            outroSkipped = true;
+          }
+          
+          // Update progress (throttled to 1 per second)
+          if (Date.now() - lastProgressUpdate > 1000) {
+            if (Flutterplayer && Flutterplayer.postMessage) {
+              Flutterplayer.postMessage(JSON.stringify({
+                action: 'progressUpdate',
+                position: currentTime,
+                duration: duration,
+                watchPercent: duration > 0 ? (currentTime / duration * 100) : 0
+              }));
+            }
+            lastProgressUpdate = Date.now();
+          }
+        });
+        
+        player.addEventListener('loadedmetadata', function() {
+          // Detect available audio tracks
+          const audioTracks = [];
+          if (player.audioTracks && player.audioTracks.length > 0) {
+            for (let i = 0; i < player.audioTracks.length; i++) {
+              const track = player.audioTracks[i];
+              audioTracks.push({
+                index: i,
+                label: track.label || 'Audio Track ' + (i + 1),
+                language: track.language || 'unknown',
+                kind: track.kind || 'main'
+              });
+            }
+          }
+          
+          if (audioTracks.length > 0 && Flutterplayer && Flutterplayer.postMessage) {
             Flutterplayer.postMessage(JSON.stringify({
-              action: 'progressUpdate',
-              position: player.currentTime,
-              duration: player.duration
+              action: 'audioTracksDetected',
+              tracks: audioTracks
             }));
           }
         });
@@ -327,6 +536,169 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
             Flutterplayer.postMessage(JSON.stringify({action: 'pause'}));
           }
         });
+        
+        player.addEventListener('ended', function() {
+          if (Flutterplayer && Flutterplayer.postMessage) {
+            Flutterplayer.postMessage(JSON.stringify({action: 'ended'}));
+          }
+        });
+        
+        // Player control functions
+        window.setPlayerVolume = function(volume) {
+          playerVolume = Math.max(0, Math.min(1, volume));
+          player.volume = playerVolume;
+          if (Flutterplayer && Flutterplayer.postMessage) {
+            Flutterplayer.postMessage(JSON.stringify({
+              action: 'volumeChanged',
+              volume: playerVolume
+            }));
+          }
+        };
+        
+        window.setPlaybackSpeed = function(speed) {
+          playerSpeed = speed;
+          player.playbackRate = playerSpeed;
+          if (Flutterplayer && Flutterplayer.postMessage) {
+            Flutterplayer.postMessage(JSON.stringify({
+              action: 'speedChanged',
+              speed: playerSpeed
+            }));
+          }
+        };
+        
+        window.setTheaterMode = function(enabled) {
+          isTheaterMode = enabled;
+          theaterIndicator.classList.toggle('active', enabled);
+          if (Flutterplayer && Flutterplayer.postMessage) {
+            Flutterplayer.postMessage(JSON.stringify({
+              action: 'theaterModeChanged',
+              enabled: isTheaterMode
+            }));
+          }
+        };
+        
+        window.setSubtitleSync = function(offset) {
+          subtitleSync = offset;
+          if (Flutterplayer && Flutterplayer.postMessage) {
+            Flutterplayer.postMessage(JSON.stringify({
+              action: 'subtitleSyncChanged',
+              offset: subtitleSync
+            }));
+          }
+        };
+        
+        window.setAudioTrack = function(trackIndex) {
+          currentAudioTrack = trackIndex;
+          
+          // Disable all audio tracks and enable the selected one
+          if (player.audioTracks && player.audioTracks.length > 0) {
+            for (let i = 0; i < player.audioTracks.length; i++) {
+              player.audioTracks[i].enabled = (i === (trackIndex - 1));
+            }
+          }
+          
+          if (Flutterplayer && Flutterplayer.postMessage) {
+            Flutterplayer.postMessage(JSON.stringify({
+              action: 'audioTrackChanged',
+              trackIndex: currentAudioTrack
+            }));
+          }
+        };
+        
+        window.setQuality = function(quality) {
+          currentQuality = quality;
+          const qualityIndicator = document.getElementById('qualityIndicator');
+          qualityIndicator.textContent = quality;
+          
+          if (Flutterplayer && Flutterplayer.postMessage) {
+            Flutterplayer.postMessage(JSON.stringify({
+              action: 'qualityChanged',
+              quality: currentQuality
+            }));
+          }
+        };
+        
+        window.togglePictureInPicture = function() {
+          const pipIndicator = document.getElementById('pipIndicator');
+          
+          if (document.pictureInPictureEnabled) {
+            if (document.pictureInPictureElement) {
+              document.exitPictureInPicture().then(() => {
+                isPictureInPicture = false;
+                pipIndicator.classList.remove('active');
+              }).catch(error => {
+                console.log('Error exiting PiP: ' + error);
+              });
+            } else {
+              player.requestPictureInPicture().then(() => {
+                isPictureInPicture = true;
+                pipIndicator.classList.add('active');
+              }).catch(error => {
+                console.log('Error entering PiP: ' + error);
+              });
+            }
+          }
+          
+          if (Flutterplayer && Flutterplayer.postMessage) {
+            Flutterplayer.postMessage(JSON.stringify({
+              action: 'pipToggled',
+              enabled: isPictureInPicture
+            }));
+          }
+        };
+        
+        window.getBlockedAdsCount = function() {
+          return window.adBlockerState ? window.adBlockerState.blockedCount : 0;
+        };
+        
+        window.startFreezeDetection = function() {
+          setInterval(function() {
+            if (!player.paused && player.duration > 0) {
+              const currentPos = player.currentTime;
+              
+              if (currentPos === lastPlaybackPosition) {
+                frozenCheckCount++;
+              } else {
+                frozenCheckCount = 0;
+                reportedFrozen = false;
+                lastPlaybackPosition = currentPos;
+              }
+              
+              // If player hasn't moved for 3 consecutive checks (3 seconds), it's frozen
+              if (frozenCheckCount >= 3 && !reportedFrozen) {
+                reportedFrozen = true;
+                if (Flutterplayer && Flutterplayer.postMessage) {
+                  Flutterplayer.postMessage(JSON.stringify({
+                    action: 'playerFrozen',
+                    currentTime: currentPos,
+                    duration: player.duration
+                  }));
+                }
+              }
+              
+              // Reset if video resumes
+              if (frozenCheckCount > 0 && currentPos > lastPlaybackPosition) {
+                frozenCheckCount = 0;
+                reportedFrozen = false;
+              }
+            }
+          }, 1000);
+        };
+        
+        window.getPlayerState = function() {
+          return {
+            volume: playerVolume,
+            speed: playerSpeed,
+            theaterMode: isTheaterMode,
+            subtitleSync: subtitleSync,
+            audioTrack: currentAudioTrack,
+            quality: currentQuality,
+            pictureInPicture: isPictureInPicture,
+            blockedAdsCount: window.adBlockerState ? window.adBlockerState.blockedCount : 0,
+            currentTime: player.currentTime,
+            duration: player.duration
+          };
+        };
         
         // Run ad blocking on load
         window.addEventListener('load', function() {
@@ -358,6 +730,11 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
               mixedContentMode: MixedContentMode.MIXED_CONTENT_ALWAYS_ALLOW,
               userAgent:
                   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+              // Performance optimizations
+              cacheMode: CacheMode.LOAD_CACHE_ELSE_NETWORK,
+              disableDefaultErrorPage: true,
+              databaseEnabled: false,
+              domStorageEnabled: false,
             ),
             onWebViewCreated: (controller) {
               _webViewController = controller;
@@ -378,13 +755,11 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
             },
             onLoadStop: (controller, url) {
               // Re-run ad blocking after page load
-              controller.evaluateJavascript(
-                source: _getAdBlockingScript(),
-              );
+              controller.evaluateJavascript(source: _getAdBlockingScript());
             },
             shouldOverrideUrlLoading: (controller, navigationAction) async {
               final uri = navigationAction.request.url;
-              
+
               // Block ad network URLs
               if (uri != null) {
                 final uriString = uri.toString().toLowerCase();
@@ -395,7 +770,7 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
                   return NavigationActionPolicy.CANCEL;
                 }
               }
-              
+
               return NavigationActionPolicy.ALLOW;
             },
           ),
@@ -406,9 +781,97 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
           // Error overlay
           if (_errorMessage != null) _buildErrorOverlay(),
 
+          // Skip Intro button
+          if (_showSkipIntro) _buildSkipIntroButton(),
+
+          // Skip Outro button
+          if (_showSkipOutro) _buildSkipOutroButton(),
+
           // Controls
           _buildCustomControls(),
         ],
+      ),
+    );
+  }
+
+  Widget _buildSkipIntroButton() {
+    return Positioned(
+      top: 60,
+      right: 16,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () async {
+            setState(() => _showSkipIntro = false);
+            await _webViewController.evaluateJavascript(
+              source:
+                  'document.getElementById("videoPlayer").currentTime = $_skipIntroEndTime;',
+            );
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.red.withValues(alpha: 0.8),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.skip_next, color: Colors.white, size: 18),
+                SizedBox(width: 4),
+                Text(
+                  'Skip Intro',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSkipOutroButton() {
+    return Positioned(
+      top: 60,
+      right: 16,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () async {
+            setState(() => _showSkipOutro = false);
+            await _webViewController.evaluateJavascript(
+              source:
+                  'document.getElementById("videoPlayer").currentTime = document.getElementById("videoPlayer").duration;',
+            );
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.red.withValues(alpha: 0.8),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.skip_next, color: Colors.white, size: 18),
+                SizedBox(width: 4),
+                Text(
+                  'Skip Outro',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -423,20 +886,91 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
             onTap: _toggleControlsVisibility,
             child: Container(
               color: Colors.transparent,
-              child: Align(
-                alignment: Alignment.topRight,
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.close, color: Colors.white),
-                        onPressed: () => Navigator.pop(context),
-                      ),
-                    ],
+              child: Column(
+                children: [
+                  // Top controls
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        // Theater mode indicator
+                        if (_isTheaterMode)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.red.withValues(alpha: 0.7),
+                              borderRadius: BorderRadius.circular(3),
+                            ),
+                            child: const Text(
+                              'Theater Mode',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ),
+                        // Player frozen indicator
+                        if (_playerFrozen)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.orange.withValues(alpha: 0.7),
+                              borderRadius: BorderRadius.circular(3),
+                            ),
+                            child: const Text(
+                              'Player Frozen',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ),
+                        const Spacer(),
+                        // Close button
+                        IconButton(
+                          icon: const Icon(Icons.close, color: Colors.white),
+                          onPressed: () => Navigator.pop(context),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
+                  const Spacer(),
+                  // Bottom controls
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          // Volume control
+                          _buildVolumeControl(),
+                          // Speed control
+                          _buildSpeedControl(),
+                          // Audio tracks
+                          _buildAudioTracksControl(),
+                          // Subtitle sync
+                          _buildSubtitleSyncControl(),
+                          // Download subtitles
+                          _buildDownloadSubtitlesControl(),
+                          // Quality control
+                          _buildQualityControl(),
+                          // Picture in Picture
+                          _buildPictureInPictureControl(),
+                          // Theater mode toggle
+                          _buildTheaterModeControl(),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -445,24 +979,398 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
     );
   }
 
-  Widget _buildLoadingOverlay() {
-    return Container(
-      color: Colors.black87,
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const CircularProgressIndicator(
-              valueColor: AlwaysStoppedAnimation<Color>(Colors.red),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Loading ${widget.title}...',
-              style: const TextStyle(color: Colors.white),
-            ),
-          ],
+  Widget _buildVolumeControl() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          icon: Icon(
+            _volume == 0 ? Icons.volume_off : Icons.volume_up,
+            color: Colors.white,
+            size: 20,
+          ),
+          onPressed: () {
+            setState(() {
+              _showVolumeSlider = !_showVolumeSlider;
+            });
+            _showControlsWithAnimation();
+          },
         ),
-      ),
+        if (_showVolumeSlider)
+          Container(
+            width: 100,
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Slider(
+              value: _volume,
+              min: 0,
+              max: 1,
+              onChanged: (value) {
+                setState(() {
+                  _volume = value;
+                });
+                _webViewController.evaluateJavascript(
+                  source: 'window.setPlayerVolume($_volume);',
+                );
+                _showControlsWithAnimation();
+              },
+            ),
+          ),
+        const Text(
+          'Volume',
+          style: TextStyle(color: Colors.white, fontSize: 10),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSpeedControl() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        PopupMenuButton<double>(
+          onSelected: (speed) {
+            setState(() {
+              _playbackSpeed = speed;
+              _showSpeedMenu = false;
+            });
+            _webViewController.evaluateJavascript(
+              source: 'window.setPlaybackSpeed($_playbackSpeed);',
+            );
+            _showControlsWithAnimation();
+          },
+          itemBuilder: (context) => [
+            const PopupMenuItem(value: 0.5, child: Text('0.5x')),
+            const PopupMenuItem(value: 0.75, child: Text('0.75x')),
+            const PopupMenuItem(value: 1.0, child: Text('1.0x')),
+            const PopupMenuItem(value: 1.25, child: Text('1.25x')),
+            const PopupMenuItem(value: 1.5, child: Text('1.5x')),
+            const PopupMenuItem(value: 2.0, child: Text('2.0x')),
+          ],
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.speed, color: Colors.white, size: 20),
+                onPressed: () {
+                  setState(() => _showSpeedMenu = !_showSpeedMenu);
+                  _showControlsWithAnimation();
+                },
+              ),
+              Text(
+                '${_playbackSpeed}x',
+                style: const TextStyle(color: Colors.white, fontSize: 10),
+              ),
+            ],
+          ),
+        ),
+        const Text(
+          'Speed',
+          style: TextStyle(color: Colors.white, fontSize: 10),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAudioTracksControl() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        PopupMenuButton<int>(
+          onSelected: (trackIndex) {
+            setState(() {
+              _selectedAudioTrack = trackIndex;
+              _showAudioTracksMenu = false;
+            });
+            _webViewController.evaluateJavascript(
+              source: 'window.setAudioTrack($trackIndex);',
+            );
+            _showControlsWithAnimation();
+          },
+          itemBuilder: (context) {
+            return List.generate(
+              _availableAudioTracks.length,
+              (index) => PopupMenuItem(
+                value: index,
+                child: Row(
+                  children: [
+                    if (_selectedAudioTrack == index)
+                      const Icon(Icons.check, color: Colors.red, size: 18),
+                    if (_selectedAudioTrack == index) const SizedBox(width: 8),
+                    Text(_availableAudioTracks[index]),
+                  ],
+                ),
+              ),
+            );
+          },
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                icon: const Icon(
+                  Icons.audiotrack,
+                  color: Colors.white,
+                  size: 20,
+                ),
+                onPressed: () {
+                  setState(() => _showAudioTracksMenu = !_showAudioTracksMenu);
+                  _showControlsWithAnimation();
+                },
+              ),
+              Text(
+                'Audio',
+                style: const TextStyle(color: Colors.white, fontSize: 10),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSubtitleSyncControl() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          icon: const Icon(Icons.subtitles, color: Colors.white, size: 20),
+          onPressed: () {
+            setState(() {
+              _showSubtitleSyncMenu = !_showSubtitleSyncMenu;
+            });
+            _showControlsWithAnimation();
+          },
+        ),
+        if (_showSubtitleSyncMenu)
+          Container(
+            width: 120,
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    IconButton(
+                      icon: const Icon(
+                        Icons.remove,
+                        color: Colors.white,
+                        size: 16,
+                      ),
+                      onPressed: () {
+                        setState(() {
+                          _subtitleSync -= 0.5;
+                        });
+                        _webViewController.evaluateJavascript(
+                          source: 'window.setSubtitleSync($_subtitleSync);',
+                        );
+                      },
+                    ),
+                    Text(
+                      '${_subtitleSync.toStringAsFixed(1)}s',
+                      style: const TextStyle(color: Colors.white, fontSize: 10),
+                    ),
+                    IconButton(
+                      icon: const Icon(
+                        Icons.add,
+                        color: Colors.white,
+                        size: 16,
+                      ),
+                      onPressed: () {
+                        setState(() {
+                          _subtitleSync += 0.5;
+                        });
+                        _webViewController.evaluateJavascript(
+                          source: 'window.setSubtitleSync($_subtitleSync);',
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        const Text(
+          'Subtitle',
+          style: TextStyle(color: Colors.white, fontSize: 10),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDownloadSubtitlesControl() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          icon: const Icon(Icons.download, color: Colors.white, size: 20),
+          onPressed: () {
+            _downloadSubtitles();
+            _showControlsWithAnimation();
+          },
+        ),
+        const Text('Subs', style: TextStyle(color: Colors.white, fontSize: 10)),
+      ],
+    );
+  }
+
+  Widget _buildQualityControl() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        PopupMenuButton<int>(
+          onSelected: (qualityIndex) {
+            setState(() {
+              _selectedQualityIndex = qualityIndex;
+              _currentQuality = _availableQualities[qualityIndex];
+              _showQualityMenu = false;
+            });
+            _webViewController.evaluateJavascript(
+              source:
+                  'window.setQuality("${_availableQualities[qualityIndex]}");',
+            );
+            _showControlsWithAnimation();
+          },
+          itemBuilder: (context) {
+            return List.generate(
+              _availableQualities.length,
+              (index) => PopupMenuItem(
+                value: index,
+                child: Row(
+                  children: [
+                    if (_selectedQualityIndex == index)
+                      const Icon(Icons.check, color: Colors.red, size: 18),
+                    if (_selectedQualityIndex == index)
+                      const SizedBox(width: 8),
+                    Text(_availableQualities[index]),
+                  ],
+                ),
+              ),
+            );
+          },
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.hd, color: Colors.white, size: 20),
+                onPressed: () {
+                  setState(() => _showQualityMenu = !_showQualityMenu);
+                  _showControlsWithAnimation();
+                },
+              ),
+              Text(
+                _currentQuality,
+                style: const TextStyle(color: Colors.white, fontSize: 10),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPictureInPictureControl() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          icon: Icon(
+            _isPictureInPicture
+                ? Icons.picture_in_picture_alt
+                : Icons.picture_in_picture,
+            color: Colors.white,
+            size: 20,
+          ),
+          onPressed: () {
+            setState(() {
+              _isPictureInPicture = !_isPictureInPicture;
+            });
+            _webViewController.evaluateJavascript(
+              source: 'window.togglePictureInPicture();',
+            );
+            _showControlsWithAnimation();
+          },
+        ),
+        const Text('PiP', style: TextStyle(color: Colors.white, fontSize: 10)),
+      ],
+    );
+  }
+
+  Widget _buildTheaterModeControl() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          icon: Icon(
+            _isTheaterMode ? Icons.fullscreen_exit : Icons.fullscreen,
+            color: Colors.white,
+            size: 20,
+          ),
+          onPressed: () {
+            setState(() {
+              _isTheaterMode = !_isTheaterMode;
+            });
+            _webViewController.evaluateJavascript(
+              source: 'window.setTheaterMode($_isTheaterMode);',
+            );
+            _showControlsWithAnimation();
+          },
+        ),
+        const Text(
+          'Theater',
+          style: TextStyle(color: Colors.white, fontSize: 10),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLoadingOverlay() {
+    return Stack(
+      children: [
+        // Background with lazy-loaded poster image
+        if (widget.posterUrl != null && widget.posterUrl!.isNotEmpty)
+          Container(
+            color: Colors.black,
+            child: Image.network(
+              widget.posterUrl!,
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stackTrace) {
+                return Container(color: Colors.black);
+              },
+              loadingBuilder: (context, child, loadingProgress) {
+                if (loadingProgress == null) {
+                  return child;
+                }
+                return Container(color: Colors.black);
+              },
+            ),
+          )
+        else
+          Container(color: Colors.black),
+        // Semi-transparent overlay with loading indicator
+        Container(
+          color: Colors.black87,
+          child: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.red),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Loading ${widget.title}...',
+                  style: const TextStyle(color: Colors.white),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Connecting to stream...',
+                  style: const TextStyle(color: Colors.white54, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -499,11 +1407,405 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
 
   void _handlePlayerMessage(String message) {
     try {
-      debugPrint('Player message: $message');
-      // Parse and handle player messages if needed
+      final data = jsonDecode(message) as Map<String, dynamic>;
+      final action = data['action'] as String?;
+
+      switch (action) {
+        case 'progressUpdate':
+          _lastPosition = Duration(
+            seconds: (data['position'] as num?)?.toInt() ?? 0,
+          );
+          break;
+
+        case 'skipDetected':
+          final skipType = data['skipType'] as String?;
+          final endTime = (data['endTime'] as num?)?.toInt() ?? 0;
+
+          if (skipType == 'intro') {
+            setState(() {
+              _showSkipIntro = true;
+              _skipIntroEndTime = endTime;
+            });
+            // Auto-hide after 8 seconds if not clicked
+            Future.delayed(const Duration(seconds: 8), () {
+              if (mounted && _showSkipIntro) {
+                setState(() => _showSkipIntro = false);
+              }
+            });
+          } else if (skipType == 'outro') {
+            setState(() {
+              _showSkipOutro = true;
+            });
+            // Auto-hide after 8 seconds if not clicked
+            Future.delayed(const Duration(seconds: 8), () {
+              if (mounted && _showSkipOutro) {
+                setState(() => _showSkipOutro = false);
+              }
+            });
+          }
+          break;
+
+        case 'volumeChanged':
+          setState(() {
+            _volume = (data['volume'] as num?)?.toDouble() ?? 1.0;
+          });
+          break;
+
+        case 'speedChanged':
+          setState(() {
+            _playbackSpeed = (data['speed'] as num?)?.toDouble() ?? 1.0;
+          });
+          break;
+
+        case 'theaterModeChanged':
+          setState(() {
+            _isTheaterMode = data['enabled'] as bool? ?? false;
+          });
+          break;
+
+        case 'subtitleSyncChanged':
+          setState(() {
+            _subtitleSync = (data['offset'] as num?)?.toDouble() ?? 0.0;
+          });
+          break;
+
+        case 'audioTrackChanged':
+          setState(() {
+            _selectedAudioTrack = (data['trackIndex'] as num?)?.toInt() ?? 0;
+          });
+          break;
+
+        case 'audioTracksDetected':
+          final tracks = data['tracks'] as List?;
+          if (tracks != null && tracks.isNotEmpty) {
+            setState(() {
+              _availableAudioTracks = [
+                'Default',
+                ...tracks.map((track) {
+                  final label = track['label'] as String? ?? 'Audio Track';
+                  final language = track['language'] as String? ?? '';
+                  return language.isNotEmpty && language != 'unknown'
+                      ? '$label ($language)'
+                      : label;
+                }),
+              ];
+            });
+          }
+          break;
+
+        case 'qualityChanged':
+          setState(() {
+            _currentQuality = (data['quality'] as String?) ?? 'Auto';
+          });
+          break;
+
+        case 'pipToggled':
+          setState(() {
+            _isPictureInPicture = data['enabled'] as bool? ?? false;
+          });
+          break;
+
+        case 'adsBlocked':
+          setState(() {
+            _blockedAdsCount += (data['count'] as num?)?.toInt() ?? 0;
+          });
+          break;
+
+        case 'playerFrozen':
+          setState(() {
+            _playerFrozen = true;
+          });
+          _handlePlayerFreeze(
+            (data['currentTime'] as num?)?.toDouble() ?? 0.0,
+            (data['duration'] as num?)?.toDouble() ?? 0.0,
+          );
+          break;
+
+        case 'ended':
+          _handleVideoEnded();
+          break;
+
+        default:
+          debugPrint('Unknown player action: $action');
+      }
     } catch (e) {
       debugPrint('Error parsing player message: $e');
     }
+  }
+
+  void _handleVideoEnded() {
+    // Mark as watched and auto-advance to next episode
+    WatchHistoryService.markAsWatched(
+      widget.tmdbId,
+      widget.isMovie,
+      widget.season,
+      widget.episode,
+    );
+
+    if (!widget.isMovie) {
+      // For TV series, show "Next Episode" dialog
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          backgroundColor: Colors.grey[900],
+          title: const Text(
+            'Episode Finished',
+            style: TextStyle(color: Colors.white),
+          ),
+          content: const Text(
+            'Mark as watched?',
+            style: TextStyle(color: Colors.white70),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Close'),
+            ),
+          ],
+        ),
+      );
+    }
+  }
+
+  Future<void> _downloadSubtitles() async {
+    try {
+      // Extract subtitles from HTML5 video element
+      final subtitleData = await _webViewController.evaluateJavascript(
+        source: '''
+          (function() {
+            const textTracks = document.getElementById('videoPlayer').textTracks;
+            const subtitles = [];
+            
+            if (textTracks && textTracks.length > 0) {
+              for (let i = 0; i < textTracks.length; i++) {
+                const track = textTracks[i];
+                if (track.kind === 'subtitles' || track.kind === 'captions') {
+                  subtitles.push({
+                    label: track.label || 'Subtitle ' + (i + 1),
+                    lang: track.srclang || 'unknown',
+                    kind: track.kind,
+                    src: track.src || ''
+                  });
+                }
+              }
+            }
+            return subtitles;
+          })();
+        ''',
+      );
+
+      if (subtitleData != null &&
+          subtitleData is List &&
+          subtitleData.isNotEmpty) {
+        // Show subtitle options
+        if (!mounted) return;
+
+        showModalBottomSheet(
+          context: context,
+          backgroundColor: Colors.grey[900],
+          builder: (context) => Container(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Available Subtitles',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                ...List.generate(subtitleData.length, (index) {
+                  final subtitle = subtitleData[index] as Map<String, dynamic>;
+                  final label =
+                      subtitle['label'] as String? ?? 'Subtitle $index';
+                  final lang = subtitle['lang'] as String? ?? 'Unknown';
+                  final src = subtitle['src'] as String? ?? '';
+
+                  return ListTile(
+                    title: Text(
+                      label,
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                    subtitle: Text(
+                      lang,
+                      style: const TextStyle(color: Colors.white70),
+                    ),
+                    trailing: const Icon(
+                      Icons.file_download,
+                      color: Colors.red,
+                    ),
+                    onTap: () {
+                      Navigator.pop(context);
+                      _showSubtitleInfo(label, lang, src);
+                    },
+                  );
+                }),
+              ],
+            ),
+          ),
+        );
+      } else {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No subtitles available'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error extracting subtitles: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error loading subtitles: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  void _showSubtitleInfo(String label, String language, String source) {
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.grey[900],
+        title: Text(label, style: const TextStyle(color: Colors.white)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Language:',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            Text(language, style: const TextStyle(color: Colors.white70)),
+            const SizedBox(height: 16),
+            const Text(
+              'Source:',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            Text(
+              source.isNotEmpty ? source : 'Embedded in video',
+              style: const TextStyle(color: Colors.white70, fontSize: 11),
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Note: Subtitle files are typically embedded in the video stream or linked from the source. To download, use a video downloader tool that supports subtitle extraction.',
+              style: TextStyle(color: Colors.white54, fontSize: 11),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _handlePlayerFreeze(double currentTime, double duration) {
+    if (!mounted) return;
+
+    debugPrint(
+      'Player freeze detected at ${currentTime.toStringAsFixed(2)}s of ${duration.toStringAsFixed(2)}s',
+    );
+    debugPrint('Blocked ads during session: $_blockedAdsCount');
+
+    // Show notification
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.grey[900],
+        title: const Text(
+          'Video Playback Frozen',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'The video player appears to be frozen. Try refreshing or switching sources.',
+              style: TextStyle(color: Colors.white70),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Position: ${currentTime.toStringAsFixed(0)}s',
+              style: const TextStyle(color: Colors.white54, fontSize: 12),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              setState(() => _playerFrozen = false);
+            },
+            child: const Text('Dismiss'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _startFreezeDetection() {
+    _freezeDetectionTimer?.cancel();
+    _webViewController.evaluateJavascript(
+      source: 'window.startFreezeDetection();',
+    );
+  }
+
+  /// Cache management methods
+  void _saveToCache(String key, dynamic value) {
+    _streamCache[key] = value;
+    _streamCacheTime[key] = DateTime.now();
+  }
+
+  dynamic _getFromCache(String key) {
+    final cachedTime = _streamCacheTime[key];
+    if (cachedTime == null) return null;
+
+    // Check if cache has expired
+    if (DateTime.now().difference(cachedTime) > _cacheExpiration) {
+      _streamCache.remove(key);
+      _streamCacheTime.remove(key);
+      return null;
+    }
+
+    return _streamCache[key];
+  }
+
+  void _clearExpiredCache() {
+    final now = DateTime.now();
+    final keysToRemove = <String>[];
+
+    _streamCacheTime.forEach((key, cacheTime) {
+      if (now.difference(cacheTime) > _cacheExpiration) {
+        keysToRemove.add(key);
+      }
+    });
+
+    for (final key in keysToRemove) {
+      _streamCache.remove(key);
+      _streamCacheTime.remove(key);
+    }
+
+    debugPrint('Cache cleanup: Removed ${keysToRemove.length} expired entries');
   }
 
   void _toggleControlsVisibility() {
@@ -569,6 +1871,7 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
     _saveWatchHistory();
     _controlsTimer?.cancel();
     _progressTimer?.cancel();
+    _freezeDetectionTimer?.cancel();
 
     _controlsAnimationController.dispose();
     CombinedStreamService.dispose();

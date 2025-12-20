@@ -1,14 +1,50 @@
 import 'package:flutter/material.dart';
 import '../screens/inapp_video_player_screen.dart';
+import '../services/watch_history_service.dart';
 
-class ContinueWatchingSection extends StatelessWidget {
+class ContinueWatchingSection extends StatefulWidget {
   final List<Map<String, dynamic>> continueWatching;
 
   const ContinueWatchingSection({super.key, required this.continueWatching});
 
   @override
+  State<ContinueWatchingSection> createState() => _ContinueWatchingSectionState();
+}
+
+class _ContinueWatchingSectionState extends State<ContinueWatchingSection> {
+  late Map<String, bool> _resumableMap;
+
+  @override
+  void initState() {
+    super.initState();
+    _resumableMap = {};
+    _loadResumableStates();
+  }
+
+  Future<void> _loadResumableStates() async {
+    final resumableMap = <String, bool>{};
+    
+    for (final item in widget.continueWatching) {
+      final key = '${item['tmdbId']}_${item['season']}_${item['episode']}';
+      final isResumable = await WatchHistoryService.isResumable(
+        item['tmdbId'],
+        item['isMovie'],
+        item['season'] ?? 1,
+        item['episode'] ?? 1,
+      );
+      resumableMap[key] = isResumable;
+    }
+    
+    if (mounted) {
+      setState(() {
+        _resumableMap = resumableMap;
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (continueWatching.isEmpty) return const SizedBox();
+    if (widget.continueWatching.isEmpty) return const SizedBox();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -29,9 +65,9 @@ class ContinueWatchingSection extends StatelessWidget {
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            itemCount: continueWatching.length,
+            itemCount: widget.continueWatching.length,
             itemBuilder: (context, index) {
-              final item = continueWatching[index];
+              final item = widget.continueWatching[index];
               return _buildContinueWatchingCard(context, item);
             },
           ),
@@ -46,21 +82,12 @@ class ContinueWatchingSection extends StatelessWidget {
   ) {
     final progress = (item['position'] ?? 0) / (item['duration'] ?? 1);
     final progressPercent = (progress * 100).round();
+    final key = '${item['tmdbId']}_${item['season']}_${item['episode']}';
+    final isResumable = _resumableMap[key] ?? false;
 
     return GestureDetector(
       onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => InAppVideoPlayerScreen(
-              title: item['title'],
-              tmdbId: item['tmdbId'],
-              isMovie: item['isMovie'],
-              season: item['season'] ?? 1,
-              episode: item['episode'] ?? 1,
-            ),
-          ),
-        );
+        _playContent(context, item);
       },
       child: Container(
         width: 140,
@@ -110,15 +137,54 @@ class ContinueWatchingSection extends StatelessWidget {
                       ),
                     ),
                   ),
-                  const Positioned.fill(
-                    child: Center(
-                      child: Icon(
-                        Icons.play_circle_filled,
-                        color: Colors.white,
-                        size: 50,
+                  // Resume button overlay for resumable content
+                  if (isResumable)
+                    Positioned.fill(
+                      child: Container(
+                         decoration: BoxDecoration(
+                           color: Colors.black.withValues(alpha: 0.5),
+                           borderRadius: BorderRadius.circular(8),
+                         ),
+                        child: Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(
+                                Icons.play_circle_filled,
+                                color: Colors.white,
+                                size: 40,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Resume',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                  shadows: [
+                                    Shadow(
+                                       offset: const Offset(0, 1),
+                                       blurRadius: 2,
+                                       color: Colors.black.withValues(alpha: 0.7),
+                                     ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    )
+                  else
+                    const Positioned.fill(
+                      child: Center(
+                        child: Icon(
+                          Icons.play_circle_filled,
+                          color: Colors.white,
+                          size: 50,
+                        ),
                       ),
                     ),
-                  ),
                 ],
               ),
             ),
@@ -147,6 +213,21 @@ class ContinueWatchingSection extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  void _playContent(BuildContext context, Map<String, dynamic> item) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => InAppVideoPlayerScreen(
+          title: item['title'],
+          tmdbId: item['tmdbId'],
+          isMovie: item['isMovie'],
+          season: item['season'] ?? 1,
+          episode: item['episode'] ?? 1,
         ),
       ),
     );

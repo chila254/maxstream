@@ -38,14 +38,22 @@ class WatchHistoryService {
     required Duration position,
     required Duration duration,
   }) async {
-    // Only save if watched more than 30 seconds and less than 90% complete
-    if (position.inSeconds <= 30 || position.inSeconds >= duration.inSeconds * 0.9) {
-      return;
-    }
-
     final prefs = await SharedPreferences.getInstance();
     final key = getWatchHistoryKey(tmdbId, isMovie, season, episode);
     
+    // Calculate watch percentage
+    final watchPercentage = duration.inSeconds > 0 
+      ? (position.inSeconds / duration.inSeconds * 100).clamp(0, 100)
+      : 0.0;
+    
+    // Mark as watched if >90% complete
+    final isWatched = watchPercentage >= 90;
+    
+    // Only save if watched more than 30 seconds
+    if (position.inSeconds <= 30) {
+      return;
+    }
+
     final history = {
       'tmdbId': tmdbId,
       'title': title,
@@ -54,6 +62,8 @@ class WatchHistoryService {
       'episode': episode,
       'position': position.inSeconds,
       'duration': duration.inSeconds,
+      'watchPercentage': watchPercentage,
+      'isWatched': isWatched,
       'timestamp': DateTime.now().millisecondsSinceEpoch,
     };
     
@@ -158,5 +168,53 @@ class WatchHistoryService {
     }
     
     return 0.0;
+  }
+
+  /// Check if episode/movie is watched (>90% complete)
+  static Future<bool> isWatched(String tmdbId, bool isMovie, int season, int episode) async {
+    final prefs = await SharedPreferences.getInstance();
+    final key = getWatchHistoryKey(tmdbId, isMovie, season, episode);
+    final historyJson = prefs.getString(key);
+    
+    if (historyJson != null) {
+      final history = json.decode(historyJson);
+      return history['isWatched'] ?? false;
+    }
+    
+    return false;
+  }
+
+  /// Check if resumable (>10% watched and not complete)
+  static Future<bool> isResumable(String tmdbId, bool isMovie, int season, int episode) async {
+    final watchPercentage = await getWatchProgressPercentage(tmdbId, isMovie, season, episode);
+    return watchPercentage > 0.1 && watchPercentage < 0.9;
+  }
+
+  /// Mark episode as watched
+  static Future<void> markAsWatched(String tmdbId, bool isMovie, int season, int episode) async {
+    final prefs = await SharedPreferences.getInstance();
+    final key = getWatchHistoryKey(tmdbId, isMovie, season, episode);
+    final historyJson = prefs.getString(key);
+    
+    Map<String, dynamic> history;
+    if (historyJson != null) {
+      history = json.decode(historyJson);
+    } else {
+      history = {
+        'tmdbId': tmdbId,
+        'isMovie': isMovie,
+        'season': season,
+        'episode': episode,
+        'position': 0,
+        'duration': 0,
+      };
+    }
+    
+    history['isWatched'] = true;
+    history['watchPercentage'] = 100.0;
+    history['timestamp'] = DateTime.now().millisecondsSinceEpoch;
+    
+    await prefs.setString(key, json.encode(history));
+    await _saveToGlobalHistory(history);
   }
 }
