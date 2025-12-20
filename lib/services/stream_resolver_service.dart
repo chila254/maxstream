@@ -174,8 +174,8 @@ class StreamResolverService {
     if (_webViewController == null) return;
 
     try {
-      // JavaScript injection to extract stream URLs from providers like VidSrc.to
-      // VidSrc.to loads streams dynamically via JavaScript
+      // JavaScript injection to extract stream URLs from providers like VidSrc.me
+      // VidSrc.me loads streams dynamically via JavaScript
       const String extractionScript = '''
         (function() {
           let streamUrl = null;
@@ -194,7 +194,7 @@ class StreamResolverService {
             attempts++;
             console.log('Extraction attempt ' + attempts + '/' + maxAttempts);
             
-            // VIDSRC.TO SPECIFIC: Check for player initialization
+            // VIDSRC.ME SPECIFIC: Check for player initialization
             try {
               if (window.player && window.player.source) {
                 console.log('Found window.player.source (VidSrc pattern)');
@@ -428,7 +428,7 @@ class StreamResolverService {
 
     if (sourceUri.contains('vidsrc')) {
       return {
-        'Referer': 'https://vidsrc.to',
+        'Referer': 'https://vidsrc.me',
         'User-Agent':
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       };

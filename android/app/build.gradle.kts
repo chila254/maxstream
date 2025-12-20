@@ -7,7 +7,7 @@ plugins {
 }
 
 // Load signing credentials from keystore.properties
-val keystorePropertiesFile = rootProject.file("android/keystore.properties")
+val keystorePropertiesFile = rootProject.file("keystore.properties")
 val keystoreProperties = mutableMapOf<String, String>()
 if (keystorePropertiesFile.exists()) {
     keystorePropertiesFile.readLines().forEach { line ->

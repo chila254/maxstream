@@ -47,9 +47,9 @@ class StremioProviderService {
 
   /// Stream providers (embed URLs + direct sources)
   static const Map<String, String> _providers = {
-    'vidsrc_to': 'https://vidsrc.to/embed',
+    'vidsrc_me': 'https://vidsrc.me/embed',
+    'vidsrc_icu': 'https://vidsrc.icu/embed',
     'vidsrc_pro': 'https://vidsrc.pro/embed',
-    'vidsrc_xyz': 'https://vidsrc.xyz/embed',
     'moviesapi': 'https://moviesapi.club/embed',
   };
 
@@ -82,7 +82,7 @@ class StremioProviderService {
             String quality;
             if (entry.key.contains('pro')) {
               quality = '1080p';
-            } else if (entry.key.contains('xyz')) {
+            } else if (entry.key.contains('icu')) {
               quality = '720p';
             } else {
               quality = '720p';
@@ -166,7 +166,7 @@ class StremioProviderService {
             String quality;
             if (entry.key.contains('pro')) {
               quality = '1080p';
-            } else if (entry.key.contains('xyz')) {
+            } else if (entry.key.contains('icu')) {
               quality = '720p';
             } else {
               quality = '720p';
@@ -183,7 +183,7 @@ class StremioProviderService {
 
             debugPrint('$_tag: ✓ Provider ${entry.key} is available');
           }
-        } catch (e) {
+          } catch (e) {
           debugPrint('$_tag: Provider ${entry.key} failed: $e');
           if (e is DioException) {
             debugPrint('$_tag: DioException details:');
