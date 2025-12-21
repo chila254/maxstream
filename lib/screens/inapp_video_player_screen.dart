@@ -4,7 +4,6 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'dart:async';
 import 'dart:convert';
 import '../services/watch_history_service.dart';
-import '../services/settings_service.dart';
 import '../services/stream_extraction_service.dart';
 
 class InAppVideoPlayerScreen extends StatefulWidget {
@@ -49,8 +48,6 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
 
   // Playback settings
   bool _showControls = true;
-  bool _autoPlay = true;
-  bool _rememberPosition = true;
 
   // Skip detection
   bool _showSkipIntro = false;
@@ -58,7 +55,6 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
   int _skipIntroEndTime = 30;
 
   // Settings from SettingsService
-  Map<String, dynamic> _playerSettings = {};
 
   // Stream source
   String? _streamSource;
@@ -137,15 +133,9 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
 
   Future<void> _loadSettings() async {
     try {
-      _playerSettings = await SettingsService.getAllPlayerSettings();
-
       // Apply player settings to state variables
-      _autoPlay = _playerSettings['autoPlay'] ?? true;
-      _rememberPosition = _playerSettings['rememberPosition'] ?? true;
     } catch (e) {
       debugPrint('Error loading settings: $e');
-      _autoPlay = true;
-      _rememberPosition = true;
     }
   }
 
@@ -216,8 +206,8 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
     ''';
   }
 
-  /// Enhanced embed page script - loads provider page with UI overlay removal
-  /// This allows the provider's own click handlers and video logic to work
+  /// Enhanced embed page script - optimized for provider embeds
+  /// Removes overlays, ads, forces autoplay, and fullscreen
   String _getEmbedPageScript() {
     return '''
     (function() {
@@ -331,21 +321,20 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
         _errorMessage = null;
       });
 
-      // Try to get cached stream result first
+      // Try to get cached embed URL first
       final cacheKey = '${widget.tmdbId}_${widget.season}_${widget.episode}';
       final cachedResult = _getFromCache(cacheKey);
 
       Map<String, dynamic>? streamResult;
-      String? bestUrl;
+      String? embedUrl;
+
       if (cachedResult != null) {
-        bestUrl = cachedResult['streamUrl'];
+        embedUrl = cachedResult['embedUrl'];
         _streamSource = cachedResult['source'];
         streamResult = cachedResult;
-        debugPrint(
-          'InAppPlayer: Using cached stream URL: $bestUrl from $_streamSource',
-        );
+        debugPrint('InAppPlayer: Using cached embed URL from $_streamSource');
       } else {
-        // Extract stream URL using StreamExtractionService
+        // Get embed URL from StreamExtractionService
         streamResult = await StreamExtractionService.extractStream(
           widget.tmdbId,
           widget.isMovie,
@@ -353,89 +342,54 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
           episode: widget.episode,
         );
 
-        if (streamResult != null && streamResult['streamUrl'] != null) {
-          bestUrl = streamResult['streamUrl'];
+        if (streamResult != null && streamResult['embedUrl'] != null) {
+          embedUrl = streamResult['embedUrl'];
           _streamSource = streamResult['source'];
           // Cache the result
           _saveToCache(cacheKey, streamResult);
           debugPrint(
-            'InAppPlayer: Using extracted stream URL: $bestUrl from $_streamSource',
+            'InAppPlayer: Using embed URL from $_streamSource - $embedUrl',
           );
         } else {
-          bestUrl = widget.videoUrl;
-          _streamSource = null;
-          debugPrint('InAppPlayer: Using fallback video URL: $bestUrl');
+          throw Exception('No embed URL available from any provider');
         }
       }
 
-      if (bestUrl == null) {
-        throw Exception('No video URL available');
+      if (embedUrl == null) {
+        throw Exception('No embed URL available');
       }
-
-      final embedUrl = streamResult?['embedUrl'] as String?;
 
       if (!mounted) return;
 
-      if (embedUrl != null) {
-        // Load the embed URL directly and let provider's JS handle playback
-        _lastLoadedUrl = embedUrl;
-        await _webViewController.loadUrl(
-          urlRequest: URLRequest(url: WebUri(embedUrl)),
+      // Load the embed URL directly (bypasses ORB)
+      _lastLoadedUrl = embedUrl;
+      await _webViewController.loadUrl(
+        urlRequest: URLRequest(url: WebUri(embedUrl)),
+      );
+
+      // Wait for page to load before injecting scripts
+      await Future.delayed(const Duration(seconds: 2));
+
+      // Inject ad-blocking and enhancement scripts
+      try {
+        await _webViewController.evaluateJavascript(
+          source: _getAdBlockingScript(),
         );
-        // Wait for page to load and inject UI cleaning + auto-play
-        await Future.delayed(const Duration(seconds: 2));
-        try {
-          await _webViewController.evaluateJavascript(
-            source: _getEmbedPageScript(),
-          );
-        } catch (e) {
-          debugPrint('Error injecting embed script: $e');
-        }
-      } else {
-        // Build HTML5 video player with controls
-        final htmlContent = _buildVideoHtml(bestUrl);
-        await _webViewController.loadData(
-          data: htmlContent,
-          mimeType: 'text/html',
-          encoding: 'utf8',
-        );
+      } catch (e) {
+        debugPrint('Error injecting ad-blocking script: $e');
       }
 
-      // Resume from last position if enabled
-      if (_rememberPosition && _lastPosition.inSeconds > 0) {
-        // Position will be restored via JavaScript player API when ready
+      // Inject embed optimization script
+      try {
         await _webViewController.evaluateJavascript(
-          source:
-              '''
-            if (typeof player !== 'undefined') {
-              player.addEventListener('loadedmetadata', function() {
-                player.currentTime = ${_lastPosition.inSeconds};
-              });
-            }
-          ''',
+          source: _getEmbedPageScript(),
         );
+      } catch (e) {
+        debugPrint('Error injecting embed script: $e');
       }
 
       _startProgressTracking();
       _startControlsTimer();
-
-      // Force play after a delay to ensure video loads
-      await Future.delayed(const Duration(seconds: 3));
-      try {
-        await _webViewController.evaluateJavascript(
-          source: '''
-            if (typeof player !== 'undefined' && player.readyState >= 2) {
-              player.play().then(() => {
-                console.log('Delayed auto-play successful');
-              }).catch(e => {
-                console.error('Delayed auto-play failed:', e);
-              });
-            }
-          ''',
-        );
-      } catch (e) {
-        debugPrint('Error in delayed play: $e');
-      }
 
       setState(() {
         _isLoading = false;
@@ -446,653 +400,11 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
       debugPrint('InAppPlayer error: $e');
       setState(() {
         _isLoading = false;
-        _errorMessage =
-            'Failed to load video. Please check your internet connection and try again.';
+        _errorMessage = '$e'.contains('embed')
+            ? 'No streams available. Try another title.'
+            : 'Failed to load video. Please check your internet connection and try again.';
       });
     }
-  }
-
-  String _buildVideoHtml(String videoUrl) {
-    return '''
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta charset="UTF-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <meta http-equiv="Cache-Control" content="max-age=3600">
-      <meta http-equiv="Pragma" content="cache">
-      <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-      <style>
-        * {
-          margin: 0;
-          padding: 0;
-          box-sizing: border-box;
-        }
-        body {
-          background: #000;
-          width: 100%;
-          height: 100%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        }
-        video {
-          width: 100%;
-          height: 100%;
-          max-width: 100%;
-          max-height: 100%;
-          display: block;
-        }
-        .container {
-          width: 100%;
-          height: 100vh;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          background: #000;
-        }
-        .player-ui {
-          position: absolute;
-          top: 0;
-          left: 0;
-          width: 100%;
-          height: 100%;
-          pointer-events: none;
-          display: flex;
-          flex-direction: column;
-        }
-        .player-controls {
-          pointer-events: auto;
-          color: white;
-          font-size: 14px;
-        }
-        .theater-indicator {
-          position: absolute;
-          top: 10px;
-          right: 10px;
-          background: rgba(0, 0, 0, 0.6);
-          color: white;
-          padding: 4px 8px;
-          border-radius: 3px;
-          font-size: 12px;
-          display: none;
-        }
-        .theater-indicator.active {
-          display: block;
-        }
-        .quality-indicator {
-          position: absolute;
-          top: 10px;
-          left: 10px;
-          background: rgba(0, 0, 0, 0.6);
-          color: white;
-          padding: 4px 8px;
-          border-radius: 3px;
-          font-size: 12px;
-        }
-        .pip-indicator {
-          position: absolute;
-          bottom: 10px;
-          left: 10px;
-          background: rgba(0, 0, 0, 0.6);
-          color: white;
-          padding: 4px 8px;
-          border-radius: 3px;
-          font-size: 12px;
-          display: none;
-        }
-        .pip-indicator.active {
-          display: block;
-        }
-        .play-pause-button {
-          position: absolute;
-          top: 50%;
-          left: 50%;
-          transform: translate(-50%, -50%);
-          width: 80px;
-          height: 80px;
-          background: rgba(0, 0, 0, 0.5);
-          border: 3px solid white;
-          border-radius: 50%;
-          display: flex !important;
-          align-items: center;
-          justify-content: center;
-          cursor: pointer;
-          z-index: 1000 !important;
-          transition: background 0.3s ease;
-          pointer-events: auto !important;
-        }
-        .play-pause-button:hover {
-          background: rgba(255, 255, 255, 0.2);
-        }
-        .play-pause-button.hidden {
-          display: none !important;
-          pointer-events: none !important;
-        }
-        .play-pause-button.show {
-          display: flex !important;
-          pointer-events: auto !important;
-        }
-        .play-pause-icon {
-          width: 0;
-          height: 0;
-          border-left: 25px solid white;
-          border-top: 15px solid transparent;
-          border-bottom: 15px solid transparent;
-          margin-left: 5px;
-        }
-        .pause-icon {
-          width: 6px;
-          height: 40px;
-          background: white;
-          margin: 0 5px;
-        }
-      </style>
-    </head>
-    <body>
-      <div class="container">
-         <video
-           id="videoPlayer"
-           controlsList="nodownload"
-           playsinline
-           style="width: 100%; height: 100%; object-fit: contain;">
-           Your browser does not support the video tag.
-         </video>
-        <div id="playPauseButton" class="play-pause-button">
-          <div id="playIcon" class="play-pause-icon"></div>
-          <div id="pauseIcon" style="display: none;">
-            <div class="pause-icon"></div>
-            <div class="pause-icon"></div>
-          </div>
-        </div>
-        <div id="theaterIndicator" class="theater-indicator">Theater Mode</div>
-        <div id="qualityIndicator" class="quality-indicator">Auto</div>
-        <div id="pipIndicator" class="pip-indicator">Picture in Picture</div>
-      </div>
-      
-      <script>
-        console.log('Video player HTML loaded');
-        // Define proper Flutter bridge
-        window.FlutterPlayer = {
-          sendMessage: function(data) {
-            if (window.flutter_inappwebview && window.flutter_inappwebview.callHandler) {
-              try {
-                window.flutter_inappwebview.callHandler('Flutterplayer', data);
-                console.log('✓ Message sent to Flutter:', data);
-              } catch (e) {
-                console.error('❌ Failed to send message to Flutter:', e);
-              }
-            } else {
-              console.warn('⚠️ Flutter bridge not available yet');
-            }
-          }
-        };
-        
-        ${_getAdBlockingScript()}
-
-        // Save progress to Flutter
-         let player = document.getElementById('videoPlayer');
-         const theaterIndicator = document.getElementById('theaterIndicator');
-         const playPauseButton = document.getElementById('playPauseButton');
-         const playIcon = document.getElementById('playIcon');
-         const pauseIcon = document.getElementById('pauseIcon');
-         let lastProgressUpdate = 0;
-         let introSkipped = false;
-         let outroSkipped = false;
-         
-         // Player state
-         let playerVolume = 1.0;
-         let playerSpeed = 1.0;
-         let isTheaterMode = false;
-         let subtitleSync = 0; // seconds offset
-         let currentAudioTrack = 0;
-         let currentQuality = 'Auto';
-         let isPictureInPicture = false;
-         
-         // Freeze detection
-         let lastPlaybackPosition = 0;
-         let frozenCheckCount = 0;
-         let reportedFrozen = false;
-         
-         // Skip intro detection (typically 0-30 seconds)
-         const INTRO_END = 30;
-         // Skip outro detection (typically 3-5 minutes before end or 85%+ of video)
-         const OUTRO_START_PERCENT = 0.85;
-         
-         // Play/Pause button functionality
-         function updatePlayPauseIcon() {
-           if (player.paused) {
-             playIcon.style.display = 'block';
-             pauseIcon.style.display = 'none';
-           } else {
-             playIcon.style.display = 'none';
-             pauseIcon.style.display = 'flex';
-           }
-         }
-         
-         playPauseButton.addEventListener('click', function(e) {
-           console.log('▶ Play button clicked, paused:', player.paused);
-           console.log('Event:', e);
-           e.stopPropagation();
-           if (player.paused) {
-             player.play().then(() => {
-               console.log('✓ Play successful');
-               updatePlayPauseIcon();
-             }).catch(e => console.error('❌ Play failed:', e));
-           } else {
-             player.pause();
-             updatePlayPauseIcon();
-           }
-         });
-         
-         // Also add touch event for better mobile support
-         playPauseButton.addEventListener('touchstart', function(e) {
-           console.log('▶ Play button touched');
-           e.preventDefault();
-           e.stopPropagation();
-           if (player.paused) {
-             player.play().then(() => {
-               console.log('✓ Play successful from touch');
-               updatePlayPauseIcon();
-             }).catch(e => console.error('❌ Play failed from touch:', e));
-           } else {
-             player.pause();
-             updatePlayPauseIcon();
-           }
-         });
-         
-         player.addEventListener('play', updatePlayPauseIcon);
-         player.addEventListener('pause', updatePlayPauseIcon);
-         
-         // Hide play button when playing, show when paused or ended
-         player.addEventListener('play', function() {
-           playPauseButton.style.opacity = '0.3';
-           playPauseButton.style.pointerEvents = 'auto';
-         });
-         
-         player.addEventListener('pause', function() {
-           playPauseButton.style.opacity = '1';
-           playPauseButton.style.pointerEvents = 'auto';
-         });
-         
-         // Initialize icon
-         updatePlayPauseIcon();
-         
-         // Show play button immediately (always)
-         playPauseButton.classList.add('show');
-         playPauseButton.style.display = 'flex';
-         playPauseButton.style.pointerEvents = 'auto';
-         
-         // Load video source dynamically
-         const videoUrl = '$videoUrl';
-         console.log('📺 Video URL: ' + videoUrl);
-         
-         // Clear any existing sources
-         player.innerHTML = '';
-         
-         // Determine format based on URL
-         let isHls = false;
-         let isDash = false;
-         if (videoUrl.includes('.m3u8') || videoUrl.includes('master.m3u8') || videoUrl.includes('rcp')) {
-           isHls = true;
-           console.log('🎬 Format: HLS (m3u8 or rcp)');
-         } else if (videoUrl.includes('.mpd')) {
-           isDash = true;
-           console.log('🎬 Format: DASH (mpd)');
-         } else {
-           console.log('🎬 Format: MP4');
-         }
-
-         // Load HLS using hls.js if available
-         if (isHls && typeof Hls !== 'undefined' && Hls.isSupported()) {
-           console.log('✓ Using hls.js for HLS playback');
-           const hls = new Hls();
-           hls.loadSource(videoUrl);
-           hls.attachMedia(player);
-           hls.on(Hls.Events.MANIFEST_PARSED, function() {
-             console.log('✓ HLS manifest parsed, auto-playing');
-             // Mute first to bypass Android WebView autoplay restrictions
-             player.muted = true;
-             player.play().then(() => {
-               console.log('✓ HLS playback started');
-               player.muted = false;
-             }).catch(e => console.error('❌ HLS play failed:', e));
-           });
-           hls.on(Hls.Events.ERROR, function(event, data) {
-             console.error('❌ HLS error:', data);
-           });
-         } else {
-           // Fallback: use native video element for HLS, DASH, or MP4
-           const source = document.createElement('source');
-           source.src = videoUrl;
-           if (isHls) {
-             source.type = 'application/x-mpegURL';
-             console.log('⚠️ Using native HLS support (hls.js not available)');
-           } else if (isDash) {
-             source.type = 'application/dash+xml';
-           } else {
-             source.type = 'video/mp4';
-           }
-           player.appendChild(source);
-           player.load();
-           console.log('✓ Source element loaded via native player');
-         }
-
-         // Fallback: Show play button after 3 seconds if metadata never loads
-         setTimeout(() => {
-           if (!playPauseButton.classList.contains('show')) {
-             console.log('⏱ Metadata loading timeout, showing button anyway');
-             playPauseButton.classList.add('show');
-             updatePlayPauseIcon();
-           }
-         }, 3000);
-         
-         // Error handling and logging
-         player.addEventListener('error', function() {
-           console.error('Video error:', player.error);
-           if (player.error) {
-             let errorMessage = 'Unknown error';
-             switch(player.error.code) {
-               case player.error.MEDIA_ERR_ABORTED:
-                 errorMessage = 'Video loading aborted';
-                 break;
-               case player.error.MEDIA_ERR_NETWORK:
-                 errorMessage = 'Network error loading video';
-                 break;
-               case player.error.MEDIA_ERR_DECODE:
-                 errorMessage = 'Error decoding video';
-                 break;
-               case player.error.MEDIA_ERR_SRC_NOT_SUPPORTED:
-                 errorMessage = 'Video source not supported';
-                 break;
-             }
-             console.error('Player error: ' + errorMessage);
-             FlutterPlayer.sendMessage(JSON.stringify({
-               action: 'playerError',
-               message: errorMessage,
-               code: player.error.code
-             }));
-           }
-         });
-         
-         // Log when metadata is loaded
-         player.addEventListener('loadedmetadata', function() {
-           console.log('✓ Video metadata loaded: ' + player.duration + 's');
-           // Ensure not muted
-           player.muted = false;
-           // Show play button when metadata is loaded
-           playPauseButton.classList.add('show');
-           updatePlayPauseIcon();
-
-           // Auto-play if enabled
-           if (${_autoPlay ? 'true' : 'false'}) {
-             console.log('▶ Auto-playing video...');
-             // Mute first to bypass Android WebView autoplay restrictions
-             player.muted = true;
-             player.volume = 1.0;
-             player.play().then(() => {
-               console.log('✓ Auto-play successful');
-               player.muted = false;
-             }).catch(function(error) {
-               console.error('❌ Auto-play failed:', error);
-             });
-           }
-
-           FlutterPlayer.sendMessage(JSON.stringify({
-             action: 'videoMetadataLoaded',
-             duration: player.duration
-           }));
-         });
-         
-         // Log when video can play
-         player.addEventListener('canplay', function() {
-           console.log('Video can play');
-           // Mute first to bypass Android WebView autoplay restrictions
-           player.muted = true;
-           player.volume = 1.0;
-           player.play().then(() => {
-             console.log('✓ Canplay auto-play successful');
-             player.muted = false;
-           }).catch(function(error) {
-             console.error('❌ Canplay auto-play failed:', error);
-             player.muted = false;
-           });
-         });
-         
-         // Log loading states
-         player.addEventListener('loadstart', function() {
-           console.log('Video loading started');
-         });
-         
-         player.addEventListener('playing', function() {
-           console.log('Video started playing');
-         });
-         
-         player.addEventListener('timeupdate', function() {
-          const currentTime = player.currentTime;
-          const duration = player.duration;
-          
-          // Auto-skip intro for TV series (only TV, not movies)
-          if (currentTime > 5 && currentTime < INTRO_END && !introSkipped && duration > 1200) {
-            // Only auto-skip if duration suggests it's a TV episode (>20 min)
-            FlutterPlayer.sendMessage(JSON.stringify({
-              action: 'skipDetected',
-              skipType: 'intro',
-              startTime: 0,
-              endTime: INTRO_END
-            }));
-            introSkipped = true;
-          }
-          
-          // Detect outro for TV series
-          if (duration > 0 && currentTime > duration * OUTRO_START_PERCENT && !outroSkipped && duration > 1200) {
-            const outroStart = Math.floor(duration * OUTRO_START_PERCENT);
-            FlutterPlayer.sendMessage(JSON.stringify({
-              action: 'skipDetected',
-              skipType: 'outro',
-              startTime: outroStart,
-              endTime: Math.floor(duration)
-            }));
-            outroSkipped = true;
-          }
-          
-          // Update progress (throttled to 1 per second)
-          if (Date.now() - lastProgressUpdate > 1000) {
-            FlutterPlayer.sendMessage(JSON.stringify({
-              action: 'progressUpdate',
-              position: currentTime,
-              duration: duration,
-              watchPercent: duration > 0 ? (currentTime / duration * 100) : 0
-            }));
-            lastProgressUpdate = Date.now();
-          }
-        });
-        
-        player.addEventListener('loadedmetadata', function() {
-          // Detect available audio tracks
-          const audioTracks = [];
-          if (player.audioTracks && player.audioTracks.length > 0) {
-            for (let i = 0; i < player.audioTracks.length; i++) {
-              const track = player.audioTracks[i];
-              audioTracks.push({
-                index: i,
-                label: track.label || 'Audio Track ' + (i + 1),
-                language: track.language || 'unknown',
-                kind: track.kind || 'main'
-              });
-            }
-          }
-          
-          if (audioTracks.length > 0) {
-            FlutterPlayer.sendMessage(JSON.stringify({
-              action: 'audioTracksDetected',
-              tracks: audioTracks
-            }));
-          }
-        });
-        
-        player.addEventListener('play', function() {
-          FlutterPlayer.sendMessage(JSON.stringify({action: 'play'}));
-        });
-        
-        player.addEventListener('pause', function() {
-          FlutterPlayer.sendMessage(JSON.stringify({action: 'pause'}));
-        });
-        
-        player.addEventListener('ended', function() {
-          FlutterPlayer.sendMessage(JSON.stringify({action: 'ended'}));
-        });
-        
-        // Player control functions
-        window.setPlayerVolume = function(volume) {
-          playerVolume = Math.max(0, Math.min(1, volume));
-          player.volume = playerVolume;
-          FlutterPlayer.sendMessage(JSON.stringify({
-            action: 'volumeChanged',
-            volume: playerVolume
-          }));
-        };
-        
-        window.setPlaybackSpeed = function(speed) {
-          playerSpeed = speed;
-          player.playbackRate = playerSpeed;
-          FlutterPlayer.sendMessage(JSON.stringify({
-            action: 'speedChanged',
-            speed: playerSpeed
-          }));
-        };
-        
-        window.setTheaterMode = function(enabled) {
-          isTheaterMode = enabled;
-          theaterIndicator.classList.toggle('active', enabled);
-          FlutterPlayer.sendMessage(JSON.stringify({
-            action: 'theaterModeChanged',
-            enabled: isTheaterMode
-          }));
-        };
-        
-        window.setSubtitleSync = function(offset) {
-          subtitleSync = offset;
-          FlutterPlayer.sendMessage(JSON.stringify({
-            action: 'subtitleSyncChanged',
-            offset: subtitleSync
-          }));
-        };
-        
-        window.setAudioTrack = function(trackIndex) {
-          currentAudioTrack = trackIndex;
-          
-          // Disable all audio tracks and enable the selected one
-          if (player.audioTracks && player.audioTracks.length > 0) {
-            for (let i = 0; i < player.audioTracks.length; i++) {
-              player.audioTracks[i].enabled = (i === (trackIndex - 1));
-            }
-          }
-          
-          FlutterPlayer.sendMessage(JSON.stringify({
-            action: 'audioTrackChanged',
-            trackIndex: currentAudioTrack
-          }));
-        };
-        
-        window.setQuality = function(quality) {
-          currentQuality = quality;
-          const qualityIndicator = document.getElementById('qualityIndicator');
-          qualityIndicator.textContent = quality;
-          
-          FlutterPlayer.sendMessage(JSON.stringify({
-            action: 'qualityChanged',
-            quality: currentQuality
-          }));
-        };
-        
-        window.togglePictureInPicture = function() {
-          const pipIndicator = document.getElementById('pipIndicator');
-          
-          if (document.pictureInPictureEnabled) {
-            if (document.pictureInPictureElement) {
-              document.exitPictureInPicture().then(() => {
-                isPictureInPicture = false;
-                pipIndicator.classList.remove('active');
-              }).catch(error => {
-                console.log('Error exiting PiP: ' + error);
-              });
-            } else {
-              player.requestPictureInPicture().then(() => {
-                isPictureInPicture = true;
-                pipIndicator.classList.add('active');
-              }).catch(error => {
-                console.log('Error entering PiP: ' + error);
-              });
-            }
-          }
-          
-          FlutterPlayer.sendMessage(JSON.stringify({
-            action: 'pipToggled',
-            enabled: isPictureInPicture
-          }));
-        };
-        
-        window.getBlockedAdsCount = function() {
-          return window.adBlockerState ? window.adBlockerState.blockedCount : 0;
-        };
-        
-        window.startFreezeDetection = function() {
-          setInterval(function() {
-            if (!player.paused && player.duration > 0) {
-              const currentPos = player.currentTime;
-              
-              if (currentPos === lastPlaybackPosition) {
-                frozenCheckCount++;
-              } else {
-                frozenCheckCount = 0;
-                reportedFrozen = false;
-                lastPlaybackPosition = currentPos;
-              }
-              
-              // If player hasn't moved for 3 consecutive checks (3 seconds), it's frozen
-              if (frozenCheckCount >= 3 && !reportedFrozen) {
-                reportedFrozen = true;
-                FlutterPlayer.sendMessage(JSON.stringify({
-                  action: 'playerFrozen',
-                  currentTime: currentPos,
-                  duration: player.duration
-                }));
-              }
-              
-              // Reset if video resumes
-              if (frozenCheckCount > 0 && currentPos > lastPlaybackPosition) {
-                frozenCheckCount = 0;
-                reportedFrozen = false;
-              }
-            }
-          }, 1000);
-        };
-        
-        window.getPlayerState = function() {
-          return {
-            volume: playerVolume,
-            speed: playerSpeed,
-            theaterMode: isTheaterMode,
-            subtitleSync: subtitleSync,
-            audioTrack: currentAudioTrack,
-            quality: currentQuality,
-            pictureInPicture: isPictureInPicture,
-            blockedAdsCount: window.adBlockerState ? window.adBlockerState.blockedCount : 0,
-            currentTime: player.currentTime,
-            duration: player.duration
-          };
-        };
-        
-        // Run ad blocking on load
-        window.addEventListener('load', function() {
-          ${_getAdBlockingScript()}
-        });
-      </script>
-    </body>
-    </html>
-    ''';
   }
 
   @override

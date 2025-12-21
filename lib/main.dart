@@ -6,7 +6,6 @@ import 'screens/splash_screen.dart';
 import 'screens/onstream_main_screen.dart';
 import 'services/notification_service.dart';
 import 'services/theme_service.dart';
-import 'services/stream_extraction_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -19,7 +18,6 @@ void main() async {
 
     await NotificationService().initialize();
     await ThemeService.instance.loadTheme();
-    await StreamExtractionService.initialize();
 
     // Check for updates after initialization
     // WidgetsBinding.instance.addPostFrameCallback((_) {

@@ -1,8 +1,6 @@
 import 'package:flutter/foundation.dart';
-import 'package:webview_flutter/webview_flutter.dart';
 import 'package:dio/dio.dart';
 import 'dart:async';
-import 'dart:convert';
 
 /// Stream provider model
 class StreamProvider {
@@ -68,11 +66,7 @@ class StreamExtractionService {
     'moviesapi': 'https://moviesapi.club/embed',
   };
 
-  static WebViewController? _webViewController;
-  static Completer<String?>? _urlCompleter;
-  static bool _isInitialized = false;
-
-  /// Main entry point: Extract and resolve stream for movies/TV
+  /// Main entry point: Get embed URL for movies/TV (no resolution needed)
   static Future<Map<String, dynamic>?> extractStream(
     String tmdbId,
     bool isMovie, {
@@ -82,7 +76,7 @@ class StreamExtractionService {
     try {
       debugPrint('');
       debugPrint('$_tag: ╔════════════════════════════════════════════╗');
-      debugPrint('$_tag: ║       STREAM EXTRACTION STARTED             ║');
+      debugPrint('$_tag: ║       EMBED URL FETCH STARTED               ║');
       debugPrint('$_tag: ╚════════════════════════════════════════════╝');
       debugPrint('$_tag: Content Type: ${isMovie ? 'MOVIE' : 'TV SERIES'}');
       debugPrint('$_tag: TMDB ID: $tmdbId');
@@ -110,58 +104,43 @@ class StreamExtractionService {
       debugPrint(
         '$_tag: ✓ STEP 1 SUCCESS: Found ${providers.length} providers',
       );
-      debugPrint('');
-
-      // Step 2: Resolve embeds to playable URLs
-      debugPrint('$_tag: 📍 STEP 2: Resolving Embed URLs');
-      debugPrint('$_tag: ─────────────────────────────────────');
-      final providersToResolve = providers
-          .map((p) => (url: p.url, source: p.source, quality: p.quality))
-          .toList();
-
-      debugPrint(
-        '$_tag: Attempting to resolve ${providersToResolve.length} providers...',
-      );
       debugPrint('$_tag: Provider order (by quality):');
-      for (int i = 0; i < providersToResolve.length; i++) {
-        final p = providersToResolve[i];
-        debugPrint('$_tag:   ${i + 1}. ${p.source} (${p.quality})');
+      for (int i = 0; i < providers.length; i++) {
+        final p = providers[i];
+        debugPrint('$_tag:   ${i + 1}. ${p.source} (${p.quality}) - ${p.url}');
       }
       debugPrint('');
 
-      final resolvedStream = await _resolveBestSource(providersToResolve);
+      // Select best provider by quality
+      providers.sort((a, b) {
+        final qualityOrder = {'1080p': 0, '720p': 1, '480p': 2};
+        final aRank = qualityOrder[a.quality] ?? 99;
+        final bRank = qualityOrder[b.quality] ?? 99;
+        return aRank.compareTo(bRank);
+      });
 
-      if (resolvedStream == null || !resolvedStream.isPlayable) {
-        debugPrint('$_tag: ❌ STEP 2 FAILED: Could not resolve any stream');
-        return null;
-      }
+      final bestProvider = providers.first;
 
-      debugPrint('');
-      debugPrint('$_tag: ✓ STEP 2 SUCCESS: Stream resolved');
       debugPrint('');
       debugPrint('$_tag: ╔════════════════════════════════════════════╗');
-      debugPrint('$_tag: ║       STREAM EXTRACTION COMPLETED ✓         ║');
+      debugPrint('$_tag: ║       EMBED URL READY ✓                     ║');
       debugPrint('$_tag: ╚════════════════════════════════════════════╝');
-      debugPrint('$_tag: 📺 Source: ${resolvedStream.source}');
-      debugPrint('$_tag: 🎬 Quality: ${resolvedStream.quality}');
-      debugPrint('$_tag: 🔗 Type: ${resolvedStream.type}');
-      final urlPreview = resolvedStream.url.substring(
-        0,
-        resolvedStream.url.length > 100 ? 100 : resolvedStream.url.length,
-      );
-      debugPrint('$_tag: 📡 URL: $urlPreview...');
+      debugPrint('$_tag: 📺 Source: ${bestProvider.source}');
+      debugPrint('$_tag: 🎬 Quality: ${bestProvider.quality}');
+      debugPrint('$_tag: 📡 Embed URL: ${bestProvider.url}');
       debugPrint('');
 
       return {
-        'streamUrl': resolvedStream.url,
-        'source': resolvedStream.source,
-        'type': resolvedStream.type,
-        'quality': resolvedStream.quality,
-        'embedUrl': resolvedStream.embedUrl,
-        'method': 'unified_extraction',
-        'message': 'Stream resolved from ${resolvedStream.source}',
-        'headers': resolvedStream.headers,
-        'isPlayable': resolvedStream.isPlayable,
+        'streamUrl': bestProvider.url,
+        'source': bestProvider.source,
+        'type': 'embed',
+        'quality': bestProvider.quality,
+        'embedUrl': bestProvider.url,
+        'method': 'direct_embed',
+        'message':
+            'Using ${bestProvider.source} embed (${bestProvider.quality})',
+        'headers': _getHeadersForSource(bestProvider.source),
+        'isPlayable': true,
       };
     } catch (e) {
       debugPrint('$_tag: ❌ FATAL ERROR: $e');
@@ -311,248 +290,6 @@ class StreamExtractionService {
     }
   }
 
-  /// Resolve best source with multiple strategies
-  static Future<ResolvedStream?> _resolveBestSource(
-    List<({String url, String source, String quality})> sources,
-  ) async {
-    for (final source in sources) {
-      debugPrint(
-        '$_tag: Attempting to resolve ${source.source} - ${source.quality}',
-      );
-
-      // Strategy 1: Try Android native fetch (direct, no ORB issues)
-      if (defaultTargetPlatform == TargetPlatform.android) {
-        final result = await _resolveStreamAndroid(
-          source.url,
-          source: source.source,
-          quality: source.quality,
-        );
-        if (result != null) {
-          debugPrint('$_tag: ✓ Successfully resolved via Android native');
-          return result;
-        }
-      }
-
-      // Strategy 2: Try WebView
-      final webViewResult = await _resolveStreamWebView(
-        source.url,
-        source: source.source,
-        quality: source.quality,
-      );
-      if (webViewResult != null) {
-        debugPrint('$_tag: ✓ Successfully resolved via WebView');
-        return webViewResult;
-      }
-
-      // Strategy 3: Try proxy fetch
-      final proxyResult = await _resolveStreamProxy(
-        source.url,
-        source: source.source,
-        quality: source.quality,
-      );
-      if (proxyResult != null) {
-        debugPrint('$_tag: ✓ Successfully resolved via proxy');
-        return proxyResult;
-      }
-
-      debugPrint(
-        '$_tag: Failed to resolve from ${source.source}, trying next...',
-      );
-    }
-
-    debugPrint('$_tag: ✗ Failed to resolve any source');
-    return null;
-  }
-
-  /// Strategy 1: Android native fetch (bypasses ORB completely)
-  static Future<ResolvedStream?> _resolveStreamAndroid(
-    String embedUrl, {
-    required String source,
-    required String quality,
-  }) async {
-    try {
-      debugPrint('$_tag: [Android] Fetching $source...');
-
-      final dio = Dio(
-        BaseOptions(
-          connectTimeout: const Duration(seconds: 15),
-          receiveTimeout: const Duration(seconds: 15),
-          headers: {
-            'User-Agent':
-                'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
-            'Referer': embedUrl,
-          },
-        ),
-      );
-
-      try {
-        final response = await dio.get<String>(
-          embedUrl,
-          options: Options(
-            validateStatus: (status) => status! < 500,
-            followRedirects: true,
-          ),
-        );
-
-        if (response.statusCode == 200 && response.data != null) {
-          final streamUrl = _extractStreamUrl(response.data!);
-          if (streamUrl != null) {
-            return ResolvedStream(
-              url: streamUrl,
-              quality: quality,
-              source: source,
-              type: _detectStreamType(streamUrl),
-              headers: _getHeadersForSource(source),
-              isPlayable: true,
-              embedUrl: embedUrl,
-            );
-          }
-        }
-      } finally {
-        dio.close();
-      }
-    } catch (e) {
-      debugPrint('$_tag: [Android] Error: $e');
-    }
-    return null;
-  }
-
-  /// Strategy 2: WebView resolution
-  static Future<ResolvedStream?> _resolveStreamWebView(
-    String embedUrl, {
-    required String source,
-    required String quality,
-  }) async {
-    try {
-      debugPrint('$_tag: [WebView] Resolving $source...');
-
-      if (!_isInitialized) {
-        await _initializeWebView();
-      }
-
-      if (_webViewController == null) {
-        return null;
-      }
-
-      _urlCompleter = Completer<String?>();
-
-      final wrapperHtml = _buildWrapperHtml(embedUrl);
-      final dataUri =
-          'data:text/html;base64,${base64Encode(utf8.encode(wrapperHtml))}';
-      await _webViewController!.loadRequest(Uri.parse(dataUri));
-
-      final streamUrl = await _urlCompleter!.future.timeout(
-        const Duration(seconds: 15),
-        onTimeout: () => null,
-      );
-
-      _urlCompleter = null;
-
-      if (streamUrl != null && streamUrl.isNotEmpty) {
-        return ResolvedStream(
-          url: streamUrl,
-          quality: quality,
-          source: source,
-          type: _detectStreamType(streamUrl),
-          headers: _getHeadersForSource(source),
-          isPlayable: true,
-          embedUrl: embedUrl,
-        );
-      }
-    } catch (e) {
-      debugPrint('$_tag: [WebView] Error: $e');
-    }
-    return null;
-  }
-
-  /// Strategy 3: Proxy fetch
-  static Future<ResolvedStream?> _resolveStreamProxy(
-    String embedUrl, {
-    required String source,
-    required String quality,
-  }) async {
-    try {
-      debugPrint('$_tag: [Proxy] Fetching $source...');
-
-      final dio = Dio(
-        BaseOptions(
-          connectTimeout: const Duration(seconds: 15),
-          receiveTimeout: const Duration(seconds: 15),
-          headers: {
-            'User-Agent':
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-          },
-        ),
-      );
-
-      try {
-        final response = await dio.get<String>(
-          embedUrl,
-          options: Options(validateStatus: (status) => status! < 500),
-        );
-
-        if (response.statusCode == 200 && response.data != null) {
-          final streamUrl = _extractStreamUrl(response.data!);
-          if (streamUrl != null) {
-            return ResolvedStream(
-              url: streamUrl,
-              quality: quality,
-              source: source,
-              type: _detectStreamType(streamUrl),
-              headers: _getHeadersForSource(source),
-              isPlayable: true,
-              embedUrl: embedUrl,
-            );
-          }
-        }
-      } finally {
-        dio.close();
-      }
-    } catch (e) {
-      debugPrint('$_tag: [Proxy] Error: $e');
-    }
-    return null;
-  }
-
-  /// Extract stream URL from HTML content
-  static String? _extractStreamUrl(String htmlContent) {
-    try {
-      // Pattern 1: m3u8 URLs
-      final m3u8 = RegExp(
-        r'https?://[^\s]+\.m3u8[^\s]*',
-        caseSensitive: false,
-      ).firstMatch(htmlContent);
-      if (m3u8 != null) return m3u8.group(0);
-
-      // Pattern 2: mp4 URLs
-      final mp4 = RegExp(
-        r'https?://[^\s]+\.mp4[^\s]*',
-        caseSensitive: false,
-      ).firstMatch(htmlContent);
-      if (mp4 != null) return mp4.group(0);
-
-      // Pattern 3: mpd URLs
-      final mpd = RegExp(
-        r'https?://[^\s]+\.mpd[^\s]*',
-        caseSensitive: false,
-      ).firstMatch(htmlContent);
-      if (mpd != null) return mpd.group(0);
-
-      return null;
-    } catch (e) {
-      debugPrint('$_tag: Extract error: $e');
-      return null;
-    }
-  }
-
-  /// Detect stream type from URL
-  static String _detectStreamType(String url) {
-    if (url.contains('.m3u8')) return 'hls';
-    if (url.contains('.mpd')) return 'dash';
-    if (url.contains('.mp4')) return 'mp4';
-    return 'http';
-  }
-
   /// Get quality for provider
   static String _getQualityForProvider(String providerKey) {
     if (providerKey.contains('pro')) return '1080p';
@@ -582,126 +319,6 @@ class StreamExtractionService {
       'User-Agent':
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     };
-  }
-
-  /// Initialize WebView
-  static Future<void> _initializeWebView() async {
-    if (_isInitialized) return;
-
-    try {
-      debugPrint('$_tag: Initializing WebView');
-
-      _webViewController = WebViewController()
-        ..setJavaScriptMode(JavaScriptMode.unrestricted)
-        ..setNavigationDelegate(
-          NavigationDelegate(
-            onPageFinished: (String url) {
-              Future.delayed(const Duration(milliseconds: 500), () {
-                _extractStreamFromPage();
-              });
-            },
-            onWebResourceError: (WebResourceError error) {
-              debugPrint('$_tag: WebView error: ${error.description}');
-              _urlCompleter?.complete(null);
-            },
-          ),
-        )
-        ..addJavaScriptChannel(
-          'StreamExtractor',
-          onMessageReceived: (JavaScriptMessage message) {
-            if (message.message.isNotEmpty &&
-                _urlCompleter != null &&
-                !_urlCompleter!.isCompleted) {
-              _urlCompleter?.complete(message.message);
-            }
-          },
-        );
-
-      _isInitialized = true;
-      debugPrint('$_tag: ✓ WebView initialized');
-    } catch (e) {
-      debugPrint('$_tag: Error initializing WebView: $e');
-      rethrow;
-    }
-  }
-
-  /// Extract stream from WebView page
-  static Future<void> _extractStreamFromPage() async {
-    if (_webViewController == null) return;
-
-    try {
-      const String script = '''
-        (function() {
-          let streamUrl = null;
-          let attempts = 0;
-          const maxAttempts = 10;
-          
-          function sendStreamUrl(url) {
-            if (url && url.trim() && url.length > 5) {
-              StreamExtractor.postMessage(url);
-            }
-          }
-          
-          function extractStream() {
-            attempts++;
-            
-            // Check for player source
-            try {
-              if (window.player?.source) return (streamUrl = window.player.source), true;
-              if (window.__player?.src) return (streamUrl = window.__player.src), true;
-            } catch (e) {}
-            
-            // Check for video elements
-            try {
-              const videos = document.querySelectorAll('video[src], video > source[src]');
-              for (let v of videos) {
-                const src = v.src || v.getAttribute('src');
-                if (src?.startsWith('http')) return (streamUrl = src), true;
-              }
-            } catch (e) {}
-            
-            // Search scripts
-            try {
-              const text = document.body.innerText;
-              const m3u8 = text.match(/https?:\\/\\/[^\\s"'<>]+\\.m3u8[^\\s"'<>]*/);
-              if (m3u8) return (streamUrl = m3u8[0]), true;
-            } catch (e) {}
-            
-            return false;
-          }
-          
-          if (extractStream()) {
-            sendStreamUrl(streamUrl);
-          } else if (attempts < maxAttempts) {
-            setTimeout(extractStream, 300);
-          } else {
-            StreamExtractor.postMessage('');
-          }
-        })();
-      ''';
-
-      await _webViewController!.runJavaScript(script);
-    } catch (e) {
-      debugPrint('$_tag: Error extracting from page: $e');
-    }
-  }
-
-  /// Build wrapper HTML for WebView
-  static String _buildWrapperHtml(String embedUrl) {
-    return '''
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <style>
-          body { margin: 0; padding: 0; }
-          iframe { width: 100%; height: 100%; border: none; display: block; }
-        </style>
-      </head>
-      <body>
-        <iframe src="$embedUrl" sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-presentation"></iframe>
-      </body>
-      </html>
-    ''';
   }
 
   /// Get available providers
@@ -747,23 +364,9 @@ class StreamExtractionService {
   /// Dispose resources
   static Future<void> dispose() async {
     try {
-      _webViewController = null;
-      _urlCompleter = null;
-      _isInitialized = false;
       debugPrint('$_tag: Service disposed');
     } catch (e) {
       debugPrint('$_tag: Dispose error: $e');
-    }
-  }
-
-  /// Initialize service
-  static Future<void> initialize() async {
-    try {
-      debugPrint('$_tag: Initializing...');
-      await _initializeWebView();
-      debugPrint('$_tag: Service initialized');
-    } catch (e) {
-      debugPrint('$_tag: Initialization error: $e');
     }
   }
 }
