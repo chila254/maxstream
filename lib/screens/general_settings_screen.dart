@@ -20,13 +20,14 @@ class _GeneralSettingsScreenState extends State<GeneralSettingsScreen>
   bool _subtitlesEnabled = true;
   Color _subtitleTextColor = Colors.white;
 
-  // Player Settings
-  String _defaultQuality = 'Auto';
-  String _defaultResizeMode = 'Fit';
-  bool _autoPlay = true;
-  bool _showThumbnails = true;
-  double _seekSensitivity = 1.0;
-  bool _rememberPosition = true;
+  // In-App Video Player Settings
+  bool _enableTheaterMode = false;
+  bool _enablePictureInPicture = true;
+  double _playerControlsTimeout = 5.0; // seconds
+  bool _enableGestureControls = true;
+  bool _enableFreezeDetection = true;
+  bool _enableAdBlocking = true;
+  bool _showPlayButton = true;
 
   final List<String> _fontOptions = [
     'Default',
@@ -36,14 +37,7 @@ class _GeneralSettingsScreenState extends State<GeneralSettingsScreen>
     'Montserrat',
   ];
   final List<String> _positionOptions = ['Top', 'Center', 'Bottom'];
-  final List<String> _qualityOptions = [
-    'Auto',
-    '1080p',
-    '720p',
-    '480p',
-    '360p',
-  ];
-  final List<String> _resizeModeOptions = ['Fit', 'Fill', 'Stretch', 'Center'];
+
 
   bool _isLoading = false;
 
@@ -81,13 +75,15 @@ class _GeneralSettingsScreenState extends State<GeneralSettingsScreen>
           prefs.getInt('subtitle_text_color') ?? Colors.white.value;
       _subtitleTextColor = Color(textColorValue);
 
-      // Load player settings
-      _defaultQuality = prefs.getString('default_quality') ?? 'Auto';
-      _defaultResizeMode = prefs.getString('default_resize_mode') ?? 'Fit';
-      _autoPlay = prefs.getBool('auto_play') ?? true;
-      _showThumbnails = prefs.getBool('show_thumbnails') ?? true;
-      _seekSensitivity = prefs.getDouble('seek_sensitivity') ?? 1.0;
-      _rememberPosition = prefs.getBool('remember_position') ?? true;
+      // Load in-app video player settings
+      _enableTheaterMode = prefs.getBool('inapp_theater_mode') ?? false;
+      _enablePictureInPicture = prefs.getBool('inapp_pip_enabled') ?? true;
+      _playerControlsTimeout =
+          prefs.getDouble('inapp_controls_timeout') ?? 5.0;
+      _enableGestureControls = prefs.getBool('inapp_gesture_controls') ?? true;
+      _enableFreezeDetection = prefs.getBool('inapp_freeze_detection') ?? true;
+      _enableAdBlocking = prefs.getBool('inapp_ad_blocking') ?? true;
+      _showPlayButton = prefs.getBool('inapp_show_play_button') ?? true;
     });
   }
 
@@ -107,13 +103,14 @@ class _GeneralSettingsScreenState extends State<GeneralSettingsScreen>
       // ignore: deprecated_member_use
       await prefs.setInt('subtitle_text_color', _subtitleTextColor.value);
 
-      // Save player settings
-      await prefs.setString('default_quality', _defaultQuality);
-      await prefs.setString('default_resize_mode', _defaultResizeMode);
-      await prefs.setBool('auto_play', _autoPlay);
-      await prefs.setBool('show_thumbnails', _showThumbnails);
-      await prefs.setDouble('seek_sensitivity', _seekSensitivity);
-      await prefs.setBool('remember_position', _rememberPosition);
+      // Save in-app video player settings
+      await prefs.setBool('inapp_theater_mode', _enableTheaterMode);
+      await prefs.setBool('inapp_pip_enabled', _enablePictureInPicture);
+      await prefs.setDouble('inapp_controls_timeout', _playerControlsTimeout);
+      await prefs.setBool('inapp_gesture_controls', _enableGestureControls);
+      await prefs.setBool('inapp_freeze_detection', _enableFreezeDetection);
+      await prefs.setBool('inapp_ad_blocking', _enableAdBlocking);
+      await prefs.setBool('inapp_show_play_button', _showPlayButton);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -186,13 +183,16 @@ class _GeneralSettingsScreenState extends State<GeneralSettingsScreen>
           unselectedLabelColor: Colors.grey,
           tabs: const [
             Tab(icon: Icon(Icons.subtitles), text: 'Subtitles'),
-            Tab(icon: Icon(Icons.play_circle), text: 'Player'),
+            Tab(icon: Icon(Icons.movie), text: 'In-App Player'),
           ],
         ),
       ),
       body: TabBarView(
         controller: _tabController,
-        children: [_buildSubtitlesTab(), _buildPlayerTab()],
+        children: [
+          _buildSubtitlesTab(),
+          _buildInAppPlayerTab(),
+        ],
       ),
     );
   }
@@ -281,84 +281,119 @@ class _GeneralSettingsScreenState extends State<GeneralSettingsScreen>
     );
   }
 
-  Widget _buildPlayerTab() {
+  Widget _buildInAppPlayerTab() {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildSectionHeader('Player Settings'),
+          _buildSectionHeader('In-App Video Player Features'),
           const SizedBox(height: 16),
 
-          // Default Quality
-          _buildDropdownTile(
-            title: 'Default Quality',
-            subtitle: 'Preferred video quality',
-            value: _defaultQuality,
-            items: _qualityOptions,
-            onChanged: (value) => setState(() => _defaultQuality = value!),
+          // Theater Mode
+          _buildSwitchTile(
+            title: 'Theater Mode',
+            subtitle: 'Expand video to fill screen',
+            value: _enableTheaterMode,
+            onChanged: (value) => setState(() => _enableTheaterMode = value),
           ),
 
           const SizedBox(height: 16),
 
-          // Default Resize Mode
-          _buildDropdownTile(
-            title: 'Default Resize Mode',
-            subtitle: 'How video fits the screen',
-            value: _defaultResizeMode,
-            items: _resizeModeOptions,
-            onChanged: (value) => setState(() => _defaultResizeMode = value!),
+          // Picture in Picture
+          _buildSwitchTile(
+            title: 'Picture in Picture',
+            subtitle: 'Enable floating video window',
+            value: _enablePictureInPicture,
+            onChanged: (value) =>
+                setState(() => _enablePictureInPicture = value),
+          ),
+
+          const SizedBox(height: 16),
+
+          // Gesture Controls
+          _buildSwitchTile(
+            title: 'Gesture Controls',
+            subtitle: 'Enable double-tap & swipe controls',
+            value: _enableGestureControls,
+            onChanged: (value) =>
+                setState(() => _enableGestureControls = value),
+          ),
+
+          const SizedBox(height: 16),
+
+          // Show Play Button
+          _buildSwitchTile(
+            title: 'Show Play Button',
+            subtitle: 'Display center play/pause button',
+            value: _showPlayButton,
+            onChanged: (value) => setState(() => _showPlayButton = value),
+          ),
+
+          const SizedBox(height: 16),
+
+          // Freeze Detection
+          _buildSwitchTile(
+            title: 'Freeze Detection',
+            subtitle: 'Detect and notify when player freezes',
+            value: _enableFreezeDetection,
+            onChanged: (value) =>
+                setState(() => _enableFreezeDetection = value),
+          ),
+
+          const SizedBox(height: 16),
+
+          // Ad Blocking
+          _buildSwitchTile(
+            title: 'Ad Blocking',
+            subtitle: 'Block ads in embedded content',
+            value: _enableAdBlocking,
+            onChanged: (value) => setState(() => _enableAdBlocking = value),
           ),
 
           const SizedBox(height: 24),
 
-          // Auto Play
-          _buildSwitchTile(
-            title: 'Auto Play',
-            subtitle: 'Start playing automatically',
-            value: _autoPlay,
-            onChanged: (value) => setState(() => _autoPlay = value),
-          ),
-
-          const SizedBox(height: 16),
-
-          // Show Thumbnails
-          _buildSwitchTile(
-            title: 'Show Thumbnails',
-            subtitle: 'Display video thumbnails when seeking',
-            value: _showThumbnails,
-            onChanged: (value) => setState(() => _showThumbnails = value),
-          ),
-
-          const SizedBox(height: 16),
-
-          // Remember Position
-          _buildSwitchTile(
-            title: 'Remember Position',
-            subtitle: 'Resume from last watched position',
-            value: _rememberPosition,
-            onChanged: (value) => setState(() => _rememberPosition = value),
-          ),
-
-          const SizedBox(height: 24),
-
-          // Seek Sensitivity
+          // Controls Timeout
           _buildSliderTile(
-            title: 'Seek Sensitivity',
-            subtitle: 'How fast seeking responds to gestures',
-            value: _seekSensitivity,
-            min: 0.5,
-            max: 2.0,
-            divisions: 15,
-            onChanged: (value) => setState(() => _seekSensitivity = value),
-            valueDisplay: '${_seekSensitivity.toStringAsFixed(1)}x',
+            title: 'Controls Timeout',
+            subtitle: 'Auto-hide controls after seconds',
+            value: _playerControlsTimeout,
+            min: 2.0,
+            max: 15.0,
+            divisions: 13,
+            onChanged: (value) =>
+                setState(() => _playerControlsTimeout = value),
+            valueDisplay: '${_playerControlsTimeout.toStringAsFixed(1)}s',
           ),
 
           const SizedBox(height: 24),
 
           // Reset to Defaults
-          _buildResetButton(),
+          _buildResetInAppPlayerButton(),
         ],
+      ),
+    );
+  }
+
+  Widget _buildResetInAppPlayerButton() {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E1E1E),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: ListTile(
+        leading: const Icon(Icons.restore, color: Colors.orange),
+        title: const Text(
+          'Reset In-App Player Settings',
+          style: TextStyle(color: Colors.orange, fontWeight: FontWeight.w500),
+        ),
+        subtitle: const Text(
+          'Restore player settings to default values',
+          style: TextStyle(color: Colors.grey),
+        ),
+        onTap: _resetInAppPlayerToDefaults,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       ),
     );
   }
@@ -632,29 +667,6 @@ class _GeneralSettingsScreenState extends State<GeneralSettingsScreen>
     );
   }
 
-  Widget _buildResetButton() {
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: const Color(0xFF1E1E1E),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: ListTile(
-        leading: const Icon(Icons.restore, color: Colors.orange),
-        title: const Text(
-          'Reset to Defaults',
-          style: TextStyle(color: Colors.orange, fontWeight: FontWeight.w500),
-        ),
-        subtitle: const Text(
-          'Restore all settings to default values',
-          style: TextStyle(color: Colors.grey),
-        ),
-        onTap: _resetToDefaults,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      ),
-    );
-  }
-
   void _showColorPicker(
     Color currentColor,
     ValueChanged<Color> onColorChanged,
@@ -723,17 +735,17 @@ class _GeneralSettingsScreenState extends State<GeneralSettingsScreen>
     );
   }
 
-  void _resetToDefaults() {
+  void _resetInAppPlayerToDefaults() {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: const Color(0xFF1E1E1E),
         title: const Text(
-          'Reset Settings',
+          'Reset In-App Player Settings',
           style: TextStyle(color: Colors.white),
         ),
         content: const Text(
-          'Are you sure you want to reset all settings to their default values?',
+          'Restore in-app player settings to defaults?',
           style: TextStyle(color: Colors.white),
         ),
         actions: [
@@ -745,26 +757,18 @@ class _GeneralSettingsScreenState extends State<GeneralSettingsScreen>
             onPressed: () {
               Navigator.pop(context);
               setState(() {
-                // Reset subtitle settings
-                _subtitleFont = 'Default';
-                _subtitleBackgroundColor = Colors.black.withOpacity(0.7);
-                _subtitleTextSize = 16.0;
-                _subtitlePosition = 'Bottom';
-                _subtitlesEnabled = true;
-                _subtitleTextColor = Colors.white;
-
-                // Reset player settings
-                _defaultQuality = 'Auto';
-                _defaultResizeMode = 'Fit';
-                _autoPlay = true;
-                _showThumbnails = true;
-                _seekSensitivity = 1.0;
-                _rememberPosition = true;
+                _enableTheaterMode = false;
+                _enablePictureInPicture = true;
+                _playerControlsTimeout = 5.0;
+                _enableGestureControls = true;
+                _enableFreezeDetection = true;
+                _enableAdBlocking = true;
+                _showPlayButton = true;
               });
 
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
-                  content: Text('Settings reset to defaults'),
+                  content: Text('In-App Player settings reset to defaults'),
                   backgroundColor: Colors.orange,
                 ),
               );

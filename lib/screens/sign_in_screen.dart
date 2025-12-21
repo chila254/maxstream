@@ -219,6 +219,7 @@ class _SignInScreenState extends State<SignInScreen> with SingleTickerProviderSt
                                     controller: _emailController,
                                     keyboardType: TextInputType.emailAddress,
                                     style: const TextStyle(color: Colors.white),
+                                    autofillHints: const [AutofillHints.username],
                                     decoration: _inputDecoration(label: 'Email'),
                                     validator: (value) =>
                                         value == null || !value.contains('@') ? 'Enter a valid email' : null,
@@ -228,6 +229,7 @@ class _SignInScreenState extends State<SignInScreen> with SingleTickerProviderSt
                                     controller: _passwordController,
                                     obscureText: !_showPassword,
                                     style: const TextStyle(color: Colors.white),
+                                    autofillHints: const [AutofillHints.password],
                                     decoration: _inputDecoration(
                                       label: 'Password',
                                       suffix: IconButton(

@@ -203,8 +203,8 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
       };
       
       // Report blocked count to Flutter
-      if (Flutterplayer && Flutterplayer.postMessage && window.adBlockerState.blockedCount > 0) {
-        Flutterplayer.postMessage(JSON.stringify({
+      if (window.adBlockerState.blockedCount > 0) {
+        FlutterPlayer.sendMessage(JSON.stringify({
           action: 'adsBlocked',
           count: window.adBlockerState.blockedCount
         }));
@@ -517,21 +517,21 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
       
       <script>
         console.log('Video player HTML loaded');
-        // Ensure Flutterplayer is defined with a fallback
-        window.Flutterplayer = window.Flutterplayer || { 
-          postMessage: function(msg) { 
-            console.log('⚠️ Flutterplayer not ready, buffering message:', msg); 
-          } 
-        };
-        // Wait for Flutterplayer to be ready
-        let flutterReady = false;
-        const checkFlutter = setInterval(function() {
-          if (typeof Flutterplayer !== 'undefined' && Flutterplayer.postMessage) {
-            flutterReady = true;
-            clearInterval(checkFlutter);
-            console.log('✓ Flutterplayer is ready');
+        // Define proper Flutter bridge
+        window.FlutterPlayer = {
+          sendMessage: function(data) {
+            if (window.flutter_inappwebview && window.flutter_inappwebview.callHandler) {
+              try {
+                window.flutter_inappwebview.callHandler('Flutterplayer', data);
+                console.log('✓ Message sent to Flutter:', data);
+              } catch (e) {
+                console.error('❌ Failed to send message to Flutter:', e);
+              }
+            } else {
+              console.warn('⚠️ Flutter bridge not available yet');
+            }
           }
-        }, 100);
+        };
         
         ${_getAdBlockingScript()}
 
@@ -707,13 +707,11 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
                  break;
              }
              console.error('Player error: ' + errorMessage);
-             if (Flutterplayer && Flutterplayer.postMessage) {
-               Flutterplayer.postMessage(JSON.stringify({
-                 action: 'playerError',
-                 message: errorMessage,
-                 code: player.error.code
-               }));
-             }
+             FlutterPlayer.sendMessage(JSON.stringify({
+               action: 'playerError',
+               message: errorMessage,
+               code: player.error.code
+             }));
            }
          });
          
@@ -731,6 +729,7 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
              console.log('▶ Auto-playing video...');
              // Mute first to bypass Android WebView autoplay restrictions
              player.muted = true;
+             player.volume = 1.0;
              player.play().then(() => {
                console.log('✓ Auto-play successful');
                player.muted = false;
@@ -739,12 +738,10 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
              });
            }
 
-           if (Flutterplayer && Flutterplayer.postMessage) {
-             Flutterplayer.postMessage(JSON.stringify({
-               action: 'videoMetadataLoaded',
-               duration: player.duration
-             }));
-           }
+           FlutterPlayer.sendMessage(JSON.stringify({
+             action: 'videoMetadataLoaded',
+             duration: player.duration
+           }));
          });
          
          // Log when video can play
@@ -752,6 +749,7 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
            console.log('Video can play');
            // Mute first to bypass Android WebView autoplay restrictions
            player.muted = true;
+           player.volume = 1.0;
            player.play().then(() => {
              console.log('✓ Canplay auto-play successful');
              player.muted = false;
@@ -777,41 +775,35 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
           // Auto-skip intro for TV series (only TV, not movies)
           if (currentTime > 5 && currentTime < INTRO_END && !introSkipped && duration > 1200) {
             // Only auto-skip if duration suggests it's a TV episode (>20 min)
-            if (Flutterplayer && Flutterplayer.postMessage) {
-              Flutterplayer.postMessage(JSON.stringify({
-                action: 'skipDetected',
-                skipType: 'intro',
-                startTime: 0,
-                endTime: INTRO_END
-              }));
-            }
+            FlutterPlayer.sendMessage(JSON.stringify({
+              action: 'skipDetected',
+              skipType: 'intro',
+              startTime: 0,
+              endTime: INTRO_END
+            }));
             introSkipped = true;
           }
           
           // Detect outro for TV series
           if (duration > 0 && currentTime > duration * OUTRO_START_PERCENT && !outroSkipped && duration > 1200) {
             const outroStart = Math.floor(duration * OUTRO_START_PERCENT);
-            if (Flutterplayer && Flutterplayer.postMessage) {
-              Flutterplayer.postMessage(JSON.stringify({
-                action: 'skipDetected',
-                skipType: 'outro',
-                startTime: outroStart,
-                endTime: Math.floor(duration)
-              }));
-            }
+            FlutterPlayer.sendMessage(JSON.stringify({
+              action: 'skipDetected',
+              skipType: 'outro',
+              startTime: outroStart,
+              endTime: Math.floor(duration)
+            }));
             outroSkipped = true;
           }
           
           // Update progress (throttled to 1 per second)
           if (Date.now() - lastProgressUpdate > 1000) {
-            if (Flutterplayer && Flutterplayer.postMessage) {
-              Flutterplayer.postMessage(JSON.stringify({
-                action: 'progressUpdate',
-                position: currentTime,
-                duration: duration,
-                watchPercent: duration > 0 ? (currentTime / duration * 100) : 0
-              }));
-            }
+            FlutterPlayer.sendMessage(JSON.stringify({
+              action: 'progressUpdate',
+              position: currentTime,
+              duration: duration,
+              watchPercent: duration > 0 ? (currentTime / duration * 100) : 0
+            }));
             lastProgressUpdate = Date.now();
           }
         });
@@ -831,8 +823,8 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
             }
           }
           
-          if (audioTracks.length > 0 && Flutterplayer && Flutterplayer.postMessage) {
-            Flutterplayer.postMessage(JSON.stringify({
+          if (audioTracks.length > 0) {
+            FlutterPlayer.sendMessage(JSON.stringify({
               action: 'audioTracksDetected',
               tracks: audioTracks
             }));
@@ -840,65 +832,51 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
         });
         
         player.addEventListener('play', function() {
-          if (Flutterplayer && Flutterplayer.postMessage) {
-            Flutterplayer.postMessage(JSON.stringify({action: 'play'}));
-          }
+          FlutterPlayer.sendMessage(JSON.stringify({action: 'play'}));
         });
         
         player.addEventListener('pause', function() {
-          if (Flutterplayer && Flutterplayer.postMessage) {
-            Flutterplayer.postMessage(JSON.stringify({action: 'pause'}));
-          }
+          FlutterPlayer.sendMessage(JSON.stringify({action: 'pause'}));
         });
         
         player.addEventListener('ended', function() {
-          if (Flutterplayer && Flutterplayer.postMessage) {
-            Flutterplayer.postMessage(JSON.stringify({action: 'ended'}));
-          }
+          FlutterPlayer.sendMessage(JSON.stringify({action: 'ended'}));
         });
         
         // Player control functions
         window.setPlayerVolume = function(volume) {
           playerVolume = Math.max(0, Math.min(1, volume));
           player.volume = playerVolume;
-          if (Flutterplayer && Flutterplayer.postMessage) {
-            Flutterplayer.postMessage(JSON.stringify({
-              action: 'volumeChanged',
-              volume: playerVolume
-            }));
-          }
+          FlutterPlayer.sendMessage(JSON.stringify({
+            action: 'volumeChanged',
+            volume: playerVolume
+          }));
         };
         
         window.setPlaybackSpeed = function(speed) {
           playerSpeed = speed;
           player.playbackRate = playerSpeed;
-          if (Flutterplayer && Flutterplayer.postMessage) {
-            Flutterplayer.postMessage(JSON.stringify({
-              action: 'speedChanged',
-              speed: playerSpeed
-            }));
-          }
+          FlutterPlayer.sendMessage(JSON.stringify({
+            action: 'speedChanged',
+            speed: playerSpeed
+          }));
         };
         
         window.setTheaterMode = function(enabled) {
           isTheaterMode = enabled;
           theaterIndicator.classList.toggle('active', enabled);
-          if (Flutterplayer && Flutterplayer.postMessage) {
-            Flutterplayer.postMessage(JSON.stringify({
-              action: 'theaterModeChanged',
-              enabled: isTheaterMode
-            }));
-          }
+          FlutterPlayer.sendMessage(JSON.stringify({
+            action: 'theaterModeChanged',
+            enabled: isTheaterMode
+          }));
         };
         
         window.setSubtitleSync = function(offset) {
           subtitleSync = offset;
-          if (Flutterplayer && Flutterplayer.postMessage) {
-            Flutterplayer.postMessage(JSON.stringify({
-              action: 'subtitleSyncChanged',
-              offset: subtitleSync
-            }));
-          }
+          FlutterPlayer.sendMessage(JSON.stringify({
+            action: 'subtitleSyncChanged',
+            offset: subtitleSync
+          }));
         };
         
         window.setAudioTrack = function(trackIndex) {
@@ -911,12 +889,10 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
             }
           }
           
-          if (Flutterplayer && Flutterplayer.postMessage) {
-            Flutterplayer.postMessage(JSON.stringify({
-              action: 'audioTrackChanged',
-              trackIndex: currentAudioTrack
-            }));
-          }
+          FlutterPlayer.sendMessage(JSON.stringify({
+            action: 'audioTrackChanged',
+            trackIndex: currentAudioTrack
+          }));
         };
         
         window.setQuality = function(quality) {
@@ -924,12 +900,10 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
           const qualityIndicator = document.getElementById('qualityIndicator');
           qualityIndicator.textContent = quality;
           
-          if (Flutterplayer && Flutterplayer.postMessage) {
-            Flutterplayer.postMessage(JSON.stringify({
-              action: 'qualityChanged',
-              quality: currentQuality
-            }));
-          }
+          FlutterPlayer.sendMessage(JSON.stringify({
+            action: 'qualityChanged',
+            quality: currentQuality
+          }));
         };
         
         window.togglePictureInPicture = function() {
@@ -953,12 +927,10 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
             }
           }
           
-          if (Flutterplayer && Flutterplayer.postMessage) {
-            Flutterplayer.postMessage(JSON.stringify({
-              action: 'pipToggled',
-              enabled: isPictureInPicture
-            }));
-          }
+          FlutterPlayer.sendMessage(JSON.stringify({
+            action: 'pipToggled',
+            enabled: isPictureInPicture
+          }));
         };
         
         window.getBlockedAdsCount = function() {
@@ -981,13 +953,11 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
               // If player hasn't moved for 3 consecutive checks (3 seconds), it's frozen
               if (frozenCheckCount >= 3 && !reportedFrozen) {
                 reportedFrozen = true;
-                if (Flutterplayer && Flutterplayer.postMessage) {
-                  Flutterplayer.postMessage(JSON.stringify({
-                    action: 'playerFrozen',
-                    currentTime: currentPos,
-                    duration: player.duration
-                  }));
-                }
+                FlutterPlayer.sendMessage(JSON.stringify({
+                  action: 'playerFrozen',
+                  currentTime: currentPos,
+                  duration: player.duration
+                }));
               }
               
               // Reset if video resumes
@@ -2186,7 +2156,8 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
   void _startFreezeDetection() {
     _freezeDetectionTimer?.cancel();
     _webViewController.evaluateJavascript(
-      source: 'if (typeof window.startFreezeDetection === "function") { window.startFreezeDetection(); } else { console.log("Freeze detection not ready yet"); }',
+      source:
+          'if (typeof window.startFreezeDetection === "function") { window.startFreezeDetection(); } else { console.log("Freeze detection not ready yet"); }',
     );
   }
 

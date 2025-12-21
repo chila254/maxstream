@@ -1,5 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'password_manager_service.dart';
 
 class AuthService {
   static final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -11,6 +12,17 @@ class AuthService {
         email: email,
         password: password,
       );
+      
+      // Save password to Google Password Manager after successful signup
+      if (result.user != null) {
+        final passwordManager = PasswordManagerService();
+        await passwordManager.savePasswordCredential(
+          email: email,
+          password: password,
+          displayName: result.user!.displayName ?? 'MaxStream Account',
+        );
+      }
+      
       return result.user;
     } catch (e) {
       print('Email sign-up error: $e');
@@ -24,6 +36,18 @@ class AuthService {
         email: email,
         password: password,
       );
+      
+      // Save password to Google Password Manager after successful signin
+      // (in case it wasn't saved before)
+      if (result.user != null) {
+        final passwordManager = PasswordManagerService();
+        await passwordManager.savePasswordCredential(
+          email: email,
+          password: password,
+          displayName: result.user!.displayName ?? 'MaxStream Account',
+        );
+      }
+      
       return result.user;
     } catch (e) {
       print('Email sign-in error: $e');
@@ -147,6 +171,17 @@ class AuthService {
         email: email,
         password: password,
       );
+      
+      // Save password to Google Password Manager after successful signin
+      if (result.user != null) {
+        final passwordManager = PasswordManagerService();
+        await passwordManager.savePasswordCredential(
+          email: email,
+          password: password,
+          displayName: result.user!.displayName ?? 'MaxStream Account',
+        );
+      }
+      
       return result.user;
     } catch (e) {
       print('Enhanced email sign-in error: $e');

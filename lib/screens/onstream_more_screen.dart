@@ -7,6 +7,7 @@ import '../screens/sign_in_screen.dart';
 import '../screens/profile_settings_screen.dart';
 import '../screens/watch_history_screen.dart';
 import '../screens/general_settings_screen.dart';
+import '../widgets/profile_avatar.dart';
 
 class OnStreamMoreScreen extends StatefulWidget {
   const OnStreamMoreScreen({super.key});
@@ -25,6 +26,7 @@ class _OnStreamMoreScreenState extends State<OnStreamMoreScreen> {
     super.initState();
     _loadUserInfo();
     _userService.loadAvatar();
+    _userService.loadProfilePicture();
   }
 
   void _loadUserInfo() async {
@@ -65,25 +67,9 @@ class _OnStreamMoreScreenState extends State<OnStreamMoreScreen> {
       padding: const EdgeInsets.all(20),
       child: Column(
         children: [
-          ValueListenableBuilder<String>(
-            valueListenable: _userService.avatar,
-            builder: (context, selectedAvatar, child) {
-              return Container(
-                width: 80,
-                height: 80,
-                decoration: BoxDecoration(
-                  color: Colors.red,
-                  shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white, width: 3),
-                ),
-                child: Center(
-                  child: Text(
-                    selectedAvatar.isNotEmpty ? selectedAvatar : '🐰',
-                    style: const TextStyle(fontSize: 50),
-                  ),
-                ),
-              );
-            },
+          ProfileAvatar(
+            size: 80,
+            userService: _userService,
           ),
           const SizedBox(height: 12),
           Text(
