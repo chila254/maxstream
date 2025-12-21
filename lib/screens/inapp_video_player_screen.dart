@@ -110,28 +110,24 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen> {
                 onWebViewCreated: (controller) {
                   // Controller ready for any future enhancements
                 },
-                onShouldOverrideUrlLoading:
+                shouldOverrideUrlLoading:
                     (controller, navigationAction) async {
-                  final uri = navigationAction.request.url;
-                  if (uri == null) return NavigationActionPolicy.ALLOW;
+                  final url = navigationAction.request.url.toString();
 
-                  final host = uri.host.toLowerCase();
-
-                  const allowedHosts = [
-                    'vidsrc.me',
-                    'vidsrc.icu',
-                    'vidsrc.pro',
-                    'vidsrcme.vidsrc.icu',
-                  ];
-
-                  final isAllowed =
-                      allowedHosts.any((h) => host.contains(h));
-
-                  if (!isAllowed) {
+                  // Block gambling/ad sites
+                  if (url.contains('1xbet') ||
+                      url.contains('ads') ||
+                      url.contains('pop')) {
                     return NavigationActionPolicy.CANCEL;
                   }
 
-                  return NavigationActionPolicy.ALLOW;
+                  // Allow vidsrc domains
+                  if (url.contains('vidsrc.me') || url.contains('vidsrc.icu')) {
+                    return NavigationActionPolicy.ALLOW;
+                  }
+
+                  // Block everything else
+                  return NavigationActionPolicy.CANCEL;
                 },
                 onCreateWindow: (controller, createWindowRequest) async {
                   return false;
@@ -140,7 +136,34 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen> {
                   if (!_isLoading) return;
                   setState(() => _isLoading = true);
                 },
-                onLoadStop: (controller, url) {
+                onLoadStop: (controller, url) async {
+                  // Continuous blocking with mutation observer
+                  await controller.evaluateJavascript(source: """
+                    const blockedKeywords = ['dating', 'adult', 'pop', '1xbet', 'ads'];
+                    const allowedIframeDomains = ['vidsrc.icu', 'vidsrc.me'];
+
+                    const observer = new MutationObserver(mutations => {
+                      mutations.forEach(mutation => {
+                        document.querySelectorAll('iframe, a').forEach(el => {
+                          if(el.tagName === 'IFRAME') {
+                            let src = el.src || '';
+                            if(!allowedIframeDomains.some(domain => src.includes(domain))) {
+                              el.remove();
+                            }
+                          }
+                          if(el.tagName === 'A') {
+                            let href = el.href || '';
+                            if(blockedKeywords.some(keyword => href.includes(keyword))) {
+                              el.remove();
+                            }
+                          }
+                        });
+                      });
+                    });
+
+                    observer.observe(document.body, {childList: true, subtree: true});
+                  """);
+
                   setState(() => _isLoading = false);
                 },
                 onReceivedError: (controller, request, error) {
