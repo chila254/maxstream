@@ -146,7 +146,7 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
     }
   }
 
-  /// Ad blocking JavaScript injection
+  /// Ad blocking JavaScript injection (iframe-only, preserves playback scripts)
   String _getAdBlockingScript() {
     return '''
     (function() {
@@ -157,56 +157,28 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
         };
       }
       
-      // Block common ad networks
-      const adDomains = [
-        'google', 'doubleclick', 'googlesyndication', 'googleadservices',
-        'pagead', 'adsbygoogle', 'ads-service', 'ads', 'advertising',
-        'adv', 'banner', 'amazon-adsystem', 'amazon', 'criteo', 'adzerk',
-        'aol', 'yahoo', 'bing', 'facebook', 'fb', 'twitter', 'chartbeat',
-        'rubicon', 'openx', 'pubmatic', 'appnexus', 'innity', 'adverticum'
+      // Known ad network domains only
+      const adNetworks = [
+        'doubleclick.net',
+        'googlesyndication.com',
+        'adsystem.com',
+        'criteo.com',
+        'adzerk.net',
+        'amazon-adsystem.com',
+        'chartbeat.net',
+        'rubicon.com',
+        'openx.com',
+        'pubmatic.com',
+        'appnexus.com'
       ];
       
-      // Block ad iframes
+      // Block ad iframes only (preserve all scripts)
       const iframes = document.querySelectorAll('iframe');
       iframes.forEach(function(iframe) {
-        let shouldBlock = false;
         const src = iframe.src || '';
-        const id = iframe.id || '';
-        const className = iframe.className || '';
-        
-        adDomains.forEach(domain => {
-          if (src.includes(domain) || id.includes(domain) || className.includes(domain)) {
-            shouldBlock = true;
-          }
-        });
-        
-        if (shouldBlock || src.includes('ad') || src.includes('advertisement')) {
-          window.adBlockerState.blockedCount++;
-          iframe.style.display = 'none';
-          iframe.remove();
-        }
-      });
-      
-      // Block ad divs
-      const adClasses = ['ad', 'ads', 'advertisement', 'advert', 'banner', 'sponsor', 'ad-container'];
-      const adDivs = document.querySelectorAll('[class*="ad"], [id*="ad"], [class*="sponsor"]');
-      adDivs.forEach(function(div) {
-        const className = div.className || '';
-        const id = div.id || '';
-        
-        if (adClasses.some(cls => className.toLowerCase().includes(cls) || id.toLowerCase().includes(cls))) {
-          window.adBlockerState.blockedCount++;
-          div.style.display = 'none';
-        }
-      });
-      
-      // Block scripts from ad networks
-      const scripts = document.querySelectorAll('script');
-      scripts.forEach(function(script) {
-        const src = script.src || '';
         let shouldBlock = false;
         
-        adDomains.forEach(domain => {
+        adNetworks.forEach(domain => {
           if (src.includes(domain)) {
             shouldBlock = true;
           }
@@ -214,11 +186,12 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
         
         if (shouldBlock) {
           window.adBlockerState.blockedCount++;
-          script.remove();
+          iframe.style.display = 'none';
+          iframe.remove();
         }
       });
       
-      // Inject global ad blockers
+      // Inject global ad blockers without removing scripts
       window.adsbygoogle = [];
       window.googletag = {
         cmd: [],
@@ -492,8 +465,9 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
           align-items: center;
           justify-content: center;
           cursor: pointer;
-          z-index: 10;
+          z-index: 100;
           transition: background 0.3s ease;
+          pointer-events: auto;
         }
         .play-pause-button:hover {
           background: rgba(255, 255, 255, 0.2);
@@ -543,8 +517,22 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
       
       <script>
         console.log('Video player HTML loaded');
-        // Ensure Flutterplayer is defined
-        window.Flutterplayer = window.Flutterplayer || { postMessage: function(msg) { console.log('Flutter message:', msg); } };
+        // Ensure Flutterplayer is defined with a fallback
+        window.Flutterplayer = window.Flutterplayer || { 
+          postMessage: function(msg) { 
+            console.log('⚠️ Flutterplayer not ready, buffering message:', msg); 
+          } 
+        };
+        // Wait for Flutterplayer to be ready
+        let flutterReady = false;
+        const checkFlutter = setInterval(function() {
+          if (typeof Flutterplayer !== 'undefined' && Flutterplayer.postMessage) {
+            flutterReady = true;
+            clearInterval(checkFlutter);
+            console.log('✓ Flutterplayer is ready');
+          }
+        }, 100);
+        
         ${_getAdBlockingScript()}
 
         // Save progress to Flutter
@@ -587,14 +575,35 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
            }
          }
          
-         playPauseButton.addEventListener('click', function() {
-           console.log('Play button clicked, paused:', player.paused);
+         playPauseButton.addEventListener('click', function(e) {
+           console.log('▶ Play button clicked, paused:', player.paused);
+           console.log('Event:', e);
+           e.stopPropagation();
            if (player.paused) {
-             player.play().then(() => console.log('Play successful')).catch(e => console.log('Play failed:', e));
+             player.play().then(() => {
+               console.log('✓ Play successful');
+               updatePlayPauseIcon();
+             }).catch(e => console.error('❌ Play failed:', e));
            } else {
              player.pause();
+             updatePlayPauseIcon();
            }
-           updatePlayPauseIcon();
+         });
+         
+         // Also add touch event for better mobile support
+         playPauseButton.addEventListener('touchstart', function(e) {
+           console.log('▶ Play button touched');
+           e.preventDefault();
+           e.stopPropagation();
+           if (player.paused) {
+             player.play().then(() => {
+               console.log('✓ Play successful from touch');
+               updatePlayPauseIcon();
+             }).catch(e => console.error('❌ Play failed from touch:', e));
+           } else {
+             player.pause();
+             updatePlayPauseIcon();
+           }
          });
          
          player.addEventListener('play', updatePlayPauseIcon);
@@ -621,49 +630,62 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
          // Clear any existing sources
          player.innerHTML = '';
          
-         // Create source element dynamically
-         const source = document.createElement('source');
-         source.src = videoUrl;
-         
-         // Determine video type based on URL
+         // Determine format based on URL
+         let isHls = false;
+         let isDash = false;
          if (videoUrl.includes('.m3u8') || videoUrl.includes('master.m3u8') || videoUrl.includes('rcp')) {
-           source.type = 'application/x-mpegURL';
+           isHls = true;
            console.log('🎬 Format: HLS (m3u8 or rcp)');
          } else if (videoUrl.includes('.mpd')) {
-           source.type = 'application/dash+xml';
+           isDash = true;
            console.log('🎬 Format: DASH (mpd)');
          } else {
-           source.type = 'video/mp4';
            console.log('🎬 Format: MP4');
          }
 
-         player.appendChild(source);
-
-         console.log('✓ Source element appended');
-
-         // Force reload to apply source
-         player.load();
-         console.log('✓ Player.load() called');
-
-         // If HLS, use hls.js
-         if (source.type === 'application/x-mpegURL' && Hls.isSupported()) {
+         // Load HLS using hls.js if available
+         if (isHls && typeof Hls !== 'undefined' && Hls.isSupported()) {
+           console.log('✓ Using hls.js for HLS playback');
            const hls = new Hls();
            hls.loadSource(videoUrl);
            hls.attachMedia(player);
            hls.on(Hls.Events.MANIFEST_PARSED, function() {
-             console.log('HLS manifest parsed, auto-playing');
-             player.play();
+             console.log('✓ HLS manifest parsed, auto-playing');
+             // Mute first to bypass Android WebView autoplay restrictions
+             player.muted = true;
+             player.play().then(() => {
+               console.log('✓ HLS playback started');
+               player.muted = false;
+             }).catch(e => console.error('❌ HLS play failed:', e));
            });
            hls.on(Hls.Events.ERROR, function(event, data) {
-             console.error('HLS error:', data);
+             console.error('❌ HLS error:', data);
            });
+         } else {
+           // Fallback: use native video element for HLS, DASH, or MP4
+           const source = document.createElement('source');
+           source.src = videoUrl;
+           if (isHls) {
+             source.type = 'application/x-mpegURL';
+             console.log('⚠️ Using native HLS support (hls.js not available)');
+           } else if (isDash) {
+             source.type = 'application/dash+xml';
+           } else {
+             source.type = 'video/mp4';
+           }
+           player.appendChild(source);
+           player.load();
+           console.log('✓ Source element loaded via native player');
          }
 
-         // Show play button after a short delay
+         // Fallback: Show play button after 3 seconds if metadata never loads
          setTimeout(() => {
-           playPauseButton.classList.add('show');
-           updatePlayPauseIcon();
-         }, 1000);
+           if (!playPauseButton.classList.contains('show')) {
+             console.log('⏱ Metadata loading timeout, showing button anyway');
+             playPauseButton.classList.add('show');
+             updatePlayPauseIcon();
+           }
+         }, 3000);
          
          // Error handling and logging
          player.addEventListener('error', function() {
@@ -707,8 +729,13 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
            // Auto-play if enabled
            if (${_autoPlay ? 'true' : 'false'}) {
              console.log('▶ Auto-playing video...');
-             player.play().catch(function(error) {
-               console.error('Auto-play failed:', error);
+             // Mute first to bypass Android WebView autoplay restrictions
+             player.muted = true;
+             player.play().then(() => {
+               console.log('✓ Auto-play successful');
+               player.muted = false;
+             }).catch(function(error) {
+               console.error('❌ Auto-play failed:', error);
              });
            }
 
@@ -723,9 +750,14 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
          // Log when video can play
          player.addEventListener('canplay', function() {
            console.log('Video can play');
-           player.muted = false;
-           player.play().catch(function(error) {
-             console.error('Canplay auto-play failed:', error);
+           // Mute first to bypass Android WebView autoplay restrictions
+           player.muted = true;
+           player.play().then(() => {
+             console.log('✓ Canplay auto-play successful');
+             player.muted = false;
+           }).catch(function(error) {
+             console.error('❌ Canplay auto-play failed:', error);
+             player.muted = false;
            });
          });
          
@@ -986,11 +1018,6 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
         window.addEventListener('load', function() {
           ${_getAdBlockingScript()}
         });
-        
-        // Run ad blocking periodically to catch dynamically loaded ads
-        setInterval(function() {
-          ${_getAdBlockingScript()}
-        }, 2000);
       </script>
     </body>
     </html>
@@ -1011,12 +1038,14 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
               allowsInlineMediaPlayback: true,
               mixedContentMode: MixedContentMode.MIXED_CONTENT_ALWAYS_ALLOW,
               userAgent:
-                  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                  'Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 Chrome/120.0',
               // Performance optimizations
               cacheMode: CacheMode.LOAD_CACHE_ELSE_NETWORK,
+              cacheEnabled: true,
+              clearSessionCache: true,
               disableDefaultErrorPage: true,
-              databaseEnabled: false,
-              domStorageEnabled: false,
+              databaseEnabled: true,
+              domStorageEnabled: true,
             ),
             onConsoleMessage: (controller, consoleMessage) {
               debugPrint('WebView console: ${consoleMessage.message}');
@@ -1046,13 +1075,12 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
             shouldOverrideUrlLoading: (controller, navigationAction) async {
               final uri = navigationAction.request.url;
 
-              // Block ad network URLs
+              // Block ad network URLs (domain-based only to avoid blocking media)
               if (uri != null) {
-                final uriString = uri.toString().toLowerCase();
-                if (uriString.contains('google') ||
-                    uriString.contains('doubleclick') ||
-                    uriString.contains('ad') ||
-                    uriString.contains('advertisement')) {
+                final host = uri.host;
+                if (host.contains('doubleclick.net') ||
+                    host.contains('googlesyndication.com') ||
+                    host.contains('adsystem.com')) {
                   return NavigationActionPolicy.CANCEL;
                 }
               }
@@ -2158,7 +2186,7 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
   void _startFreezeDetection() {
     _freezeDetectionTimer?.cancel();
     _webViewController.evaluateJavascript(
-      source: 'window.startFreezeDetection();',
+      source: 'if (typeof window.startFreezeDetection === "function") { window.startFreezeDetection(); } else { console.log("Freeze detection not ready yet"); }',
     );
   }
 

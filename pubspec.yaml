@@ -10,6 +10,7 @@ dependencies:
   flutter:
     sdk: flutter
   flutter_inappwebview: ^6.1.5
+  better_player: ^0.0.84
   webview_flutter: ^4.4.4
   cupertino_icons: ^1.0.8
   http: ^1.4.0
