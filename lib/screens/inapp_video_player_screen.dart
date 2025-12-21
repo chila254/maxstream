@@ -63,6 +63,9 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
   // Stream source
   String? _streamSource;
 
+  // Track last loaded URL for embed page detection
+  String? _lastLoadedUrl;
+
   // New player features
   double _volume = 1.0;
   // ignore: unused_field
@@ -213,6 +216,114 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
     ''';
   }
 
+  /// Enhanced embed page script - loads provider page with UI overlay removal
+  /// This allows the provider's own click handlers and video logic to work
+  String _getEmbedPageScript() {
+    return '''
+    (function() {
+      console.log('Embed page initialization started');
+      
+      // Remove common overlay/blocking elements that prevent interaction
+      const overlaySelectors = [
+        '.overlay', '.modal-overlay', '.player-overlay', '.video-overlay',
+        '.protection-overlay', '.click-shield', '.ad-overlay', '.loading-overlay',
+        '[role="dialog"]', '[role="alertdialog"]',
+        '.notification', '.notification-box', '.alert-box',
+        '.disclaimer', '.terms-overlay', '.geo-block',
+        '.loading-spinner', '.spinner-container',
+        '.floating-ads', '.sticky-ads', '.top-banner', '.bottom-banner'
+      ];
+      
+      function removeOverlays() {
+        overlaySelectors.forEach(selector => {
+          try {
+            document.querySelectorAll(selector).forEach(el => {
+              // Only remove elements that are truly overlays (positioned absolutely/fixed with high z-index)
+              const style = window.getComputedStyle(el);
+              const position = style.position;
+              const zIndex = parseInt(style.zIndex) || 0;
+              
+              if ((position === 'absolute' || position === 'fixed') && zIndex > 10) {
+                console.log('Removing overlay: ' + selector);
+                el.style.display = 'none';
+                el.remove();
+              }
+            });
+          } catch (e) {
+            console.log('Error processing selector ' + selector + ': ' + e.message);
+          }
+        });
+      }
+      
+      // Remove initial overlays
+      removeOverlays();
+      
+      // Monitor DOM for new overlays and remove them
+      const observer = new MutationObserver(function(mutations) {
+        let shouldClean = false;
+        mutations.forEach(function(mutation) {
+          if (mutation.addedNodes.length > 0) {
+            // Check if any added nodes are potential overlays
+            mutation.addedNodes.forEach(node => {
+              if (node.nodeType === 1) { // Element node
+                const classList = node.className || '';
+                const id = node.id || '';
+                if (classList.includes('overlay') || classList.includes('modal') || 
+                    classList.includes('popup') || id.includes('overlay')) {
+                  shouldClean = true;
+                }
+              }
+            });
+          }
+        });
+        if (shouldClean) {
+          removeOverlays();
+        }
+      });
+      
+      // Start monitoring
+      observer.observe(document.body, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['style', 'class']
+      });
+      
+      // Ensure video player is visible and takes full viewport
+      const videoElements = document.querySelectorAll('video, iframe[src*="player"], [class*="player"]');
+      videoElements.forEach(el => {
+        if (el.tagName === 'VIDEO') {
+          el.style.width = '100%';
+          el.style.height = '100%';
+          el.style.display = 'block';
+          el.controls = true;
+          // Make sure click events reach the video element
+          el.style.pointerEvents = 'auto';
+          el.style.zIndex = '1';
+        }
+      });
+      
+      // Try to trigger auto-play on video elements
+      setTimeout(function() {
+        const videos = document.querySelectorAll('video');
+        videos.forEach(video => {
+          // Only auto-play if not already playing
+          if (video.paused) {
+            const playPromise = video.play();
+            if (playPromise !== undefined) {
+              playPromise.catch(err => {
+                console.log('Auto-play failed (expected): ' + err.message);
+              });
+            }
+          }
+        });
+      }, 500);
+      
+      console.log('Embed page initialization completed');
+    })();
+    ''';
+  }
+
   Future<void> _initializePlayer() async {
     try {
       setState(() {
@@ -266,33 +377,16 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
       if (!mounted) return;
 
       if (embedUrl != null) {
-        // Load the embed URL directly
+        // Load the embed URL directly and let provider's JS handle playback
+        _lastLoadedUrl = embedUrl;
         await _webViewController.loadUrl(
           urlRequest: URLRequest(url: WebUri(embedUrl)),
         );
-        // Inject JavaScript to auto-play and hide controls
-        await Future.delayed(const Duration(seconds: 3));
+        // Wait for page to load and inject UI cleaning + auto-play
+        await Future.delayed(const Duration(seconds: 2));
         try {
           await _webViewController.evaluateJavascript(
-            source: '''
-            // Hide page controls
-            const style = document.createElement('style');
-            style.textContent = \`
-              .jw-controls, .jw-controlbar, .jw-icon-play, .jw-icon-pause, .jw-icon-fullscreen, .jw-icon-settings, .jw-icon-cc, .jw-icon-audio, .jw-icon-rewind, .jw-icon-next, .jw-icon-prev {
-                display: none !important;
-              }
-              video {
-                width: 100% !important;
-                height: 100% !important;
-              }
-            \`;
-            document.head.appendChild(style);
-            // Auto-play
-            const videos = document.querySelectorAll('video');
-            videos.forEach(video => {
-              video.play();
-            });
-          ''',
+            source: _getEmbedPageScript(),
           );
         } catch (e) {
           debugPrint('Error injecting embed script: $e');
@@ -1040,6 +1134,11 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
             onLoadStop: (controller, url) {
               // Re-run ad blocking after page load
               controller.evaluateJavascript(source: _getAdBlockingScript());
+              // If loading an embed page, also run the embed initialization script
+              if (url != null &&
+                  _lastLoadedUrl?.contains(url.toString()) == true) {
+                controller.evaluateJavascript(source: _getEmbedPageScript());
+              }
               _startFreezeDetection();
             },
             shouldOverrideUrlLoading: (controller, navigationAction) async {
@@ -1057,20 +1156,6 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
 
               return NavigationActionPolicy.ALLOW;
             },
-          ),
-
-          // Temporary play button
-          Positioned(
-            top: MediaQuery.of(context).size.height / 2 - 25,
-            left: MediaQuery.of(context).size.width / 2 - 50,
-            child: ElevatedButton(
-              onPressed: () {
-                _webViewController.evaluateJavascript(
-                  source: 'if (typeof player !== "undefined") player.play();',
-                );
-              },
-              child: const Text('PLAY'),
-            ),
           ),
 
           // Left side gesture - double tap to rewind 10 seconds + volume control

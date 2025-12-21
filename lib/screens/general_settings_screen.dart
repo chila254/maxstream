@@ -27,7 +27,6 @@ class _GeneralSettingsScreenState extends State<GeneralSettingsScreen>
   bool _enableGestureControls = true;
   bool _enableFreezeDetection = true;
   bool _enableAdBlocking = true;
-  bool _showPlayButton = true;
 
   final List<String> _fontOptions = [
     'Default',
@@ -37,7 +36,6 @@ class _GeneralSettingsScreenState extends State<GeneralSettingsScreen>
     'Montserrat',
   ];
   final List<String> _positionOptions = ['Top', 'Center', 'Bottom'];
-
 
   bool _isLoading = false;
 
@@ -78,12 +76,10 @@ class _GeneralSettingsScreenState extends State<GeneralSettingsScreen>
       // Load in-app video player settings
       _enableTheaterMode = prefs.getBool('inapp_theater_mode') ?? false;
       _enablePictureInPicture = prefs.getBool('inapp_pip_enabled') ?? true;
-      _playerControlsTimeout =
-          prefs.getDouble('inapp_controls_timeout') ?? 5.0;
+      _playerControlsTimeout = prefs.getDouble('inapp_controls_timeout') ?? 5.0;
       _enableGestureControls = prefs.getBool('inapp_gesture_controls') ?? true;
       _enableFreezeDetection = prefs.getBool('inapp_freeze_detection') ?? true;
       _enableAdBlocking = prefs.getBool('inapp_ad_blocking') ?? true;
-      _showPlayButton = prefs.getBool('inapp_show_play_button') ?? true;
     });
   }
 
@@ -110,7 +106,6 @@ class _GeneralSettingsScreenState extends State<GeneralSettingsScreen>
       await prefs.setBool('inapp_gesture_controls', _enableGestureControls);
       await prefs.setBool('inapp_freeze_detection', _enableFreezeDetection);
       await prefs.setBool('inapp_ad_blocking', _enableAdBlocking);
-      await prefs.setBool('inapp_show_play_button', _showPlayButton);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -189,10 +184,7 @@ class _GeneralSettingsScreenState extends State<GeneralSettingsScreen>
       ),
       body: TabBarView(
         controller: _tabController,
-        children: [
-          _buildSubtitlesTab(),
-          _buildInAppPlayerTab(),
-        ],
+        children: [_buildSubtitlesTab(), _buildInAppPlayerTab()],
       ),
     );
   }
@@ -318,16 +310,6 @@ class _GeneralSettingsScreenState extends State<GeneralSettingsScreen>
             value: _enableGestureControls,
             onChanged: (value) =>
                 setState(() => _enableGestureControls = value),
-          ),
-
-          const SizedBox(height: 16),
-
-          // Show Play Button
-          _buildSwitchTile(
-            title: 'Show Play Button',
-            subtitle: 'Display center play/pause button',
-            value: _showPlayButton,
-            onChanged: (value) => setState(() => _showPlayButton = value),
           ),
 
           const SizedBox(height: 16),
@@ -763,7 +745,6 @@ class _GeneralSettingsScreenState extends State<GeneralSettingsScreen>
                 _enableGestureControls = true;
                 _enableFreezeDetection = true;
                 _enableAdBlocking = true;
-                _showPlayButton = true;
               });
 
               ScaffoldMessenger.of(context).showSnackBar(

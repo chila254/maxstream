@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:image_cropper/image_cropper.dart';
 import 'dart:io';
 import '../services/user_service.dart';
 import '../services/password_manager_service.dart';
@@ -23,14 +24,12 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
   final UserService _userService = UserService();
   final ImagePicker _imagePicker = ImagePicker();
 
-  String _selectedAvatar = '';
   String? _selectedProfilePicture;
-  final List<String> _avatarOptions = ['🐰', '🐯', '🐙'];
 
   bool _isLoading = false;
   bool _showPasswordSection = false;
   bool _useCustomProfilePicture = false;
-  
+
   // Password visibility toggles
   bool _showCurrentPassword = false;
   bool _showNewPassword = false;
@@ -45,14 +44,12 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
   void _loadUserInfo() async {
     final user = FirebaseAuth.instance.currentUser;
     final prefs = await SharedPreferences.getInstance();
-    final savedAvatar = prefs.getString('user_avatar') ?? _avatarOptions.first;
     final savedProfilePicture = prefs.getString('user_profile_picture');
 
     if (user != null) {
       setState(() {
         _nameController.text = user.displayName ?? '';
         _emailController.text = user.email ?? '';
-        _selectedAvatar = savedAvatar;
         _selectedProfilePicture = savedProfilePicture;
         _useCustomProfilePicture = savedProfilePicture != null;
       });
@@ -67,10 +64,31 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
       );
 
       if (pickedFile != null) {
-        setState(() {
-          _selectedProfilePicture = pickedFile.path;
-          _useCustomProfilePicture = true;
-        });
+        // Crop the image
+        final croppedFile = await ImageCropper().cropImage(
+          sourcePath: pickedFile.path,
+          aspectRatio: const CropAspectRatio(ratioX: 1, ratioY: 1),
+          uiSettings: [
+            AndroidUiSettings(
+              toolbarTitle: 'Crop Profile Photo',
+              toolbarColor: Colors.red,
+              toolbarWidgetColor: Colors.white,
+              initAspectRatio: CropAspectRatioPreset.square,
+              lockAspectRatio: true,
+            ),
+            IOSUiSettings(
+              title: 'Crop Profile Photo',
+              aspectRatioLockEnabled: true,
+            ),
+          ],
+        );
+
+        if (croppedFile != null) {
+          setState(() {
+            _selectedProfilePicture = croppedFile.path;
+            _useCustomProfilePicture = true;
+          });
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -110,9 +128,6 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
         await user.updateDisplayName(_nameController.text.trim());
-
-        // Update avatar (emoji)
-        await _userService.updateAvatar(_selectedAvatar);
 
         // Update profile picture if selected
         if (_useCustomProfilePicture && _selectedProfilePicture != null) {
@@ -218,10 +233,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(message),
-            backgroundColor: Colors.red,
-          ),
+          SnackBar(content: Text(message), backgroundColor: Colors.red),
         );
       }
     } catch (e) {
@@ -286,11 +298,11 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Avatar Section
+              // Profile Photo Section
               Center(
                 child: Column(
                   children: [
-                    // Profile Picture or Avatar
+                    // Profile Picture
                     GestureDetector(
                       onTap: _pickProfilePicture,
                       child: Container(
@@ -301,7 +313,8 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                           shape: BoxShape.circle,
                           border: Border.all(color: Colors.white, width: 3),
                         ),
-                        child: _useCustomProfilePicture &&
+                        child:
+                            _useCustomProfilePicture &&
                                 _selectedProfilePicture != null &&
                                 File(_selectedProfilePicture!).existsSync()
                             ? ClipOval(
@@ -310,10 +323,11 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                                   fit: BoxFit.cover,
                                 ),
                               )
-                            : Center(
-                                child: Text(
-                                  _selectedAvatar.isEmpty ? '🐰' : _selectedAvatar,
-                                  style: const TextStyle(fontSize: 60),
+                            : const Center(
+                                child: Icon(
+                                  Icons.camera_alt,
+                                  size: 40,
+                                  color: Colors.white,
                                 ),
                               ),
                       ),
@@ -323,10 +337,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                       _useCustomProfilePicture
                           ? 'Tap to change photo'
                           : 'Tap to upload photo',
-                      style: const TextStyle(
-                        color: Colors.grey,
-                        fontSize: 12,
-                      ),
+                      style: const TextStyle(color: Colors.grey, fontSize: 12),
                     ),
                     const SizedBox(height: 16),
                     if (_useCustomProfilePicture)
@@ -338,48 +349,6 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                           backgroundColor: Colors.grey[700],
                         ),
                       ),
-                    const SizedBox(height: 24),
-                    const Text(
-                      'Or Choose Emoji Avatar',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Wrap(
-                      spacing: 12,
-                      runSpacing: 12,
-                      children: _avatarOptions.map((avatar) {
-                        final isSelected = _selectedAvatar == avatar;
-                        return GestureDetector(
-                          onTap: () {
-                            setState(() {
-                              _selectedAvatar = avatar;
-                            });
-                          },
-                          child: Container(
-                            width: 50,
-                            height: 50,
-                            decoration: BoxDecoration(
-                              color: isSelected ? Colors.red : Colors.grey[800],
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: isSelected ? Colors.white : Colors.transparent,
-                                width: 2,
-                              ),
-                            ),
-                            child: Center(
-                              child: Text(
-                                avatar,
-                                style: const TextStyle(fontSize: 24),
-                              ),
-                            ),
-                          ),
-                        );
-                      }).toList(),
-                    ),
                   ],
                 ),
               ),
@@ -448,10 +417,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
               const SizedBox(height: 8),
               const Text(
                 'Email cannot be changed',
-                style: TextStyle(
-                  color: Colors.grey,
-                  fontSize: 12,
-                ),
+                style: TextStyle(color: Colors.grey, fontSize: 12),
               ),
               const SizedBox(height: 32),
 
@@ -468,8 +434,9 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                     ),
                   ),
                   TextButton(
-                    onPressed: () =>
-                        setState(() => _showPasswordSection = !_showPasswordSection),
+                    onPressed: () => setState(
+                      () => _showPasswordSection = !_showPasswordSection,
+                    ),
                     child: Text(
                       _showPasswordSection ? 'Cancel' : 'Change',
                       style: const TextStyle(color: Colors.red),
@@ -484,10 +451,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                 // Current Password
                 const Text(
                   'Current Password',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 14,
-                  ),
+                  style: TextStyle(color: Colors.white, fontSize: 14),
                 ),
                 const SizedBox(height: 8),
                 TextFormField(
@@ -513,7 +477,8 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                       ),
                       onPressed: () {
                         setState(
-                            () => _showCurrentPassword = !_showCurrentPassword);
+                          () => _showCurrentPassword = !_showCurrentPassword,
+                        );
                       },
                     ),
                   ),
@@ -523,10 +488,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                 // New Password
                 const Text(
                   'New Password',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 14,
-                  ),
+                  style: TextStyle(color: Colors.white, fontSize: 14),
                 ),
                 const SizedBox(height: 8),
                 TextFormField(
@@ -542,7 +504,10 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                       borderRadius: BorderRadius.circular(12),
                       borderSide: BorderSide.none,
                     ),
-                    prefixIcon: const Icon(Icons.lock_outline, color: Colors.grey),
+                    prefixIcon: const Icon(
+                      Icons.lock_outline,
+                      color: Colors.grey,
+                    ),
                     suffixIcon: IconButton(
                       icon: Icon(
                         _showNewPassword
@@ -561,10 +526,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                 // Confirm New Password
                 const Text(
                   'Confirm New Password',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 14,
-                  ),
+                  style: TextStyle(color: Colors.white, fontSize: 14),
                 ),
                 const SizedBox(height: 8),
                 TextFormField(
@@ -580,7 +542,10 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                       borderRadius: BorderRadius.circular(12),
                       borderSide: BorderSide.none,
                     ),
-                    prefixIcon: const Icon(Icons.lock_outline, color: Colors.grey),
+                    prefixIcon: const Icon(
+                      Icons.lock_outline,
+                      color: Colors.grey,
+                    ),
                     suffixIcon: IconButton(
                       icon: Icon(
                         _showConfirmPassword
@@ -590,7 +555,8 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                       ),
                       onPressed: () {
                         setState(
-                            () => _showConfirmPassword = !_showConfirmPassword);
+                          () => _showConfirmPassword = !_showConfirmPassword,
+                        );
                       },
                     ),
                   ),
@@ -615,7 +581,9 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                             height: 20,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                Colors.white,
+                              ),
                             ),
                           )
                         : const Text(
