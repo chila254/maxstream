@@ -26,10 +26,13 @@ class InAppVideoPlayerScreen extends StatefulWidget {
 
 class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen> {
   bool _isLoading = true;
+  late Future<String> _embedFuture;
 
   @override
   void initState() {
     super.initState();
+
+    _embedFuture = _getEmbedUrl();
 
     // Force landscape for playback
     SystemChrome.setPreferredOrientations([
@@ -77,7 +80,7 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen> {
     return Scaffold(
       backgroundColor: Colors.black,
       body: FutureBuilder<String>(
-        future: _getEmbedUrl(),
+        future: _embedFuture,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return _loading();
@@ -105,6 +108,10 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen> {
                 ),
                 onWebViewCreated: (controller) {
                   // Controller ready for any future enhancements
+                },
+                onLoadStart: (_, __) {
+                  if (!_isLoading) return;
+                  setState(() => _isLoading = true);
                 },
                 onLoadStop: (controller, url) {
                   setState(() => _isLoading = false);
