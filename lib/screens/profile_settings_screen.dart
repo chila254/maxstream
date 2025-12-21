@@ -2,10 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:image_cropper/image_cropper.dart';
+import 'package:image/image.dart' as img;
 import 'dart:io';
 import '../services/user_service.dart';
 import '../services/password_manager_service.dart';
+import 'image_crop_screen.dart';
 
 class ProfileSettingsScreen extends StatefulWidget {
   const ProfileSettingsScreen({super.key});
@@ -64,30 +65,27 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
       );
 
       if (pickedFile != null) {
-        // Crop the image
-        final croppedFile = await ImageCropper().cropImage(
-          sourcePath: pickedFile.path,
-          aspectRatio: const CropAspectRatio(ratioX: 1, ratioY: 1),
-          uiSettings: [
-            AndroidUiSettings(
-              toolbarTitle: 'Crop Profile Photo',
-              toolbarColor: Colors.red,
-              toolbarWidgetColor: Colors.white,
-              initAspectRatio: CropAspectRatioPreset.square,
-              lockAspectRatio: true,
+        // Navigate to crop screen
+        if (!mounted) return;
+        final croppedPath = await Navigator.push<String?>(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ImageCropScreen(
+              imagePath: pickedFile.path,
             ),
-            IOSUiSettings(
-              title: 'Crop Profile Photo',
-              aspectRatioLockEnabled: true,
-            ),
-          ],
+          ),
         );
 
-        if (croppedFile != null) {
-          setState(() {
-            _selectedProfilePicture = croppedFile.path;
-            _useCustomProfilePicture = true;
-          });
+        if (croppedPath != null) {
+          // Resize image to 512x512 for profile icon
+          final resizedPath = await _resizeImage(croppedPath);
+
+          if (resizedPath != null) {
+            setState(() {
+              _selectedProfilePicture = resizedPath;
+              _useCustomProfilePicture = true;
+            });
+          }
         }
       }
     } catch (e) {
@@ -99,6 +97,30 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
           ),
         );
       }
+    }
+  }
+
+  Future<String?> _resizeImage(String imagePath) async {
+    try {
+      final imageBytes = await File(imagePath).readAsBytes();
+      final image = img.decodeImage(imageBytes);
+
+      if (image == null) return null;
+
+      // Image is already cropped to square by ImageCropper, just resize to 512x512
+      final resized = img.copyResize(image, width: 512, height: 512);
+
+      // Save resized image
+      final tempDir = Directory.systemTemp;
+      final tempFile = File(
+        '${tempDir.path}/profile_${DateTime.now().millisecondsSinceEpoch}.jpg',
+      );
+      await tempFile.writeAsBytes(img.encodeJpg(resized, quality: 90));
+
+      return tempFile.path;
+    } catch (e) {
+      debugPrint('Error resizing image: $e');
+      return null;
     }
   }
 

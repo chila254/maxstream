@@ -555,22 +555,24 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
           background: rgba(0, 0, 0, 0.5);
           border: 3px solid white;
           border-radius: 50%;
-          display: none;
+          display: flex !important;
           align-items: center;
           justify-content: center;
           cursor: pointer;
-          z-index: 100;
+          z-index: 1000 !important;
           transition: background 0.3s ease;
-          pointer-events: auto;
+          pointer-events: auto !important;
         }
         .play-pause-button:hover {
           background: rgba(255, 255, 255, 0.2);
         }
         .play-pause-button.hidden {
-          display: none;
+          display: none !important;
+          pointer-events: none !important;
         }
         .play-pause-button.show {
-          display: flex;
+          display: flex !important;
+          pointer-events: auto !important;
         }
         .play-pause-icon {
           width: 0;
@@ -716,6 +718,11 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
          
          // Initialize icon
          updatePlayPauseIcon();
+         
+         // Show play button immediately (always)
+         playPauseButton.classList.add('show');
+         playPauseButton.style.display = 'flex';
+         playPauseButton.style.pointerEvents = 'auto';
          
          // Load video source dynamically
          const videoUrl = '$videoUrl';
