@@ -692,10 +692,6 @@ class _OnStreamDetailsScreenState extends State<OnStreamDetailsScreen> {
           title: widget.item.title,
           tmdbId: widget.item.id.toString(),
           isMovie: widget.mediaType == 'movie',
-          season: 1,
-          episode: 1,
-          posterUrl: widget.item.posterPath,
-          userRating: widget.item.rating,
         ),
       ),
     );

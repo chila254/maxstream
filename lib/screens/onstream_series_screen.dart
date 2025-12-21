@@ -214,9 +214,6 @@ class _OnStreamSeriesScreenState extends State<OnStreamSeriesScreen> {
           isMovie: false,
           season: season.seasonNumber,
           episode: episode.episodeNumber,
-          posterUrl: episode.stillPath.isNotEmpty
-              ? 'https://image.tmdb.org/t/p/w300${episode.stillPath}'
-              : null,
         ),
       ),
     );

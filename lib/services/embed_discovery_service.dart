@@ -17,23 +17,19 @@ class StreamProvider {
   });
 }
 
-/// Resolved stream model
-class ResolvedStream {
+/// Embed playback configuration
+class EmbedPlaybackConfig {
   final String url;
   final String quality;
   final String source;
-  final String type; // 'hls', 'dash', or 'mp4'
-  final Map<String, String>? headers;
-  final bool isPlayable;
+  final String type; // 'embed'
   final String? embedUrl;
 
-  ResolvedStream({
+  EmbedPlaybackConfig({
     required this.url,
     required this.quality,
     required this.source,
     required this.type,
-    this.headers,
-    this.isPlayable = true,
     this.embedUrl,
   });
 
@@ -43,20 +39,16 @@ class ResolvedStream {
       'quality': quality,
       'source': source,
       'type': type,
-      'headers': headers,
-      'isPlayable': isPlayable,
       'embedUrl': embedUrl,
     };
   }
 }
 
-/// Unified Stream Extraction Service
-/// Single service for all stream extraction needs:
-/// 1. Gets embed URLs from Stremio providers
-/// 2. Resolves embeds to playable streams (Android native, WebView, or Proxy)
-/// 3. Handles fallbacks and retries
-class StreamExtractionService {
-  static const String _tag = 'StreamExtractionService';
+/// Unified Embed Discovery Service
+/// Discovers and ranks embed URLs from Stremio providers
+/// Does NOT resolve embeds to raw streams - embeds are loadable units
+class EmbedDiscoveryService {
+  static const String _tag = 'EmbedDiscoveryService';
 
   // Stremio providers
   static const Map<String, String> _providers = {
@@ -139,7 +131,6 @@ class StreamExtractionService {
         'method': 'direct_embed',
         'message':
             'Using ${bestProvider.source} embed (${bestProvider.quality})',
-        'headers': _getHeadersForSource(bestProvider.source),
         'isPlayable': true,
       };
     } catch (e) {
@@ -305,22 +296,6 @@ class StreamExtractionService {
         .join(' ');
   }
 
-  /// Get headers for source
-  static Map<String, String>? _getHeadersForSource(String source) {
-    final sourceUri = source.toLowerCase();
-    if (sourceUri.contains('vidsrc')) {
-      return {
-        'Referer': 'https://vidsrc.me',
-        'User-Agent':
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      };
-    }
-    return {
-      'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    };
-  }
-
   /// Get available providers
   static Future<List<StreamProvider>> getAvailableProviders(
     String tmdbId,
@@ -345,10 +320,10 @@ class StreamExtractionService {
     try {
       final providers = await _getMovieStreams('278');
       final isHealthy = providers.isNotEmpty;
-      return {'extraction_service': isHealthy, 'overall': isHealthy};
+      return {'discovery_service': isHealthy, 'overall': isHealthy};
     } catch (e) {
       debugPrint('$_tag: Health check error: $e');
-      return {'extraction_service': false, 'overall': false};
+      return {'discovery_service': false, 'overall': false};
     }
   }
 
