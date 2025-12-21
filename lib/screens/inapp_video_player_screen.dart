@@ -5,7 +5,7 @@ import 'dart:async';
 import 'dart:convert';
 import '../services/watch_history_service.dart';
 import '../services/settings_service.dart';
-import '../services/combined_stream_service.dart';
+import '../services/stream_extraction_service.dart';
 
 class InAppVideoPlayerScreen extends StatefulWidget {
   final String? videoUrl;
@@ -345,8 +345,8 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
           'InAppPlayer: Using cached stream URL: $bestUrl from $_streamSource',
         );
       } else {
-        // Extract stream URL using CombinedStreamService
-        streamResult = await CombinedStreamService.extractStream(
+        // Extract stream URL using StreamExtractionService
+        streamResult = await StreamExtractionService.extractStream(
           widget.tmdbId,
           widget.isMovie,
           season: widget.season,
@@ -2402,7 +2402,7 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen>
     _hideForwardTimer?.cancel();
 
     _controlsAnimationController.dispose();
-    CombinedStreamService.dispose();
+    StreamExtractionService.dispose();
 
     // Reset orientation to allow both portrait and landscape
     SystemChrome.setPreferredOrientations([

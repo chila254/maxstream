@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:image/image.dart' as img;
 import 'dart:io';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
+import 'dart:async';
 
 class ImageCropScreen extends StatefulWidget {
   final String imagePath;
@@ -21,6 +24,7 @@ class _ImageCropScreenState extends State<ImageCropScreen> {
   double cropSize = 200;
   bool isLoading = true;
   String? errorMessage;
+  ui.Image? displayImage;
 
   @override
   void initState() {
@@ -41,8 +45,12 @@ class _ImageCropScreenState extends State<ImageCropScreen> {
         return;
       }
 
+      // Convert to ui.Image for display
+      final uiImage = await _convertImageForDisplay(image);
+
       setState(() {
         originalImage = image;
+        displayImage = uiImage;
         isLoading = false;
         // Initialize crop center to center of image
         cropSize = (originalImage.width < originalImage.height
@@ -60,6 +68,21 @@ class _ImageCropScreenState extends State<ImageCropScreen> {
         isLoading = false;
       });
     }
+  }
+
+  Future<ui.Image> _convertImageForDisplay(img.Image image) async {
+    // Encode image to PNG/JPG bytes and decode back as ui.Image
+    final encodedBytes = img.encodeJpg(image);
+    final completer = Completer<ui.Image>();
+    
+    ui.decodeImageFromList(
+      Uint8List.fromList(encodedBytes),
+      (result) {
+        completer.complete(result);
+      },
+    );
+    
+    return completer.future;
   }
 
   Future<String?> _cropAndSave() async {
@@ -169,6 +192,7 @@ class _ImageCropScreenState extends State<ImageCropScreen> {
                         child: CustomPaint(
                           painter: ImageCropPainter(
                             image: originalImage,
+                            displayImage: displayImage,
                             cropCenter: cropCenter,
                             cropSize: cropSize,
                           ),
@@ -219,11 +243,13 @@ class _ImageCropScreenState extends State<ImageCropScreen> {
 
 class ImageCropPainter extends CustomPainter {
   final img.Image image;
+  final ui.Image? displayImage;
   final Offset cropCenter;
   final double cropSize;
 
   ImageCropPainter({
     required this.image,
+    this.displayImage,
     required this.cropCenter,
     required this.cropSize,
   });
@@ -295,17 +321,47 @@ class ImageCropPainter extends CustomPainter {
     double offsetY,
     double scale,
   ) {
-    // Create a simple background pattern to represent the image
-    final paint = Paint()..color = Colors.grey[800]!;
-    canvas.drawRect(
-      Rect.fromLTWH(
-        offsetX,
-        offsetY,
-        image.width * scale,
-        image.height * scale,
-      ),
-      paint,
-    );
+    if (displayImage != null) {
+      try {
+        // Draw the actual image
+        canvas.drawImageRect(
+          displayImage!,
+          Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
+          Rect.fromLTWH(
+            offsetX,
+            offsetY,
+            image.width * scale,
+            image.height * scale,
+          ),
+          Paint(),
+        );
+      } catch (e) {
+        debugPrint('Error drawing image: $e');
+        // Fallback: draw grey rectangle
+        final paint = Paint()..color = Colors.grey[800]!;
+        canvas.drawRect(
+          Rect.fromLTWH(
+            offsetX,
+            offsetY,
+            image.width * scale,
+            image.height * scale,
+          ),
+          paint,
+        );
+      }
+    } else {
+      // Fallback: draw grey rectangle if image not loaded yet
+      final paint = Paint()..color = Colors.grey[800]!;
+      canvas.drawRect(
+        Rect.fromLTWH(
+          offsetX,
+          offsetY,
+          image.width * scale,
+          image.height * scale,
+        ),
+        paint,
+      );
+    }
 
     // Draw grid lines for composition guide
     final gridPaint = Paint()
@@ -336,6 +392,7 @@ class ImageCropPainter extends CustomPainter {
   @override
   bool shouldRepaint(ImageCropPainter oldDelegate) {
     return oldDelegate.cropCenter != cropCenter ||
-        oldDelegate.cropSize != cropSize;
+        oldDelegate.cropSize != cropSize ||
+        oldDelegate.displayImage != displayImage;
   }
 }
