@@ -102,12 +102,39 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen> {
                   javaScriptEnabled: true,
                   mediaPlaybackRequiresUserGesture: false,
                   allowsInlineMediaPlayback: true,
-                  useShouldOverrideUrlLoading: false,
+                  supportMultipleWindows: false,
+                  useShouldOverrideUrlLoading: true,
                   mixedContentMode:
                       MixedContentMode.MIXED_CONTENT_ALWAYS_ALLOW,
                 ),
                 onWebViewCreated: (controller) {
                   // Controller ready for any future enhancements
+                },
+                onShouldOverrideUrlLoading:
+                    (controller, navigationAction) async {
+                  final uri = navigationAction.request.url;
+                  if (uri == null) return NavigationActionPolicy.ALLOW;
+
+                  final host = uri.host.toLowerCase();
+
+                  const allowedHosts = [
+                    'vidsrc.me',
+                    'vidsrc.icu',
+                    'vidsrc.pro',
+                    'vidsrcme.vidsrc.icu',
+                  ];
+
+                  final isAllowed =
+                      allowedHosts.any((h) => host.contains(h));
+
+                  if (!isAllowed) {
+                    return NavigationActionPolicy.CANCEL;
+                  }
+
+                  return NavigationActionPolicy.ALLOW;
+                },
+                onCreateWindow: (controller, createWindowRequest) async {
+                  return false;
                 },
                 onLoadStart: (_, __) {
                   if (!_isLoading) return;
