@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
-import 'package:better_player/better_player.dart';
+import 'package:video_player/video_player.dart';
+import 'package:chewie/chewie.dart';
 import '../services/embed_discovery_service.dart';
 import '../services/stream_extraction_service.dart';
 
@@ -28,7 +29,7 @@ class InAppVideoPlayerScreen extends StatefulWidget {
 class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen> {
   bool _isLoading = true;
   late Future<Map<String, dynamic>?> _streamFuture;
-  BetterPlayerController? _betterPlayerController;
+  ChewieController? _chewieController;
 
   @override
   void initState() {
@@ -47,7 +48,7 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen> {
 
   @override
   void dispose() {
-    _betterPlayerController?.dispose();
+    _chewieController?.dispose();
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
       DeviceOrientation.portraitDown,
@@ -102,44 +103,31 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen> {
     return embedResult;
   }
 
-  void _initializeBetterPlayer(String url) {
-    final betterPlayerDataSource = BetterPlayerDataSource(
-      BetterPlayerDataSourceType.network,
-      url,
-      notificationConfiguration: BetterPlayerNotificationConfiguration(
-        showNotification: false,
-      ),
-      bufferingConfiguration: const BetterPlayerBufferingConfiguration(
-        minBufferMs: 2000,
-        maxBufferMs: 10000,
-        bufferForPlaybackMs: 1000,
-        bufferForPlaybackAfterRebufferMs: 2000,
-      ),
+  void _initializeVideoPlayer(String url) async {
+    final videoPlayerController = VideoPlayerController.networkUrl(
+      Uri.parse(url),
     );
 
-    _betterPlayerController = BetterPlayerController(
-      BetterPlayerConfiguration(
-        autoPlay: true,
-        looping: false,
-        fullScreenByDefault: true,
-        deviceOrientationsAfterFullScreen: [
-          DeviceOrientation.landscapeLeft,
-          DeviceOrientation.landscapeRight,
-        ],
-        controlsConfiguration: const BetterPlayerControlsConfiguration(
-          enableFullscreen: true,
-          enablePip: false,
-          enablePlaybackSpeed: true,
-          enableSubtitles: false,
-          enableQualities: false,
-          enableAudioTracks: false,
-          enableProgressText: true,
-          enableSkips: true,
-          skipBackIcon: Icons.replay_10,
-          skipForwardIcon: Icons.forward_10,
-        ),
+    await videoPlayerController.initialize();
+
+    _chewieController = ChewieController(
+      videoPlayerController: videoPlayerController,
+      autoPlay: true,
+      looping: false,
+      fullScreenByDefault: true,
+      deviceOrientationsAfterFullScreen: [
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ],
+      allowFullScreen: true,
+      allowPlaybackSpeedChanging: true,
+      showControls: true,
+      materialProgressColors: ChewieProgressColors(
+        playedColor: Colors.red,
+        handleColor: Colors.red,
+        backgroundColor: Colors.grey,
+        bufferedColor: Colors.white,
       ),
-      betterPlayerDataSource: betterPlayerDataSource,
     );
 
     setState(() => _isLoading = false);
@@ -168,12 +156,16 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen> {
           final streamUrl = streamData['streamUrl'] as String;
           final streamType = streamData['type'] as String? ?? 'embed';
 
-          // Handle direct video URLs with BetterPlayer
+          // Handle direct video URLs with Chewie
           if (streamType == 'direct') {
-            _initializeBetterPlayer(streamUrl);
+            if (_chewieController == null) {
+              _initializeVideoPlayer(streamUrl);
+              return _loading();
+            }
+
             return Stack(
               children: [
-                BetterPlayer(controller: _betterPlayerController!),
+                Chewie(controller: _chewieController!),
                 Positioned(
                   top: 16,
                   left: 16,

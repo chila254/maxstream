@@ -53,7 +53,7 @@ class EmbedDiscoveryService {
 
   // Stremio providers
   static const Map<String, String> _providers = {
-    'vidsrc_me': 'https://vidsrc.me/embed',
+    'vidsrc_me': 'https://vidsrc-embed.ru/embed',
     'vidsrc_icu': 'https://vidsrc.icu/embed',
     'vidsrc_pro': 'https://vidsrc.pro/embed',
     'moviesapi': 'https://moviesapi.club/embed',
