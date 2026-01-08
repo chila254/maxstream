@@ -1,10 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
-import 'package:video_player/video_player.dart';
-import 'package:chewie/chewie.dart';
 import '../services/embed_discovery_service.dart';
-import '../services/stream_extraction_service.dart';
 
 class InAppVideoPlayerScreen extends StatefulWidget {
   final String title;
@@ -29,7 +26,6 @@ class InAppVideoPlayerScreen extends StatefulWidget {
 class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen> {
   bool _isLoading = true;
   late Future<Map<String, dynamic>?> _streamFuture;
-  ChewieController? _chewieController;
 
   @override
   void initState() {
@@ -48,7 +44,6 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen> {
 
   @override
   void dispose() {
-    _chewieController?.dispose();
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
       DeviceOrientation.portraitDown,
@@ -65,7 +60,7 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen> {
   }
 
   Future<Map<String, dynamic>?> _getStreamData() async {
-    // First, get embed URL
+    // Get embed URL from Stremio providers
     final embedResult = await EmbedDiscoveryService.extractStream(
       widget.tmdbId,
       widget.isMovie,
@@ -79,58 +74,17 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen> {
 
     final embedUrl = embedResult['streamUrl'] as String;
 
-    // Try to extract direct video URL from embed
-    final directResult = await StreamExtractionService.extractDirectUrl(
-      embedUrl,
-    );
-
-    if (directResult != null && directResult['directUrl'] != null) {
-      // Return direct stream if available
-      return {
-        'streamUrl': directResult['directUrl'],
-        'source': directResult['source'],
-        'type': 'direct',
-        'quality': directResult['quality'],
-        'embedUrl': embedUrl,
-        'method': 'direct_extraction',
-        'message':
-            'Direct video stream extracted from ${directResult['source']}',
-        'isPlayable': true,
-      };
-    }
-
-    // Fallback to embed
-    return embedResult;
-  }
-
-  void _initializeVideoPlayer(String url) async {
-    final videoPlayerController = VideoPlayerController.networkUrl(
-      Uri.parse(url),
-    );
-
-    await videoPlayerController.initialize();
-
-    _chewieController = ChewieController(
-      videoPlayerController: videoPlayerController,
-      autoPlay: true,
-      looping: false,
-      fullScreenByDefault: true,
-      deviceOrientationsAfterFullScreen: [
-        DeviceOrientation.landscapeLeft,
-        DeviceOrientation.landscapeRight,
-      ],
-      allowFullScreen: true,
-      allowPlaybackSpeedChanging: true,
-      showControls: true,
-      materialProgressColors: ChewieProgressColors(
-        playedColor: Colors.red,
-        handleColor: Colors.red,
-        backgroundColor: Colors.grey,
-        bufferedColor: Colors.white,
-      ),
-    );
-
-    setState(() => _isLoading = false);
+    // Return embed URL directly - let WebView handle playback
+    // This avoids URL extraction issues and lets the embed page's player handle everything
+    return {
+      'streamUrl': embedUrl,
+      'source': embedResult['source'] ?? 'Unknown',
+      'type': 'embed',
+      'quality': embedResult['quality'] ?? '720p',
+      'method': 'webview_embed',
+      'message': 'Loading embed player...',
+      'isPlayable': true,
+    };
   }
 
   @override
@@ -154,33 +108,8 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen> {
           }
 
           final streamUrl = streamData['streamUrl'] as String;
-          final streamType = streamData['type'] as String? ?? 'embed';
 
-          // Handle direct video URLs with Chewie
-          if (streamType == 'direct') {
-            if (_chewieController == null) {
-              _initializeVideoPlayer(streamUrl);
-              return _loading();
-            }
-
-            return Stack(
-              children: [
-                Chewie(controller: _chewieController!),
-                Positioned(
-                  top: 16,
-                  left: 16,
-                  child: SafeArea(
-                    child: IconButton(
-                      icon: const Icon(Icons.arrow_back, color: Colors.white),
-                      onPressed: () => Navigator.pop(context),
-                    ),
-                  ),
-                ),
-              ],
-            );
-          }
-
-          // Handle embed URLs with WebView (fallback)
+          // Load embed URL in WebView
           return Stack(
             children: [
               InAppWebView(
