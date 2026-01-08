@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:dio/dio.dart';
 import 'package:html/parser.dart' show parse;
 import 'package:html/dom.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
 /// Direct stream extraction service
 /// Extracts actual video URLs from embed sources
@@ -84,7 +86,26 @@ class StreamExtractionService {
       final videoUrls = await _extractVideoUrls(document, embedUrl);
 
       if (videoUrls.isEmpty) {
-        debugPrint('$_tag: ❌ No video URLs found');
+        debugPrint(
+          '$_tag: ⚠️ No static video URLs found, trying JavaScript extraction...',
+        );
+
+        // Try JavaScript extraction for dynamically loaded content
+        final jsUrl = await _extractUrlViaJavaScript(embedUrl, embedUrl);
+        if (jsUrl != null) {
+          debugPrint('$_tag: ✓ JavaScript extraction found: $jsUrl');
+          return {
+            'directUrl': jsUrl,
+            'quality': quality,
+            'source': _getSourceFromUrl(embedUrl),
+            'type': jsUrl.contains('.m3u8') ? 'hls_m3u8' : 'iframe',
+            'method': 'javascript_extraction',
+            'isPlayable': true,
+            'message': 'Video stream extracted via JavaScript execution',
+          };
+        }
+
+        debugPrint('$_tag: ❌ No video URLs found (HTML + JavaScript)');
         debugPrint(
           '$_tag: HTML preview (first 2000 chars): ${html.substring(0, min(2000, html.length))}',
         );
@@ -125,6 +146,121 @@ class StreamExtractionService {
       debugPrint('$_tag: ❌ EXTRACTION ERROR: $e');
       return null;
     }
+  }
+
+  /// Extract video URL using JavaScript execution (for dynamically loaded content)
+  static Future<String?> _extractUrlViaJavaScript(
+    String embedUrl,
+    String referer,
+  ) async {
+    try {
+      debugPrint('$_tag: 🔧 Attempting JavaScript extraction for: $embedUrl');
+
+      final completer = Completer<String?>();
+      HeadlessInAppWebView? headlessWebView;
+
+      // Create a headless WebView to execute JavaScript
+      headlessWebView = HeadlessInAppWebView(
+        initialUrlRequest: URLRequest(url: WebUri(embedUrl)),
+        onLoadStop: (controller, url) {
+          // Fire and forget - execute extraction without blocking
+          _performJavaScriptExtraction(controller, completer);
+        },
+      );
+
+      await headlessWebView.run();
+
+      // Wait for the extraction with a timeout
+      final result = await completer.future.timeout(
+        const Duration(seconds: 10),
+        onTimeout: () => null,
+      );
+
+      await headlessWebView.dispose();
+
+      return result;
+    } catch (e) {
+      debugPrint('$_tag: JavaScript extraction error: $e');
+      return null;
+    }
+  }
+
+  /// Perform the actual JavaScript extraction
+  static void _performJavaScriptExtraction(
+    InAppWebViewController controller,
+    Completer<String?> completer,
+  ) {
+    // Use a microtask to handle the async operation
+    scheduleMicrotask(() async {
+      try {
+        // Wait a bit for dynamic content to load
+        await Future.delayed(const Duration(seconds: 2));
+
+        // Execute JavaScript to find video sources
+        final jsResult = await controller.evaluateJavascript(
+          source: r'''
+          (function() {
+            const sources = [];
+            
+            // Check for video elements
+            document.querySelectorAll('video source').forEach(el => {
+              if (el.src) sources.push(el.src);
+            });
+            
+            // Check for iframe sources
+            document.querySelectorAll('iframe').forEach(el => {
+              if (el.src && el.src.includes('cloudnestra')) {
+                sources.push(el.src);
+              }
+            });
+            
+            // Check for script data attributes
+            document.querySelectorAll('[data-src]').forEach(el => {
+              if (el.getAttribute('data-src')) {
+                sources.push(el.getAttribute('data-src'));
+              }
+            });
+            
+            // Check for inline scripts with URLs
+            const scripts = document.querySelectorAll('script');
+            scripts.forEach(script => {
+              if (script.textContent.includes('http')) {
+                const urls = script.textContent.match(/https?:\/\/[^\s"'<>]+/g) || [];
+                urls.forEach(url => {
+                  if (url.includes('.m3u8') || url.includes('cloudnestra') || url.includes('stream')) {
+                    sources.push(url);
+                  }
+                });
+              }
+            });
+            
+            return sources.filter(s => s && s.length > 0);
+          })();
+        ''',
+        );
+
+        if (jsResult != null) {
+          if (jsResult is List) {
+            final urls = jsResult.whereType<String>().toList();
+            if (urls.isNotEmpty) {
+              debugPrint(
+                '$_tag: ✓ JavaScript extraction found ${urls.length} URLs',
+              );
+              for (final url in urls) {
+                debugPrint('$_tag:   - $url');
+              }
+              completer.complete(urls.first);
+              return;
+            }
+          }
+        }
+
+        completer.complete(null);
+      } catch (e) {
+        debugPrint('$_tag: JavaScript execution error: $e');
+        completer.complete(null);
+      }
+    });
   }
 
   /// Extract M3U8 from VidSrc Embed page
@@ -221,21 +357,38 @@ class StreamExtractionService {
         debugPrint(
           '$_tag: ⚠️ M3U8 URL returned ${testResponse.statusCode}, trying fallback extraction',
         );
-        // Fallback: try to extract from HTML
+        // Fallback 1: try to extract from HTML
         final m3u8Urls = _extractM3U8Urls(playerHtml);
-        if (m3u8Urls.isEmpty) {
-          return null;
+        if (m3u8Urls.isNotEmpty) {
+          return {
+            'directUrl': m3u8Urls.first,
+            'quality': quality,
+            'source': 'VidSrc Embed',
+            'type': 'hls_m3u8',
+            'method': 'vidsrc_embed_extraction',
+            'isPlayable': true,
+            'referer': playerUrl,
+            'message': 'M3U8 stream extracted from player (fallback)',
+          };
         }
-        return {
-          'directUrl': m3u8Urls.first,
-          'quality': quality,
-          'source': 'VidSrc Embed',
-          'type': 'hls_m3u8',
-          'method': 'vidsrc_embed_extraction',
-          'isPlayable': true,
-          'referer': playerUrl,
-          'message': 'M3U8 stream extracted from player (fallback)',
-        };
+
+        // Fallback 2: try JavaScript extraction
+        debugPrint('$_tag: 📜 Trying JavaScript extraction...');
+        final jsUrl = await _extractUrlViaJavaScript(playerUrl, embedUrl);
+        if (jsUrl != null) {
+          return {
+            'directUrl': jsUrl,
+            'quality': quality,
+            'source': 'VidSrc Embed',
+            'type': jsUrl.contains('.m3u8') ? 'hls_m3u8' : 'iframe',
+            'method': 'javascript_extraction',
+            'isPlayable': true,
+            'referer': playerUrl,
+            'message': 'Stream extracted via JavaScript execution',
+          };
+        }
+
+        return null;
       }
 
       debugPrint('$_tag: ✓ M3U8 URL verified (${testResponse.statusCode})');
