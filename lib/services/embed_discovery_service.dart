@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:dio/dio.dart';
 import 'dart:async';
+import 'stream_extraction_service.dart';
 
 /// Stream provider model
 class StreamProvider {
@@ -318,12 +319,28 @@ class EmbedDiscoveryService {
   /// Health check
   static Future<Map<String, bool>> checkHealth() async {
     try {
+      // Check embed discovery
       final providers = await _getMovieStreams('278');
-      final isHealthy = providers.isNotEmpty;
-      return {'discovery_service': isHealthy, 'overall': isHealthy};
+      final discoveryHealthy = providers.isNotEmpty;
+
+      // Check stream extraction
+      final extractionHealth = await StreamExtractionService.checkHealth();
+      final extractionHealthy = extractionHealth['stream_extraction'] ?? false;
+
+      final overall = discoveryHealthy && extractionHealthy;
+
+      return {
+        'discovery_service': discoveryHealthy,
+        'stream_extraction': extractionHealthy,
+        'overall': overall,
+      };
     } catch (e) {
       debugPrint('$_tag: Health check error: $e');
-      return {'discovery_service': false, 'overall': false};
+      return {
+        'discovery_service': false,
+        'stream_extraction': false,
+        'overall': false,
+      };
     }
   }
 
