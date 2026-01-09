@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_inappwebview/flutter_inappwebview.dart';
-import '../services/embed_discovery_service.dart';
+import 'package:video_player/video_player.dart';
+import 'package:chewie/chewie.dart';
+import '../services/filmboom_service.dart';
 
 class InAppVideoPlayerScreen extends StatefulWidget {
   final String title;
@@ -24,8 +25,8 @@ class InAppVideoPlayerScreen extends StatefulWidget {
 }
 
 class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen> {
-  bool _isLoading = true;
   late Future<Map<String, dynamic>?> _streamFuture;
+  ChewieController? _chewieController;
 
   @override
   void initState() {
@@ -44,6 +45,7 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen> {
 
   @override
   void dispose() {
+    _chewieController?.dispose();
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
       DeviceOrientation.portraitDown,
@@ -60,31 +62,53 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen> {
   }
 
   Future<Map<String, dynamic>?> _getStreamData() async {
-    // Get embed URL from Stremio providers
-    final embedResult = await EmbedDiscoveryService.extractStream(
-      widget.tmdbId,
-      widget.isMovie,
+    debugPrint('Fetching stream for: ${widget.title}');
+
+    // Get video URL from FilmBoom
+    final videoResult = await FilmBoomService.getVideoUrl(
+      widget.title,
       season: widget.season,
       episode: widget.episode,
     );
 
-    if (embedResult == null || embedResult['streamUrl'] == null) {
+    if (videoResult == null || videoResult['videoUrl'] == null) {
+      debugPrint('Failed to get video URL from FilmBoom');
       return null;
     }
 
-    final embedUrl = embedResult['streamUrl'] as String;
+    debugPrint('Got video URL: ${videoResult['videoUrl']}');
+    debugPrint('Quality: ${videoResult['quality']}');
+    return videoResult;
+  }
 
-    // Return embed URL directly - let WebView handle playback
-    // This avoids URL extraction issues and lets the embed page's player handle everything
-    return {
-      'streamUrl': embedUrl,
-      'source': embedResult['source'] ?? 'Unknown',
-      'type': 'embed',
-      'quality': embedResult['quality'] ?? '720p',
-      'method': 'webview_embed',
-      'message': 'Loading embed player...',
-      'isPlayable': true,
-    };
+  void _initializeVideoPlayer(String url) async {
+    final videoPlayerController = VideoPlayerController.networkUrl(
+      Uri.parse(url),
+    );
+
+    await videoPlayerController.initialize();
+
+    _chewieController = ChewieController(
+      videoPlayerController: videoPlayerController,
+      autoPlay: true,
+      looping: false,
+      fullScreenByDefault: true,
+      deviceOrientationsAfterFullScreen: [
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ],
+      allowFullScreen: true,
+      allowPlaybackSpeedChanging: true,
+      showControls: true,
+      materialProgressColors: ChewieProgressColors(
+        playedColor: Colors.red,
+        handleColor: Colors.red,
+        backgroundColor: Colors.grey,
+        bufferedColor: Colors.white,
+      ),
+    );
+
+
   }
 
   @override
@@ -103,92 +127,22 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen> {
           }
 
           final streamData = snapshot.data;
-          if (streamData == null || streamData['streamUrl'] == null) {
+          if (streamData == null || streamData['videoUrl'] == null) {
             return _errorView('No playable stream found');
           }
 
-          final streamUrl = streamData['streamUrl'] as String;
+          final videoUrl = streamData['videoUrl'] as String;
 
-          // Load embed URL in WebView
+          // Initialize video player with direct URL
+          if (_chewieController == null) {
+            _initializeVideoPlayer(videoUrl);
+            return _loading();
+          }
+
+          // Play with Chewie
           return Stack(
             children: [
-              InAppWebView(
-                initialUrlRequest: URLRequest(url: WebUri(streamUrl)),
-                initialSettings: InAppWebViewSettings(
-                  javaScriptEnabled: true,
-                  mediaPlaybackRequiresUserGesture: false,
-                  allowsInlineMediaPlayback: true,
-                  supportMultipleWindows: false,
-                  useShouldOverrideUrlLoading: true,
-                  mixedContentMode: MixedContentMode.MIXED_CONTENT_ALWAYS_ALLOW,
-                ),
-                onWebViewCreated: (controller) {
-                  // Controller ready for any future enhancements
-                },
-                shouldOverrideUrlLoading: (controller, navigationAction) async {
-                  final url = navigationAction.request.url.toString();
-
-                  // Block gambling/ad sites
-                  if (url.contains('1xbet') ||
-                      url.contains('ads') ||
-                      url.contains('pop')) {
-                    return NavigationActionPolicy.CANCEL;
-                  }
-
-                  // Allow vidsrc domains
-                  if (url.contains('vidsrc.me') || url.contains('vidsrc.icu')) {
-                    return NavigationActionPolicy.ALLOW;
-                  }
-
-                  // Block everything else
-                  return NavigationActionPolicy.CANCEL;
-                },
-                onCreateWindow: (controller, createWindowRequest) async {
-                  return false;
-                },
-                onLoadStart: (_, __) {
-                  if (!_isLoading) return;
-                  setState(() => _isLoading = true);
-                },
-                onLoadStop: (controller, url) async {
-                  // Continuous blocking with mutation observer
-                  await controller.evaluateJavascript(
-                    source: """
-                    const blockedKeywords = ['dating', 'adult', 'pop', '1xbet', 'ads'];
-                    const allowedIframeDomains = ['vidsrc.icu', 'vidsrc.me'];
-
-                    const observer = new MutationObserver(mutations => {
-                      mutations.forEach(mutation => {
-                        document.querySelectorAll('iframe, a').forEach(el => {
-                          if(el.tagName === 'IFRAME') {
-                            let src = el.src || '';
-                            if(!allowedIframeDomains.some(domain => src.includes(domain))) {
-                              el.remove();
-                            }
-                          }
-                          if(el.tagName === 'A') {
-                            let href = el.href || '';
-                            if(blockedKeywords.some(keyword => href.includes(keyword))) {
-                              el.remove();
-                            }
-                          }
-                        });
-                      });
-                    });
-
-                    observer.observe(document.body, {childList: true, subtree: true});
-                  """,
-                  );
-
-                  setState(() => _isLoading = false);
-                },
-                onReceivedError: (controller, request, error) {
-                  setState(() => _isLoading = false);
-                },
-              ),
-
-              if (_isLoading) _loading(),
-
+              Chewie(controller: _chewieController!),
               Positioned(
                 top: 16,
                 left: 16,
