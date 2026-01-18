@@ -1,15 +1,15 @@
 import 'package:flutter/material.dart';
-import '../services/filmboom_service.dart';
+import '../services/net20_service.dart';
 
-/// Example of how to use FilmBoomService in your app
-class FilmBoomUsageExample extends StatefulWidget {
-  const FilmBoomUsageExample({Key? key}) : super(key: key);
+/// Example of how to use Net20Service in your app
+class Net20UsageExample extends StatefulWidget {
+  const Net20UsageExample({Key? key}) : super(key: key);
 
   @override
-  State<FilmBoomUsageExample> createState() => _FilmBoomUsageExampleState();
+  State<Net20UsageExample> createState() => _Net20UsageExampleState();
 }
 
-class _FilmBoomUsageExampleState extends State<FilmBoomUsageExample> {
+class _Net20UsageExampleState extends State<Net20UsageExample> {
   bool _isLoading = false;
   Map<String, dynamic>? _videoData;
   String? _error;
@@ -23,7 +23,7 @@ class _FilmBoomUsageExampleState extends State<FilmBoomUsageExample> {
 
     try {
       // Search for content and get video URL in one call
-      final result = await FilmBoomService.getVideoUrl(
+      final result = await Net20Service.getVideoUrl(
         'Stranger Things',
         season: 5,
         episode: 1,
@@ -52,7 +52,7 @@ class _FilmBoomUsageExampleState extends State<FilmBoomUsageExample> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('FilmBoom Example')),
+      appBar: AppBar(title: const Text('Net20 Example')),
       body: SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -68,10 +68,7 @@ class _FilmBoomUsageExampleState extends State<FilmBoomUsageExample> {
               if (_isLoading)
                 const Center(child: CircularProgressIndicator())
               else if (_error != null) ...[
-                Text(
-                  'Error:',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
+                Text('Error:', style: Theme.of(context).textTheme.titleLarge),
                 const SizedBox(height: 8),
                 Text(_error!, style: const TextStyle(color: Colors.red)),
               ] else if (_videoData != null) ...[
@@ -117,13 +114,8 @@ class _FilmBoomUsageExampleState extends State<FilmBoomUsageExample> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            '$label: ',
-            style: const TextStyle(fontWeight: FontWeight.bold),
-          ),
-          Expanded(
-            child: Text(value?.toString() ?? 'N/A'),
-          ),
+          Text('$label: ', style: const TextStyle(fontWeight: FontWeight.bold)),
+          Expanded(child: Text(value?.toString() ?? 'N/A')),
         ],
       ),
     );

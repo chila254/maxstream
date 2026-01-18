@@ -8,10 +8,12 @@ import '../widgets/custom_loading_widget.dart';
 import '../widgets/continue_watching_section.dart';
 import 'onstream_details_screen.dart';
 import 'onstream_series_screen.dart';
+import 'cn_movies_by_provider_screen.dart';
+import 'cn_series_by_provider_screen.dart';
 
 class OnStreamHomeScreen extends StatefulWidget {
   final Function(int)? onTabChange;
-  
+
   const OnStreamHomeScreen({super.key, this.onTabChange});
 
   @override
@@ -78,8 +80,11 @@ class _OnStreamHomeScreenState extends State<OnStreamHomeScreen> {
                   _buildAppBar(),
                   const SliverToBoxAdapter(child: HeroBanner()),
                   SliverToBoxAdapter(
-                    child: ContinueWatchingSection(continueWatching: continueWatching),
+                    child: ContinueWatchingSection(
+                      continueWatching: continueWatching,
+                    ),
                   ),
+                  SliverToBoxAdapter(child: _buildCnSection()),
                   _buildSection('Trending Movies', trendingMovies, 'movie'),
                   _buildSection('Popular Movies', popularMovies, 'movie'),
                   _buildSection('Top Rated Movies', topRatedMovies, 'movie'),
@@ -117,11 +122,7 @@ class _OnStreamHomeScreenState extends State<OnStreamHomeScreen> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                Container(
-                  width: 100,
-                  height: 24,
-                  color: Colors.grey[800],
-                ),
+                Container(width: 100, height: 24, color: Colors.grey[800]),
               ],
             ),
           ),
@@ -140,13 +141,13 @@ class _OnStreamHomeScreenState extends State<OnStreamHomeScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  
+
                   // Continue watching skeleton
                   Container(height: 24, width: 150, color: Colors.grey[800]),
                   const SizedBox(height: 12),
                   Container(height: 150, color: Colors.grey[800]),
                   const SizedBox(height: 24),
-                  
+
                   // Section 1 skeleton
                   Container(height: 24, width: 150, color: Colors.grey[800]),
                   const SizedBox(height: 12),
@@ -167,15 +168,12 @@ class _OnStreamHomeScreenState extends State<OnStreamHomeScreen> {
                         ),
                       ),
                       Expanded(
-                        child: Container(
-                          height: 160,
-                          color: Colors.grey[800],
-                        ),
+                        child: Container(height: 160, color: Colors.grey[800]),
                       ),
                     ],
                   ),
                   const SizedBox(height: 24),
-                  
+
                   // Section 2 skeleton
                   Container(height: 24, width: 150, color: Colors.grey[800]),
                   const SizedBox(height: 12),
@@ -196,15 +194,12 @@ class _OnStreamHomeScreenState extends State<OnStreamHomeScreen> {
                         ),
                       ),
                       Expanded(
-                        child: Container(
-                          height: 160,
-                          color: Colors.grey[800],
-                        ),
+                        child: Container(height: 160, color: Colors.grey[800]),
                       ),
                     ],
                   ),
                   const SizedBox(height: 24),
-                  
+
                   // Section 3 skeleton
                   Container(height: 24, width: 150, color: Colors.grey[800]),
                   const SizedBox(height: 12),
@@ -225,10 +220,7 @@ class _OnStreamHomeScreenState extends State<OnStreamHomeScreen> {
                         ),
                       ),
                       Expanded(
-                        child: Container(
-                          height: 160,
-                          color: Colors.grey[800],
-                        ),
+                        child: Container(height: 160, color: Colors.grey[800]),
                       ),
                     ],
                   ),
@@ -253,11 +245,7 @@ class _OnStreamHomeScreenState extends State<OnStreamHomeScreen> {
               color: Colors.red,
               borderRadius: BorderRadius.circular(8),
             ),
-            child: const Icon(
-              Icons.play_arrow,
-              color: Colors.white,
-              size: 20,
-            ),
+            child: const Icon(Icons.play_arrow, color: Colors.white, size: 20),
           ),
           const SizedBox(width: 8),
           const Text(
@@ -279,7 +267,9 @@ class _OnStreamHomeScreenState extends State<OnStreamHomeScreen> {
         ),
         IconButton(
           onPressed: () {
-            widget.onTabChange?.call(4); // Navigate to more/profile tab (updated index)
+            widget.onTabChange?.call(
+              4,
+            ); // Navigate to more/profile tab (updated index)
           },
           icon: const Icon(Icons.person, color: Colors.white),
         ),
@@ -287,7 +277,113 @@ class _OnStreamHomeScreenState extends State<OnStreamHomeScreen> {
     );
   }
 
-  Widget _buildSection(String title, List<Map<String, dynamic>> items, String mediaType) {
+  Widget _buildCnSection() {
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Browse by Streaming Service',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _buildCnOptionCard(
+                  title: 'Movies',
+                  icon: Icons.movie,
+                  color: const Color(0xFF1E90FF),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const CnMoviesByProviderScreen(),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildCnOptionCard(
+                  title: 'TV Series',
+                  icon: Icons.tv,
+                  color: const Color(0xFFFF6B6B),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const CnSeriesByProviderScreen(),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCnOptionCard({
+    required String title,
+    required IconData icon,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [color.withOpacity(0.8), color.withOpacity(0.4)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: color.withOpacity(0.5), width: 1),
+        ),
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, color: Colors.white, size: 32),
+            const SizedBox(height: 12),
+            Text(
+              title,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Netflix, Disney+\nPrime Video',
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.8),
+                fontSize: 12,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSection(
+    String title,
+    List<Map<String, dynamic>> items,
+    String mediaType,
+  ) {
     if (items.isEmpty) return const SliverToBoxAdapter(child: SizedBox());
 
     return SliverToBoxAdapter(
@@ -313,10 +409,7 @@ class _OnStreamHomeScreenState extends State<OnStreamHomeScreen> {
                   },
                   child: const Text(
                     'See All',
-                    style: TextStyle(
-                      color: Colors.red,
-                      fontSize: 14,
-                    ),
+                    style: TextStyle(color: Colors.red, fontSize: 14),
                   ),
                 ),
               ],
@@ -347,24 +440,28 @@ class _OnStreamHomeScreenState extends State<OnStreamHomeScreen> {
           context,
           PageRouteBuilder(
             pageBuilder: (context, animation, secondaryAnimation) =>
-                mediaType == 'tv' 
-                    ? OnStreamSeriesScreen(seriesItem: Movie.fromJson(item))
-                    : OnStreamDetailsScreen(
-                        item: Movie.fromJson(item),
-                        mediaType: mediaType,
-                      ),
-            transitionsBuilder: (context, animation, secondaryAnimation, child) {
-              return SlideTransition(
-                position: Tween<Offset>(
-                  begin: const Offset(1.0, 0.0),
-                  end: Offset.zero,
-                ).animate(CurvedAnimation(
-                  parent: animation,
-                  curve: Curves.fastOutSlowIn,
-                )),
-                child: child,
-              );
-            },
+                mediaType == 'tv'
+                ? OnStreamSeriesScreen(seriesItem: Movie.fromJson(item))
+                : OnStreamDetailsScreen(
+                    item: Movie.fromJson(item),
+                    mediaType: mediaType,
+                  ),
+            transitionsBuilder:
+                (context, animation, secondaryAnimation, child) {
+                  return SlideTransition(
+                    position:
+                        Tween<Offset>(
+                          begin: const Offset(1.0, 0.0),
+                          end: Offset.zero,
+                        ).animate(
+                          CurvedAnimation(
+                            parent: animation,
+                            curve: Curves.fastOutSlowIn,
+                          ),
+                        ),
+                    child: child,
+                  );
+                },
             transitionDuration: const Duration(milliseconds: 250),
           ),
         );
@@ -396,7 +493,10 @@ class _OnStreamHomeScreenState extends State<OnStreamHomeScreen> {
                     top: 4,
                     right: 4,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.black.withOpacity(0.7),
                         borderRadius: BorderRadius.circular(4),
@@ -434,10 +534,7 @@ class _OnStreamHomeScreenState extends State<OnStreamHomeScreen> {
             ),
             Text(
               _getYear(item),
-              style: const TextStyle(
-                color: Colors.grey,
-                fontSize: 10,
-              ),
+              style: const TextStyle(color: Colors.grey, fontSize: 10),
             ),
           ],
         ),
@@ -449,15 +546,11 @@ class _OnStreamHomeScreenState extends State<OnStreamHomeScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => _FullListScreen(
-          title: title,
-          mediaType: mediaType,
-        ),
+        builder: (context) =>
+            _FullListScreen(title: title, mediaType: mediaType),
       ),
     );
   }
-
-
 
   String _getYear(Map<String, dynamic> item) {
     final date = item['release_date'] ?? item['first_air_date'];
@@ -472,10 +565,7 @@ class _FullListScreen extends StatefulWidget {
   final String title;
   final String mediaType;
 
-  const _FullListScreen({
-    required this.title,
-    required this.mediaType,
-  });
+  const _FullListScreen({required this.title, required this.mediaType});
 
   @override
   _FullListScreenState createState() => _FullListScreenState();
@@ -501,18 +591,22 @@ class _FullListScreenState extends State<_FullListScreen> {
 
     try {
       List<Map<String, dynamic>> initialItems = [];
-      
+
       if (widget.title.contains('Trending') && widget.mediaType == 'movie') {
         initialItems = await TmdbApiService.fetchTrendingMovies(page: 1);
-      } else if (widget.title.contains('Popular') && widget.mediaType == 'movie') {
+      } else if (widget.title.contains('Popular') &&
+          widget.mediaType == 'movie') {
         initialItems = await TmdbApiService.fetchPopularMovies(page: 1);
-      } else if (widget.title.contains('Top Rated') && widget.mediaType == 'movie') {
+      } else if (widget.title.contains('Top Rated') &&
+          widget.mediaType == 'movie') {
         initialItems = await TmdbApiService.fetchTopRatedMovies(page: 1);
-      } else if (widget.title.contains('Trending') && widget.mediaType == 'tv') {
+      } else if (widget.title.contains('Trending') &&
+          widget.mediaType == 'tv') {
         initialItems = await TmdbApiService.fetchTrendingSeries(page: 1);
       } else if (widget.title.contains('Popular') && widget.mediaType == 'tv') {
         initialItems = await TmdbApiService.fetchPopularSeries(page: 1);
-      } else if (widget.title.contains('Top Rated') && widget.mediaType == 'tv') {
+      } else if (widget.title.contains('Top Rated') &&
+          widget.mediaType == 'tv') {
         initialItems = await TmdbApiService.fetchTopRatedSeries(page: 1);
       }
 
@@ -535,14 +629,16 @@ class _FullListScreenState extends State<_FullListScreen> {
   }
 
   void _scrollListener() {
-    if (_scrollController.position.pixels == _scrollController.position.maxScrollExtent && !_isLoading) {
+    if (_scrollController.position.pixels ==
+            _scrollController.position.maxScrollExtent &&
+        !_isLoading) {
       _loadMoreItems();
     }
   }
 
   Future<void> _loadMoreItems() async {
     if (_isLoading) return;
-    
+
     setState(() {
       _isLoading = true;
     });
@@ -553,15 +649,19 @@ class _FullListScreenState extends State<_FullListScreen> {
 
       if (widget.title.contains('Trending') && widget.mediaType == 'movie') {
         newItems = await TmdbApiService.fetchTrendingMovies(page: _currentPage);
-      } else if (widget.title.contains('Popular') && widget.mediaType == 'movie') {
+      } else if (widget.title.contains('Popular') &&
+          widget.mediaType == 'movie') {
         newItems = await TmdbApiService.fetchPopularMovies(page: _currentPage);
-      } else if (widget.title.contains('Top Rated') && widget.mediaType == 'movie') {
+      } else if (widget.title.contains('Top Rated') &&
+          widget.mediaType == 'movie') {
         newItems = await TmdbApiService.fetchTopRatedMovies(page: _currentPage);
-      } else if (widget.title.contains('Trending') && widget.mediaType == 'tv') {
+      } else if (widget.title.contains('Trending') &&
+          widget.mediaType == 'tv') {
         newItems = await TmdbApiService.fetchTrendingSeries(page: _currentPage);
       } else if (widget.title.contains('Popular') && widget.mediaType == 'tv') {
         newItems = await TmdbApiService.fetchPopularSeries(page: _currentPage);
-      } else if (widget.title.contains('Top Rated') && widget.mediaType == 'tv') {
+      } else if (widget.title.contains('Top Rated') &&
+          widget.mediaType == 'tv') {
         newItems = await TmdbApiService.fetchTopRatedSeries(page: _currentPage);
       }
 
@@ -585,10 +685,7 @@ class _FullListScreenState extends State<_FullListScreen> {
       backgroundColor: const Color(0xFF121212),
       appBar: AppBar(
         backgroundColor: const Color(0xFF1A1A1A),
-        title: Text(
-          widget.title,
-          style: const TextStyle(color: Colors.white),
-        ),
+        title: Text(widget.title, style: const TextStyle(color: Colors.white)),
         iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: Column(
@@ -607,81 +704,91 @@ class _FullListScreenState extends State<_FullListScreen> {
               itemCount: _allItems.length,
               itemBuilder: (context, index) {
                 final item = _allItems[index];
-          return GestureDetector(
-          onTap: () {
-          Navigator.push(
-          context,
-          PageRouteBuilder(
-          pageBuilder: (context, animation, secondaryAnimation) =>
-          widget.mediaType == 'tv' 
-              ? OnStreamSeriesScreen(seriesItem: Movie.fromJson(item))
-          : OnStreamDetailsScreen(
-              item: Movie.fromJson(item),
-                mediaType: widget.mediaType,
+                return GestureDetector(
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      PageRouteBuilder(
+                        pageBuilder: (context, animation, secondaryAnimation) =>
+                            widget.mediaType == 'tv'
+                            ? OnStreamSeriesScreen(
+                                seriesItem: Movie.fromJson(item),
+                              )
+                            : OnStreamDetailsScreen(
+                                item: Movie.fromJson(item),
+                                mediaType: widget.mediaType,
+                              ),
+                        transitionsBuilder:
+                            (context, animation, secondaryAnimation, child) {
+                              return SlideTransition(
+                                position:
+                                    Tween<Offset>(
+                                      begin: const Offset(1.0, 0.0),
+                                      end: Offset.zero,
+                                    ).animate(
+                                      CurvedAnimation(
+                                        parent: animation,
+                                        curve: Curves.fastOutSlowIn,
+                                      ),
+                                    ),
+                                child: child,
+                              );
+                            },
+                        transitionDuration: const Duration(milliseconds: 250),
                       ),
-              transitionsBuilder: (context, animation, secondaryAnimation, child) {
-                  return SlideTransition(
-                       position: Tween<Offset>(
-                         begin: const Offset(1.0, 0.0),
-                         end: Offset.zero,
-                       ).animate(CurvedAnimation(
-                         parent: animation,
-                         curve: Curves.fastOutSlowIn,
-                       )),
-                       child: child,
-                     );
-                   },
-                   transitionDuration: const Duration(milliseconds: 250),
-                 ),
-               );
-             },
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: item['poster_path'] != null
-                        ? Image.network(
-                            TmdbApiService.getPosterUrl(item['poster_path']),
-                            width: double.infinity,
-                            fit: BoxFit.cover,
-                          )
-                        : Container(
-                            width: double.infinity,
-                            color: Colors.grey[800],
-                            child: Icon(
-                              widget.mediaType == 'tv' ? Icons.tv : Icons.movie,
-                              color: Colors.grey,
-                              size: 40,
-                            ),
-                          ),
+                    );
+                  },
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: item['poster_path'] != null
+                              ? Image.network(
+                                  TmdbApiService.getPosterUrl(
+                                    item['poster_path'],
+                                  ),
+                                  width: double.infinity,
+                                  fit: BoxFit.cover,
+                                )
+                              : Container(
+                                  width: double.infinity,
+                                  color: Colors.grey[800],
+                                  child: Icon(
+                                    widget.mediaType == 'tv'
+                                        ? Icons.tv
+                                        : Icons.movie,
+                                    color: Colors.grey,
+                                    size: 40,
+                                  ),
+                                ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        item['title'] ?? item['name'] ?? 'Unknown',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        _getYear(item),
+                        style: const TextStyle(
+                          color: Colors.grey,
+                          fontSize: 10,
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  item['title'] ?? item['name'] ?? 'Unknown',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                  ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                Text(
-                  _getYear(item),
-                  style: const TextStyle(
-                    color: Colors.grey,
-                    fontSize: 10,
-                  ),
-                ),
-              ],
+                );
+              },
             ),
-          );
-        },
-      ),
-            ),
+          ),
           if (_isLoading)
             const Padding(
               padding: EdgeInsets.all(16.0),

@@ -1,84 +1,117 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 class NotificationService {
-  final FlutterLocalNotificationsPlugin _notifications = FlutterLocalNotificationsPlugin();
-  bool _initialized = false;
+  static final NotificationService _instance = NotificationService._internal();
+  static late FlutterLocalNotificationsPlugin _notificationsPlugin;
 
-  /// Initialize the notification service
+  factory NotificationService() {
+    return _instance;
+  }
+
+  NotificationService._internal();
+
   Future<void> initialize() async {
-    if (_initialized) return;
+    _notificationsPlugin = FlutterLocalNotificationsPlugin();
 
-    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
-    const iosSettings = DarwinInitializationSettings(
+    const AndroidInitializationSettings androidSettings =
+        AndroidInitializationSettings('@mipmap/ic_launcher');
+
+    const DarwinInitializationSettings iosSettings =
+        DarwinInitializationSettings(
       requestSoundPermission: true,
       requestBadgePermission: true,
       requestAlertPermission: true,
     );
 
-    const initializationSettings = InitializationSettings(
+    final InitializationSettings initSettings = InitializationSettings(
       android: androidSettings,
       iOS: iosSettings,
     );
 
-    await _notifications.initialize(initializationSettings);
-    _initialized = true;
+    await _notificationsPlugin.initialize(initSettings);
   }
 
-  /// Show general notification
-  Future<void> showNotification(String title, String body, {int id = 1}) async {
-    await initialize();
-
-    const androidDetails = AndroidNotificationDetails(
-      'general_channel',
-      'General Notifications',
-      channelDescription: 'General app notifications',
-      importance: Importance.defaultImportance,
-      priority: Priority.defaultPriority,
-      autoCancel: true,
-      icon: '@mipmap/ic_launcher',
+  Future<void> showNotification({
+    required int id,
+    required String title,
+    required String body,
+    String? payload,
+  }) async {
+    const AndroidNotificationDetails androidDetails =
+        AndroidNotificationDetails(
+      'maxstream_channel',
+      'MaxStream Notifications',
+      channelDescription: 'Notifications for content availability',
+      importance: Importance.max,
+      priority: Priority.high,
+      showWhen: true,
     );
 
-    const iosDetails = DarwinNotificationDetails(
+    const DarwinNotificationDetails iosDetails =
+        DarwinNotificationDetails(
       presentAlert: true,
       presentBadge: true,
       presentSound: true,
     );
 
-    const notificationDetails = NotificationDetails(
+    const NotificationDetails details = NotificationDetails(
       android: androidDetails,
       iOS: iosDetails,
     );
 
-    await _notifications.show(
+    await _notificationsPlugin.show(
       id,
       title,
       body,
-      notificationDetails,
+      details,
+      payload: payload,
     );
   }
 
-  /// Cancel specific notification
+  Future<void> notifyNewContent({
+    required String contentTitle,
+    required String providerName,
+    required String mediaType,
+  }) async {
+    await showNotification(
+      id: DateTime.now().millisecond,
+      title: 'New on $providerName!',
+      body: '$contentTitle is now available on $providerName ($mediaType)',
+      payload: 'new_content:$contentTitle:$providerName',
+    );
+  }
+
+  Future<void> notifyMultipleProvidersAdded({
+    required String contentTitle,
+    required List<String> providerNames,
+    required String mediaType,
+  }) async {
+    final providers = providerNames.join(', ');
+    await showNotification(
+      id: DateTime.now().millisecond,
+      title: '$contentTitle is now on multiple platforms!',
+      body: 'Available on: $providers',
+      payload: 'content_expanded:$contentTitle',
+    );
+  }
+
+  Future<void> notifyPreferredProviderUpdate({
+    required String contentTitle,
+    required String providerName,
+  }) async {
+    await showNotification(
+      id: DateTime.now().millisecond,
+      title: 'Your Favorite Provider Has It!',
+      body: '$contentTitle just became available on $providerName',
+      payload: 'preferred:$contentTitle:$providerName',
+    );
+  }
+
   Future<void> cancelNotification(int id) async {
-    await _notifications.cancel(id);
+    await _notificationsPlugin.cancel(id);
   }
 
-  /// Cancel all notifications
   Future<void> cancelAllNotifications() async {
-    await _notifications.cancelAll();
-  }
-
-  /// Request notification permissions (for iOS)
-  Future<bool> requestPermissions() async {
-    await initialize();
-    
-    final result = await _notifications
-        .resolvePlatformSpecificImplementation<IOSFlutterLocalNotificationsPlugin>()
-        ?.requestPermissions(
-          alert: true,
-          badge: true,
-          sound: true,
-        );
-    
-    return result ?? true;
+    await _notificationsPlugin.cancelAll();
   }
 }

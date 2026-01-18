@@ -6,7 +6,6 @@ import '../services/auth_service.dart';
 import '../screens/sign_in_screen.dart';
 import '../screens/profile_settings_screen.dart';
 import '../screens/watch_history_screen.dart';
-import '../screens/general_settings_screen.dart';
 import '../widgets/profile_avatar.dart';
 
 class OnStreamMoreScreen extends StatefulWidget {
@@ -132,17 +131,6 @@ class _OnStreamMoreScreenState extends State<OnStreamMoreScreen> {
             Navigator.push(
               context,
               MaterialPageRoute(builder: (context) => const WatchHistoryScreen()),
-            );
-          },
-        ),
-        _buildMenuItem(
-          icon: Icons.settings,
-          title: 'General Settings',
-          onTap: () {
-            if (!mounted) return;
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => const GeneralSettingsScreen()),
             );
           },
         ),

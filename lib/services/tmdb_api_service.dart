@@ -239,7 +239,7 @@ class TmdbApiService {
   static Future<Map<String, dynamic>?> getMovieDetails(int movieId) async {
     try {
       final response = await http.get(
-        Uri.parse('$_baseUrl/movie/$movieId?api_key=$_apiKey&append_to_response=credits,videos,similar,recommendations'),
+        Uri.parse('$_baseUrl/movie/$movieId?api_key=$_apiKey&append_to_response=credits,videos,similar,recommendations,watch/providers'),
       ).timeout(_timeout);
       
       if (response.statusCode == 200) {
@@ -254,7 +254,7 @@ class TmdbApiService {
   static Future<Map<String, dynamic>?> getSeriesDetails(int seriesId) async {
     try {
       final response = await http.get(
-        Uri.parse('$_baseUrl/tv/$seriesId?api_key=$_apiKey&append_to_response=credits,videos,similar,recommendations'),
+        Uri.parse('$_baseUrl/tv/$seriesId?api_key=$_apiKey&append_to_response=credits,videos,similar,recommendations,watch/providers'),
       ).timeout(_timeout);
       
       if (response.statusCode == 200) {
@@ -414,6 +414,40 @@ class TmdbApiService {
 
   static String getProfileUrl(String? profilePath) {
     return getImageUrl(profilePath, size: 'w185');
+  }
+
+  // Streaming Provider methods
+  // Provider IDs: Netflix=8, Prime Video=119, Disney+=337, LionsGate+= not available in standard TMDB
+  static Future<List<Map<String, dynamic>>> getMoviesByProvider(int providerId, {int page = 1}) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$_baseUrl/discover/movie?api_key=$_apiKey&with_watch_providers=$providerId&watch_region=US&page=$page'),
+      ).timeout(_timeout);
+      
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return List<Map<String, dynamic>>.from(data['results'] ?? []);
+      }
+    } catch (e) {
+      print('Error fetching movies by provider: $e');
+    }
+    return [];
+  }
+
+  static Future<List<Map<String, dynamic>>> getSeriesByProvider(int providerId, {int page = 1}) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$_baseUrl/discover/tv?api_key=$_apiKey&with_watch_providers=$providerId&watch_region=US&page=$page'),
+      ).timeout(_timeout);
+      
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return List<Map<String, dynamic>>.from(data['results'] ?? []);
+      }
+    } catch (e) {
+      print('Error fetching series by provider: $e');
+    }
+    return [];
   }
 
   // Enrich item with additional data

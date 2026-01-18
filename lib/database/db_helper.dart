@@ -17,7 +17,7 @@ class DBHelper {
     final path = join(await getDatabasesPath(), 'watchlist.db');
     return openDatabase(
       path,
-      version: 5,
+      version: 6,
       onCreate: _createDb,
       onUpgrade: _upgradeDb,
     );
@@ -95,6 +95,17 @@ class DBHelper {
     }
     if (oldVersion < 5) {
       await db.execute('ALTER TABLE watchlist ADD COLUMN year TEXT');
+    }
+    if (oldVersion < 6) {
+      await db.execute('''
+        CREATE TABLE provider_preferences (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          providerId INTEGER UNIQUE,
+          providerName TEXT,
+          isPreferred INTEGER DEFAULT 0,
+          addedDate TEXT
+        )
+      ''');
     }
   }
 
@@ -291,5 +302,67 @@ class DBHelper {
 
   static Future<bool> isMovieInWatchlist(String id) async {
     return await isInWatchlist(int.parse(id));
+  }
+
+  // Provider Preferences methods
+  static Future<void> initializeProviderPreferences() async {
+    final db = await database;
+    final providers = [
+      {'id': 8, 'name': 'Netflix'},
+      {'id': 119, 'name': 'Prime Video'},
+      {'id': 337, 'name': 'Disney+'},
+    ];
+
+    for (var provider in providers) {
+      final existing = await db.query(
+        'provider_preferences',
+        where: 'providerId = ?',
+        whereArgs: [provider['id']],
+      );
+      
+      if (existing.isEmpty) {
+        await db.insert('provider_preferences', {
+          'providerId': provider['id'],
+          'providerName': provider['name'],
+          'isPreferred': 0,
+          'addedDate': DateTime.now().toIso8601String(),
+        });
+      }
+    }
+  }
+
+  static Future<void> setProviderPreference(int providerId, bool isPreferred) async {
+    final db = await database;
+    await db.update(
+      'provider_preferences',
+      {'isPreferred': isPreferred ? 1 : 0},
+      where: 'providerId = ?',
+      whereArgs: [providerId],
+    );
+  }
+
+  static Future<List<Map<String, dynamic>>> getProviderPreferences() async {
+    final db = await database;
+    return await db.query('provider_preferences', orderBy: 'providerName ASC');
+  }
+
+  static Future<List<int>> getPreferredProviderIds() async {
+    final db = await database;
+    final result = await db.query(
+      'provider_preferences',
+      where: 'isPreferred = 1',
+      columns: ['providerId'],
+    );
+    return result.map((row) => row['providerId'] as int).toList();
+  }
+
+  static Future<bool> isProviderPreferred(int providerId) async {
+    final db = await database;
+    final result = await db.query(
+      'provider_preferences',
+      where: 'providerId = ? AND isPreferred = 1',
+      whereArgs: [providerId],
+    );
+    return result.isNotEmpty;
   }
 }

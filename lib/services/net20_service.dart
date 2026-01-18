@@ -2,10 +2,10 @@ import 'package:flutter/foundation.dart';
 import 'package:dio/dio.dart';
 import 'package:html/parser.dart' show parse;
 
-/// Service to fetch video streams from FilmBoom
-class FilmBoomService {
-  static const String _tag = 'FilmBoomService';
-  static const String baseUrl = 'https://filmboom.top';
+/// Service to fetch video streams from Net20
+class Net20Service {
+  static const String _tag = 'Net20Service';
+  static const String baseUrl = 'https://net20.cc';
 
   static Dio _getDioClient() {
     return Dio(
@@ -58,8 +58,12 @@ class FilmBoomService {
     try {
       final searchResult = await searchContent(title, true);
       if (searchResult == null) {
-        debugPrint('$_tag: Search returned null - FilmBoom search uses JavaScript');
-        debugPrint('$_tag: Use getVideoUrlDirect() if you have the subjectId and detailPath');
+        debugPrint(
+          '$_tag: Search returned null - Net20 search uses JavaScript',
+        );
+        debugPrint(
+          '$_tag: Use getVideoUrlDirect() if you have the subjectId and detailPath',
+        );
         return null;
       }
 
@@ -79,10 +83,7 @@ class FilmBoomService {
       );
 
       if (videoData != null) {
-        return {
-          ...videoData,
-          'title': searchResult['title'],
-        };
+        return {...videoData, 'title': searchResult['title']};
       }
 
       return null;
@@ -92,13 +93,13 @@ class FilmBoomService {
     }
   }
 
-  /// Search for a movie/series on FilmBoom
+  /// Search for a movie/series on Net20
   static Future<Map<String, dynamic>?> searchContent(
     String title,
     bool isMovie,
   ) async {
     try {
-      debugPrint('$_tag: Searching for "$title" on FilmBoom...');
+      debugPrint('$_tag: Searching for "$title" on Net20...');
 
       final dio = _getDioClient();
       final searchUrl = '$baseUrl/search?q=${Uri.encodeComponent(title)}';
@@ -115,19 +116,21 @@ class FilmBoomService {
       // Look for all links that match the video page pattern
       // Pattern: /spa/videoPlayPage/{type}/{slug}?id={subjectId}
       final allLinks = document.querySelectorAll('a');
-      
+
       debugPrint('$_tag: Found ${allLinks.length} links in page');
 
       for (final link in allLinks) {
         final href = link.attributes['href'] ?? '';
-        
+
         // Check if link matches video page pattern
         if (!href.contains('/spa/videoPlayPage/')) {
           continue;
         }
 
         final subjectIdMatch = RegExp(r'[?&]id=(\d+)').firstMatch(href);
-        final detailPathMatch = RegExp(r'/(?:movies|series)/([a-zA-Z0-9\-_]+)').firstMatch(href);
+        final detailPathMatch = RegExp(
+          r'/(?:movies|series)/([a-zA-Z0-9\-_]+)',
+        ).firstMatch(href);
 
         if (subjectIdMatch == null || detailPathMatch == null) {
           continue;
@@ -138,25 +141,28 @@ class FilmBoomService {
 
         // Try to get the title from the link text or nearby elements
         String? resultTitle = link.text.trim();
-        
+
         if (resultTitle.isEmpty) {
           // Try to find title in parent or sibling elements
           final parent = link.parent;
-          final titleEl = parent?.querySelector('[class*="title"]') ?? 
-                         parent?.querySelector('h1') ?? 
-                         parent?.querySelector('h2') ?? 
-                         parent?.querySelector('h3');
+          final titleEl =
+              parent?.querySelector('[class*="title"]') ??
+              parent?.querySelector('h1') ??
+              parent?.querySelector('h2') ??
+              parent?.querySelector('h3');
           resultTitle = titleEl?.text.trim() ?? title;
         }
 
-        debugPrint('$_tag: Found: $resultTitle (id: $subjectId, path: $detailPath)');
+        debugPrint(
+          '$_tag: Found: $resultTitle (id: $subjectId, path: $detailPath)',
+        );
 
         return {
           'title': resultTitle,
           'url': href,
           'subjectId': subjectId,
           'detailPath': detailPath,
-          'source': 'FilmBoom',
+          'source': 'Net20',
         };
       }
 
@@ -168,7 +174,7 @@ class FilmBoomService {
     }
   }
 
-  /// Extract video URL from FilmBoom API
+  /// Extract video URL from Net20 API
   static Future<Map<String, dynamic>?> extractVideoUrl(
     String detailPath, {
     int season = 1,
@@ -201,7 +207,7 @@ class FilmBoomService {
       debugPrint('$_tag: API response: ${response.data}');
 
       final data = response.data as Map<String, dynamic>?;
-      
+
       if (data == null) {
         debugPrint('$_tag: API response is null');
         return null;
@@ -212,7 +218,8 @@ class FilmBoomService {
         return null;
       }
 
-      final streams = (data['data']?['streams'] as List?)?.cast<Map<String, dynamic>>();
+      final streams = (data['data']?['streams'] as List?)
+          ?.cast<Map<String, dynamic>>();
 
       if (streams == null || streams.isEmpty) {
         debugPrint('$_tag: No video streams found in response');
@@ -243,7 +250,7 @@ class FilmBoomService {
 
       return {
         'videoUrl': videoUrl,
-        'source': 'FilmBoom',
+        'source': 'Net20',
         'type': 'mp4',
         'quality': '${resolution}p',
         'duration': duration,
@@ -254,6 +261,4 @@ class FilmBoomService {
       return null;
     }
   }
-
-
 }

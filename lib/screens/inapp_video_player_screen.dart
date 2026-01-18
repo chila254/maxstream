@@ -62,7 +62,9 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen> {
         ),
       )
       ..loadRequest(
-        Uri.parse('https://filmboom.top/search/?q=${Uri.encodeComponent(widget.title)}'),
+        Uri.parse(
+          'https://filmboom.top/search/?q=${Uri.encodeComponent(widget.title)}',
+        ),
       );
   }
 
@@ -94,18 +96,13 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen> {
           icon: const Icon(Icons.arrow_back, color: Colors.white),
           onPressed: () => Navigator.pop(context),
         ),
-        title: Text(
-          widget.title,
-          style: const TextStyle(color: Colors.white),
-        ),
+        title: Text(widget.title, style: const TextStyle(color: Colors.white)),
       ),
       body: Stack(
         children: [
           WebViewWidget(controller: _webViewController),
           if (_isLoading)
-            const Center(
-              child: CircularProgressIndicator(color: Colors.red),
-            ),
+            const Center(child: CircularProgressIndicator(color: Colors.red)),
         ],
       ),
     );

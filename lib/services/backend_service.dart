@@ -4,7 +4,7 @@ import 'package:flutter/foundation.dart';
 /// Service to communicate with MaxStream backend
 class BackendService {
   static const String _tag = 'BackendService';
-  static const String baseUrl = 'http://192.168.88.16:3000'; // Your laptop IP
+  static const String baseUrl = 'https://net20.cc'; // Net20 API server
 
   static Dio _getDioClient() {
     return Dio(
@@ -12,9 +12,7 @@ class BackendService {
         connectTimeout: const Duration(seconds: 60),
         receiveTimeout: const Duration(seconds: 120),
         sendTimeout: const Duration(seconds: 60),
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: {'Content-Type': 'application/json'},
       ),
     );
   }
@@ -38,7 +36,9 @@ class BackendService {
         final data = response.data as Map<String, dynamic>;
         if (data['success'] == true) {
           final streamCount = data['streamCount'] ?? 1;
-          debugPrint('$_tag: Found: ${data['title']} ($streamCount streams available)');
+          debugPrint(
+            '$_tag: Found: ${data['title']} ($streamCount streams available)',
+          );
           return data;
         }
       }

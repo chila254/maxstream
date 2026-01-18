@@ -269,7 +269,7 @@ class _OnStreamDetailsScreenState extends State<OnStreamDetailsScreen> {
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
-                  colors: [Colors.transparent, Colors.black.withOpacity(0.8)],
+                  colors: [Colors.transparent, Colors.black.withValues(alpha: 0.8)],
                 ),
               ),
             ),
@@ -383,35 +383,35 @@ class _OnStreamDetailsScreenState extends State<OnStreamDetailsScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (_youtubeController != null) ...[
-          const Text(
-          'Trailer',
-          style: TextStyle(
-          color: Colors.white,
-          fontSize: 20,
-          fontWeight: FontWeight.bold,
-          ),
-          ),
-          const SizedBox(height: 8),
-          ClipRRect(
-          borderRadius: BorderRadius.circular(8),
-          child: IgnorePointer(
-          ignoring: false,
-          child: YoutubePlayer(
-            controller: _youtubeController!,
-            showVideoProgressIndicator: true,
-          progressIndicatorColor: Colors.red,
-          progressColors: const ProgressBarColors(
-              playedColor: Colors.red,
-                handleColor: Colors.redAccent,
-                ),
-                onReady: () {
+            const Text(
+              'Trailer',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: IgnorePointer(
+                ignoring: false,
+                child: YoutubePlayer(
+                  controller: _youtubeController!,
+                  showVideoProgressIndicator: true,
+                  progressIndicatorColor: Colors.red,
+                  progressColors: const ProgressBarColors(
+                    playedColor: Colors.red,
+                    handleColor: Colors.redAccent,
+                  ),
+                  onReady: () {
                     _youtubeController?.pause();
-                   },
-                 ),
-               ),
-             ),
-             const SizedBox(height: 16),
-           ],
+                  },
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
 
           const Text(
             'Overview',
@@ -459,6 +459,118 @@ class _OnStreamDetailsScreenState extends State<OnStreamDetailsScreen> {
           details?['original_language']?.toUpperCase() ?? 'N/A',
         ),
         buildInfoRow('Status', details?['status'] ?? 'Unknown'),
+        const SizedBox(height: 24),
+        buildWatchProvidersSection(),
+      ],
+    );
+  }
+
+  Widget buildWatchProvidersSection() {
+    final watchProviders =
+        details?['watch/providers']?['results']?['US']?['flatrate'] as List?;
+
+    if (watchProviders == null || watchProviders.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    final Map<int, Map<String, dynamic>> providerMap = {
+      8: {'name': 'Netflix', 'color': const Color(0xFFE50914)},
+      119: {'name': 'Prime Video', 'color': const Color(0xFF00A8E1)},
+      337: {'name': 'Disney+', 'color': const Color(0xFF113CCF)},
+      15: {'name': 'Hulu', 'color': const Color(0xFF1CE783)},
+      9: {'name': 'Apple TV', 'color': const Color(0xFF555555)},
+    };
+
+    final availableProviders = <Map<String, dynamic>>[];
+    for (var provider in watchProviders) {
+      final providerId = provider['provider_id'] as int;
+      if (providerMap.containsKey(providerId)) {
+        availableProviders.add({
+          'id': providerId,
+          'name': providerMap[providerId]!['name'],
+          'color': providerMap[providerId]!['color'],
+          'logo': provider['logo_path'] ?? '',
+        });
+      }
+    }
+
+    if (availableProviders.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Where to Watch',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: availableProviders.map((provider) {
+            return Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    (provider['color'] as Color).withValues(alpha: 0.3),
+                    (provider['color'] as Color).withValues(alpha: 0.1),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: (provider['color'] as Color).withValues(alpha: 0.5),
+                  width: 1,
+                ),
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if ((provider['logo'] as String).isNotEmpty)
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: Image.network(
+                        'https://image.tmdb.org/t/p/original${provider['logo']}',
+                        width: 24,
+                        height: 24,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) {
+                          return Icon(
+                            Icons.play_circle,
+                            color: provider['color'] as Color,
+                            size: 20,
+                          );
+                        },
+                      ),
+                    )
+                  else
+                    Icon(
+                      Icons.play_circle,
+                      color: provider['color'] as Color,
+                      size: 20,
+                    ),
+                  const SizedBox(width: 8),
+                  Text(
+                    provider['name'] as String,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }).toList(),
+        ),
       ],
     );
   }
@@ -602,18 +714,22 @@ class _OnStreamDetailsScreenState extends State<OnStreamDetailsScreen> {
                             item: Movie.fromJson(item),
                             mediaType: item['media_type'] ?? widget.mediaType,
                           ),
-                      transitionsBuilder: (context, animation, secondaryAnimation, child) {
-                        return SlideTransition(
-                          position: Tween<Offset>(
-                            begin: const Offset(1.0, 0.0),
-                            end: Offset.zero,
-                          ).animate(CurvedAnimation(
-                            parent: animation,
-                            curve: Curves.fastOutSlowIn,
-                          )),
-                          child: child,
-                        );
-                      },
+                      transitionsBuilder:
+                          (context, animation, secondaryAnimation, child) {
+                            return SlideTransition(
+                              position:
+                                  Tween<Offset>(
+                                    begin: const Offset(1.0, 0.0),
+                                    end: Offset.zero,
+                                  ).animate(
+                                    CurvedAnimation(
+                                      parent: animation,
+                                      curve: Curves.fastOutSlowIn,
+                                    ),
+                                  ),
+                              child: child,
+                            );
+                          },
                       transitionDuration: const Duration(milliseconds: 250),
                     ),
                   );
