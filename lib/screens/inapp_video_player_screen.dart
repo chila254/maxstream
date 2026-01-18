@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:video_player/video_player.dart';
-import 'package:chewie/chewie.dart';
+import 'package:fijkplayer/fijkplayer.dart';
 import '../services/filmboom_service.dart';
 
 class InAppVideoPlayerScreen extends StatefulWidget {
@@ -26,7 +25,7 @@ class InAppVideoPlayerScreen extends StatefulWidget {
 
 class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen> {
   late Future<Map<String, dynamic>?> _streamFuture;
-  ChewieController? _chewieController;
+  final FijkPlayer _player = FijkPlayer();
 
   @override
   void initState() {
@@ -45,7 +44,7 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen> {
 
   @override
   void dispose() {
-    _chewieController?.dispose();
+    _player.release();
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
       DeviceOrientation.portraitDown,
@@ -81,34 +80,8 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen> {
     return videoResult;
   }
 
-  void _initializeVideoPlayer(String url) async {
-    final videoPlayerController = VideoPlayerController.networkUrl(
-      Uri.parse(url),
-    );
-
-    await videoPlayerController.initialize();
-
-    _chewieController = ChewieController(
-      videoPlayerController: videoPlayerController,
-      autoPlay: true,
-      looping: false,
-      fullScreenByDefault: true,
-      deviceOrientationsAfterFullScreen: [
-        DeviceOrientation.landscapeLeft,
-        DeviceOrientation.landscapeRight,
-      ],
-      allowFullScreen: true,
-      allowPlaybackSpeedChanging: true,
-      showControls: true,
-      materialProgressColors: ChewieProgressColors(
-        playedColor: Colors.red,
-        handleColor: Colors.red,
-        backgroundColor: Colors.grey,
-        bufferedColor: Colors.white,
-      ),
-    );
-
-    setState(() {});
+  Future<void> _initializePlayer(String url) async {
+    await _player.setDataSource(url, autoPlay: true);
   }
 
   @override
@@ -133,16 +106,19 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen> {
 
           final videoUrl = streamData['videoUrl'] as String;
 
-          // Initialize video player with direct URL
-          if (_chewieController == null) {
-            _initializeVideoPlayer(videoUrl);
-            return _loading();
-          }
-
-          // Play with Chewie
           return Stack(
             children: [
-              Chewie(controller: _chewieController!),
+              FutureBuilder(
+                future: _initializePlayer(videoUrl),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.done) {
+                    return FijkView(
+                      player: _player,
+                    );
+                  }
+                  return _loading();
+                },
+              ),
               Positioned(
                 top: 16,
                 left: 16,
