@@ -7,6 +7,7 @@ import android.webkit.WebViewClient
 import android.util.Log
 import java.net.URL
 import java.net.HttpURLConnection
+import java.io.ByteArrayInputStream
 
 /**
  * Custom WebViewClient that bypasses ORB (Opaque Response Blocking)
@@ -15,6 +16,30 @@ import java.net.HttpURLConnection
 class StreamWebViewClient : WebViewClient() {
     companion object {
         private const val TAG = "StreamWebViewClient"
+
+        private val AD_DOMAINS = listOf(
+            "doubleclick.net",
+            "googlesyndication.com",
+            "googleadservices.com",
+            "googletagmanager.com",
+            "googletagservices.com",
+            "amazon-adsystem.com",
+            "adsystem.amazon",
+            "facebook.com/tr",
+            "facebook.net",
+            "connect.facebook.net",
+            "ads.facebook.com",
+            "1xbet.com",
+            "bet365.com",
+            "casino.com",
+            "poker.com",
+            "gambling.com",
+            "adserver",
+            "adnetwork",
+            "banner",
+            "popup",
+            "interstitial"
+        )
     }
 
     override fun shouldInterceptRequest(
@@ -25,6 +50,16 @@ class StreamWebViewClient : WebViewClient() {
 
         val url = request.url.toString()
         Log.d(TAG, "Intercepting request: $url")
+
+        // Block ad requests
+        if (isAdUrl(url)) {
+            Log.d(TAG, "Blocking ad request: $url")
+            return WebResourceResponse(
+                "text/plain",
+                "utf-8",
+                ByteArrayInputStream("".toByteArray())
+            )
+        }
 
         // For embed URLs, fetch content natively to bypass ORB
         if (isEmbedUrl(url)) {
@@ -43,6 +78,10 @@ class StreamWebViewClient : WebViewClient() {
         return url.contains("vidsrc") ||
                 url.contains("embed") ||
                 url.contains("moviesapi")
+    }
+
+    private fun isAdUrl(url: String): Boolean {
+        return AD_DOMAINS.any { domain -> url.contains(domain) }
     }
 
     private fun fetchResourceNatively(

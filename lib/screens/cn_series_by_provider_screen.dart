@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shimmer/shimmer.dart';
 import '../models/movie.dart';
 import '../services/tmdb_api_service.dart';
@@ -70,6 +71,12 @@ class _CnSeriesByProviderScreenState extends State<CnSeriesByProviderScreen> {
     ),
     StreamingProvider(
       id: 386,
+      name: 'Peacock',
+      color: const Color(0xFF1B365D),
+      icon: Icons.tv,
+    ),
+    StreamingProvider(
+      id: 582,
       name: 'Paramount+',
       color: const Color(0xFF0064FF),
       icon: Icons.live_tv_sharp,
@@ -258,8 +265,13 @@ class _CnSeriesByProviderScreenState extends State<CnSeriesByProviderScreen> {
                 final isSelected = index == selectedProviderIndex;
 
                 return GestureDetector(
-                  onTap: () => _loadSeriesForProvider(index),
-                  child: Container(
+                  onTap: () {
+                    HapticFeedback.lightImpact();
+                    _loadSeriesForProvider(index);
+                  },
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 300),
+                    curve: Curves.easeInOut,
                     decoration: BoxDecoration(
                       color: isSelected
                           ? provider.color.withOpacity(0.95)
@@ -268,6 +280,15 @@ class _CnSeriesByProviderScreenState extends State<CnSeriesByProviderScreen> {
                       border: isSelected
                           ? Border.all(color: Colors.white, width: 3)
                           : Border.all(color: Colors.grey[700]!, width: 1),
+                      boxShadow: isSelected
+                          ? [
+                              BoxShadow(
+                                color: provider.color.withOpacity(0.5),
+                                blurRadius: 10,
+                                spreadRadius: 2,
+                              ),
+                            ]
+                          : null,
                     ),
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -331,8 +352,7 @@ class _CnSeriesByProviderScreenState extends State<CnSeriesByProviderScreen> {
         childAspectRatio: 0.6,
       ),
       itemCount:
-          allSeries.length +
-          (isLoadingMoreMap[currentProvider.id]! ? 1 : 0),
+          allSeries.length + (isLoadingMoreMap[currentProvider.id]! ? 1 : 0),
       itemBuilder: (context, index) {
         if (index == allSeries.length) {
           return const Center(

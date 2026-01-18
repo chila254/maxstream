@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shimmer/shimmer.dart';
 import '../models/movie.dart';
 import '../services/tmdb_api_service.dart';
@@ -276,7 +277,7 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
         id: 9,
         name: 'Prime Video',
         color: const Color(0xFF00A8E1),
-        logoPath: '/mcbz1LgtErU9p4UdbZ0rG6RTWHX.jpg',
+        logoPath: '/5NyLm42TmCqCMOZFvH4fcoSNKEW.jpg',
       ),
       _ProviderInfo(
         id: 337,
@@ -291,8 +292,8 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
         logoPath: '/bxBlRPEPpMVDc4jMhSrTf2339DW.jpg',
       ),
       _ProviderInfo(
-        id: 192,
-        name: 'Apple TV+',
+        id: 350,
+        name: 'Apple TV',
         color: const Color(0xFF1F1F1F),
         logoPath: '/SPnBgaLsKJYfCcBHmFUhTg.jpg',
       ),
@@ -304,12 +305,18 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
       ),
       _ProviderInfo(
         id: 386,
-        name: 'Paramount+',
-        color: const Color(0xFF0064FF),
-        logoPath: '/lgudHqEtTOzkMWlpTjU1oUyoUSZ.jpg',
+        name: 'Peacock',
+        color: const Color(0xFF1B365D),
+        logoPath: '/2aGrp1xw3qhwCYvNGAJZPdjfeeX.jpg',
       ),
       _ProviderInfo(
-        id: 591,
+        id: 582,
+        name: 'Paramount+',
+        color: const Color(0xFF0064FF),
+        logoPath: '/hExO4PtimLIYn3JHb4rZtIfwF1.jpg',
+      ),
+      _ProviderInfo(
+        id: 526,
         name: 'AMC+',
         color: const Color(0xFF1A1A1A),
         logoPath: '/ovmu6uot1XVvsemM2dDySXLiX57.jpg',
@@ -341,6 +348,7 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
                   ),
                   child: GestureDetector(
                     onTap: () {
+                      HapticFeedback.lightImpact();
                       Navigator.push(
                         context,
                         MaterialPageRoute(
@@ -352,7 +360,9 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
                         ),
                       );
                     },
-                    child: Container(
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      curve: Curves.easeInOut,
                       decoration: BoxDecoration(
                         color: provider.color,
                         borderRadius: BorderRadius.circular(12),
@@ -377,16 +387,32 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
                               color: Colors.white.withValues(alpha: 0.2),
                               borderRadius: BorderRadius.circular(8),
                             ),
-                            child: Center(
-                              child: Text(
-                                provider.name.substring(0, 1),
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 20,
-                                ),
-                              ),
-                            ),
+                            child: provider.logoPath != null
+                                ? Image.network(
+                                    'https://image.tmdb.org/t/p/w92${provider.logoPath}',
+                                    fit: BoxFit.contain,
+                                    errorBuilder:
+                                        (context, error, stackTrace) => Center(
+                                          child: Text(
+                                            provider.name.substring(0, 1),
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 20,
+                                            ),
+                                          ),
+                                        ),
+                                  )
+                                : Center(
+                                    child: Text(
+                                      provider.name.substring(0, 1),
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 20,
+                                      ),
+                                    ),
+                                  ),
                           ),
                           const SizedBox(height: 8),
                           Text(

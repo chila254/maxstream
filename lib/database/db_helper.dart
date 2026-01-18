@@ -3,7 +3,6 @@ import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import '../models/movie.dart';
 
-
 class DBHelper {
   static Database? _db;
 
@@ -41,7 +40,7 @@ class DBHelper {
         offlinePath TEXT
       )
     ''');
-    
+
     await db.execute('''
       CREATE TABLE downloaded_episodes (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -72,7 +71,9 @@ class DBHelper {
       await db.execute('ALTER TABLE watchlist ADD COLUMN mediaType TEXT');
     }
     if (oldVersion < 3) {
-      await db.execute('ALTER TABLE watchlist ADD COLUMN isDownloaded INTEGER DEFAULT 0');
+      await db.execute(
+        'ALTER TABLE watchlist ADD COLUMN isDownloaded INTEGER DEFAULT 0',
+      );
       await db.execute('ALTER TABLE watchlist ADD COLUMN offlinePath TEXT');
     }
     if (oldVersion < 4) {
@@ -268,7 +269,11 @@ class DBHelper {
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
-  static Future<void> removeEpisodeDownload(int seriesId, int seasonNumber, int episodeNumber) async {
+  static Future<void> removeEpisodeDownload(
+    int seriesId,
+    int seasonNumber,
+    int episodeNumber,
+  ) async {
     final db = await database;
     await db.delete(
       'downloaded_episodes',
@@ -277,7 +282,11 @@ class DBHelper {
     );
   }
 
-  static Future<bool> isEpisodeDownloaded(int seriesId, int seasonNumber, int episodeNumber) async {
+  static Future<bool> isEpisodeDownloaded(
+    int seriesId,
+    int seasonNumber,
+    int episodeNumber,
+  ) async {
     final db = await database;
     final result = await db.query(
       'downloaded_episodes',
@@ -314,7 +323,8 @@ class DBHelper {
       {'id': 15, 'name': 'Hulu'},
       {'id': 192, 'name': 'Apple TV+'},
       {'id': 1899, 'name': 'HBO Max'},
-      {'id': 386, 'name': 'Paramount+'},
+      {'id': 386, 'name': 'Peacock'},
+      {'id': 582, 'name': 'Paramount+'},
       {'id': 591, 'name': 'AMC+'},
     ];
 
@@ -324,7 +334,7 @@ class DBHelper {
         where: 'providerId = ?',
         whereArgs: [provider['id']],
       );
-      
+
       if (existing.isEmpty) {
         await db.insert('provider_preferences', {
           'providerId': provider['id'],
@@ -336,7 +346,10 @@ class DBHelper {
     }
   }
 
-  static Future<void> setProviderPreference(int providerId, bool isPreferred) async {
+  static Future<void> setProviderPreference(
+    int providerId,
+    bool isPreferred,
+  ) async {
     final db = await database;
     await db.update(
       'provider_preferences',

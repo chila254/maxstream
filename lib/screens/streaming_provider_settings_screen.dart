@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../database/db_helper.dart';
 
 class StreamingProvider {
@@ -40,7 +41,7 @@ class _StreamingProviderSettingsScreenState
       name: 'Prime Video',
       color: const Color(0xFF00A8E1),
       icon: Icons.video_library,
-      logoPath: '/mcbz1LgtErU9p4UdbZ0rG6RTWHX.jpg',
+      logoPath: '/5NyLm42TmCqCMOZFvH4fcoSNKEW.jpg',
     ),
     StreamingProvider(
       id: 337,
@@ -57,8 +58,8 @@ class _StreamingProviderSettingsScreenState
       logoPath: '/bxBlRPEPpMVDc4jMhSrTf2339DW.jpg',
     ),
     StreamingProvider(
-      id: 192,
-      name: 'Apple TV+',
+      id: 350,
+      name: 'Apple TV',
       color: const Color(0xFF1F1F1F),
       icon: Icons.apple,
       logoPath: '/SPnBgaLsKJYfCcBHmFUhTg.jpg',
@@ -72,13 +73,20 @@ class _StreamingProviderSettingsScreenState
     ),
     StreamingProvider(
       id: 386,
+      name: 'Peacock',
+      color: const Color(0xFF1B365D),
+      icon: Icons.tv,
+      logoPath: '/2aGrp1xw3qhwCYvNGAJZPdjfeeX.jpg',
+    ),
+    StreamingProvider(
+      id: 582,
       name: 'Paramount+',
       color: const Color(0xFF0064FF),
       icon: Icons.live_tv_sharp,
-      logoPath: '/lgudHqEtTOzkMWlpTjU1oUyoUSZ.jpg',
+      logoPath: '/hExO4PtimLIYn3JHb4rZtIfwF1.jpg',
     ),
     StreamingProvider(
-      id: 591,
+      id: 526,
       name: 'AMC+',
       color: const Color(0xFF1A1A1A),
       icon: Icons.theaters,
@@ -215,21 +223,26 @@ class _StreamingProviderSettingsScreenState
     required Function(bool) onChanged,
   }) {
     return GestureDetector(
-      onTap: () => onChanged(!isSelected),
-      child: Container(
+      onTap: () {
+        HapticFeedback.lightImpact();
+        onChanged(!isSelected);
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
         decoration: BoxDecoration(
           color: provider.color,
           borderRadius: BorderRadius.circular(12),
           boxShadow: [
             BoxShadow(
               color: provider.color.withValues(alpha: 0.5),
-              blurRadius: 8,
+              blurRadius: isSelected ? 12 : 8,
               offset: const Offset(0, 4),
             ),
           ],
           border: Border.all(
             color: isSelected ? Colors.white : Colors.transparent,
-            width: 2,
+            width: isSelected ? 3 : 2,
           ),
         ),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -246,6 +259,16 @@ class _StreamingProviderSettingsScreenState
                   ? Image.network(
                       'https://image.tmdb.org/t/p/w92${provider.logoPath}',
                       fit: BoxFit.contain,
+                      errorBuilder: (context, error, stackTrace) => Center(
+                        child: Text(
+                          provider.name.substring(0, 1),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 20,
+                          ),
+                        ),
+                      ),
                     )
                   : Center(
                       child: Text(
