@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:fijkplayer/fijkplayer.dart';
-import '../services/filmboom_service.dart';
+import 'package:webview_flutter/webview_flutter.dart';
 
 class InAppVideoPlayerScreen extends StatefulWidget {
   final String title;
@@ -24,14 +23,12 @@ class InAppVideoPlayerScreen extends StatefulWidget {
 }
 
 class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen> {
-  late Future<Map<String, dynamic>?> _streamFuture;
-  final FijkPlayer _player = FijkPlayer();
+  late WebViewController _webViewController;
+  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-
-    _streamFuture = _getStreamData();
 
     // Force landscape for playback
     SystemChrome.setPreferredOrientations([
@@ -40,11 +37,37 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen> {
     ]);
 
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+
+    _initializeWebView();
+  }
+
+  void _initializeWebView() {
+    _webViewController = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onPageStarted: (String url) {
+            setState(() {
+              _isLoading = true;
+            });
+          },
+          onPageFinished: (String url) {
+            setState(() {
+              _isLoading = false;
+            });
+          },
+          onWebResourceError: (WebResourceError error) {
+            debugPrint('WebView error: ${error.description}');
+          },
+        ),
+      )
+      ..loadRequest(
+        Uri.parse('https://filmboom.top/search/?q=${Uri.encodeComponent(widget.title)}'),
+      );
   }
 
   @override
   void dispose() {
-    _player.release();
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
       DeviceOrientation.portraitDown,
@@ -60,105 +83,29 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen> {
     super.dispose();
   }
 
-  Future<Map<String, dynamic>?> _getStreamData() async {
-    debugPrint('Fetching stream for: ${widget.title}');
-
-    // Get video URL directly from FilmBoom service
-    final videoResult = await FilmBoomService.getVideoUrl(
-      widget.title,
-      season: widget.season,
-      episode: widget.episode,
-    );
-
-    if (videoResult == null || videoResult['videoUrl'] == null) {
-      debugPrint('Failed to get video URL from FilmBoom');
-      return null;
-    }
-
-    debugPrint('Got video URL: ${videoResult['videoUrl']}');
-    debugPrint('Quality: ${videoResult['quality']}');
-    return videoResult;
-  }
-
-  Future<void> _initializePlayer(String url) async {
-    await _player.setDataSource(url, autoPlay: true);
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-      body: FutureBuilder<Map<String, dynamic>?>(
-        future: _streamFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return _loading();
-          }
-
-          if (snapshot.hasError) {
-            return _errorView(snapshot.error.toString());
-          }
-
-          final streamData = snapshot.data;
-          if (streamData == null || streamData['videoUrl'] == null) {
-            return _errorView('No playable stream found');
-          }
-
-          final videoUrl = streamData['videoUrl'] as String;
-
-          return Stack(
-            children: [
-              FutureBuilder(
-                future: _initializePlayer(videoUrl),
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.done) {
-                    return FijkView(
-                      player: _player,
-                    );
-                  }
-                  return _loading();
-                },
-              ),
-              Positioned(
-                top: 16,
-                left: 16,
-                child: SafeArea(
-                  child: IconButton(
-                    icon: const Icon(Icons.arrow_back, color: Colors.white),
-                    onPressed: () => Navigator.pop(context),
-                  ),
-                ),
-              ),
-            ],
-          );
-        },
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: Text(
+          widget.title,
+          style: const TextStyle(color: Colors.white),
+        ),
       ),
-    );
-  }
-
-  Widget _loading() {
-    return const Center(child: CircularProgressIndicator(color: Colors.red));
-  }
-
-  Widget _errorView(String message) {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
+      body: Stack(
         children: [
-          const Icon(Icons.error, color: Colors.red, size: 64),
-          const SizedBox(height: 12),
-          Text(
-            message,
-            textAlign: TextAlign.center,
-            style: const TextStyle(color: Colors.white),
-          ),
-          const SizedBox(height: 12),
-          ElevatedButton(
-            onPressed: () => setState(() {
-              _streamFuture = _getStreamData();
-            }),
-            child: const Text('Retry'),
-          ),
+          WebViewWidget(controller: _webViewController),
+          if (_isLoading)
+            const Center(
+              child: CircularProgressIndicator(color: Colors.red),
+            ),
         ],
       ),
     );

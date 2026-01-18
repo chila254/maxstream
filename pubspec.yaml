@@ -10,7 +10,8 @@ dependencies:
   flutter:
     sdk: flutter
   flutter_inappwebview: ^6.1.5
-  fijkplayer: 0.11.0
+  video_player: ^2.8.2
+  chewie: ^1.7.5
   webview_flutter: ^4.4.4
   cupertino_icons: ^1.0.8
   http: ^1.4.0
