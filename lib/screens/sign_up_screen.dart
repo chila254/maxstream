@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../services/auth_service.dart';
-import 'onstream_main_screen.dart';
+import 'maxstream_main_screen.dart';
 import 'sign_in_screen.dart';
 
 class SignUpScreen extends StatefulWidget {
@@ -66,7 +66,7 @@ class _SignUpScreenState extends State<SignUpScreen> with SingleTickerProviderSt
       if (result != null && mounted) {
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (_) => const OnStreamMainScreen()),
+          MaterialPageRoute(builder: (_) => const MaxStreamMainScreen()),
         );
       } else if (mounted) {
         setState(() => _errorMessage = 'Sign-up failed. No user returned.');
@@ -119,7 +119,7 @@ class _SignUpScreenState extends State<SignUpScreen> with SingleTickerProviderSt
       
       if (user != null && mounted) {
         print('Navigating to main screen...');
-        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const OnStreamMainScreen()));
+        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const MaxStreamMainScreen()));
       } else if (mounted) {
         print('Google sign-up was cancelled or failed');
         setState(() => _errorMessage = 'Google sign-up was cancelled or failed');

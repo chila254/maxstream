@@ -6,16 +6,17 @@ import '../services/auth_service.dart';
 import '../screens/sign_in_screen.dart';
 import '../screens/profile_settings_screen.dart';
 import '../screens/watch_history_screen.dart';
+import '../screens/streaming_provider_settings_screen.dart';
 import '../widgets/profile_avatar.dart';
 
-class OnStreamMoreScreen extends StatefulWidget {
-  const OnStreamMoreScreen({super.key});
+class MaxStreamMoreScreen extends StatefulWidget {
+  const MaxStreamMoreScreen({super.key});
 
   @override
-  State<OnStreamMoreScreen> createState() => _OnStreamMoreScreenState();
+  State<MaxStreamMoreScreen> createState() => _MaxStreamMoreScreenState();
 }
 
-class _OnStreamMoreScreenState extends State<OnStreamMoreScreen> {
+class _MaxStreamMoreScreenState extends State<MaxStreamMoreScreen> {
   String _userName = 'MaxStream User';
   String _userEmail = 'user@maxstream.app';
   final UserService _userService = UserService();
@@ -131,6 +132,17 @@ class _OnStreamMoreScreenState extends State<OnStreamMoreScreen> {
             Navigator.push(
               context,
               MaterialPageRoute(builder: (context) => const WatchHistoryScreen()),
+            );
+          },
+        ),
+        _buildMenuItem(
+          icon: Icons.tv,
+          title: 'Streaming Services',
+          onTap: () {
+            if (!mounted) return;
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const StreamingProviderSettingsScreen()),
             );
           },
         ),
@@ -325,3 +337,4 @@ class _OnStreamMoreScreenState extends State<OnStreamMoreScreen> {
     }
   }
 }
+

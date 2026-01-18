@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../models/movie.dart';
-import '../screens/onstream_details_screen.dart';
-import '../screens/onstream_series_screen.dart';
+import '../screens/maxstream_details_screen.dart';
+import '../screens/maxstream_series_screen.dart';
 import '../services/tmdb_api_service.dart';
 import '../database/db_helper.dart';
 import '../utils/responsive_utils.dart';
@@ -531,8 +531,8 @@ class _HeroBannerState extends State<HeroBanner> {
                                         animation,
                                         secondaryAnimation,
                                       ) => item.mediaType == 'tv'
-                                      ? OnStreamSeriesScreen(seriesItem: item)
-                                      : OnStreamDetailsScreen(
+                                      ? MaxStreamSeriesScreen(seriesItem: item)
+                                      : MaxStreamDetailsScreen(
                                           item: item,
                                           mediaType: item.mediaType,
                                         ),

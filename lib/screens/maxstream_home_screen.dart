@@ -6,28 +6,25 @@ import '../services/watch_history_service.dart';
 import '../widgets/hero_banner.dart';
 import '../widgets/custom_loading_widget.dart';
 import '../widgets/continue_watching_section.dart';
-import 'onstream_details_screen.dart';
-import 'onstream_series_screen.dart';
+import 'maxstream_details_screen.dart';
+import 'maxstream_series_screen.dart';
 import 'cn_movies_by_provider_screen.dart';
 import 'cn_series_by_provider_screen.dart';
 
-class OnStreamHomeScreen extends StatefulWidget {
+class MaxStreamHomeScreen extends StatefulWidget {
   final Function(int)? onTabChange;
 
-  const OnStreamHomeScreen({super.key, this.onTabChange});
+  const MaxStreamHomeScreen({super.key, this.onTabChange});
 
   @override
-  State<OnStreamHomeScreen> createState() => _OnStreamHomeScreenState();
+  State<MaxStreamHomeScreen> createState() => _MaxStreamHomeScreenState();
 }
 
-class _OnStreamHomeScreenState extends State<OnStreamHomeScreen> {
+class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
   bool isLoading = true;
   List<Map<String, dynamic>> trendingMovies = [];
   List<Map<String, dynamic>> popularMovies = [];
   List<Map<String, dynamic>> topRatedMovies = [];
-  List<Map<String, dynamic>> trendingSeries = [];
-  List<Map<String, dynamic>> popularSeries = [];
-  List<Map<String, dynamic>> topRatedSeries = [];
   List<Map<String, dynamic>> continueWatching = [];
 
   @override
@@ -44,9 +41,6 @@ class _OnStreamHomeScreenState extends State<OnStreamHomeScreen> {
         TmdbApiService.fetchTrendingMovies(),
         TmdbApiService.fetchPopularMovies(),
         TmdbApiService.fetchTopRatedMovies(),
-        TmdbApiService.fetchTrendingSeries(),
-        TmdbApiService.fetchPopularSeries(),
-        TmdbApiService.fetchTopRatedSeries(),
         WatchHistoryService.getWatchHistory(),
       ]);
 
@@ -54,10 +48,7 @@ class _OnStreamHomeScreenState extends State<OnStreamHomeScreen> {
         trendingMovies = results[0];
         popularMovies = results[1];
         topRatedMovies = results[2];
-        trendingSeries = results[3];
-        popularSeries = results[4];
-        topRatedSeries = results[5];
-        continueWatching = results[6].take(10).toList();
+        continueWatching = results[3].take(10).toList();
       });
     } catch (e) {
       print('Error loading content: $e');
@@ -88,9 +79,6 @@ class _OnStreamHomeScreenState extends State<OnStreamHomeScreen> {
                   _buildSection('Trending Movies', trendingMovies, 'movie'),
                   _buildSection('Popular Movies', popularMovies, 'movie'),
                   _buildSection('Top Rated Movies', topRatedMovies, 'movie'),
-                  _buildSection('Trending TV Shows', trendingSeries, 'tv'),
-                  _buildSection('Popular TV Shows', popularSeries, 'tv'),
-                  _buildSection('Top Rated TV Shows', topRatedSeries, 'tv'),
                   const SliverToBoxAdapter(child: SizedBox(height: 20)),
                 ],
               ),
@@ -441,8 +429,8 @@ class _OnStreamHomeScreenState extends State<OnStreamHomeScreen> {
           PageRouteBuilder(
             pageBuilder: (context, animation, secondaryAnimation) =>
                 mediaType == 'tv'
-                ? OnStreamSeriesScreen(seriesItem: Movie.fromJson(item))
-                : OnStreamDetailsScreen(
+                ? MaxStreamSeriesScreen(seriesItem: Movie.fromJson(item))
+                : MaxStreamDetailsScreen(
                     item: Movie.fromJson(item),
                     mediaType: mediaType,
                   ),
@@ -711,10 +699,10 @@ class _FullListScreenState extends State<_FullListScreen> {
                       PageRouteBuilder(
                         pageBuilder: (context, animation, secondaryAnimation) =>
                             widget.mediaType == 'tv'
-                            ? OnStreamSeriesScreen(
+                            ? MaxStreamSeriesScreen(
                                 seriesItem: Movie.fromJson(item),
                               )
-                            : OnStreamDetailsScreen(
+                            : MaxStreamDetailsScreen(
                                 item: Movie.fromJson(item),
                                 mediaType: widget.mediaType,
                               ),

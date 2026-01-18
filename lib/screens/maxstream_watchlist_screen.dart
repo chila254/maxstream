@@ -2,17 +2,17 @@ import 'package:flutter/material.dart';
 import '../database/db_helper.dart';
 import '../models/movie.dart';
 import '../widgets/custom_loading_widget.dart';
-import 'onstream_details_screen.dart';
-import 'onstream_series_screen.dart';
+import 'maxstream_details_screen.dart';
+import 'maxstream_series_screen.dart';
 
-class OnStreamWatchlistScreen extends StatefulWidget {
-  const OnStreamWatchlistScreen({super.key});
+class MaxStreamWatchlistScreen extends StatefulWidget {
+  const MaxStreamWatchlistScreen({super.key});
 
   @override
-  State<OnStreamWatchlistScreen> createState() => _OnStreamWatchlistScreenState();
+  State<MaxStreamWatchlistScreen> createState() => _MaxStreamWatchlistScreenState();
 }
 
-class _OnStreamWatchlistScreenState extends State<OnStreamWatchlistScreen>
+class _MaxStreamWatchlistScreenState extends State<MaxStreamWatchlistScreen>
     with SingleTickerProviderStateMixin {
   List<Movie> watchlistItems = [];
   List<Movie> movies = [];
@@ -190,8 +190,8 @@ class _OnStreamWatchlistScreenState extends State<OnStreamWatchlistScreen>
           PageRouteBuilder(
             pageBuilder: (context, animation, secondaryAnimation) =>
                 item.mediaType == 'tv'
-                    ? OnStreamSeriesScreen(seriesItem: item)
-                    : OnStreamDetailsScreen(
+                    ? MaxStreamSeriesScreen(seriesItem: item)
+                    : MaxStreamDetailsScreen(
                         item: item,
                         mediaType: item.mediaType,
                       ),
@@ -310,3 +310,4 @@ class _OnStreamWatchlistScreenState extends State<OnStreamWatchlistScreen>
     );
   }
 }
+

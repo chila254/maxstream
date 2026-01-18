@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/movie.dart';
 import '../services/tmdb_api_service.dart';
-import 'onstream_details_screen.dart';
+import 'maxstream_details_screen.dart';
 
 class ActorDetailsScreen extends StatefulWidget {
   final int actorId;
@@ -338,7 +338,7 @@ class _ActorDetailsScreenState extends State<ActorDetailsScreen>
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => OnStreamDetailsScreen(
+            builder: (context) => MaxStreamDetailsScreen(
               item: Movie.fromJson(credit),
               mediaType: mediaType,
             ),

@@ -1,19 +1,19 @@
 import 'package:flutter/material.dart';
-import 'onstream_home_screen.dart';
-import 'onstream_search_screen.dart';
-import 'onstream_series_list_screen.dart';
-import 'onstream_watchlist_screen.dart';
-import 'onstream_more_screen.dart';
+import 'maxstream_home_screen.dart';
+import 'maxstream_search_screen.dart';
+import 'maxstream_series_list_screen.dart';
+import 'maxstream_watchlist_screen.dart';
+import 'maxstream_more_screen.dart';
 import '../services/update_service.dart';
 
-class OnStreamMainScreen extends StatefulWidget {
-  const OnStreamMainScreen({super.key});
+class MaxStreamMainScreen extends StatefulWidget {
+  const MaxStreamMainScreen({super.key});
 
   @override
-  State<OnStreamMainScreen> createState() => _OnStreamMainScreenState();
+  State<MaxStreamMainScreen> createState() => _MaxStreamMainScreenState();
 }
 
-class _OnStreamMainScreenState extends State<OnStreamMainScreen> {
+class _MaxStreamMainScreenState extends State<MaxStreamMainScreen> {
   int _currentIndex = 0;
   bool _updateChecked = false;
 
@@ -66,11 +66,11 @@ class _OnStreamMainScreenState extends State<OnStreamMainScreen> {
   }
 
   List<Widget> get _screens => [
-    OnStreamHomeScreen(onTabChange: _onTabChange),
-    const OnStreamSearchScreen(),
-    const OnStreamSeriesListScreen(),
-    const OnStreamWatchlistScreen(),
-    const OnStreamMoreScreen(),
+    MaxStreamHomeScreen(onTabChange: _onTabChange),
+    const MaxStreamSearchScreen(),
+    const MaxStreamSeriesListScreen(),
+    const MaxStreamWatchlistScreen(),
+    const MaxStreamMoreScreen(),
   ];
 
   @override
@@ -122,3 +122,4 @@ class _OnStreamMainScreenState extends State<OnStreamMainScreen> {
     );
   }
 }
+

@@ -2,18 +2,18 @@ import 'package:flutter/material.dart';
 import '../models/movie.dart';
 import '../services/tmdb_api_service.dart';
 import '../widgets/custom_loading_widget.dart';
-import 'onstream_details_screen.dart';
-import 'onstream_series_screen.dart';
+import 'maxstream_details_screen.dart';
+import 'maxstream_series_screen.dart';
 import 'actor_details_screen.dart';
 
-class OnStreamSearchScreen extends StatefulWidget {
-  const OnStreamSearchScreen({super.key});
+class MaxStreamSearchScreen extends StatefulWidget {
+  const MaxStreamSearchScreen({super.key});
 
   @override
-  State<OnStreamSearchScreen> createState() => _OnStreamSearchScreenState();
+  State<MaxStreamSearchScreen> createState() => _MaxStreamSearchScreenState();
 }
 
-class _OnStreamSearchScreenState extends State<OnStreamSearchScreen>
+class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
   final TextEditingController _searchController = TextEditingController();
@@ -290,8 +290,8 @@ class _OnStreamSearchScreenState extends State<OnStreamSearchScreen>
           PageRouteBuilder(
             pageBuilder: (context, animation, secondaryAnimation) =>
                 mediaType == 'tv'
-                    ? OnStreamSeriesScreen(seriesItem: Movie.fromJson(item))
-                    : OnStreamDetailsScreen(
+                    ? MaxStreamSeriesScreen(seriesItem: Movie.fromJson(item))
+                    : MaxStreamDetailsScreen(
                         item: Movie.fromJson(item),
                         mediaType: mediaType,
                       ),
@@ -484,3 +484,4 @@ class _OnStreamSearchScreenState extends State<OnStreamSearchScreen>
     );
   }
 }
+

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'onstream_main_screen.dart';
+import 'maxstream_main_screen.dart';
 import 'sign_in_screen.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -56,7 +56,7 @@ class _SplashScreenState extends State<SplashScreen>
       } else {
        Navigator.pushReplacement(
   context,
-  MaterialPageRoute(builder: (_) => const OnStreamMainScreen()),
+  MaterialPageRoute(builder: (_) => const MaxStreamMainScreen()),
 );
       }
     } catch (e) {

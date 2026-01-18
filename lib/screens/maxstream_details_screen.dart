@@ -6,21 +6,21 @@ import '../models/movie.dart';
 import '../services/tmdb_api_service.dart';
 import 'inapp_video_player_screen.dart';
 
-class OnStreamDetailsScreen extends StatefulWidget {
+class MaxStreamDetailsScreen extends StatefulWidget {
   final Movie item;
   final String mediaType;
 
-  const OnStreamDetailsScreen({
+  const MaxStreamDetailsScreen({
     super.key,
     required this.item,
     required this.mediaType,
   });
 
   @override
-  State<OnStreamDetailsScreen> createState() => _OnStreamDetailsScreenState();
+  State<MaxStreamDetailsScreen> createState() => _MaxStreamDetailsScreenState();
 }
 
-class _OnStreamDetailsScreenState extends State<OnStreamDetailsScreen> {
+class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
   YoutubePlayerController? _youtubeController;
   bool isSaved = false;
   bool isLoading = true;
@@ -710,7 +710,7 @@ class _OnStreamDetailsScreenState extends State<OnStreamDetailsScreen> {
                     context,
                     PageRouteBuilder(
                       pageBuilder: (context, animation, secondaryAnimation) =>
-                          OnStreamDetailsScreen(
+                          MaxStreamDetailsScreen(
                             item: Movie.fromJson(item),
                             mediaType: item['media_type'] ?? widget.mediaType,
                           ),
@@ -813,3 +813,4 @@ class _OnStreamDetailsScreenState extends State<OnStreamDetailsScreen> {
     );
   }
 }
+

@@ -7,16 +7,16 @@ import '../services/tmdb_api_service.dart';
 import '../database/db_helper.dart';
 import 'inapp_video_player_screen.dart';
 
-class OnStreamSeriesScreen extends StatefulWidget {
+class MaxStreamSeriesScreen extends StatefulWidget {
   final Movie seriesItem;
 
-  const OnStreamSeriesScreen({super.key, required this.seriesItem});
+  const MaxStreamSeriesScreen({super.key, required this.seriesItem});
 
   @override
-  State<OnStreamSeriesScreen> createState() => _OnStreamSeriesScreenState();
+  State<MaxStreamSeriesScreen> createState() => _MaxStreamSeriesScreenState();
 }
 
-class _OnStreamSeriesScreenState extends State<OnStreamSeriesScreen> {
+class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
   YoutubePlayerController? _youtubeController;
   Map<String, dynamic>? seriesDetails;
   List<Season> seasons = [];
@@ -903,7 +903,7 @@ class _OnStreamSeriesScreenState extends State<OnStreamSeriesScreen> {
               context,
               PageRouteBuilder(
               pageBuilder: (context, animation, secondaryAnimation) =>
-                OnStreamSeriesScreen(
+                MaxStreamSeriesScreen(
                     seriesItem: Movie.fromJson(item),
                     ),
                   transitionsBuilder: (context, animation, secondaryAnimation, child) {
@@ -968,3 +968,4 @@ class _OnStreamSeriesScreenState extends State<OnStreamSeriesScreen> {
     );
   }
 }
+

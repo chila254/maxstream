@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'screens/splash_screen.dart';
-import 'screens/onstream_main_screen.dart';
+import 'screens/maxstream_main_screen.dart';
 import 'services/notification_service.dart';
 import 'services/theme_service.dart';
 
@@ -24,7 +24,7 @@ void main() async {
     //   _checkForUpdates();
     // });
 
-    runApp(const OnStreamApp());
+    runApp(const MaxStreamApp());
   } catch (e) {
     runApp(ErrorApp(error: e));
   }
@@ -55,8 +55,8 @@ class ErrorApp extends StatelessWidget {
   }
 }
 
-class OnStreamApp extends StatelessWidget {
-  const OnStreamApp({super.key});
+class MaxStreamApp extends StatelessWidget {
+const MaxStreamApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -81,7 +81,7 @@ class AuthGate extends StatelessWidget {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const SplashScreen();
         } else if (snapshot.hasData) {
-          return const OnStreamMainScreen(); // signed in
+          return const MaxStreamMainScreen(); // signed in
         } else {
           return const SplashScreen(); // not signed in
         }

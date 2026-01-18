@@ -25,6 +25,7 @@ class InAppVideoPlayerScreen extends StatefulWidget {
 class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen> {
   late WebViewController _webViewController;
   bool _isLoading = true;
+  String? _error;
 
   @override
   void initState() {
@@ -49,6 +50,7 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen> {
           onPageStarted: (String url) {
             setState(() {
               _isLoading = true;
+              _error = null;
             });
           },
           onPageFinished: (String url) {
@@ -58,6 +60,10 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen> {
           },
           onWebResourceError: (WebResourceError error) {
             debugPrint('WebView error: ${error.description}');
+            setState(() {
+              _error = error.description;
+              _isLoading = false;
+            });
           },
         ),
       )
@@ -98,13 +104,47 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen> {
         ),
         title: Text(widget.title, style: const TextStyle(color: Colors.white)),
       ),
-      body: Stack(
-        children: [
-          WebViewWidget(controller: _webViewController),
-          if (_isLoading)
-            const Center(child: CircularProgressIndicator(color: Colors.red)),
-        ],
-      ),
+      body: _error != null
+          ? Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.error_outline, size: 64, color: Colors.red[400]),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Error loading video',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    _error ?? 'Unknown error',
+                    style: const TextStyle(color: Colors.grey, fontSize: 12),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 24),
+                  ElevatedButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFE50914),
+                    ),
+                    child: const Text('Go Back'),
+                  ),
+                ],
+              ),
+            )
+          : Stack(
+              children: [
+                WebViewWidget(controller: _webViewController),
+                if (_isLoading)
+                  const Center(
+                    child: CircularProgressIndicator(color: Colors.red),
+                  ),
+              ],
+            ),
     );
   }
 }

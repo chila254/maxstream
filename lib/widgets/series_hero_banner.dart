@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../models/movie.dart';
-import '../screens/onstream_series_screen.dart';
+import '../screens/maxstream_series_screen.dart';
 import '../services/api_service.dart';
 import '../database/db_helper.dart';
 import '../utils/responsive_utils.dart';
@@ -383,7 +383,7 @@ class _SeriesHeroBannerState extends State<SeriesHeroBanner> {
                                 context,
                                 MaterialPageRoute(
                                   builder: (_) =>
-                                      OnStreamSeriesScreen(seriesItem: series),
+                                      MaxStreamSeriesScreen(seriesItem: series),
                                 ),
                               );
                             },

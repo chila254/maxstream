@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../services/auth_service.dart';
-import 'onstream_main_screen.dart';
+import 'maxstream_main_screen.dart';
 import 'sign_up_screen.dart';
 import 'forgot_password_screen.dart';
 
@@ -65,7 +65,7 @@ class _SignInScreenState extends State<SignInScreen> with SingleTickerProviderSt
       );
       
       if (user != null && mounted) {
-        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const OnStreamMainScreen()));
+        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const MaxStreamMainScreen()));
       } else if (mounted) {
         setState(() => _errorMessage = 'Sign-in failed. No user returned.');
       }
@@ -123,7 +123,7 @@ class _SignInScreenState extends State<SignInScreen> with SingleTickerProviderSt
       
       if (user != null && mounted) {
         print('Navigating to main screen...');
-        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const OnStreamMainScreen()));
+        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const MaxStreamMainScreen()));
       } else if (mounted) {
         print('Google sign-in was cancelled or failed');
         setState(() => _errorMessage = 'Google sign-in was cancelled or failed');

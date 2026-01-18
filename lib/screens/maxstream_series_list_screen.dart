@@ -3,17 +3,17 @@ import 'package:shimmer/shimmer.dart';
 import '../models/movie.dart';
 import '../services/tmdb_api_service.dart';
 import '../widgets/series_hero_banner.dart';
-import 'onstream_series_screen.dart';
+import 'maxstream_series_screen.dart';
 
-class OnStreamSeriesListScreen extends StatefulWidget {
-  const OnStreamSeriesListScreen({super.key});
+class MaxStreamSeriesListScreen extends StatefulWidget {
+  const MaxStreamSeriesListScreen({super.key});
 
   @override
-  State<OnStreamSeriesListScreen> createState() =>
-      _OnStreamSeriesListScreenState();
+  State<MaxStreamSeriesListScreen> createState() =>
+      _MaxStreamSeriesListScreenState();
 }
 
-class _OnStreamSeriesListScreenState extends State<OnStreamSeriesListScreen> {
+class _MaxStreamSeriesListScreenState extends State<MaxStreamSeriesListScreen> {
   bool isLoading = true;
   List<Map<String, dynamic>> trendingSeries = [];
   List<Map<String, dynamic>> popularSeries = [];
@@ -244,7 +244,7 @@ class _OnStreamSeriesListScreenState extends State<OnStreamSeriesListScreen> {
           context,
           MaterialPageRoute(
             builder: (context) =>
-                OnStreamSeriesScreen(seriesItem: Movie.fromJson(item)),
+                MaxStreamSeriesScreen(seriesItem: Movie.fromJson(item)),
           ),
         );
       },
@@ -518,7 +518,7 @@ class _FullListScreenState extends State<_FullListScreen> {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (context) => OnStreamSeriesScreen(
+                          builder: (context) => MaxStreamSeriesScreen(
                             seriesItem: Movie.fromJson(item),
                           ),
                         ),
@@ -590,3 +590,4 @@ class _FullListScreenState extends State<_FullListScreen> {
     return '';
   }
 }
+

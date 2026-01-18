@@ -3,17 +3,20 @@ import 'package:shimmer/shimmer.dart';
 import '../models/movie.dart';
 import '../services/tmdb_api_service.dart';
 import '../database/db_helper.dart';
-import 'onstream_details_screen.dart';
+import '../widgets/custom_loading_widget.dart';
+import 'maxstream_details_screen.dart';
 
 class StreamingProvider {
   final int id;
   final String name;
   final Color color;
+  final IconData icon;
 
   StreamingProvider({
     required this.id,
     required this.name,
     required this.color,
+    required this.icon,
   });
 }
 
@@ -27,30 +30,54 @@ class CnMoviesByProviderScreen extends StatefulWidget {
 
 class _CnMoviesByProviderScreenState extends State<CnMoviesByProviderScreen> {
   final List<StreamingProvider> providers = [
-    StreamingProvider(id: 8, name: 'Netflix', color: const Color(0xFFE50914)),
+    StreamingProvider(
+      id: 8,
+      name: 'Netflix',
+      color: const Color(0xFFE50914),
+      icon: Icons.play_circle,
+    ),
     StreamingProvider(
       id: 119,
       name: 'Prime Video',
       color: const Color(0xFF00A8E1),
+      icon: Icons.video_library,
     ),
-    StreamingProvider(id: 337, name: 'Disney+', color: const Color(0xFF113CCF)),
+    StreamingProvider(
+      id: 337,
+      name: 'Disney+',
+      color: const Color(0xFF113CCF),
+      icon: Icons.movie,
+    ),
   ];
 
   late Map<int, List<Map<String, dynamic>>> moviesByProvider;
   late Map<int, bool> isLoadingMap;
   late Map<int, bool> isPreferredMap;
+  late Map<int, bool> isLoadingMoreMap;
+  late Map<int, int> pageMap;
+  late Map<int, ScrollController> scrollControllerMap;
   int selectedProviderIndex = 0;
+  String searchQuery = '';
+  late TextEditingController searchController;
 
   @override
   void initState() {
+    searchController = TextEditingController();
     super.initState();
     moviesByProvider = {};
     isLoadingMap = {};
     isPreferredMap = {};
+    isLoadingMoreMap = {};
+    pageMap = {};
+    scrollControllerMap = {};
     for (var provider in providers) {
       moviesByProvider[provider.id] = [];
       isLoadingMap[provider.id] = false;
       isPreferredMap[provider.id] = false;
+      isLoadingMoreMap[provider.id] = false;
+      pageMap[provider.id] = 1;
+      scrollControllerMap[provider.id] = ScrollController();
+      scrollControllerMap[provider.id]!.addListener(() => _onScroll(provider.id));
     }
     _initializeAndLoad();
   }
@@ -80,10 +107,11 @@ class _CnMoviesByProviderScreenState extends State<CnMoviesByProviderScreen> {
     setState(() {
       selectedProviderIndex = index;
       isLoadingMap[provider.id] = true;
+      pageMap[provider.id] = 1;
     });
 
     try {
-      final movies = await TmdbApiService.getMoviesByProvider(provider.id);
+      final movies = await TmdbApiService.getMoviesByProvider(provider.id, page: 1);
       if (mounted) {
         setState(() {
           moviesByProvider[provider.id] = movies;
@@ -100,6 +128,58 @@ class _CnMoviesByProviderScreenState extends State<CnMoviesByProviderScreen> {
     }
   }
 
+  void _onScroll(int providerId) {
+    final scrollController = scrollControllerMap[providerId];
+    if (scrollController != null &&
+        scrollController.position.pixels ==
+            scrollController.position.maxScrollExtent &&
+        !isLoadingMoreMap[providerId]! &&
+        moviesByProvider[providerId]!.isNotEmpty) {
+      _loadMoreMovies(providerId);
+    }
+  }
+
+  Future<void> _loadMoreMovies(int providerId) async {
+    if (isLoadingMoreMap[providerId]!) return;
+
+    setState(() {
+      isLoadingMoreMap[providerId] = true;
+    });
+
+    try {
+      final nextPage = (pageMap[providerId] ?? 1) + 1;
+      final newMovies = await TmdbApiService.getMoviesByProvider(providerId, page: nextPage);
+
+      if (newMovies.isNotEmpty && mounted) {
+        setState(() {
+          moviesByProvider[providerId]!.addAll(newMovies);
+          pageMap[providerId] = nextPage;
+          isLoadingMoreMap[providerId] = false;
+        });
+      } else if (mounted) {
+        setState(() {
+          isLoadingMoreMap[providerId] = false;
+        });
+      }
+    } catch (e) {
+      print('Error loading more movies: $e');
+      if (mounted) {
+        setState(() {
+          isLoadingMoreMap[providerId] = false;
+        });
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    for (var controller in scrollControllerMap.values) {
+      controller.dispose();
+    }
+    searchController.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -114,7 +194,50 @@ class _CnMoviesByProviderScreenState extends State<CnMoviesByProviderScreen> {
       ),
       body: Column(
         children: [
-          // Provider tabs
+          // Search bar
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: TextField(
+              controller: searchController,
+              onChanged: (value) {
+                setState(() {
+                  searchQuery = value.toLowerCase();
+                });
+              },
+              style: const TextStyle(color: Colors.white),
+              decoration: InputDecoration(
+                hintText: 'Search movies...',
+                hintStyle: TextStyle(color: Colors.grey[600]),
+                prefixIcon: const Icon(Icons.search, color: Colors.grey),
+                suffixIcon: searchQuery.isNotEmpty
+                    ? GestureDetector(
+                        onTap: () {
+                          searchController.clear();
+                          setState(() {
+                            searchQuery = '';
+                          });
+                        },
+                        child: const Icon(Icons.clear, color: Colors.grey),
+                      )
+                    : null,
+                filled: true,
+                fillColor: const Color(0xFF2A2A2A),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: Colors.grey[700]!),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: Colors.grey[700]!),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: Colors.red),
+                ),
+              ),
+            ),
+          ),
+          // Provider tabs with icons
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
@@ -127,28 +250,34 @@ class _CnMoviesByProviderScreenState extends State<CnMoviesByProviderScreen> {
                   padding: EdgeInsets.only(
                     left: index == 0 ? 16 : 8,
                     right: index == providers.length - 1 ? 16 : 8,
-                    top: 12,
-                    bottom: 12,
+                    top: 8,
+                    bottom: 8,
                   ),
                   child: GestureDetector(
                     onTap: () => _loadMoviesForProvider(index),
                     child: Container(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 10,
+                        horizontal: 12,
+                        vertical: 8,
                       ),
                       decoration: BoxDecoration(
                         color: isSelected
                             ? provider.color
                             : const Color(0xFF2A2A2A),
-                        borderRadius: BorderRadius.circular(8),
+                        borderRadius: BorderRadius.circular(12),
                         border: isSelected
                             ? Border.all(color: provider.color, width: 2)
                             : Border.all(color: Colors.grey[700]!, width: 1),
                       ),
-                      child: Row(
+                      child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
+                          Icon(
+                            provider.icon,
+                            color: isSelected ? Colors.white : provider.color,
+                            size: 24,
+                          ),
+                          const SizedBox(height: 4),
                           Text(
                             provider.name,
                             style: TextStyle(
@@ -156,14 +285,14 @@ class _CnMoviesByProviderScreenState extends State<CnMoviesByProviderScreen> {
                               fontWeight: isSelected
                                   ? FontWeight.bold
                                   : FontWeight.normal,
-                              fontSize: 14,
+                              fontSize: 12,
                             ),
                           ),
                           if (isPreferred) ...[
-                            const SizedBox(width: 6),
+                            const SizedBox(height: 2),
                             Icon(
                               Icons.star,
-                              size: 14,
+                              size: 12,
                               color: isSelected ? Colors.white : Colors.amber,
                             ),
                           ],
@@ -185,14 +314,22 @@ class _CnMoviesByProviderScreenState extends State<CnMoviesByProviderScreen> {
 
   Widget _buildMovieGrid() {
     final currentProvider = providers[selectedProviderIndex];
-    final movies = moviesByProvider[currentProvider.id] ?? [];
+    final allMovies = moviesByProvider[currentProvider.id] ?? [];
     final isLoading = isLoadingMap[currentProvider.id] ?? false;
 
-    if (isLoading) {
+    // Filter movies based on search query
+    final filteredMovies = searchQuery.isEmpty
+        ? allMovies
+        : allMovies
+            .where((movie) =>
+                (movie['title'] ?? '').toLowerCase().contains(searchQuery))
+            .toList();
+
+    if (isLoading && searchQuery.isEmpty) {
       return _buildLoadingShimmer();
     }
 
-    if (movies.isEmpty) {
+    if (filteredMovies.isEmpty) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -200,7 +337,7 @@ class _CnMoviesByProviderScreenState extends State<CnMoviesByProviderScreen> {
             Icon(Icons.movie_outlined, size: 64, color: Colors.grey[600]),
             const SizedBox(height: 16),
             Text(
-              'No movies available',
+              searchQuery.isNotEmpty ? 'No movies found' : 'No movies available',
               style: TextStyle(color: Colors.grey[400], fontSize: 16),
             ),
           ],
@@ -209,6 +346,7 @@ class _CnMoviesByProviderScreenState extends State<CnMoviesByProviderScreen> {
     }
 
     return GridView.builder(
+      controller: scrollControllerMap[currentProvider.id],
       padding: const EdgeInsets.all(16),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 3,
@@ -216,16 +354,26 @@ class _CnMoviesByProviderScreenState extends State<CnMoviesByProviderScreen> {
         mainAxisSpacing: 12,
         childAspectRatio: 0.6,
       ),
-      itemCount: movies.length,
+      itemCount: filteredMovies.length +
+          (isLoading && isLoadingMoreMap[currentProvider.id]! ? 1 : 0),
       itemBuilder: (context, index) {
-        final movie = movies[index];
+        if (index == filteredMovies.length) {
+          return const Center(
+            child: CustomLoadingWidget(
+              size: 30,
+              color: Color(0xFFE50914),
+              style: LoadingStyle.dots,
+            ),
+          );
+        }
+        final movie = filteredMovies[index];
         return GestureDetector(
           onTap: () {
             Navigator.push(
               context,
               PageRouteBuilder(
                 pageBuilder: (context, animation, secondaryAnimation) =>
-                    OnStreamDetailsScreen(
+                    MaxStreamDetailsScreen(
                       item: Movie.fromJson(movie),
                       mediaType: 'movie',
                     ),

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/movie.dart';
-import '../screens/onstream_details_screen.dart';
-import '../screens/onstream_series_screen.dart';
+import '../screens/maxstream_details_screen.dart';
+import '../screens/maxstream_series_screen.dart';
 import '../utils/responsive_utils.dart';
 
 class MovieSlider extends StatefulWidget {
@@ -71,8 +71,8 @@ class _MovieSliderState extends State<MovieSlider> {
       context,
       MaterialPageRoute(
         builder: (_) => item.mediaType == 'tv'
-            ? OnStreamSeriesScreen(seriesItem: item)
-            : OnStreamDetailsScreen(item: item, mediaType: item.mediaType),
+            ? MaxStreamSeriesScreen(seriesItem: item)
+            : MaxStreamDetailsScreen(item: item, mediaType: item.mediaType),
       ),
     );
   }
