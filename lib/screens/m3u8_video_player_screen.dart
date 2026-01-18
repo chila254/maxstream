@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import 'package:dio/dio.dart';
 import '../services/m3u8_service.dart';
 
 class M3U8VideoPlayerScreen extends StatefulWidget {
@@ -28,6 +29,8 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   bool _isLoading = true;
   String? _error;
   Map<String, dynamic>? _streamData;
+  int _currentServerIndex = 0;
+  List<Map<String, dynamic>> _triedServers = [];
 
   @override
   void initState() {
@@ -71,14 +74,17 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
           },
           onWebResourceError: (WebResourceError error) {
             debugPrint('WebView error: ${error.description}');
-            
+
             // HTTP/2 protocol errors are often recoverable with embed servers
-            // Only show error if it's not a protocol-level issue
+            // Try next server instead of failing
             if (error.description.contains('ERR_HTTP2_PROTOCOL_ERROR') ||
                 error.description.contains('net::') ||
                 error.description.contains('ERR_CONNECTION')) {
-              debugPrint('M3U8VideoPlayerScreen: Network-level error (may be recoverable): ${error.description}');
-              // Don't immediately fail - let the page try to recover
+              debugPrint(
+                'M3U8VideoPlayerScreen: Network-level error (may be recoverable): ${error.description}',
+              );
+              // Try next server
+              _tryNextServer();
             } else {
               setState(() {
                 _error = error.description;
@@ -105,50 +111,89 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     });
 
     try {
-      // Try to get embedded video by TMDB ID
-      final streamData = await EmbeddedVideoService.getEmbeddedVideo(
-        widget.tmdbId,
-        season: widget.season,
-        episode: widget.episode,
-        isMovie: widget.isMovie,
-      );
-
-      if (streamData == null) {
-        // Fallback to search by title
-        final searchData = await EmbeddedVideoService.searchAndGetEmbeddedVideo(
-          widget.title,
-          season: widget.season,
-          episode: widget.episode,
-          isMovie: widget.isMovie,
-        );
-
-        if (searchData != null) {
-          _streamData = searchData;
-        } else {
-          setState(() {
-            _error = 'No embedded video found for this content';
-            _isLoading = false;
-          });
-          return;
-        }
-      } else {
-        _streamData = streamData;
-      }
-
-      final embedUrl = _streamData!['embedUrl'] as String;
-
-      // Load the embed URL in WebView
-      await _webViewController.loadRequest(Uri.parse(embedUrl));
-
-      setState(() {
-        _isLoading = false;
-      });
+      await _tryNextServer();
     } catch (e) {
       setState(() {
         _error = 'Failed to load embedded video: $e';
         _isLoading = false;
       });
     }
+  }
+
+  Future<void> _tryNextServer() async {
+    // Get all available servers
+    final servers = EmbeddedVideoService.getServers();
+
+    // Skip servers we've already tried
+    while (_currentServerIndex < servers.length) {
+      final server = servers[_currentServerIndex];
+      _currentServerIndex++;
+
+      // Check if we already tried this server
+      if (_triedServers.any((tried) => tried['name'] == server['name'])) {
+        continue;
+      }
+
+      try {
+        debugPrint('Trying server: ${server['name']}');
+
+        final embedUrl = EmbeddedVideoService.buildEmbedUrl(
+          server['baseUrl']!,
+          widget.tmdbId,
+          widget.season,
+          widget.episode,
+          widget.isMovie,
+        );
+
+        // Quick check if server responds
+        final dio = EmbeddedVideoService.getDioClient();
+        final response = await dio
+            .head(embedUrl)
+            .timeout(
+              const Duration(seconds: 5),
+              onTimeout: () {
+                throw DioException(
+                  requestOptions: RequestOptions(path: embedUrl),
+                  message: 'Connection timeout',
+                  type: DioExceptionType.connectionTimeout,
+                );
+              },
+            );
+
+        if (response.statusCode == 200 || response.statusCode == 403) {
+          _streamData = {
+            'embedUrl': embedUrl,
+            'title': 'Video Content',
+            'quality': 'HD',
+            'source': server['name'],
+            'type': 'embed',
+            'isPlayable': true,
+          };
+
+          _triedServers.add(server);
+
+          // Load the embed URL in WebView
+          await _webViewController.loadRequest(Uri.parse(embedUrl));
+
+          setState(() {
+            _isLoading = false;
+          });
+
+          debugPrint('Successfully loaded embed from ${server['name']}');
+          return;
+        }
+      } catch (e) {
+        debugPrint('Server ${server['name']} failed: $e');
+        _triedServers.add(server);
+        continue;
+      }
+    }
+
+    // No servers worked
+    setState(() {
+      _error = 'No working embedded video servers found';
+      _isLoading = false;
+    });
   }
 
   // Ad blocking methods

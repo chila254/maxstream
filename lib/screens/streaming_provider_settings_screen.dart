@@ -6,12 +6,14 @@ class StreamingProvider {
   final String name;
   final Color color;
   final IconData icon;
+  final String? logoPath;
 
   StreamingProvider({
     required this.id,
     required this.name,
     required this.color,
     required this.icon,
+    this.logoPath,
   });
 }
 
@@ -31,48 +33,56 @@ class _StreamingProviderSettingsScreenState
       name: 'Netflix',
       color: const Color(0xFFE50914),
       icon: Icons.play_circle,
+      logoPath: '/pbpMk2JmcoNnQwx5JGpXngfoWtp.jpg',
     ),
     StreamingProvider(
       id: 9,
       name: 'Prime Video',
       color: const Color(0xFF00A8E1),
       icon: Icons.video_library,
+      logoPath: '/mcbz1LgtErU9p4UdbZ0rG6RTWHX.jpg',
     ),
     StreamingProvider(
       id: 337,
       name: 'Disney+',
       color: const Color(0xFF113CCF),
       icon: Icons.movie,
+      logoPath: '/fzN5Jok5Ig1eJ7gyNGoMhnLSCfh.jpg',
     ),
     StreamingProvider(
       id: 15,
       name: 'Hulu',
       color: const Color(0xFF1CE783),
       icon: Icons.live_tv,
+      logoPath: '/bxBlRPEPpMVDc4jMhSrTf2339DW.jpg',
     ),
     StreamingProvider(
       id: 192,
       name: 'Apple TV+',
       color: const Color(0xFF1F1F1F),
       icon: Icons.apple,
+      logoPath: '/SPnBgaLsKJYfCcBHmFUhTg.jpg',
     ),
     StreamingProvider(
       id: 1899,
       name: 'HBO Max',
       color: const Color(0xFF542DBF),
       icon: Icons.hd,
+      logoPath: '/jbe4gVSfRlbPTdESXhEKpornsfu.jpg',
     ),
     StreamingProvider(
-      id: 531,
+      id: 386,
       name: 'Paramount+',
       color: const Color(0xFF0064FF),
       icon: Icons.live_tv_sharp,
+      logoPath: '/lgudHqEtTOzkMWlpTjU1oUyoUSZ.jpg',
     ),
     StreamingProvider(
-      id: 423,
+      id: 591,
       name: 'AMC+',
       color: const Color(0xFF1A1A1A),
       icon: Icons.theaters,
+      logoPath: '/ovmu6uot1XVvsemM2dDySXLiX57.jpg',
     ),
   ];
 
@@ -208,32 +218,45 @@ class _StreamingProviderSettingsScreenState
       onTap: () => onChanged(!isSelected),
       child: Container(
         decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              provider.color.withValues(alpha: 0.2),
-              provider.color.withValues(alpha: 0.1),
-            ],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
+          color: provider.color,
           borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: provider.color.withValues(alpha: 0.5),
+              blurRadius: 8,
+              offset: const Offset(0, 4),
+            ),
+          ],
           border: Border.all(
-            color: isSelected
-                ? provider.color
-                : Colors.grey[700]!.withValues(alpha: 0.5),
-            width: isSelected ? 2 : 1,
+            color: isSelected ? Colors.white : Colors.transparent,
+            width: 2,
           ),
         ),
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(
           children: [
             Container(
+              width: 48,
+              height: 48,
               decoration: BoxDecoration(
-                color: provider.color.withValues(alpha: 0.3),
+                color: Colors.white.withValues(alpha: 0.2),
                 borderRadius: BorderRadius.circular(8),
               ),
-              padding: const EdgeInsets.all(8),
-              child: Icon(provider.icon, color: provider.color, size: 28),
+              child: provider.logoPath != null
+                  ? Image.network(
+                      'https://image.tmdb.org/t/p/w92${provider.logoPath}',
+                      fit: BoxFit.contain,
+                    )
+                  : Center(
+                      child: Text(
+                        provider.name.substring(0, 1),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 20,
+                        ),
+                      ),
+                    ),
             ),
             const SizedBox(width: 16),
             Expanded(
@@ -251,26 +274,23 @@ class _StreamingProviderSettingsScreenState
                   const SizedBox(height: 4),
                   Text(
                     isSelected
-                        ? 'You\'ll get notifications for this service'
+                        ? 'Notifications enabled'
                         : 'Tap to enable notifications',
-                    style: TextStyle(color: Colors.grey[400], fontSize: 12),
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.7),
+                      fontSize: 12,
+                    ),
                   ),
                 ],
               ),
             ),
-            Container(
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: isSelected ? provider.color : Colors.grey[700],
-              ),
-              padding: const EdgeInsets.all(2),
-              child: Checkbox(
-                value: isSelected,
-                onChanged: (value) => onChanged(value ?? false),
-                activeColor: provider.color,
-                checkColor: Colors.white,
-                side: BorderSide.none,
-              ),
+            Switch(
+              value: isSelected,
+              onChanged: onChanged,
+              activeColor: Colors.white,
+              activeTrackColor: Colors.white.withValues(alpha: 0.5),
+              inactiveThumbColor: Colors.white.withValues(alpha: 0.7),
+              inactiveTrackColor: Colors.white.withValues(alpha: 0.3),
             ),
           ],
         ),

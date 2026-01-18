@@ -69,13 +69,13 @@ class _CnMoviesByProviderScreenState extends State<CnMoviesByProviderScreen> {
       icon: Icons.hd,
     ),
     StreamingProvider(
-      id: 531,
+      id: 386,
       name: 'Paramount+',
       color: const Color(0xFF0064FF),
       icon: Icons.live_tv_sharp,
     ),
     StreamingProvider(
-      id: 423,
+      id: 591,
       name: 'AMC+',
       color: const Color(0xFF1A1A1A),
       icon: Icons.theaters,

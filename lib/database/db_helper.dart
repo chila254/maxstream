@@ -314,8 +314,8 @@ class DBHelper {
       {'id': 15, 'name': 'Hulu'},
       {'id': 192, 'name': 'Apple TV+'},
       {'id': 1899, 'name': 'HBO Max'},
-      {'id': 531, 'name': 'Paramount+'},
-      {'id': 423, 'name': 'AMC+'},
+      {'id': 386, 'name': 'Paramount+'},
+      {'id': 591, 'name': 'AMC+'},
     ];
 
     for (var provider in providers) {

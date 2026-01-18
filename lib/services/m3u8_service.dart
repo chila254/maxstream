@@ -21,7 +21,13 @@ class EmbeddedVideoService {
     {'name': 'Primewire', 'baseUrl': 'https://primewire.mx'},
   ];
 
-  static Dio _getDioClient() {
+  // Public getter for servers
+  static List<Map<String, String>> getServers() {
+    return _servers;
+  }
+
+  // Public getter for Dio client
+  static Dio getDioClient() {
     return Dio(
       BaseOptions(
         connectTimeout: const Duration(seconds: 15),
@@ -39,6 +45,82 @@ class EmbeddedVideoService {
         maxRedirects: 5,
       ),
     );
+  }
+
+  // Public method to build embed URL
+  static String buildEmbedUrl(
+    String baseUrl,
+    String tmdbId,
+    int season,
+    int episode,
+    bool isMovie,
+  ) {
+    switch (baseUrl) {
+      case 'https://vidfast.co':
+        return isMovie
+            ? '$baseUrl/embed/movie/$tmdbId'
+            : '$baseUrl/embed/tv/$tmdbId/$season/$episode';
+
+      case 'https://vidlink.pro':
+        return isMovie
+            ? '$baseUrl/movie/$tmdbId'
+            : '$baseUrl/tv/$tmdbId/$season/$episode';
+
+      case 'https://vidsrc.me':
+        return isMovie
+            ? '$baseUrl/embed/movie/$tmdbId'
+            : '$baseUrl/embed/tv/$tmdbId/$season/$episode';
+
+      case 'https://vidsrc.to':
+        return isMovie
+            ? '$baseUrl/embed/movie/$tmdbId'
+            : '$baseUrl/embed/tv/$tmdbId/$season/$episode';
+
+      case 'https://vidora.to':
+        return isMovie
+            ? '$baseUrl/embed/movie/$tmdbId'
+            : '$baseUrl/embed/tv/$tmdbId/$season/$episode';
+
+      case 'https://mapple.net':
+        return isMovie
+            ? '$baseUrl/movie/$tmdbId'
+            : '$baseUrl/tv/$tmdbId/$season/$episode';
+
+      case 'https://superembed.xyz':
+        return isMovie
+            ? '$baseUrl/embed/movie/$tmdbId'
+            : '$baseUrl/embed/tv/$tmdbId/$season/$episode';
+
+      case 'https://movapi.com':
+        return isMovie
+            ? '$baseUrl/movie/$tmdbId'
+            : '$baseUrl/tv/$tmdbId/$season/$episode';
+
+      case 'https://2embed.cc':
+        return isMovie
+            ? '$baseUrl/embed/$tmdbId'
+            : '$baseUrl/embedtv/$tmdbId&s=$season&e=$episode';
+
+      case 'https://1movies.tv':
+        return isMovie
+            ? '$baseUrl/movie/$tmdbId'
+            : '$baseUrl/tv/$tmdbId-$season-$episode';
+
+      case 'https://nonton.com':
+        return isMovie
+            ? '$baseUrl/movie/$tmdbId'
+            : '$baseUrl/tv/$tmdbId/$season/$episode';
+
+      case 'https://primewire.mx':
+        return isMovie
+            ? '$baseUrl/movie/$tmdbId'
+            : '$baseUrl/tv/$tmdbId/season-$season/episode-$episode';
+
+      default:
+        return isMovie
+            ? '$baseUrl/embed/movie/$tmdbId'
+            : '$baseUrl/embed/tv/$tmdbId/$season/$episode';
+    }
   }
 
   /// Get embedded video URL by TMDB ID
@@ -65,19 +147,21 @@ class EmbeddedVideoService {
           debugPrint('$_tag: Trying ${server['name']}: $embedUrl');
 
           // Check if the embed URL is accessible
-          final dio = _getDioClient();
-          
+          final dio = getDioClient();
+
           try {
-            final response = await dio.head(embedUrl).timeout(
-              const Duration(seconds: 10),
-              onTimeout: () {
-                throw DioException(
-                  requestOptions: RequestOptions(path: embedUrl),
-                  message: 'Connection timeout',
-                  type: DioExceptionType.connectionTimeout,
+            final response = await dio
+                .head(embedUrl)
+                .timeout(
+                  const Duration(seconds: 10),
+                  onTimeout: () {
+                    throw DioException(
+                      requestOptions: RequestOptions(path: embedUrl),
+                      message: 'Connection timeout',
+                      type: DioExceptionType.connectionTimeout,
+                    );
+                  },
                 );
-              },
-            );
 
             if (response.statusCode == 200 || response.statusCode == 403) {
               // 403 is acceptable - it means the server exists but forbids direct access

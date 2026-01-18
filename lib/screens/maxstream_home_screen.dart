@@ -266,14 +266,54 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
 
   Widget _buildProvidersSection() {
     final providers = [
-      _ProviderInfo(id: 8, name: 'Netflix', color: const Color(0xFFE50914)),
-      _ProviderInfo(id: 9, name: 'Prime Video', color: const Color(0xFF00A8E1)),
-      _ProviderInfo(id: 337, name: 'Disney+', color: const Color(0xFF113CCF)),
-      _ProviderInfo(id: 15, name: 'Hulu', color: const Color(0xFF1CE783)),
-      _ProviderInfo(id: 192, name: 'Apple TV+', color: const Color(0xFF1F1F1F)),
-      _ProviderInfo(id: 1899, name: 'HBO Max', color: const Color(0xFF542DBF)),
-      _ProviderInfo(id: 531, name: 'Paramount+', color: const Color(0xFF0064FF)),
-      _ProviderInfo(id: 423, name: 'AMC+', color: const Color(0xFF1A1A1A)),
+      _ProviderInfo(
+        id: 8,
+        name: 'Netflix',
+        color: const Color(0xFFE50914),
+        logoPath: '/pbpMk2JmcoNnQwx5JGpXngfoWtp.jpg',
+      ),
+      _ProviderInfo(
+        id: 9,
+        name: 'Prime Video',
+        color: const Color(0xFF00A8E1),
+        logoPath: '/mcbz1LgtErU9p4UdbZ0rG6RTWHX.jpg',
+      ),
+      _ProviderInfo(
+        id: 337,
+        name: 'Disney+',
+        color: const Color(0xFF113CCF),
+        logoPath: '/fzN5Jok5Ig1eJ7gyNGoMhnLSCfh.jpg',
+      ),
+      _ProviderInfo(
+        id: 15,
+        name: 'Hulu',
+        color: const Color(0xFF1CE783),
+        logoPath: '/bxBlRPEPpMVDc4jMhSrTf2339DW.jpg',
+      ),
+      _ProviderInfo(
+        id: 192,
+        name: 'Apple TV+',
+        color: const Color(0xFF1F1F1F),
+        logoPath: '/SPnBgaLsKJYfCcBHmFUhTg.jpg',
+      ),
+      _ProviderInfo(
+        id: 1899,
+        name: 'HBO Max',
+        color: const Color(0xFF542DBF),
+        logoPath: '/jbe4gVSfRlbPTdESXhEKpornsfu.jpg',
+      ),
+      _ProviderInfo(
+        id: 386,
+        name: 'Paramount+',
+        color: const Color(0xFF0064FF),
+        logoPath: '/lgudHqEtTOzkMWlpTjU1oUyoUSZ.jpg',
+      ),
+      _ProviderInfo(
+        id: 591,
+        name: 'AMC+',
+        color: const Color(0xFF1A1A1A),
+        logoPath: '/ovmu6uot1XVvsemM2dDySXLiX57.jpg',
+      ),
     ];
 
     return Padding(
@@ -296,7 +336,9 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
               children: List.generate(providers.length, (index) {
                 final provider = providers[index];
                 return Padding(
-                  padding: EdgeInsets.only(right: index == providers.length - 1 ? 0 : 12),
+                  padding: EdgeInsets.only(
+                    right: index == providers.length - 1 ? 0 : 12,
+                  ),
                   child: GestureDetector(
                     onTap: () {
                       Navigator.push(
@@ -322,7 +364,10 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
                           ),
                         ],
                       ),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
                       child: Column(
                         children: [
                           Container(
@@ -554,8 +599,14 @@ class _ProviderInfo {
   final int id;
   final String name;
   final Color color;
+  final String? logoPath;
 
-  _ProviderInfo({required this.id, required this.name, required this.color});
+  _ProviderInfo({
+    required this.id,
+    required this.name,
+    required this.color,
+    this.logoPath,
+  });
 }
 
 class _FullListScreen extends StatefulWidget {
