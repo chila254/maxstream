@@ -5,7 +5,7 @@ import '../models/movie.dart';
 import '../models/series.dart';
 import '../services/tmdb_api_service.dart';
 import '../database/db_helper.dart';
-import 'inapp_video_player_screen.dart';
+import 'm3u8_video_player_screen.dart';
 
 class MaxStreamSeriesScreen extends StatefulWidget {
   final Movie seriesItem;
@@ -207,7 +207,7 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => InAppVideoPlayerScreen(
+        builder: (context) => M3U8VideoPlayerScreen(
           title:
               '${widget.seriesItem.title} - S${season.seasonNumber}E${episode.episodeNumber}: ${episode.name}',
           tmdbId: widget.seriesItem.id.toString(),
@@ -301,18 +301,30 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Container(height: 24, width: 150, color: Colors.grey[800]),
+                            Container(
+                              height: 24,
+                              width: 150,
+                              color: Colors.grey[800],
+                            ),
                             const SizedBox(height: 8),
-                            Container(height: 16, width: 100, color: Colors.grey[800]),
+                            Container(
+                              height: 16,
+                              width: 100,
+                              color: Colors.grey[800],
+                            ),
                             const SizedBox(height: 8),
-                            Container(height: 16, width: 80, color: Colors.grey[800]),
+                            Container(
+                              height: 16,
+                              width: 80,
+                              color: Colors.grey[800],
+                            ),
                           ],
                         ),
                       ),
                     ],
                   ),
                   const SizedBox(height: 24),
-                  
+
                   // Overview skeleton
                   Container(height: 24, width: 100, color: Colors.grey[800]),
                   const SizedBox(height: 12),
@@ -324,7 +336,7 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
                     ),
                   ),
                   const SizedBox(height: 24),
-                  
+
                   // Cast section skeleton
                   Container(height: 24, width: 80, color: Colors.grey[800]),
                   const SizedBox(height: 12),
@@ -345,10 +357,7 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
                         ),
                       ),
                       Expanded(
-                        child: Container(
-                          height: 160,
-                          color: Colors.grey[800],
-                        ),
+                        child: Container(height: 160, color: Colors.grey[800]),
                       ),
                     ],
                   ),
@@ -518,32 +527,32 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (_youtubeController != null) ...[
-          const Text(
-          'Trailer',
-          style: TextStyle(
-          color: Colors.white,
-          fontSize: 20,
-          fontWeight: FontWeight.bold,
-          ),
-          ),
-          const SizedBox(height: 8),
-          ClipRRect(
-          borderRadius: BorderRadius.circular(8),
-          child: YoutubePlayer(
-          controller: _youtubeController!,
-          showVideoProgressIndicator: true,
-          progressIndicatorColor: Colors.red,
-          progressColors: const ProgressBarColors(
-          playedColor: Colors.red,
-          handleColor: Colors.redAccent,
-          ),
-            onReady: () {
-                _youtubeController?.pause();
-              },
+            const Text(
+              'Trailer',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
               ),
-             ),
-             const SizedBox(height: 16),
-           ],
+            ),
+            const SizedBox(height: 8),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: YoutubePlayer(
+                controller: _youtubeController!,
+                showVideoProgressIndicator: true,
+                progressIndicatorColor: Colors.red,
+                progressColors: const ProgressBarColors(
+                  playedColor: Colors.red,
+                  handleColor: Colors.redAccent,
+                ),
+                onReady: () {
+                  _youtubeController?.pause();
+                },
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
 
           const Text(
             'Overview',
@@ -898,30 +907,34 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
             itemBuilder: (context, index) {
               final item = recommendations[index];
               return GestureDetector(
-              onTap: () {
-              Navigator.push(
-              context,
-              PageRouteBuilder(
-              pageBuilder: (context, animation, secondaryAnimation) =>
-                MaxStreamSeriesScreen(
-                    seriesItem: Movie.fromJson(item),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    PageRouteBuilder(
+                      pageBuilder: (context, animation, secondaryAnimation) =>
+                          MaxStreamSeriesScreen(
+                            seriesItem: Movie.fromJson(item),
+                          ),
+                      transitionsBuilder:
+                          (context, animation, secondaryAnimation, child) {
+                            return SlideTransition(
+                              position:
+                                  Tween<Offset>(
+                                    begin: const Offset(1.0, 0.0),
+                                    end: Offset.zero,
+                                  ).animate(
+                                    CurvedAnimation(
+                                      parent: animation,
+                                      curve: Curves.fastOutSlowIn,
+                                    ),
+                                  ),
+                              child: child,
+                            );
+                          },
+                      transitionDuration: const Duration(milliseconds: 250),
                     ),
-                  transitionsBuilder: (context, animation, secondaryAnimation, child) {
-                      return SlideTransition(
-                           position: Tween<Offset>(
-                             begin: const Offset(1.0, 0.0),
-                             end: Offset.zero,
-                           ).animate(CurvedAnimation(
-                             parent: animation,
-                             curve: Curves.fastOutSlowIn,
-                           )),
-                           child: child,
-                         );
-                       },
-                       transitionDuration: const Duration(milliseconds: 250),
-                     ),
-                   );
-                 },
+                  );
+                },
                 child: Container(
                   width: 120,
                   margin: const EdgeInsets.only(right: 12),
@@ -968,4 +981,3 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
     );
   }
 }
-

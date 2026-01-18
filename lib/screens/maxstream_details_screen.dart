@@ -4,7 +4,7 @@ import 'package:shimmer/shimmer.dart';
 import '../database/db_helper.dart';
 import '../models/movie.dart';
 import '../services/tmdb_api_service.dart';
-import 'inapp_video_player_screen.dart';
+import 'm3u8_video_player_screen.dart';
 
 class MaxStreamDetailsScreen extends StatefulWidget {
   final Movie item;
@@ -269,7 +269,10 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
-                  colors: [Colors.transparent, Colors.black.withValues(alpha: 0.8)],
+                  colors: [
+                    Colors.transparent,
+                    Colors.black.withValues(alpha: 0.8),
+                  ],
                 ),
               ),
             ),
@@ -804,7 +807,7 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => InAppVideoPlayerScreen(
+        builder: (context) => M3U8VideoPlayerScreen(
           title: widget.item.title,
           tmdbId: widget.item.id.toString(),
           isMovie: widget.mediaType == 'movie',
@@ -813,4 +816,3 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
     );
   }
 }
-

@@ -77,7 +77,9 @@ class _CnMoviesByProviderScreenState extends State<CnMoviesByProviderScreen> {
       isLoadingMoreMap[provider.id] = false;
       pageMap[provider.id] = 1;
       scrollControllerMap[provider.id] = ScrollController();
-      scrollControllerMap[provider.id]!.addListener(() => _onScroll(provider.id));
+      scrollControllerMap[provider.id]!.addListener(
+        () => _onScroll(provider.id),
+      );
     }
     _initializeAndLoad();
   }
@@ -111,7 +113,20 @@ class _CnMoviesByProviderScreenState extends State<CnMoviesByProviderScreen> {
     });
 
     try {
-      final movies = await TmdbApiService.getMoviesByProvider(provider.id, page: 1);
+      final movies = await TmdbApiService.getMoviesByProvider(
+        provider.id,
+        page: 1,
+      );
+      print(
+        'Loaded ${movies.length} movies for ${provider.name} (ID: ${provider.id})',
+      );
+      if (movies.isEmpty) {
+        print('No movies found for ${provider.name}. This might be due to:');
+        print('1. TMDB API limitations for this provider');
+        print('2. No content available in the US region');
+        print('3. Provider ID might be incorrect');
+        print('4. TMDB API key restrictions');
+      }
       if (mounted) {
         setState(() {
           moviesByProvider[provider.id] = movies;
@@ -148,7 +163,10 @@ class _CnMoviesByProviderScreenState extends State<CnMoviesByProviderScreen> {
 
     try {
       final nextPage = (pageMap[providerId] ?? 1) + 1;
-      final newMovies = await TmdbApiService.getMoviesByProvider(providerId, page: nextPage);
+      final newMovies = await TmdbApiService.getMoviesByProvider(
+        providerId,
+        page: nextPage,
+      );
 
       if (newMovies.isNotEmpty && mounted) {
         setState(() {
@@ -321,9 +339,11 @@ class _CnMoviesByProviderScreenState extends State<CnMoviesByProviderScreen> {
     final filteredMovies = searchQuery.isEmpty
         ? allMovies
         : allMovies
-            .where((movie) =>
-                (movie['title'] ?? '').toLowerCase().contains(searchQuery))
-            .toList();
+              .where(
+                (movie) =>
+                    (movie['title'] ?? '').toLowerCase().contains(searchQuery),
+              )
+              .toList();
 
     if (isLoading && searchQuery.isEmpty) {
       return _buildLoadingShimmer();
@@ -337,7 +357,9 @@ class _CnMoviesByProviderScreenState extends State<CnMoviesByProviderScreen> {
             Icon(Icons.movie_outlined, size: 64, color: Colors.grey[600]),
             const SizedBox(height: 16),
             Text(
-              searchQuery.isNotEmpty ? 'No movies found' : 'No movies available',
+              searchQuery.isNotEmpty
+                  ? 'No movies found'
+                  : 'No movies available',
               style: TextStyle(color: Colors.grey[400], fontSize: 16),
             ),
           ],
@@ -354,8 +376,9 @@ class _CnMoviesByProviderScreenState extends State<CnMoviesByProviderScreen> {
         mainAxisSpacing: 12,
         childAspectRatio: 0.6,
       ),
-      itemCount: filteredMovies.length +
-          (isLoading && isLoadingMoreMap[currentProvider.id]! ? 1 : 0),
+      itemCount:
+          filteredMovies.length +
+          (isLoadingMoreMap[currentProvider.id]! ? 1 : 0),
       itemBuilder: (context, index) {
         if (index == filteredMovies.length) {
           return const Center(

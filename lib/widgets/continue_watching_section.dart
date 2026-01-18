@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../screens/inapp_video_player_screen.dart';
+import '../screens/m3u8_video_player_screen.dart';
 import '../services/watch_history_service.dart';
 
 class ContinueWatchingSection extends StatefulWidget {
@@ -8,7 +8,8 @@ class ContinueWatchingSection extends StatefulWidget {
   const ContinueWatchingSection({super.key, required this.continueWatching});
 
   @override
-  State<ContinueWatchingSection> createState() => _ContinueWatchingSectionState();
+  State<ContinueWatchingSection> createState() =>
+      _ContinueWatchingSectionState();
 }
 
 class _ContinueWatchingSectionState extends State<ContinueWatchingSection> {
@@ -23,7 +24,7 @@ class _ContinueWatchingSectionState extends State<ContinueWatchingSection> {
 
   Future<void> _loadResumableStates() async {
     final resumableMap = <String, bool>{};
-    
+
     for (final item in widget.continueWatching) {
       final key = '${item['tmdbId']}_${item['season']}_${item['episode']}';
       final isResumable = await WatchHistoryService.isResumable(
@@ -34,7 +35,7 @@ class _ContinueWatchingSectionState extends State<ContinueWatchingSection> {
       );
       resumableMap[key] = isResumable;
     }
-    
+
     if (mounted) {
       setState(() {
         _resumableMap = resumableMap;
@@ -141,10 +142,10 @@ class _ContinueWatchingSectionState extends State<ContinueWatchingSection> {
                   if (isResumable)
                     Positioned.fill(
                       child: Container(
-                         decoration: BoxDecoration(
-                           color: Colors.black.withValues(alpha: 0.5),
-                           borderRadius: BorderRadius.circular(8),
-                         ),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.5),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
                         child: Center(
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
@@ -163,10 +164,12 @@ class _ContinueWatchingSectionState extends State<ContinueWatchingSection> {
                                   fontWeight: FontWeight.bold,
                                   shadows: [
                                     Shadow(
-                                       offset: const Offset(0, 1),
-                                       blurRadius: 2,
-                                       color: Colors.black.withValues(alpha: 0.7),
-                                     ),
+                                      offset: const Offset(0, 1),
+                                      blurRadius: 2,
+                                      color: Colors.black.withValues(
+                                        alpha: 0.7,
+                                      ),
+                                    ),
                                   ],
                                 ),
                               ),
@@ -222,7 +225,7 @@ class _ContinueWatchingSectionState extends State<ContinueWatchingSection> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => InAppVideoPlayerScreen(
+        builder: (context) => M3U8VideoPlayerScreen(
           title: item['title'],
           tmdbId: item['tmdbId'],
           isMovie: item['isMovie'],

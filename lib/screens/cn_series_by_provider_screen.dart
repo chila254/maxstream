@@ -77,7 +77,9 @@ class _CnSeriesByProviderScreenState extends State<CnSeriesByProviderScreen> {
       isLoadingMoreMap[provider.id] = false;
       pageMap[provider.id] = 1;
       scrollControllerMap[provider.id] = ScrollController();
-      scrollControllerMap[provider.id]!.addListener(() => _onScroll(provider.id));
+      scrollControllerMap[provider.id]!.addListener(
+        () => _onScroll(provider.id),
+      );
     }
     _initializeAndLoad();
   }
@@ -111,7 +113,20 @@ class _CnSeriesByProviderScreenState extends State<CnSeriesByProviderScreen> {
     });
 
     try {
-      final series = await TmdbApiService.getSeriesByProvider(provider.id, page: 1);
+      final series = await TmdbApiService.getSeriesByProvider(
+        provider.id,
+        page: 1,
+      );
+      print(
+        'Loaded ${series.length} series for ${provider.name} (ID: ${provider.id})',
+      );
+      if (series.isEmpty) {
+        print('No series found for ${provider.name}. This might be due to:');
+        print('1. TMDB API limitations for this provider');
+        print('2. No content available in the US region');
+        print('3. Provider ID might be incorrect');
+        print('4. TMDB API key restrictions');
+      }
       if (mounted) {
         setState(() {
           seriesByProvider[provider.id] = series;
@@ -148,7 +163,10 @@ class _CnSeriesByProviderScreenState extends State<CnSeriesByProviderScreen> {
 
     try {
       final nextPage = (pageMap[providerId] ?? 1) + 1;
-      final newSeries = await TmdbApiService.getSeriesByProvider(providerId, page: nextPage);
+      final newSeries = await TmdbApiService.getSeriesByProvider(
+        providerId,
+        page: nextPage,
+      );
 
       if (newSeries.isNotEmpty && mounted) {
         setState(() {
@@ -321,9 +339,11 @@ class _CnSeriesByProviderScreenState extends State<CnSeriesByProviderScreen> {
     final filteredSeries = searchQuery.isEmpty
         ? allSeries
         : allSeries
-            .where((series) =>
-                (series['name'] ?? '').toLowerCase().contains(searchQuery))
-            .toList();
+              .where(
+                (series) =>
+                    (series['name'] ?? '').toLowerCase().contains(searchQuery),
+              )
+              .toList();
 
     if (isLoading && searchQuery.isEmpty) {
       return _buildLoadingShimmer();
@@ -337,7 +357,9 @@ class _CnSeriesByProviderScreenState extends State<CnSeriesByProviderScreen> {
             Icon(Icons.tv_outlined, size: 64, color: Colors.grey[600]),
             const SizedBox(height: 16),
             Text(
-              searchQuery.isNotEmpty ? 'No series found' : 'No series available',
+              searchQuery.isNotEmpty
+                  ? 'No series found'
+                  : 'No series available',
               style: TextStyle(color: Colors.grey[400], fontSize: 16),
             ),
           ],
@@ -354,8 +376,9 @@ class _CnSeriesByProviderScreenState extends State<CnSeriesByProviderScreen> {
         mainAxisSpacing: 12,
         childAspectRatio: 0.6,
       ),
-      itemCount: filteredSeries.length +
-          (isLoading && isLoadingMoreMap[currentProvider.id]! ? 1 : 0),
+      itemCount:
+          filteredSeries.length +
+          (isLoadingMoreMap[currentProvider.id]! ? 1 : 0),
       itemBuilder: (context, index) {
         if (index == filteredSeries.length) {
           return const Center(
