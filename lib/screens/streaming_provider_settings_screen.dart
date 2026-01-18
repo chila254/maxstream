@@ -41,14 +41,14 @@ class _StreamingProviderSettingsScreenState
       name: 'Prime Video',
       color: const Color(0xFF00A8E1),
       icon: Icons.video_library,
-      logoPath: '/5NyLm42TmCqCMOZFvH4fcoSNKEW.jpg',
+      logoPath: '/pvske1MyAoymrs5bguRfVqYiM9a.jpg',
     ),
     StreamingProvider(
       id: 337,
       name: 'Disney+',
       color: const Color(0xFF113CCF),
       icon: Icons.movie,
-      logoPath: '/fzN5Jok5Ig1eJ7gyNGoMhnLSCfh.jpg',
+      logoPath: '/97yvRBw1GzX7fXprcF80er19ot.jpg',
     ),
     StreamingProvider(
       id: 15,
@@ -62,7 +62,7 @@ class _StreamingProviderSettingsScreenState
       name: 'Apple TV',
       color: const Color(0xFF1F1F1F),
       icon: Icons.apple,
-      logoPath: '/SPnBgaLsKJYfCcBHmFUhTg.jpg',
+      logoPath: '/mcbz1LgtErU9p4UdbZ0rG6RTWHX.jpg',
     ),
     StreamingProvider(
       id: 1899,

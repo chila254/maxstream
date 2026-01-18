@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:dio/dio.dart';
+import 'package:video_player/video_player.dart';
+import 'package:chewie/chewie.dart';
 import '../services/m3u8_service.dart';
 
 class M3U8VideoPlayerScreen extends StatefulWidget {
@@ -31,6 +33,11 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   Map<String, dynamic>? _streamData;
   int _currentServerIndex = 0;
   List<Map<String, dynamic>> _triedServers = [];
+
+  // Native player variables
+  VideoPlayerController? _videoPlayerController;
+  ChewieController? _chewieController;
+  bool _useNativePlayer = false;
 
   @override
   void initState() {
@@ -65,6 +72,9 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
             _injectAdBlocker();
           },
           onPageFinished: (String url) {
+            // Try to extract video URL for native playback
+            _tryExtractVideoUrl();
+
             setState(() {
               _isLoading = false;
             });
@@ -356,6 +366,134 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     Future.delayed(const Duration(seconds: 10), () => _injectAdBlocker());
   }
 
+  Future<void> _tryExtractVideoUrl() async {
+    try {
+      // Inject JavaScript to extract video URLs
+      const extractScript = '''
+        (function() {
+          try {
+            // Look for video elements
+            const videos = document.querySelectorAll('video');
+            for (let video of videos) {
+              if (video.src && video.src.includes('.m3u8')) {
+                return video.src;
+              }
+            }
+
+            // Look for player configurations (common in embed players)
+            const scripts = document.querySelectorAll('script');
+            for (let script of scripts) {
+              const content = script.innerHTML;
+              const m3u8Match = content.match(/https?:\/\/[^"']*\.m3u8[^"']*/);
+              if (m3u8Match) {
+                return m3u8Match[0];
+              }
+            }
+
+            // Look for JW Player config
+            if (window.jwplayer) {
+              const playlist = window.jwplayer().getPlaylist();
+              if (playlist && playlist[0] && playlist[0].sources) {
+                for (let source of playlist[0].sources) {
+                  if (source.file && source.file.includes('.m3u8')) {
+                    return source.file;
+                  }
+                }
+              }
+            }
+
+            // Look for Plyr player
+            if (window.plyr) {
+              const plyr = window.plyr;
+              if (plyr.source && plyr.source.sources) {
+                for (let source of plyr.source.sources) {
+                  if (source.src && source.src.includes('.m3u8')) {
+                    return source.src;
+                  }
+                }
+              }
+            }
+
+            // Look for HTML5 video tag (Artplayer, native video)
+            const video = document.querySelector('video');
+            if (video && video.src) {
+              return video.src;
+            }
+            if (video) {
+              const source = video.querySelector('source');
+              if (source && source.src) {
+                return source.src;
+              }
+            }
+
+            return null;
+          } catch(e) {
+            return null;
+          }
+        })();
+      ''';
+
+      final result = await _webViewController.runJavaScriptReturningResult(
+        extractScript,
+      );
+      final extractedUrl = result.toString().replaceAll('"', '');
+
+      if (extractedUrl.isNotEmpty &&
+          extractedUrl != 'null') {
+        debugPrint('Extracted video URL: $extractedUrl');
+        await _initializeNativePlayer(extractedUrl);
+      }
+    } catch (e) {
+      debugPrint('Failed to extract video URL: $e');
+    }
+  }
+
+  Future<void> _initializeNativePlayer(String videoUrl) async {
+    try {
+      _videoPlayerController = VideoPlayerController.networkUrl(
+        Uri.parse(videoUrl),
+      );
+      await _videoPlayerController!.initialize();
+
+      _chewieController = ChewieController(
+        videoPlayerController: _videoPlayerController!,
+        autoPlay: true,
+        looping: false,
+        aspectRatio: _videoPlayerController!.value.aspectRatio,
+        allowFullScreen: true,
+        allowMuting: true,
+        showControls: true,
+        materialProgressColors: ChewieProgressColors(
+          playedColor: Colors.red,
+          handleColor: Colors.red,
+          backgroundColor: Colors.grey,
+          bufferedColor: Colors.white,
+        ),
+        placeholder: Container(
+          color: Colors.black,
+          child: const Center(
+            child: CircularProgressIndicator(color: Colors.red),
+          ),
+        ),
+        errorBuilder: (context, errorMessage) {
+          return Center(
+            child: Text(
+              errorMessage,
+              style: const TextStyle(color: Colors.white),
+            ),
+          );
+        },
+      );
+
+      setState(() {
+        _useNativePlayer = true;
+      });
+    } catch (e) {
+      debugPrint('Failed to initialize native player: $e');
+      // Fall back to WebView
+    }
+  }
+
   bool _isAdDomain(String url) {
     // List of common ad domains to block
     const adDomains = [
@@ -407,6 +545,9 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
 
   @override
   void dispose() {
+    _videoPlayerController?.dispose();
+    _chewieController?.dispose();
+
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
       DeviceOrientation.portraitDown,
@@ -443,7 +584,9 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
               padding: const EdgeInsets.only(right: 16),
               child: Center(
                 child: Text(
-                  _streamData!['source'] ?? 'Embedded',
+                  _useNativePlayer
+                      ? 'Native Player'
+                      : (_streamData!['source'] ?? 'Embedded'),
                   style: const TextStyle(color: Colors.white, fontSize: 12),
                 ),
               ),
@@ -492,6 +635,8 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
                 ],
               ),
             )
+          : _useNativePlayer && _chewieController != null
+          ? Chewie(controller: _chewieController!)
           : Stack(
               children: [
                 WebViewWidget(controller: _webViewController),

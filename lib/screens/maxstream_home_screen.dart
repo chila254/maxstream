@@ -277,13 +277,13 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
         id: 9,
         name: 'Prime Video',
         color: const Color(0xFF00A8E1),
-        logoPath: '/5NyLm42TmCqCMOZFvH4fcoSNKEW.jpg',
+        logoPath: '/pvske1MyAoymrs5bguRfVqYiM9a.jpg',
       ),
       _ProviderInfo(
         id: 337,
         name: 'Disney+',
         color: const Color(0xFF113CCF),
-        logoPath: '/fzN5Jok5Ig1eJ7gyNGoMhnLSCfh.jpg',
+        logoPath: '/97yvRBw1GzX7fXprcF80er19ot.jpg',
       ),
       _ProviderInfo(
         id: 15,
@@ -295,7 +295,7 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
         id: 350,
         name: 'Apple TV',
         color: const Color(0xFF1F1F1F),
-        logoPath: '/SPnBgaLsKJYfCcBHmFUhTg.jpg',
+        logoPath: '/mcbz1LgtErU9p4UdbZ0rG6RTWHX.jpg',
       ),
       _ProviderInfo(
         id: 1899,
