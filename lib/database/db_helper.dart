@@ -309,8 +309,13 @@ class DBHelper {
     final db = await database;
     final providers = [
       {'id': 8, 'name': 'Netflix'},
-      {'id': 119, 'name': 'Prime Video'},
+      {'id': 9, 'name': 'Prime Video'},
       {'id': 337, 'name': 'Disney+'},
+      {'id': 15, 'name': 'Hulu'},
+      {'id': 192, 'name': 'Apple TV+'},
+      {'id': 1899, 'name': 'HBO Max'},
+      {'id': 531, 'name': 'Paramount+'},
+      {'id': 423, 'name': 'AMC+'},
     ];
 
     for (var provider in providers) {
@@ -364,5 +369,15 @@ class DBHelper {
       whereArgs: [providerId],
     );
     return result.isNotEmpty;
+  }
+
+  static Future<List<Map<String, dynamic>>> getPreferredProviders() async {
+    final db = await database;
+    final result = await db.query(
+      'provider_preferences',
+      where: 'isPreferred = 1',
+      orderBy: 'providerName ASC',
+    );
+    return result;
   }
 }

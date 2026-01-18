@@ -71,10 +71,20 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
           },
           onWebResourceError: (WebResourceError error) {
             debugPrint('WebView error: ${error.description}');
-            setState(() {
-              _error = error.description;
-              _isLoading = false;
-            });
+            
+            // HTTP/2 protocol errors are often recoverable with embed servers
+            // Only show error if it's not a protocol-level issue
+            if (error.description.contains('ERR_HTTP2_PROTOCOL_ERROR') ||
+                error.description.contains('net::') ||
+                error.description.contains('ERR_CONNECTION')) {
+              debugPrint('M3U8VideoPlayerScreen: Network-level error (may be recoverable): ${error.description}');
+              // Don't immediately fail - let the page try to recover
+            } else {
+              setState(() {
+                _error = error.description;
+                _isLoading = false;
+              });
+            }
           },
           onNavigationRequest: (NavigationRequest request) {
             // Block common ad domains

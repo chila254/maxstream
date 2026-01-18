@@ -52,7 +52,7 @@ class MainActivity : FlutterActivity() {
             }
         }
 
-        // Set default WebViewClient that bypasses ORB
+        // Set default WebViewClient that bypasses ORB and handles cleartext
         if (streamWebViewClient == null) {
             streamWebViewClient = StreamWebViewClient()
         }

@@ -52,19 +52,26 @@ class StreamWebViewClient : WebViewClient() {
         return try {
             val connection = URL(url).openConnection() as HttpURLConnection
             connection.requestMethod = request.method
-            connection.connectTimeout = 10000
-            connection.readTimeout = 10000
+            connection.connectTimeout = 15000
+            connection.readTimeout = 15000
+            // Allow HTTP redirects (including HTTP to HTTPS)
+            connection.instanceFollowRedirects = true
 
             // Add headers
             request.requestHeaders.forEach { (key, value) ->
                 connection.setRequestProperty(key, value)
             }
 
-            // Add User-Agent
+            // Add User-Agent to match browser requests
             connection.setRequestProperty(
                 "User-Agent",
-                "Mozilla/5.0 (Linux; Android 13; SM-G991B) AppleWebKit/537.36"
+                "Mozilla/5.0 (Linux; Android 13; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
             )
+            
+            // Additional headers to avoid blocking
+            connection.setRequestProperty("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+            connection.setRequestProperty("Accept-Language", "en-US,en;q=0.9")
+            connection.setRequestProperty("Accept-Encoding", "gzip, deflate")
 
             val responseCode = connection.responseCode
             val headers = mutableMapOf<String, String>()
@@ -79,15 +86,17 @@ class StreamWebViewClient : WebViewClient() {
             // Remove ORB-sensitive headers that might cause issues
             headers.remove("Content-Security-Policy")
             headers.remove("X-Content-Type-Options")
+            headers.remove("X-Frame-Options")
 
             val mimeType = connection.contentType ?: "text/html"
             val encoding = connection.contentEncoding ?: "utf-8"
 
-            Log.d(TAG, "Fetched $url with status $responseCode")
+            Log.d(TAG, "Fetched $url with status $responseCode (encoding: $encoding)")
 
             val inputStream = if (responseCode in 200..299) {
                 connection.inputStream
             } else {
+                Log.w(TAG, "Non-2xx response for $url: $responseCode")
                 connection.errorStream
             }
 
@@ -99,7 +108,7 @@ class StreamWebViewClient : WebViewClient() {
                 this.responseHeaders = headers
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to fetch $url: ${e.message}")
+            Log.e(TAG, "Failed to fetch $url: ${e.message}", e)
             null
         }
     }

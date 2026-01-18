@@ -8,8 +8,7 @@ import '../widgets/custom_loading_widget.dart';
 import '../widgets/continue_watching_section.dart';
 import 'maxstream_details_screen.dart';
 import 'maxstream_series_screen.dart';
-import 'cn_movies_by_provider_screen.dart';
-import 'cn_series_by_provider_screen.dart';
+import 'provider_content_screen.dart';
 
 class MaxStreamHomeScreen extends StatefulWidget {
   final Function(int)? onTabChange;
@@ -75,7 +74,7 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
                       continueWatching: continueWatching,
                     ),
                   ),
-                  SliverToBoxAdapter(child: _buildCnSection()),
+                  SliverToBoxAdapter(child: _buildProvidersSection()),
                   _buildSection('Trending Movies', trendingMovies, 'movie'),
                   _buildSection('Popular Movies', popularMovies, 'movie'),
                   _buildSection('Top Rated Movies', topRatedMovies, 'movie'),
@@ -265,14 +264,25 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
     );
   }
 
-  Widget _buildCnSection() {
+  Widget _buildProvidersSection() {
+    final providers = [
+      _ProviderInfo(id: 8, name: 'Netflix', color: const Color(0xFFE50914)),
+      _ProviderInfo(id: 9, name: 'Prime Video', color: const Color(0xFF00A8E1)),
+      _ProviderInfo(id: 337, name: 'Disney+', color: const Color(0xFF113CCF)),
+      _ProviderInfo(id: 15, name: 'Hulu', color: const Color(0xFF1CE783)),
+      _ProviderInfo(id: 192, name: 'Apple TV+', color: const Color(0xFF1F1F1F)),
+      _ProviderInfo(id: 1899, name: 'HBO Max', color: const Color(0xFF542DBF)),
+      _ProviderInfo(id: 531, name: 'Paramount+', color: const Color(0xFF0064FF)),
+      _ProviderInfo(id: 423, name: 'AMC+', color: const Color(0xFF1A1A1A)),
+    ];
+
     return Padding(
-      padding: const EdgeInsets.all(16.0),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'Browse by Streaming Service',
+            'Streaming Providers',
             style: TextStyle(
               color: Colors.white,
               fontSize: 20,
@@ -280,89 +290,80 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
             ),
           ),
           const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: _buildCnOptionCard(
-                  title: 'Movies',
-                  icon: Icons.movie,
-                  color: const Color(0xFF1E90FF),
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const CnMoviesByProviderScreen(),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: List.generate(providers.length, (index) {
+                final provider = providers[index];
+                return Padding(
+                  padding: EdgeInsets.only(right: index == providers.length - 1 ? 0 : 12),
+                  child: GestureDetector(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => ProviderContentScreen(
+                            providerId: provider.id,
+                            providerName: provider.name,
+                            providerColor: provider.color,
+                          ),
+                        ),
+                      );
+                    },
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: provider.color,
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: provider.color.withValues(alpha: 0.5),
+                            blurRadius: 8,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
                       ),
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildCnOptionCard(
-                  title: 'TV Series',
-                  icon: Icons.tv,
-                  color: const Color(0xFFFF6B6B),
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const CnSeriesByProviderScreen(),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      child: Column(
+                        children: [
+                          Container(
+                            width: 48,
+                            height: 48,
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.2),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Center(
+                              child: Text(
+                                provider.name.substring(0, 1),
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 20,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            provider.name,
+                            textAlign: TextAlign.center,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
                       ),
-                    );
-                  },
-                ),
-              ),
-            ],
+                    ),
+                  ),
+                );
+              }),
+            ),
           ),
-          const SizedBox(height: 20),
         ],
-      ),
-    );
-  }
-
-  Widget _buildCnOptionCard({
-    required String title,
-    required IconData icon,
-    required Color color,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [color.withOpacity(0.8), color.withOpacity(0.4)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: color.withOpacity(0.5), width: 1),
-        ),
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(icon, color: Colors.white, size: 32),
-            const SizedBox(height: 12),
-            Text(
-              title,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Netflix, Disney+\nPrime Video',
-              style: TextStyle(
-                color: Colors.white.withOpacity(0.8),
-                fontSize: 12,
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -547,6 +548,14 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
     }
     return '';
   }
+}
+
+class _ProviderInfo {
+  final int id;
+  final String name;
+  final Color color;
+
+  _ProviderInfo({required this.id, required this.name, required this.color});
 }
 
 class _FullListScreen extends StatefulWidget {

@@ -478,10 +478,10 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
 
     final Map<int, Map<String, dynamic>> providerMap = {
       8: {'name': 'Netflix', 'color': const Color(0xFFE50914)},
-      119: {'name': 'Prime Video', 'color': const Color(0xFF00A8E1)},
+      9: {'name': 'Prime Video', 'color': const Color(0xFF00A8E1)},
       337: {'name': 'Disney+', 'color': const Color(0xFF113CCF)},
       15: {'name': 'Hulu', 'color': const Color(0xFF1CE783)},
-      9: {'name': 'Apple TV', 'color': const Color(0xFF555555)},
+      179: {'name': 'Apple TV', 'color': const Color(0xFF555555)},
     };
 
     final availableProviders = <Map<String, dynamic>>[];

@@ -11,12 +11,14 @@ class StreamingProvider {
   final String name;
   final Color color;
   final IconData icon;
+  final String? logoPath; // Path to provider logo asset
 
   StreamingProvider({
     required this.id,
     required this.name,
     required this.color,
     required this.icon,
+    this.logoPath,
   });
 }
 
@@ -37,7 +39,7 @@ class _CnMoviesByProviderScreenState extends State<CnMoviesByProviderScreen> {
       icon: Icons.play_circle,
     ),
     StreamingProvider(
-      id: 119,
+      id: 9,
       name: 'Prime Video',
       color: const Color(0xFF00A8E1),
       icon: Icons.video_library,
@@ -48,6 +50,36 @@ class _CnMoviesByProviderScreenState extends State<CnMoviesByProviderScreen> {
       color: const Color(0xFF113CCF),
       icon: Icons.movie,
     ),
+    StreamingProvider(
+      id: 15,
+      name: 'Hulu',
+      color: const Color(0xFF1CE783),
+      icon: Icons.live_tv,
+    ),
+    StreamingProvider(
+      id: 192,
+      name: 'Apple TV+',
+      color: const Color(0xFF1F1F1F),
+      icon: Icons.apple,
+    ),
+    StreamingProvider(
+      id: 1899,
+      name: 'HBO Max',
+      color: const Color(0xFF542DBF),
+      icon: Icons.hd,
+    ),
+    StreamingProvider(
+      id: 531,
+      name: 'Paramount+',
+      color: const Color(0xFF0064FF),
+      icon: Icons.live_tv_sharp,
+    ),
+    StreamingProvider(
+      id: 423,
+      name: 'AMC+',
+      color: const Color(0xFF1A1A1A),
+      icon: Icons.theaters,
+    ),
   ];
 
   late Map<int, List<Map<String, dynamic>>> moviesByProvider;
@@ -57,12 +89,9 @@ class _CnMoviesByProviderScreenState extends State<CnMoviesByProviderScreen> {
   late Map<int, int> pageMap;
   late Map<int, ScrollController> scrollControllerMap;
   int selectedProviderIndex = 0;
-  String searchQuery = '';
-  late TextEditingController searchController;
 
   @override
   void initState() {
-    searchController = TextEditingController();
     super.initState();
     moviesByProvider = {};
     isLoadingMap = {};
@@ -194,7 +223,6 @@ class _CnMoviesByProviderScreenState extends State<CnMoviesByProviderScreen> {
     for (var controller in scrollControllerMap.values) {
       controller.dispose();
     }
-    searchController.dispose();
     super.dispose();
   }
 
@@ -212,117 +240,55 @@ class _CnMoviesByProviderScreenState extends State<CnMoviesByProviderScreen> {
       ),
       body: Column(
         children: [
-          // Search bar
+          // Provider grid
           Padding(
             padding: const EdgeInsets.all(16),
-            child: TextField(
-              controller: searchController,
-              onChanged: (value) {
-                setState(() {
-                  searchQuery = value.toLowerCase();
-                });
-              },
-              style: const TextStyle(color: Colors.white),
-              decoration: InputDecoration(
-                hintText: 'Search movies...',
-                hintStyle: TextStyle(color: Colors.grey[600]),
-                prefixIcon: const Icon(Icons.search, color: Colors.grey),
-                suffixIcon: searchQuery.isNotEmpty
-                    ? GestureDetector(
-                        onTap: () {
-                          searchController.clear();
-                          setState(() {
-                            searchQuery = '';
-                          });
-                        },
-                        child: const Icon(Icons.clear, color: Colors.grey),
-                      )
-                    : null,
-                filled: true,
-                fillColor: const Color(0xFF2A2A2A),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: Colors.grey[700]!),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: Colors.grey[700]!),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(color: Colors.red),
-                ),
+            child: GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 4,
+                crossAxisSpacing: 10,
+                mainAxisSpacing: 10,
+                childAspectRatio: 0.85,
               ),
-            ),
-          ),
-          // Provider tabs with icons
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: List.generate(providers.length, (index) {
+              itemCount: providers.length,
+              itemBuilder: (context, index) {
                 final provider = providers[index];
                 final isSelected = index == selectedProviderIndex;
-                final isPreferred = isPreferredMap[provider.id] ?? false;
 
-                return Padding(
-                  padding: EdgeInsets.only(
-                    left: index == 0 ? 16 : 8,
-                    right: index == providers.length - 1 ? 16 : 8,
-                    top: 8,
-                    bottom: 8,
-                  ),
-                  child: GestureDetector(
-                    onTap: () => _loadMoviesForProvider(index),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
-                      decoration: BoxDecoration(
-                        color: isSelected
-                            ? provider.color
-                            : const Color(0xFF2A2A2A),
-                        borderRadius: BorderRadius.circular(12),
-                        border: isSelected
-                            ? Border.all(color: provider.color, width: 2)
-                            : Border.all(color: Colors.grey[700]!, width: 1),
-                      ),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            provider.icon,
-                            color: isSelected ? Colors.white : provider.color,
-                            size: 24,
+                return GestureDetector(
+                  onTap: () => _loadMoviesForProvider(index),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: isSelected
+                          ? provider.color.withOpacity(0.95)
+                          : provider.color,
+                      borderRadius: BorderRadius.circular(16),
+                      border: isSelected
+                          ? Border.all(color: Colors.white, width: 3)
+                          : Border.all(color: Colors.grey[700]!, width: 1),
+                    ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          provider.name,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                            letterSpacing: 0.5,
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            provider.name,
-                            style: TextStyle(
-                              color: isSelected ? Colors.white : Colors.grey,
-                              fontWeight: isSelected
-                                  ? FontWeight.bold
-                                  : FontWeight.normal,
-                              fontSize: 12,
-                            ),
-                          ),
-                          if (isPreferred) ...[
-                            const SizedBox(height: 2),
-                            Icon(
-                              Icons.star,
-                              size: 12,
-                              color: isSelected ? Colors.white : Colors.amber,
-                            ),
-                          ],
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                   ),
                 );
-              }),
+              },
             ),
           ),
-          const SizedBox(height: 8),
           // Movie grid
           Expanded(child: _buildMovieGrid()),
         ],
@@ -335,21 +301,11 @@ class _CnMoviesByProviderScreenState extends State<CnMoviesByProviderScreen> {
     final allMovies = moviesByProvider[currentProvider.id] ?? [];
     final isLoading = isLoadingMap[currentProvider.id] ?? false;
 
-    // Filter movies based on search query
-    final filteredMovies = searchQuery.isEmpty
-        ? allMovies
-        : allMovies
-              .where(
-                (movie) =>
-                    (movie['title'] ?? '').toLowerCase().contains(searchQuery),
-              )
-              .toList();
-
-    if (isLoading && searchQuery.isEmpty) {
+    if (isLoading) {
       return _buildLoadingShimmer();
     }
 
-    if (filteredMovies.isEmpty) {
+    if (allMovies.isEmpty) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -357,9 +313,7 @@ class _CnMoviesByProviderScreenState extends State<CnMoviesByProviderScreen> {
             Icon(Icons.movie_outlined, size: 64, color: Colors.grey[600]),
             const SizedBox(height: 16),
             Text(
-              searchQuery.isNotEmpty
-                  ? 'No movies found'
-                  : 'No movies available',
+              'No movies available',
               style: TextStyle(color: Colors.grey[400], fontSize: 16),
             ),
           ],
@@ -377,10 +331,10 @@ class _CnMoviesByProviderScreenState extends State<CnMoviesByProviderScreen> {
         childAspectRatio: 0.6,
       ),
       itemCount:
-          filteredMovies.length +
+          allMovies.length +
           (isLoadingMoreMap[currentProvider.id]! ? 1 : 0),
       itemBuilder: (context, index) {
-        if (index == filteredMovies.length) {
+        if (index == allMovies.length) {
           return const Center(
             child: CustomLoadingWidget(
               size: 30,
@@ -389,7 +343,7 @@ class _CnMoviesByProviderScreenState extends State<CnMoviesByProviderScreen> {
             ),
           );
         }
-        final movie = filteredMovies[index];
+        final movie = allMovies[index];
         return GestureDetector(
           onTap: () {
             Navigator.push(

@@ -5,6 +5,8 @@ import 'maxstream_series_list_screen.dart';
 import 'maxstream_watchlist_screen.dart';
 import 'maxstream_more_screen.dart';
 import '../services/update_service.dart';
+import '../services/notification_permission_service.dart';
+import '../services/content_notification_service.dart';
 
 class MaxStreamMainScreen extends StatefulWidget {
   const MaxStreamMainScreen({super.key});
@@ -26,7 +28,15 @@ class _MaxStreamMainScreenState extends State<MaxStreamMainScreen> {
   @override
   void initState() {
     super.initState();
+    _initializeServices();
+  }
+
+  Future<void> _initializeServices() async {
     _checkForUpdates();
+    _checkNotificationPermission();
+    // Initialize notification service and schedule periodic checks
+    await ContentNotificationService.initialize();
+    await ContentNotificationService.schedulePeriodicCheck();
   }
 
   Future<void> _checkForUpdates() async {
@@ -37,6 +47,25 @@ class _MaxStreamMainScreenState extends State<MaxStreamMainScreen> {
       _showUpdateDialog();
     }
     _updateChecked = true;
+  }
+
+  Future<void> _checkNotificationPermission() async {
+    final hasRequested =
+        await NotificationPermissionService.hasRequestedNotificationPermission();
+    final isGranted =
+        await NotificationPermissionService.isNotificationPermissionGranted();
+
+    if (!hasRequested && !isGranted && mounted) {
+      await Future.delayed(const Duration(milliseconds: 500));
+      if (mounted) {
+        NotificationPermissionService.showNotificationPermissionDialog(
+          context,
+          onAllow: () {
+            debugPrint('User allowed notifications');
+          },
+        );
+      }
+    }
   }
 
   void _showUpdateDialog() {

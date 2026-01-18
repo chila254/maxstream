@@ -62,25 +62,58 @@ class EmbeddedVideoService {
             isMovie,
           );
 
+          debugPrint('$_tag: Trying ${server['name']}: $embedUrl');
+
           // Check if the embed URL is accessible
           final dio = _getDioClient();
-          final response = await dio.head(embedUrl);
-
-          if (response.statusCode == 200) {
-            debugPrint(
-              '$_tag: Found working embed from ${server['name']}: $embedUrl',
+          
+          try {
+            final response = await dio.head(embedUrl).timeout(
+              const Duration(seconds: 10),
+              onTimeout: () {
+                throw DioException(
+                  requestOptions: RequestOptions(path: embedUrl),
+                  message: 'Connection timeout',
+                  type: DioExceptionType.connectionTimeout,
+                );
+              },
             );
-            return {
-              'embedUrl': embedUrl,
-              'title': 'Video Content',
-              'quality': 'HD',
-              'source': server['name'],
-              'type': 'embed',
-              'isPlayable': true,
-            };
+
+            if (response.statusCode == 200 || response.statusCode == 403) {
+              // 403 is acceptable - it means the server exists but forbids direct access
+              // The embed will still work through the WebView
+              debugPrint(
+                '$_tag: Found working embed from ${server['name']}: $embedUrl (status: ${response.statusCode})',
+              );
+              return {
+                'embedUrl': embedUrl,
+                'title': 'Video Content',
+                'quality': 'HD',
+                'source': server['name'],
+                'type': 'embed',
+                'isPlayable': true,
+              };
+            }
+          } on DioException catch (e) {
+            // If we get a response with 403, it still works
+            if (e.response?.statusCode == 403) {
+              debugPrint(
+                '$_tag: Found working embed from ${server['name']}: $embedUrl (403 Forbidden - acceptable)',
+              );
+              return {
+                'embedUrl': embedUrl,
+                'title': 'Video Content',
+                'quality': 'HD',
+                'source': server['name'],
+                'type': 'embed',
+                'isPlayable': true,
+              };
+            }
+            debugPrint('$_tag: ${server['name']} failed: ${e.message}');
+            continue;
           }
         } catch (e) {
-          debugPrint('$_tag: ${server['name']} failed: $e');
+          debugPrint('$_tag: ${server['name']} error: $e');
           continue;
         }
       }

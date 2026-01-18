@@ -417,7 +417,7 @@ class TmdbApiService {
   }
 
   // Streaming Provider methods
-  // Provider IDs: Netflix=8, Prime Video=119, Disney+=337, LionsGate+= not available in standard TMDB
+  // Provider IDs: Netflix=8, Prime Video=9, Disney+=337, LionsGate+= not available in standard TMDB
   static Future<List<Map<String, dynamic>>> getMoviesByProvider(int providerId, {int page = 1}) async {
     try {
       final response = await http.get(

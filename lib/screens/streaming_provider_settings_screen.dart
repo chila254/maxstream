@@ -33,7 +33,7 @@ class _StreamingProviderSettingsScreenState
       icon: Icons.play_circle,
     ),
     StreamingProvider(
-      id: 119,
+      id: 9,
       name: 'Prime Video',
       color: const Color(0xFF00A8E1),
       icon: Icons.video_library,
@@ -43,6 +43,36 @@ class _StreamingProviderSettingsScreenState
       name: 'Disney+',
       color: const Color(0xFF113CCF),
       icon: Icons.movie,
+    ),
+    StreamingProvider(
+      id: 15,
+      name: 'Hulu',
+      color: const Color(0xFF1CE783),
+      icon: Icons.live_tv,
+    ),
+    StreamingProvider(
+      id: 192,
+      name: 'Apple TV+',
+      color: const Color(0xFF1F1F1F),
+      icon: Icons.apple,
+    ),
+    StreamingProvider(
+      id: 1899,
+      name: 'HBO Max',
+      color: const Color(0xFF542DBF),
+      icon: Icons.hd,
+    ),
+    StreamingProvider(
+      id: 531,
+      name: 'Paramount+',
+      color: const Color(0xFF0064FF),
+      icon: Icons.live_tv_sharp,
+    ),
+    StreamingProvider(
+      id: 423,
+      name: 'AMC+',
+      color: const Color(0xFF1A1A1A),
+      icon: Icons.theaters,
     ),
   ];
 
