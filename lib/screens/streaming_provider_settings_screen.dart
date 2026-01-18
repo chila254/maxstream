@@ -83,7 +83,7 @@ class _StreamingProviderSettingsScreenState
       name: 'Paramount+',
       color: const Color(0xFF0064FF),
       icon: Icons.live_tv_sharp,
-      logoPath: '/hExO4PtimLIYn3JHb4rZtIfwF1.jpg',
+      logoPath: '/5qda0qKT6I1tm5EUOlw3YqQ5w.jpg',
     ),
     StreamingProvider(
       id: 526,

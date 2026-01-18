@@ -2,22 +2,20 @@
 <network-security-config>
     <!-- Allow cleartext traffic for embed streaming providers -->
     <domain-config cleartextTrafficPermitted="true">
-        <!-- VidFast and fallback hosts -->
+        <!-- Updated embed services -->
+        <domain includeSubdomains="true">2embed.cc</domain>
+        <domain includeSubdomains="true">vidsrc.pro</domain>
+        <domain includeSubdomains="true">www.embedsoap.com</domain>
+        <domain includeSubdomains="true">embedsoap.com</domain>
+        <domain includeSubdomains="true">multiembed.mov</domain>
+        <domain includeSubdomains="true">player.smashy.stream</domain>
+        <domain includeSubdomains="true">smashy.stream</domain>
+        <domain includeSubdomains="true">vidplay.online</domain>
+        <domain includeSubdomains="true">vidsrc.to</domain>
+        <domain includeSubdomains="true">vidsrc.me</domain>
         <domain includeSubdomains="true">vidfast.co</domain>
         <domain includeSubdomains="true">www.vidfast.co</domain>
-        
-        <!-- Other embed services that may use HTTP -->
         <domain includeSubdomains="true">vidlink.pro</domain>
-        <domain includeSubdomains="true">vidsrc.me</domain>
-        <domain includeSubdomains="true">vidsrc.to</domain>
-        <domain includeSubdomains="true">vidora.to</domain>
-        <domain includeSubdomains="true">mapple.net</domain>
-        <domain includeSubdomains="true">superembed.xyz</domain>
-        <domain includeSubdomains="true">movapi.com</domain>
-        <domain includeSubdomains="true">2embed.cc</domain>
-        <domain includeSubdomains="true">1movies.tv</domain>
-        <domain includeSubdomains="true">nonton.com</domain>
-        <domain includeSubdomains="true">primewire.mx</domain>
     </domain-config>
     
     <!-- By default, all other domains require HTTPS (secure default) -->

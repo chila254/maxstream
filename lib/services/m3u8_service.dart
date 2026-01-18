@@ -7,18 +7,16 @@ class EmbeddedVideoService {
 
   // List of embedded video servers
   static const List<Map<String, String>> _servers = [
+    {'name': '2Embed', 'baseUrl': 'https://2embed.cc'},
+    {'name': 'VidSrcPro', 'baseUrl': 'https://vidsrc.pro'},
+    {'name': 'EmbedSoap', 'baseUrl': 'https://www.embedsoap.com'},
+    {'name': 'MultiEmbed', 'baseUrl': 'https://multiembed.mov'},
+    {'name': 'SmashyStream', 'baseUrl': 'https://player.smashy.stream'},
+    {'name': 'VidPlay', 'baseUrl': 'https://vidplay.online'},
+    {'name': 'VidSrcTo', 'baseUrl': 'https://vidsrc.to'},
+    {'name': 'VidSrcMe', 'baseUrl': 'https://vidsrc.me'},
     {'name': 'VidFast', 'baseUrl': 'https://vidfast.co'},
     {'name': 'VidLink', 'baseUrl': 'https://vidlink.pro'},
-    {'name': 'VidEasy', 'baseUrl': 'https://vidsrc.me'},
-    {'name': 'Vidsrc', 'baseUrl': 'https://vidsrc.to'},
-    {'name': 'Vidora', 'baseUrl': 'https://vidora.to'},
-    {'name': 'Mapple', 'baseUrl': 'https://mapple.net'},
-    {'name': 'Super', 'baseUrl': 'https://superembed.xyz'},
-    {'name': 'MovAPI', 'baseUrl': 'https://movapi.com'},
-    {'name': '2Embed', 'baseUrl': 'https://2embed.cc'},
-    {'name': '1Movies', 'baseUrl': 'https://1movies.tv'},
-    {'name': 'Nonton', 'baseUrl': 'https://nonton.com'},
-    {'name': 'Primewire', 'baseUrl': 'https://primewire.mx'},
   ];
 
   // Public getter for servers
@@ -56,17 +54,32 @@ class EmbeddedVideoService {
     bool isMovie,
   ) {
     switch (baseUrl) {
-      case 'https://vidfast.co':
+      case 'https://2embed.cc':
+        return isMovie
+            ? '$baseUrl/embed/$tmdbId'
+            : '$baseUrl/embedtv/$tmdbId&s=$season&e=$episode';
+
+      case 'https://vidsrc.pro':
         return isMovie
             ? '$baseUrl/embed/movie/$tmdbId'
             : '$baseUrl/embed/tv/$tmdbId/$season/$episode';
 
-      case 'https://vidlink.pro':
+      case 'https://www.embedsoap.com':
+        return isMovie
+            ? '$baseUrl/embed/movie/?id=$tmdbId'
+            : '$baseUrl/embed/tv/?id=$tmdbId&s=$season&e=$episode';
+
+      case 'https://multiembed.mov':
+        return isMovie
+            ? '$baseUrl/direct?video_id=$tmdbId'
+            : '$baseUrl/direct?video_id=$tmdbId&s=$season&e=$episode';
+
+      case 'https://player.smashy.stream':
         return isMovie
             ? '$baseUrl/movie/$tmdbId'
             : '$baseUrl/tv/$tmdbId/$season/$episode';
 
-      case 'https://vidsrc.me':
+      case 'https://vidplay.online':
         return isMovie
             ? '$baseUrl/embed/movie/$tmdbId'
             : '$baseUrl/embed/tv/$tmdbId/$season/$episode';
@@ -76,45 +89,20 @@ class EmbeddedVideoService {
             ? '$baseUrl/embed/movie/$tmdbId'
             : '$baseUrl/embed/tv/$tmdbId/$season/$episode';
 
-      case 'https://vidora.to':
+      case 'https://vidsrc.me':
         return isMovie
             ? '$baseUrl/embed/movie/$tmdbId'
             : '$baseUrl/embed/tv/$tmdbId/$season/$episode';
 
-      case 'https://mapple.net':
-        return isMovie
-            ? '$baseUrl/movie/$tmdbId'
-            : '$baseUrl/tv/$tmdbId/$season/$episode';
-
-      case 'https://superembed.xyz':
+      case 'https://vidfast.co':
         return isMovie
             ? '$baseUrl/embed/movie/$tmdbId'
             : '$baseUrl/embed/tv/$tmdbId/$season/$episode';
 
-      case 'https://movapi.com':
+      case 'https://vidlink.pro':
         return isMovie
             ? '$baseUrl/movie/$tmdbId'
             : '$baseUrl/tv/$tmdbId/$season/$episode';
-
-      case 'https://2embed.cc':
-        return isMovie
-            ? '$baseUrl/embed/$tmdbId'
-            : '$baseUrl/embedtv/$tmdbId&s=$season&e=$episode';
-
-      case 'https://1movies.tv':
-        return isMovie
-            ? '$baseUrl/movie/$tmdbId'
-            : '$baseUrl/tv/$tmdbId-$season-$episode';
-
-      case 'https://nonton.com':
-        return isMovie
-            ? '$baseUrl/movie/$tmdbId'
-            : '$baseUrl/tv/$tmdbId/$season/$episode';
-
-      case 'https://primewire.mx':
-        return isMovie
-            ? '$baseUrl/movie/$tmdbId'
-            : '$baseUrl/tv/$tmdbId/season-$season/episode-$episode';
 
       default:
         return isMovie
@@ -153,7 +141,7 @@ class EmbeddedVideoService {
             final response = await dio
                 .head(embedUrl)
                 .timeout(
-                  const Duration(seconds: 10),
+                  const Duration(seconds: 8),
                   onTimeout: () {
                     throw DioException(
                       requestOptions: RequestOptions(path: embedUrl),
@@ -239,17 +227,32 @@ class EmbeddedVideoService {
     bool isMovie,
   ) {
     switch (baseUrl) {
-      case 'https://vidfast.co':
+      case 'https://2embed.cc':
+        return isMovie
+            ? '$baseUrl/embed/$tmdbId'
+            : '$baseUrl/embedtv/$tmdbId&s=$season&e=$episode';
+
+      case 'https://vidsrc.pro':
         return isMovie
             ? '$baseUrl/embed/movie/$tmdbId'
             : '$baseUrl/embed/tv/$tmdbId/$season/$episode';
 
-      case 'https://vidlink.pro':
+      case 'https://www.embedsoap.com':
+        return isMovie
+            ? '$baseUrl/embed/movie/?id=$tmdbId'
+            : '$baseUrl/embed/tv/?id=$tmdbId&s=$season&e=$episode';
+
+      case 'https://multiembed.mov':
+        return isMovie
+            ? '$baseUrl/direct?video_id=$tmdbId'
+            : '$baseUrl/direct?video_id=$tmdbId&s=$season&e=$episode';
+
+      case 'https://player.smashy.stream':
         return isMovie
             ? '$baseUrl/movie/$tmdbId'
             : '$baseUrl/tv/$tmdbId/$season/$episode';
 
-      case 'https://vidsrc.me':
+      case 'https://vidplay.online':
         return isMovie
             ? '$baseUrl/embed/movie/$tmdbId'
             : '$baseUrl/embed/tv/$tmdbId/$season/$episode';
@@ -259,45 +262,20 @@ class EmbeddedVideoService {
             ? '$baseUrl/embed/movie/$tmdbId'
             : '$baseUrl/embed/tv/$tmdbId/$season/$episode';
 
-      case 'https://vidora.to':
+      case 'https://vidsrc.me':
         return isMovie
             ? '$baseUrl/embed/movie/$tmdbId'
             : '$baseUrl/embed/tv/$tmdbId/$season/$episode';
 
-      case 'https://mapple.net':
-        return isMovie
-            ? '$baseUrl/movie/$tmdbId'
-            : '$baseUrl/tv/$tmdbId/$season/$episode';
-
-      case 'https://superembed.xyz':
+      case 'https://vidfast.co':
         return isMovie
             ? '$baseUrl/embed/movie/$tmdbId'
             : '$baseUrl/embed/tv/$tmdbId/$season/$episode';
 
-      case 'https://movapi.com':
+      case 'https://vidlink.pro':
         return isMovie
             ? '$baseUrl/movie/$tmdbId'
             : '$baseUrl/tv/$tmdbId/$season/$episode';
-
-      case 'https://2embed.cc':
-        return isMovie
-            ? '$baseUrl/embed/$tmdbId'
-            : '$baseUrl/embedtv/$tmdbId&s=$season&e=$episode';
-
-      case 'https://1movies.tv':
-        return isMovie
-            ? '$baseUrl/movie/$tmdbId'
-            : '$baseUrl/tv/$tmdbId-$season-$episode';
-
-      case 'https://nonton.com':
-        return isMovie
-            ? '$baseUrl/movie/$tmdbId'
-            : '$baseUrl/tv/$tmdbId/$season/$episode';
-
-      case 'https://primewire.mx':
-        return isMovie
-            ? '$baseUrl/movie/$tmdbId'
-            : '$baseUrl/tv/$tmdbId/season-$season/episode-$episode';
 
       default:
         return isMovie

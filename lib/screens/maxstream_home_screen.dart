@@ -313,7 +313,7 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
         id: 582,
         name: 'Paramount+',
         color: const Color(0xFF0064FF),
-        logoPath: '/hExO4PtimLIYn3JHb4rZtIfwF1.jpg',
+        logoPath: '/5qda0qKT6I1tm5EUOlw3YqQ5w.jpg',
       ),
       _ProviderInfo(
         id: 526,

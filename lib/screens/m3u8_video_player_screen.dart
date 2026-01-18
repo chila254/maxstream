@@ -103,8 +103,8 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
             }
           },
           onNavigationRequest: (NavigationRequest request) {
-            // Block common ad domains
-            if (_isAdDomain(request.url)) {
+            // Block common ad domains and requests
+            if (_isAdDomain(request.url) || _isAdRequest(request.url)) {
               debugPrint('Blocked ad request: ${request.url}');
               return NavigationDecision.prevent;
             }
@@ -160,7 +160,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         final response = await dio
             .head(embedUrl)
             .timeout(
-              const Duration(seconds: 5),
+              const Duration(seconds: 10),
               onTimeout: () {
                 throw DioException(
                   requestOptions: RequestOptions(path: embedUrl),
@@ -211,22 +211,30 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     try {
       // Inject CSS to hide common ad elements
       const adBlockerCSS = '''
-        /* Hide common ad selectors */
-        .ad, .ads, .advertisement, .advertising,
+        /* Aggressive ad blocking - hide all known ad selectors */
+        .ad, .ads, .advertisement, .advertising, .advert,
         [class*="ad-"], [class*="ads-"], [class*="advert"],
         [id*="ad-"], [id*="ads-"], [id*="advert"],
-        .banner, .popup, .overlay, .modal,
-        .sponsored, .promo, .promotion,
+        .banner, .popup, .overlay, .modal, .lightbox,
+        .sponsored, .promo, .promotion, .promoted,
         iframe[src*="ads"], iframe[src*="doubleclick"],
         iframe[src*="googlesyndication"], iframe[src*="amazon-ads"],
+        iframe[src*="facebook"], iframe[src*="twitter"],
         div[style*="position: fixed"], div[style*="position:fixed"],
+        div[style*="position: absolute"], div[style*="position:absolute"],
         .sticky-ad, .floating-ad, .bottom-ad, .top-ad,
-        .video-ad, .ad-video, .ad-container,
-        .google-ad, .facebook-ad, .twitter-ad,
-        .ad-banner, .ad-sidebar, .ad-footer,
-        .interstitial, .interstitial-ad,
-        .pre-roll, .mid-roll, .post-roll,
-        .ad-break, .commercial-break {
+        .video-ad, .ad-video, .ad-container, .ad-wrapper,
+        .google-ad, .facebook-ad, .twitter-ad, .instagram-ad,
+        .ad-banner, .ad-sidebar, .ad-footer, .ad-header,
+        .interstitial, .interstitial-ad, .ad-interstitial,
+        .pre-roll, .mid-roll, .post-roll, .ad-roll,
+        .ad-break, .commercial-break, .commercial,
+        .skip-ad, .ad-skip, .skip-button, .ad-skip-button,
+        .close-ad, .ad-close, .close-button,
+        .vast-ad, .vpaid-ad, .ima-ad,
+        .jwplayer-ad, .video-js-ad, .plyr-ad,
+        .ad-leaderboard, .ad-rectangle, .ad-square,
+        .ad-mobile, .ad-desktop, .ad-responsive {
           display: none !important;
           visibility: hidden !important;
           opacity: 0 !important;
@@ -235,20 +243,47 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
           position: absolute !important;
           left: -9999px !important;
           top: -9999px !important;
+          z-index: -9999 !important;
+          pointer-events: none !important;
         }
 
         /* Hide specific ad network elements */
-        [data-ad], [data-ads], [data-advertisement],
-        .ad-slot, .ad-unit, .ad-wrapper,
-        .dfp-ad, .gpt-ad, .adsbygoogle,
-        .pubads, .video-ads, .ad-player {
+        [data-ad], [data-ads], [data-advertisement], [data-advert],
+        .ad-slot, .ad-unit, .ad-wrapper, .ad-container,
+        .dfp-ad, .gpt-ad, .adsbygoogle, .adsense,
+        .pubads, .video-ads, .ad-player, .ad-video-player,
+        .google-ads, .facebook-ads, .twitter-ads,
+        .ad-manager, .ad-server, .ad-network,
+        .vast, .vpaid, .ima, .ad-tag,
+        .ad-injection, .ad-placeholder, .ad-space {
+          display: none !important;
+          visibility: hidden !important;
+          opacity: 0 !important;
+        }
+
+        /* Hide popups, dialogs, and overlays */
+        .popup, .modal, .overlay, .lightbox, .dialog,
+        .alert, .notification, .tooltip, .popover,
+        [role="dialog"], [role="alert"], [role="tooltip"],
+        .cookie-banner, .cookie-notice, .gdpr-banner,
+        .newsletter-popup, .subscribe-popup, .signup-modal {
+          display: none !important;
+          visibility: hidden !important;
+        }
+
+        /* Hide video player ads */
+        .jwplayer .jw-ad, .video-js .vjs-ad,
+        .plyr .plyr-ad, .ad-container, .ad-overlay,
+        .video-ad-container, .ad-video-container {
           display: none !important;
         }
 
-        /* Hide popups and overlays */
-        .popup, .modal, .overlay, .lightbox,
-        .dialog, .alert, .notification,
-        [role="dialog"], [role="alert"] {
+        /* Hide iframes that are likely ads */
+        iframe[width="1"], iframe[height="1"],
+        iframe[src*="googletag"], iframe[src*="pubads"],
+        iframe[src*="doubleclick"], iframe[src*="amazon"],
+        iframe[src*="facebook"], iframe[src*="twitter"],
+        iframe[src*="instagram"], iframe[src*="pinterest"] {
           display: none !important;
         }
       ''';
@@ -258,88 +293,200 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         (function() {
           'use strict';
 
-          // Function to remove ad elements
+          // Function to remove ad elements aggressively
           function removeAds() {
             const adSelectors = [
-              '.ad', '.ads', '.advertisement', '.advertising',
+              // Basic ad selectors
+              '.ad', '.ads', '.advertisement', '.advertising', '.advert',
               '[class*="ad-"]', '[class*="ads-"]', '[class*="advert"]',
               '[id*="ad-"]', '[id*="ads-"]', '[id*="advert"]',
-              '.banner', '.popup', '.overlay', '.modal',
-              '.sponsored', '.promo', '.promotion',
+              '.banner', '.popup', '.overlay', '.modal', '.lightbox',
+              '.sponsored', '.promo', '.promotion', '.promoted',
+
+              // Ad network iframes
               'iframe[src*="ads"]', 'iframe[src*="doubleclick"]',
               'iframe[src*="googlesyndication"]', 'iframe[src*="amazon-ads"]',
-              '.google-ad', '.facebook-ad', '.twitter-ad',
-              '.ad-banner', '.ad-sidebar', '.ad-footer',
-              '.interstitial', '.interstitial-ad',
-              '.pre-roll', '.mid-roll', '.post-roll',
-              '.ad-break', '.commercial-break',
+              'iframe[src*="facebook"]', 'iframe[src*="twitter"]',
+              'iframe[src*="googletag"]', 'iframe[src*="pubads"]',
+
+              // Specific ad elements
+              '.google-ad', '.facebook-ad', '.twitter-ad', '.instagram-ad',
+              '.ad-banner', '.ad-sidebar', '.ad-footer', '.ad-header',
+              '.interstitial', '.interstitial-ad', '.ad-interstitial',
+              '.pre-roll', '.mid-roll', '.post-roll', '.ad-roll',
+              '.ad-break', '.commercial-break', '.commercial',
+
+              // Ad controls
+              '.skip-ad', '.ad-skip', '.skip-button', '.ad-skip-button',
+              '.close-ad', '.ad-close', '.close-button',
+
+              // Video player ads
+              '.jwplayer .jw-ad', '.video-js .vjs-ad', '.plyr .plyr-ad',
+              '.ad-container', '.ad-overlay', '.video-ad-container',
+
+              // Data attributes
               '[data-ad]', '[data-ads]', '[data-advertisement]',
               '.ad-slot', '.ad-unit', '.ad-wrapper',
-              '.dfp-ad', '.gpt-ad', '.adsbygoogle',
-              '.pubads', '.video-ads', '.ad-player'
+              '.dfp-ad', '.gpt-ad', '.adsbygoogle', '.adsense',
+
+              // Popups and dialogs
+              '.popup', '.modal', '.overlay', '.dialog', '.alert',
+              '.cookie-banner', '.gdpr-banner', '.newsletter-popup'
             ];
 
             adSelectors.forEach(selector => {
               try {
                 const elements = document.querySelectorAll(selector);
                 elements.forEach(el => {
-                  el.style.display = 'none';
-                  el.style.visibility = 'hidden';
-                  el.style.opacity = '0';
-                  el.style.height = '0px';
-                  el.style.width = '0px';
-                  el.style.position = 'absolute';
-                  el.style.left = '-9999px';
-                  el.style.top = '-9999px';
+                  el.style.setProperty('display', 'none', 'important');
+                  el.style.setProperty('visibility', 'hidden', 'important');
+                  el.style.setProperty('opacity', '0', 'important');
+                  el.style.setProperty('height', '0px', 'important');
+                  el.style.setProperty('width', '0px', 'important');
+                  el.style.setProperty('position', 'absolute', 'important');
+                  el.style.setProperty('left', '-9999px', 'important');
+                  el.style.setProperty('top', '-9999px', 'important');
+                  el.style.setProperty('z-index', '-9999', 'important');
+                  el.style.setProperty('pointer-events', 'none', 'important');
                   el.remove();
                 });
               } catch(e) {}
             });
 
-            // Remove fixed positioned elements that might be ads
+            // Remove fixed/sticky positioned elements that might be ads
             try {
               const allElements = document.querySelectorAll('*');
               allElements.forEach(el => {
                 const style = window.getComputedStyle(el);
-                if (style.position === 'fixed' || style.position === 'sticky') {
+                if (style.position === 'fixed' || style.position === 'sticky' ||
+                    style.position === 'absolute') {
                   const rect = el.getBoundingClientRect();
-                  // Remove if it's likely an ad (small elements in corners)
-                  if ((rect.width < 400 && rect.height < 200) &&
-                      (rect.top < 50 || rect.bottom > window.innerHeight - 50 ||
-                       rect.left < 50 || rect.right > window.innerWidth - 50)) {
-                    el.style.display = 'none';
+                  // Remove if it's likely an ad (small elements in corners or overlays)
+                  if ((rect.width < 500 && rect.height < 300) &&
+                      (rect.top < 100 || rect.bottom > window.innerHeight - 100 ||
+                       rect.left < 100 || rect.right > window.innerWidth - 100 ||
+                       rect.width === window.innerWidth || rect.height === window.innerHeight)) {
+                    el.style.setProperty('display', 'none', 'important');
+                    el.remove();
                   }
                 }
               });
             } catch(e) {}
+
+            // Remove ad iframes by source
+            try {
+              const iframes = document.querySelectorAll('iframe');
+              iframes.forEach(iframe => {
+                const src = iframe.src || '';
+                if (src.includes('ads') || src.includes('doubleclick') ||
+                    src.includes('googlesyndication') || src.includes('amazon') ||
+                    src.includes('facebook') || src.includes('twitter') ||
+                    src.includes('googletag') || src.includes('pubads') ||
+                    (iframe.width === '1' && iframe.height === '1')) {
+                  iframe.remove();
+                }
+              });
+            } catch(e) {}
+
+            // Auto-click skip buttons
+            try {
+              const skipSelectors = [
+                '.skip-ad', '.ad-skip', '.skip-button', '.ad-skip-button',
+                '.close-ad', '.ad-close', '.close-button',
+                '[class*="skip"]', '[id*="skip"]',
+                'button:contains("Skip")', 'a:contains("Skip")',
+                'button:contains("Close")', 'a:contains("Close")'
+              ];
+
+              skipSelectors.forEach(selector => {
+                try {
+                  const elements = document.querySelectorAll(selector);
+                  elements.forEach(el => {
+                    if (el.offsetParent !== null) { // Only if visible
+                      el.click();
+                    }
+                  });
+                } catch(e) {}
+              });
+            } catch(e) {}
+          }
+
+          // Function to block ad network requests
+          function blockAdRequests() {
+            // Override XMLHttpRequest to block ad requests
+            const originalOpen = XMLHttpRequest.prototype.open;
+            XMLHttpRequest.prototype.open = function(method, url) {
+              if (url.includes('ads') || url.includes('doubleclick') ||
+                  url.includes('googlesyndication') || url.includes('amazon-ads') ||
+                  url.includes('facebook') || url.includes('twitter') ||
+                  url.includes('googletag') || url.includes('pubads')) {
+                return; // Block the request
+              }
+              return originalOpen.apply(this, arguments);
+            };
+
+            // Override fetch to block ad requests
+            const originalFetch = window.fetch;
+            window.fetch = function(url, options) {
+              if (typeof url === 'string' && (
+                  url.includes('ads') || url.includes('doubleclick') ||
+                  url.includes('googlesyndication') || url.includes('amazon-ads') ||
+                  url.includes('facebook') || url.includes('twitter') ||
+                  url.includes('googletag') || url.includes('pubads'))) {
+                return Promise.reject(new Error('Ad request blocked'));
+              }
+              return originalFetch.apply(this, arguments);
+            };
           }
 
           // Run immediately
           removeAds();
+          blockAdRequests();
 
-          // Run again after a short delay
+          // Run repeatedly to catch dynamic ads
+          setTimeout(removeAds, 500);
           setTimeout(removeAds, 1000);
+          setTimeout(removeAds, 2000);
           setTimeout(removeAds, 3000);
           setTimeout(removeAds, 5000);
+          setTimeout(removeAds, 10000);
 
           // Set up observer to watch for new ad elements
           const observer = new MutationObserver(function(mutations) {
+            let shouldRemove = false;
             mutations.forEach(function(mutation) {
-              if (mutation.type === 'childList') {
-                removeAds();
+              if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
+                shouldRemove = true;
               }
             });
+            if (shouldRemove) {
+              setTimeout(removeAds, 100);
+            }
           });
 
-          observer.observe(document.body, {
-            childList: true,
-            subtree: true
-          });
+          if (document.body) {
+            observer.observe(document.body, {
+              childList: true,
+              subtree: true
+            });
+          }
 
           // Override common ad functions
           window.google_ad_client = null;
           window.adsbygoogle = null;
           window.googletag = null;
+          window.googletagmanager = null;
+
+          // Disable ad-related localStorage/cookies
+          try {
+            localStorage.removeItem('ads');
+            localStorage.removeItem('google_ads');
+            document.cookie.split(';').forEach(c => {
+              if (c.includes('ads') || c.includes('doubleclick')) {
+                document.cookie = c.replace(/^ +/, '').replace(/=.*/, '=;expires=' + new Date().toUTCString() + ';path=/');
+              }
+            });
+          } catch(e) {}
 
         })();
       ''';
@@ -438,8 +585,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       );
       final extractedUrl = result.toString().replaceAll('"', '');
 
-      if (extractedUrl.isNotEmpty &&
-          extractedUrl != 'null') {
+      if (extractedUrl.isNotEmpty && extractedUrl != 'null') {
         debugPrint('Extracted video URL: $extractedUrl');
         await _initializeNativePlayer(extractedUrl);
       }
@@ -531,6 +677,11 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       'metrics.',
       'googletagmanager.com',
       'gtm.',
+      'ads.',
+      'ad.',
+      'advert.',
+      'promo.',
+      'sponsored.',
     ];
 
     try {
@@ -541,6 +692,43 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     } catch (e) {
       return false;
     }
+  }
+
+  bool _isAdRequest(String url) {
+    // Block requests containing ad-related keywords in URL
+    const adKeywords = [
+      'ads',
+      'advert',
+      'promo',
+      'sponsored',
+      'doubleclick',
+      'googlesyndication',
+      'amazon-ads',
+      'facebook',
+      'twitter',
+      'googletag',
+      'pubads',
+      'analytics',
+      'tracking',
+      'metrics',
+      'hotjar',
+      'criteo',
+      'pubmatic',
+      'openx',
+      'adnxs',
+      'media.net',
+      'yieldmo',
+      'spotxchange',
+      'springserve',
+      'aniview',
+      'playground',
+      'vidoomy',
+      'taboola',
+      'outbrain',
+    ];
+
+    final lowerUrl = url.toLowerCase();
+    return adKeywords.any((keyword) => lowerUrl.contains(keyword));
   }
 
   @override
