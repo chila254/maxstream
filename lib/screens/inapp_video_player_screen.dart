@@ -64,7 +64,7 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen> {
   Future<Map<String, dynamic>?> _getStreamData() async {
     debugPrint('Fetching stream for: ${widget.title}');
 
-    // Get video URL from FilmBoom
+    // Get video URL directly from FilmBoom service
     final videoResult = await FilmBoomService.getVideoUrl(
       widget.title,
       season: widget.season,
@@ -108,7 +108,7 @@ class _InAppVideoPlayerScreenState extends State<InAppVideoPlayerScreen> {
       ),
     );
 
-
+    setState(() {});
   }
 
   @override
