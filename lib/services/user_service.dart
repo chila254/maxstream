@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:io';
+import 'profile_service.dart';
 
 class UserService {
   static final UserService _instance = UserService._internal();
@@ -16,6 +17,18 @@ class UserService {
   }
 
   Future<void> loadProfilePicture() async {
+    try {
+      // First try to fetch from Firebase (cloud URL)
+      final firebaseUrl = await ProfileService.getProfilePictureUrl();
+      if (firebaseUrl != null) {
+        profilePictureUrl.value = firebaseUrl;
+        return;
+      }
+    } catch (e) {
+      print('Error loading profile picture from Firebase: $e');
+    }
+
+    // Fallback to local cache
     final prefs = await SharedPreferences.getInstance();
     final savedPath = prefs.getString('user_profile_picture');
     if (savedPath != null && File(savedPath).existsSync()) {

@@ -204,4 +204,17 @@ class AuthService {
       rethrow;
     }
   }
+
+  /// Sign in with custom token from backend (future implementation)
+  /// Called after backend issues a custom token via Cloud Function
+  static Future<User?> signInWithCustomToken(String customToken) async {
+    try {
+      final result = await _auth.signInWithCustomToken(customToken);
+      print('Signed in with custom token: ${result.user?.email}');
+      return result.user;
+    } catch (e) {
+      print('Custom token sign-in error: $e');
+      rethrow;
+    }
+  }
 }
