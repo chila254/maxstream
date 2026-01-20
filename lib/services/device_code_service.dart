@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:math';
+import 'dart:async';
 
 class DeviceCodeService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -12,12 +13,16 @@ class DeviceCodeService {
       final user = _auth.currentUser;
       if (user == null) throw Exception('User not authenticated');
 
+      print('Starting device code generation for user: ${user.uid}');
+
       // Generate random 6-digit code
       final code = (100000 + Random().nextInt(900000)).toString();
+      print('Generated code: $code');
       
       // Save to Firestore with 15-minute expiry
       final expiresAt = DateTime.now().add(const Duration(minutes: 15));
       
+      print('Writing to Firestore collection: device_codes');
       await _firestore.collection('device_codes').doc(code).set({
         'code': code,
         'userId': user.uid,
@@ -26,10 +31,18 @@ class DeviceCodeService {
         'createdAt': FieldValue.serverTimestamp(),
         'expiresAt': Timestamp.fromDate(expiresAt),
         'isUsed': false,
-      });
+      }).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          throw TimeoutException('Firestore write operation timed out after 10 seconds');
+        },
+      );
 
-      print('Generated device code: $code');
+      print('Successfully saved device code: $code');
       return code;
+    } on FirebaseException catch (e) {
+      print('Firebase error generating device code: ${e.code} - ${e.message}');
+      throw Exception('Firebase error: ${e.message}');
     } catch (e) {
       print('Error generating device code: $e');
       rethrow;

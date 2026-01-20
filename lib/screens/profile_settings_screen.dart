@@ -7,7 +7,6 @@ import 'dart:io';
 import '../services/user_service.dart';
 import '../services/password_manager_service.dart';
 import '../services/profile_service.dart';
-import '../services/device_code_service.dart';
 import 'image_crop_screen.dart';
 
 class ProfileSettingsScreen extends StatefulWidget {
@@ -72,9 +71,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
         final croppedPath = await Navigator.push<String?>(
           context,
           MaterialPageRoute(
-            builder: (context) => ImageCropScreen(
-              imagePath: pickedFile.path,
-            ),
+            builder: (context) => ImageCropScreen(imagePath: pickedFile.path),
           ),
         );
 
@@ -623,125 +620,10 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                   ),
                 ),
               ],
-
-              const SizedBox(height: 32),
-
-              // TV Pairing Section
-              const Text(
-                'TV Pairing',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'Generate a code to sign in on your TV without entering a password',
-                style: TextStyle(color: Colors.grey, fontSize: 12),
-              ),
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: _isLoading ? null : _generateTVCode,
-                  icon: const Icon(Icons.tv),
-                  label: const Text('Generate TV Code'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                  ),
-                ),
-              ),
-              ],
-              ),
-              ),
-              ),
-              );
-              }
-
-              Future<void> _generateTVCode() async {
-              setState(() => _isLoading = true);
-
-              try {
-              final code = await DeviceCodeService.generateDeviceCode();
-
-              if (mounted) {
-              showDialog(
-              context: context,
-              builder: (context) => AlertDialog(
-              backgroundColor: const Color(0xFF1A1A1A),
-              title: const Text(
-              'TV Pairing Code',
-              style: TextStyle(color: Colors.white),
-              ),
-              content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text(
-                  'Enter this code on your TV:',
-                  style: TextStyle(color: Colors.grey),
-                ),
-                const SizedBox(height: 16),
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.black,
-                    border: Border.all(color: Colors.red),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    code,
-                    style: const TextStyle(
-                      color: Colors.red,
-                      fontSize: 32,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 4,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'This code expires in 15 minutes',
-                  style: TextStyle(color: Colors.grey, fontSize: 12),
-                ),
-              ],
-              ),
-              actions: [
-              TextButton(
-                onPressed: () {
-                  // Copy to clipboard
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Code copied to clipboard'),
-                      backgroundColor: Colors.green,
-                    ),
-                  );
-                  Navigator.pop(context);
-                },
-                child: const Text('Copy Code'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Done'),
-              ),
-              ],
-              ),
-              );
-              }
-              } catch (e) {
-              if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-              content: Text('Error generating code: $e'),
-              backgroundColor: Colors.red,
-              ),
-              );
-              }
-              } finally {
-              if (mounted) {
-              setState(() => _isLoading = false);
-              }
-              }
-              }
-              }
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}

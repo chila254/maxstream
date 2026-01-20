@@ -48,10 +48,7 @@ class _ProviderContentScreenState extends State<ProviderContentScreen> {
   }
 
   Future<void> _loadInitialContent() async {
-    await Future.wait([
-      _loadMovies(),
-      _loadShows(),
-    ]);
+    await Future.wait([_loadMovies(), _loadShows()]);
   }
 
   Future<void> _loadMovies() async {
@@ -284,10 +281,7 @@ class _ProviderContentScreenState extends State<ProviderContentScreen> {
               onPageChanged: (index) {
                 setState(() => _currentTabIndex = index);
               },
-              children: [
-                _buildMoviesGrid(),
-                _buildShowsGrid(),
-              ],
+              children: [_buildMoviesGrid(), _buildShowsGrid()],
             ),
           ),
         ],
@@ -320,10 +314,10 @@ class _ProviderContentScreenState extends State<ProviderContentScreen> {
       controller: _movieScrollController,
       padding: const EdgeInsets.all(16),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
+        crossAxisCount: 1,
         crossAxisSpacing: 12,
         mainAxisSpacing: 12,
-        childAspectRatio: 0.6,
+        childAspectRatio: 2.0,
       ),
       itemCount: _moviesPage1.length + (_isLoadingMoreMovies ? 1 : 0),
       itemBuilder: (context, index) {
@@ -351,15 +345,16 @@ class _ProviderContentScreenState extends State<ProviderContentScreen> {
                 transitionsBuilder:
                     (context, animation, secondaryAnimation, child) {
                       return SlideTransition(
-                        position: Tween<Offset>(
-                          begin: const Offset(1.0, 0.0),
-                          end: Offset.zero,
-                        ).animate(
-                          CurvedAnimation(
-                            parent: animation,
-                            curve: Curves.fastOutSlowIn,
-                          ),
-                        ),
+                        position:
+                            Tween<Offset>(
+                              begin: const Offset(1.0, 0.0),
+                              end: Offset.zero,
+                            ).animate(
+                              CurvedAnimation(
+                                parent: animation,
+                                curve: Curves.fastOutSlowIn,
+                              ),
+                            ),
                         child: child,
                       );
                     },
@@ -367,52 +362,70 @@ class _ProviderContentScreenState extends State<ProviderContentScreen> {
               ),
             );
           },
-          child: Column(
+          child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: movie['poster_path'] != null
-                      ? Image.network(
-                          TmdbApiService.getPosterUrl(movie['poster_path']),
-                          width: double.infinity,
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) {
-                            return Container(
-                              color: Colors.grey[800],
-                              child: const Icon(
-                                Icons.movie,
-                                color: Colors.grey,
-                                size: 40,
-                              ),
-                            );
-                          },
-                        )
-                      : Container(
-                          color: Colors.grey[800],
-                          child: const Icon(
-                            Icons.movie,
-                            color: Colors.grey,
-                            size: 40,
-                          ),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: movie['poster_path'] != null
+                    ? Image.network(
+                        TmdbApiService.getPosterUrl(movie['poster_path']),
+                        width: 80,
+                        height: 120,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) {
+                          return Container(
+                            width: 80,
+                            height: 120,
+                            color: Colors.grey[800],
+                            child: const Icon(
+                              Icons.movie,
+                              color: Colors.grey,
+                              size: 40,
+                            ),
+                          );
+                        },
+                      )
+                    : Container(
+                        width: 80,
+                        height: 120,
+                        color: Colors.grey[800],
+                        child: const Icon(
+                          Icons.movie,
+                          color: Colors.grey,
+                          size: 40,
                         ),
-                ),
+                      ),
               ),
-              const SizedBox(height: 8),
-              Text(
-                movie['title'] ?? 'Unknown',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      movie['title'] ?? 'Unknown',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _getYear(movie),
+                      style: const TextStyle(color: Colors.grey, fontSize: 14),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      movie['overview'] ?? '',
+                      style: const TextStyle(color: Colors.grey, fontSize: 12),
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
                 ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-              Text(
-                _getYear(movie),
-                style: const TextStyle(color: Colors.grey, fontSize: 10),
               ),
             ],
           ),
@@ -446,10 +459,10 @@ class _ProviderContentScreenState extends State<ProviderContentScreen> {
       controller: _showScrollController,
       padding: const EdgeInsets.all(16),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
+        crossAxisCount: 1,
         crossAxisSpacing: 12,
         mainAxisSpacing: 12,
-        childAspectRatio: 0.6,
+        childAspectRatio: 2.0,
       ),
       itemCount: _seriesPage1.length + (_isLoadingMoreShows ? 1 : 0),
       itemBuilder: (context, index) {
@@ -470,21 +483,20 @@ class _ProviderContentScreenState extends State<ProviderContentScreen> {
               context,
               PageRouteBuilder(
                 pageBuilder: (context, animation, secondaryAnimation) =>
-                    MaxStreamSeriesScreen(
-                      seriesItem: Movie.fromJson(show),
-                    ),
+                    MaxStreamSeriesScreen(seriesItem: Movie.fromJson(show)),
                 transitionsBuilder:
                     (context, animation, secondaryAnimation, child) {
                       return SlideTransition(
-                        position: Tween<Offset>(
-                          begin: const Offset(1.0, 0.0),
-                          end: Offset.zero,
-                        ).animate(
-                          CurvedAnimation(
-                            parent: animation,
-                            curve: Curves.fastOutSlowIn,
-                          ),
-                        ),
+                        position:
+                            Tween<Offset>(
+                              begin: const Offset(1.0, 0.0),
+                              end: Offset.zero,
+                            ).animate(
+                              CurvedAnimation(
+                                parent: animation,
+                                curve: Curves.fastOutSlowIn,
+                              ),
+                            ),
                         child: child,
                       );
                     },
@@ -492,52 +504,70 @@ class _ProviderContentScreenState extends State<ProviderContentScreen> {
               ),
             );
           },
-          child: Column(
+          child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: show['poster_path'] != null
-                      ? Image.network(
-                          TmdbApiService.getPosterUrl(show['poster_path']),
-                          width: double.infinity,
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) {
-                            return Container(
-                              color: Colors.grey[800],
-                              child: const Icon(
-                                Icons.tv,
-                                color: Colors.grey,
-                                size: 40,
-                              ),
-                            );
-                          },
-                        )
-                      : Container(
-                          color: Colors.grey[800],
-                          child: const Icon(
-                            Icons.tv,
-                            color: Colors.grey,
-                            size: 40,
-                          ),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: show['poster_path'] != null
+                    ? Image.network(
+                        TmdbApiService.getPosterUrl(show['poster_path']),
+                        width: 80,
+                        height: 120,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) {
+                          return Container(
+                            width: 80,
+                            height: 120,
+                            color: Colors.grey[800],
+                            child: const Icon(
+                              Icons.tv,
+                              color: Colors.grey,
+                              size: 40,
+                            ),
+                          );
+                        },
+                      )
+                    : Container(
+                        width: 80,
+                        height: 120,
+                        color: Colors.grey[800],
+                        child: const Icon(
+                          Icons.tv,
+                          color: Colors.grey,
+                          size: 40,
                         ),
-                ),
+                      ),
               ),
-              const SizedBox(height: 8),
-              Text(
-                show['name'] ?? show['title'] ?? 'Unknown',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      show['name'] ?? show['title'] ?? 'Unknown',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _getYear(show),
+                      style: const TextStyle(color: Colors.grey, fontSize: 14),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      show['overview'] ?? '',
+                      style: const TextStyle(color: Colors.grey, fontSize: 12),
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
                 ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-              Text(
-                _getYear(show),
-                style: const TextStyle(color: Colors.grey, fontSize: 10),
               ),
             ],
           ),
@@ -553,28 +583,41 @@ class _ProviderContentScreenState extends State<ProviderContentScreen> {
       child: GridView.builder(
         padding: const EdgeInsets.all(16),
         gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 3,
+          crossAxisCount: 1,
           crossAxisSpacing: 12,
           mainAxisSpacing: 12,
-          childAspectRatio: 0.6,
+          childAspectRatio: 2.0,
         ),
         itemCount: 12,
         itemBuilder: (context, index) {
-          return Column(
+          return Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: Colors.grey[800],
-                    borderRadius: BorderRadius.circular(8),
-                  ),
+              Container(
+                width: 80,
+                height: 120,
+                decoration: BoxDecoration(
+                  color: Colors.grey[800],
+                  borderRadius: BorderRadius.circular(8),
                 ),
               ),
-              const SizedBox(height: 8),
-              Container(height: 12, color: Colors.grey[800]),
-              const SizedBox(height: 4),
-              Container(height: 10, width: 50, color: Colors.grey[800]),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(height: 16, color: Colors.grey[800]),
+                    const SizedBox(height: 4),
+                    Container(height: 14, width: 50, color: Colors.grey[800]),
+                    const SizedBox(height: 8),
+                    Container(height: 12, color: Colors.grey[800]),
+                    const SizedBox(height: 4),
+                    Container(height: 12, color: Colors.grey[800]),
+                    const SizedBox(height: 4),
+                    Container(height: 12, width: 100, color: Colors.grey[800]),
+                  ],
+                ),
+              ),
             ],
           );
         },

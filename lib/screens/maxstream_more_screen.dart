@@ -7,6 +7,7 @@ import '../screens/sign_in_screen.dart';
 import '../screens/profile_settings_screen.dart';
 import '../screens/watch_history_screen.dart';
 import '../screens/streaming_provider_settings_screen.dart';
+import '../screens/tv_pairing_screen.dart';
 import '../widgets/profile_avatar.dart';
 
 class MaxStreamMoreScreen extends StatefulWidget {
@@ -67,10 +68,7 @@ class _MaxStreamMoreScreenState extends State<MaxStreamMoreScreen> {
       padding: const EdgeInsets.all(20),
       child: Column(
         children: [
-          ProfileAvatar(
-            size: 80,
-            userService: _userService,
-          ),
+          ProfileAvatar(size: 80, userService: _userService),
           const SizedBox(height: 12),
           Text(
             _userName,
@@ -83,10 +81,7 @@ class _MaxStreamMoreScreenState extends State<MaxStreamMoreScreen> {
           if (_userEmail.isNotEmpty)
             Text(
               _userEmail,
-              style: const TextStyle(
-                color: Colors.grey,
-                fontSize: 14,
-              ),
+              style: const TextStyle(color: Colors.grey, fontSize: 14),
             ),
         ],
       ),
@@ -106,18 +101,22 @@ class _MaxStreamMoreScreenState extends State<MaxStreamMoreScreen> {
               PageRouteBuilder(
                 pageBuilder: (context, animation, secondaryAnimation) =>
                     const ProfileSettingsScreen(),
-                transitionsBuilder: (context, animation, secondaryAnimation, child) {
-                  return SlideTransition(
-                    position: Tween<Offset>(
-                      begin: const Offset(1.0, 0.0),
-                      end: Offset.zero,
-                    ).animate(CurvedAnimation(
-                      parent: animation,
-                      curve: Curves.fastOutSlowIn,
-                    )),
-                    child: child,
-                  );
-                },
+                transitionsBuilder:
+                    (context, animation, secondaryAnimation, child) {
+                      return SlideTransition(
+                        position:
+                            Tween<Offset>(
+                              begin: const Offset(1.0, 0.0),
+                              end: Offset.zero,
+                            ).animate(
+                              CurvedAnimation(
+                                parent: animation,
+                                curve: Curves.fastOutSlowIn,
+                              ),
+                            ),
+                        child: child,
+                      );
+                    },
                 transitionDuration: const Duration(milliseconds: 250),
               ),
             );
@@ -131,7 +130,9 @@ class _MaxStreamMoreScreenState extends State<MaxStreamMoreScreen> {
             if (!mounted) return;
             Navigator.push(
               context,
-              MaterialPageRoute(builder: (context) => const WatchHistoryScreen()),
+              MaterialPageRoute(
+                builder: (context) => const WatchHistoryScreen(),
+              ),
             );
           },
         ),
@@ -142,7 +143,40 @@ class _MaxStreamMoreScreenState extends State<MaxStreamMoreScreen> {
             if (!mounted) return;
             Navigator.push(
               context,
-              MaterialPageRoute(builder: (context) => const StreamingProviderSettingsScreen()),
+              MaterialPageRoute(
+                builder: (context) => const StreamingProviderSettingsScreen(),
+              ),
+            );
+          },
+        ),
+        _buildMenuItem(
+          icon: Icons.tv_outlined,
+          title: 'TV Pairing',
+          onTap: () {
+            if (!mounted) return;
+            Navigator.push(
+              context,
+              PageRouteBuilder(
+                pageBuilder: (context, animation, secondaryAnimation) =>
+                    const TVPairingScreen(),
+                transitionsBuilder:
+                    (context, animation, secondaryAnimation, child) {
+                      return SlideTransition(
+                        position:
+                            Tween<Offset>(
+                              begin: const Offset(1.0, 0.0),
+                              end: Offset.zero,
+                            ).animate(
+                              CurvedAnimation(
+                                parent: animation,
+                                curve: Curves.fastOutSlowIn,
+                              ),
+                            ),
+                        child: child,
+                      );
+                    },
+                transitionDuration: const Duration(milliseconds: 250),
+              ),
             );
           },
         ),
@@ -189,10 +223,7 @@ class _MaxStreamMoreScreenState extends State<MaxStreamMoreScreen> {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
       child: ListTile(
-        leading: Icon(
-          icon,
-          color: isDestructive ? Colors.red : Colors.white,
-        ),
+        leading: Icon(icon, color: isDestructive ? Colors.red : Colors.white),
         title: Text(
           title,
           style: TextStyle(
@@ -206,16 +237,13 @@ class _MaxStreamMoreScreenState extends State<MaxStreamMoreScreen> {
           size: 16,
         ),
         onTap: onTap,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         tileColor: Colors.transparent,
         hoverColor: Colors.white.withAlpha(12),
         splashColor: Colors.white.withAlpha(25),
       ),
     );
   }
-
 
   void _showHelpDialog() {
     showDialog(
@@ -287,10 +315,7 @@ class _MaxStreamMoreScreenState extends State<MaxStreamMoreScreen> {
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: const Color(0xFF1E1E1E),
-        title: const Text(
-          'Sign Out',
-          style: TextStyle(color: Colors.white),
-        ),
+        title: const Text('Sign Out', style: TextStyle(color: Colors.white)),
         content: const Text(
           'Are you sure you want to sign out?',
           style: TextStyle(color: Colors.white),
@@ -337,4 +362,3 @@ class _MaxStreamMoreScreenState extends State<MaxStreamMoreScreen> {
     }
   }
 }
-

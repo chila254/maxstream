@@ -17,7 +17,7 @@ class _TvLoginScreenState extends State<TvLoginScreen> {
   final _codeController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  
+
   bool _isLoading = false;
   bool _showPassword = false;
   int _selectedTab = 0; // 0: Code, 1: Password
@@ -133,26 +133,30 @@ class _TvLoginScreenState extends State<TvLoginScreen> {
 
     try {
       final code = _codeController.text.trim();
-      
+
       // Step 1: Validate device code
-      final userInfo = await DeviceCodeAuthService.authenticateWithDeviceCode(code);
+      final userInfo = await DeviceCodeAuthService.authenticateWithDeviceCode(
+        code,
+      );
       _showSuccess('Code validated!');
-      
+
       final email = userInfo['email'] ?? '';
-      
+
       // Step 2: Check if password is saved for this email
-      final hasSavedPassword = await SecurePasswordService.hasPasswordSaved(email);
-      
+      final hasSavedPassword = await SecurePasswordService.hasPasswordSaved(
+        email,
+      );
+
       // Step 3: Check if biometric is available for this device
       if (_biometricAvailable) {
         // Prompt for biometric authentication
         final biometricType = await BiometricService.getBiometricTypeString();
         final showBioPrompt = await _showBiometricPrompt(biometricType);
-        
+
         if (showBioPrompt) {
           // User wants to use biometric
           _codeController.clear();
-          
+
           // If password is saved, use passwordless flow
           if (hasSavedPassword) {
             _authenticateWithBiometricStoredPassword(code);
@@ -163,12 +167,11 @@ class _TvLoginScreenState extends State<TvLoginScreen> {
           return;
         }
       }
-      
+
       // Fallback: Show password login with pre-filled email
       _emailController.text = email;
       setState(() => _selectedTab = 1); // Switch to password tab
       _codeController.clear();
-      
     } catch (e) {
       _showError('Invalid code: $e');
     } finally {
@@ -220,7 +223,7 @@ class _TvLoginScreenState extends State<TvLoginScreen> {
         ],
       ),
     );
-    
+
     return result ?? false;
   }
 
@@ -268,7 +271,7 @@ class _TvLoginScreenState extends State<TvLoginScreen> {
         ],
       ),
     );
-    
+
     return result ?? false;
   }
 
@@ -289,11 +292,11 @@ class _TvLoginScreenState extends State<TvLoginScreen> {
 
       if (user != null) {
         _showSuccess('Signed in with biometric!');
-        
+
         // Prompt to save password for future passwordless logins
         final email = _emailController.text;
         final password = _passwordController.text;
-        
+
         if (mounted && email.isNotEmpty && password.isNotEmpty) {
           final shouldSave = await _showSavePasswordPrompt(email);
           if (shouldSave) {
@@ -303,11 +306,10 @@ class _TvLoginScreenState extends State<TvLoginScreen> {
             }
           }
         }
-        
+
         _clearFields();
-        if (mounted) {
-          Navigator.of(context).pushReplacementNamed('/tv_home');
-        }
+        // AuthGate will handle navigation based on auth state
+        if (mounted) Navigator.pop(context);
       } else {
         _showError('Biometric authentication failed');
       }
@@ -323,25 +325,28 @@ class _TvLoginScreenState extends State<TvLoginScreen> {
 
     try {
       // Authenticate using code + biometric + stored password (passwordless)
-      final user = await DeviceCodeAuthService
-          .authenticateWithCodeAndBiometricStoredPassword(code);
+      final user =
+          await DeviceCodeAuthService.authenticateWithCodeAndBiometricStoredPassword(
+            code,
+          );
 
       if (user != null) {
         _showSuccess('Auto-signed in!');
         _clearFields();
-        if (mounted) {
-          Navigator.of(context).pushReplacementNamed('/tv_home');
-        }
+        // AuthGate will handle navigation based on auth state
+        if (mounted) Navigator.pop(context);
       } else {
         _showError('Passwordless authentication failed');
       }
     } catch (e) {
       // If stored password fails, fall back to password entry
       _showError('$e');
-      
+
       // Show password login
       if (mounted) {
-        final userInfo = await DeviceCodeAuthService.authenticateWithDeviceCode(code);
+        final userInfo = await DeviceCodeAuthService.authenticateWithDeviceCode(
+          code,
+        );
         _emailController.text = userInfo['email'] ?? '';
         setState(() => _selectedTab = 1);
       }
@@ -370,7 +375,8 @@ class _TvLoginScreenState extends State<TvLoginScreen> {
         _emailController.text.trim(),
         _passwordController.text,
       );
-      if (mounted) Navigator.of(context).pushReplacementNamed('/tv_home');
+      // AuthGate will handle navigation based on auth state
+      if (mounted) Navigator.pop(context);
     } catch (e) {
       _showError('Login failed: $e');
     } finally {
@@ -380,19 +386,13 @@ class _TvLoginScreenState extends State<TvLoginScreen> {
 
   void _showError(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.red,
-      ),
+      SnackBar(content: Text(message), backgroundColor: Colors.red),
     );
   }
 
   void _showSuccess(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.green,
-      ),
+      SnackBar(content: Text(message), backgroundColor: Colors.green),
     );
   }
 
@@ -403,85 +403,94 @@ class _TvLoginScreenState extends State<TvLoginScreen> {
       onKey: _handleKeyEvent,
       child: Scaffold(
         backgroundColor: Colors.black,
-        body: SingleChildScrollView(
-          child: Center(
-            child: Padding(
-              padding: EdgeInsets.all(
-                TvUtils.responsivePadding(48, context),
+        body: Container(
+          decoration: BoxDecoration(
+            image: DecorationImage(
+              image: const AssetImage('assets/images/background.jpg'),
+              fit: BoxFit.cover,
+              colorFilter: ColorFilter.mode(
+                Colors.black.withAlpha(180),
+                BlendMode.darken,
               ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  // Left side: Branding
-                  Expanded(
-                    flex: 1,
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          'MaxStream',
-                          style: TextStyle(
-                            fontSize: TvUtils.responsiveFontSize(56, context),
-                            fontWeight: FontWeight.bold,
-                            color: const Color(0xFFE50914),
-                          ),
-                        ),
-                        SizedBox(
-                          height: TvUtils.responsivePadding(24, context),
-                        ),
-                        Text(
-                          'Watch Anywhere',
-                          style: TextStyle(
-                            fontSize: TvUtils.responsiveFontSize(28, context),
-                            color: Colors.grey,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  SizedBox(width: TvUtils.responsivePadding(64, context)),
-
-                  // Right side: Login form
-                  Expanded(
-                    flex: 1,
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        // Tab selection with keyboard focus
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            _buildTabButton('Sign in with Code', 0),
-                            SizedBox(
-                              width:
-                                  TvUtils.responsivePadding(32, context),
+            ),
+          ),
+          child: SingleChildScrollView(
+            child: Center(
+              child: Padding(
+                padding: EdgeInsets.all(TvUtils.responsivePadding(48, context)),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    // Left side: Branding
+                    Expanded(
+                      flex: 1,
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            'MaxStream',
+                            style: TextStyle(
+                              fontSize: TvUtils.responsiveFontSize(56, context),
+                              fontWeight: FontWeight.bold,
+                              color: const Color(0xFFE50914),
                             ),
-                            _buildTabButton('Sign in with Password', 1),
-                          ],
-                        ),
-                        SizedBox(
-                          height: TvUtils.responsivePadding(48, context),
-                        ),
-
-                        // Content based on selected tab
-                        SizedBox(
-                          width: TvUtils.getOptimalContentWidth(context),
-                          child: _selectedTab == 0
-                              ? _buildCodeLoginForm()
-                              : _buildPasswordLoginForm(),
-                        ),
-
-                        SizedBox(
-                          height: TvUtils.responsivePadding(32, context),
-                        ),
-
-                        // Navigation hints
-                        _buildNavigationHints(),
-                      ],
+                          ),
+                          SizedBox(
+                            height: TvUtils.responsivePadding(24, context),
+                          ),
+                          Text(
+                            'Watch Anywhere',
+                            style: TextStyle(
+                              fontSize: TvUtils.responsiveFontSize(28, context),
+                              color: Colors.grey,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+
+                    SizedBox(width: TvUtils.responsivePadding(64, context)),
+
+                    // Right side: Login form
+                    Expanded(
+                      flex: 1,
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          // Tab selection with keyboard focus
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              _buildTabButton('Sign in with Code', 0),
+                              SizedBox(
+                                width: TvUtils.responsivePadding(32, context),
+                              ),
+                              _buildTabButton('Sign in with Password', 1),
+                            ],
+                          ),
+                          SizedBox(
+                            height: TvUtils.responsivePadding(48, context),
+                          ),
+
+                          // Content based on selected tab
+                          SizedBox(
+                            width: TvUtils.getOptimalContentWidth(context),
+                            child: _selectedTab == 0
+                                ? _buildCodeLoginForm()
+                                : _buildPasswordLoginForm(),
+                          ),
+
+                          SizedBox(
+                            height: TvUtils.responsivePadding(32, context),
+                          ),
+
+                          // Navigation hints
+                          _buildNavigationHints(),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -498,10 +507,7 @@ class _TvLoginScreenState extends State<TvLoginScreen> {
     return Container(
       decoration: BoxDecoration(
         border: isFocused && isSelected
-            ? Border.all(
-                color: Colors.white,
-                width: 4,
-              )
+            ? Border.all(color: Colors.white, width: 4)
             : null,
       ),
       child: Material(
@@ -517,9 +523,7 @@ class _TvLoginScreenState extends State<TvLoginScreen> {
               color: isSelected ? const Color(0xFFE50914) : Colors.transparent,
               border: Border(
                 bottom: BorderSide(
-                  color: isSelected
-                      ? const Color(0xFFE50914)
-                      : Colors.grey,
+                  color: isSelected ? const Color(0xFFE50914) : Colors.grey,
                   width: 3,
                 ),
               ),
@@ -528,8 +532,7 @@ class _TvLoginScreenState extends State<TvLoginScreen> {
               label,
               style: TextStyle(
                 color: Colors.white,
-                fontSize:
-                    TvUtils.responsiveFontSize(20, context, maxSize: 40),
+                fontSize: TvUtils.responsiveFontSize(20, context, maxSize: 40),
                 fontWeight: FontWeight.bold,
               ),
             ),
@@ -576,8 +579,7 @@ class _TvLoginScreenState extends State<TvLoginScreen> {
               hintText: '------',
               hintStyle: TextStyle(
                 color: Colors.grey,
-                fontSize:
-                    TvUtils.responsiveFontSize(32, context, maxSize: 64),
+                fontSize: TvUtils.responsiveFontSize(32, context, maxSize: 64),
               ),
               filled: true,
               fillColor: const Color(0xFF2A2A2A),
@@ -628,21 +630,38 @@ class _TvLoginScreenState extends State<TvLoginScreen> {
                       width: 20,
                       child: CircularProgressIndicator(
                         strokeWidth: 3,
-                        valueColor:
-                            AlwaysStoppedAnimation<Color>(Colors.white),
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                       ),
                     )
-                  : Text(
-                      'Sign In',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: TvUtils.responsiveFontSize(
-                          24,
-                          context,
-                          maxSize: 48,
+                  : Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          'Sign In',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: TvUtils.responsiveFontSize(
+                              24,
+                              context,
+                              maxSize: 48,
+                            ),
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
-                        fontWeight: FontWeight.bold,
-                      ),
+                        SizedBox(height: TvUtils.responsivePadding(4, context)),
+                        Text(
+                          'button login',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: TvUtils.responsiveFontSize(
+                              12,
+                              context,
+                              maxSize: 18,
+                            ),
+                            fontWeight: FontWeight.normal,
+                          ),
+                        ),
+                      ],
                     ),
             ),
           ),
@@ -684,6 +703,8 @@ class _TvLoginScreenState extends State<TvLoginScreen> {
           onKey: (node, event) {
             if (event.isKeyPressed(LogicalKeyboardKey.arrowDown)) {
               setState(() => _focusedField = 2);
+            } else if (event.isKeyPressed(LogicalKeyboardKey.arrowUp)) {
+              setState(() => _focusedField = 1);
             }
             return KeyEventResult.handled;
           },
@@ -696,14 +717,17 @@ class _TvLoginScreenState extends State<TvLoginScreen> {
                 color: Colors.white,
                 fontSize: TvUtils.responsiveFontSize(20, context, maxSize: 32),
               ),
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(
+                  RegExp(r'[a-zA-Z0-9@#$%&\-_.*+!~`|\\()[\]{}";:,.<>?/]'),
+                ),
+              ],
               decoration: TvInputDecoration.getLargeInput(
                 context,
                 hintText: 'Password',
                 suffixIcon: IconButton(
                   icon: Icon(
-                    _showPassword
-                        ? Icons.visibility
-                        : Icons.visibility_off,
+                    _showPassword ? Icons.visibility : Icons.visibility_off,
                     color: Colors.grey,
                     size: TvUtils.responsiveFontSize(24, context, maxSize: 48),
                   ),
@@ -736,21 +760,38 @@ class _TvLoginScreenState extends State<TvLoginScreen> {
                       width: 20,
                       child: CircularProgressIndicator(
                         strokeWidth: 3,
-                        valueColor:
-                            AlwaysStoppedAnimation<Color>(Colors.white),
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                       ),
                     )
-                  : Text(
-                      'Sign In',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: TvUtils.responsiveFontSize(
-                          24,
-                          context,
-                          maxSize: 48,
+                  : Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          'Sign In',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: TvUtils.responsiveFontSize(
+                              24,
+                              context,
+                              maxSize: 48,
+                            ),
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
-                        fontWeight: FontWeight.bold,
-                      ),
+                        SizedBox(height: TvUtils.responsivePadding(4, context)),
+                        Text(
+                          'button login',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: TvUtils.responsiveFontSize(
+                              12,
+                              context,
+                              maxSize: 18,
+                            ),
+                            fontWeight: FontWeight.normal,
+                          ),
+                        ),
+                      ],
                     ),
             ),
           ),

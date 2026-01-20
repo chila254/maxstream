@@ -61,6 +61,16 @@ class TvUtils {
     return (64 * scale).clamp(48, 200);
   }
 
+  /// Responsive width
+  static double responsiveWidth(
+    double baseWidth,
+    BuildContext context, {
+    double maxWidth = 500,
+  }) {
+    final scale = getScaleFactor(context);
+    return (baseWidth * scale).clamp(0, maxWidth);
+  }
+
   /// Responsive input height
   static double responsiveInputHeight(BuildContext context) {
     final scale = getScaleFactor(context);
