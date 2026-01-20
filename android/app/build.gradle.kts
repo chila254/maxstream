@@ -41,18 +41,6 @@ android {
         versionName = "1.1.0"
     }
 
-    flavorDimensions += "device"
-    productFlavors {
-        create("phone") {
-            dimension = "device"
-            applicationIdSuffix = ".phone"
-        }
-        create("tv") {
-            dimension = "device"
-            applicationIdSuffix = ".tv"
-        }
-    }
-
     signingConfigs {
         create("release") {
             if (keystoreProperties.isNotEmpty()) {
@@ -73,24 +61,6 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-        }
-    }
-
-    applicationVariants.all {
-        outputs.all {
-            if (this is com.android.build.gradle.internal.tasks.ApkVariantOutputImpl) {
-                val flavor = flavorName
-                val buildType = buildType.name
-                val versionName = versionName
-                
-                outputFileName = when {
-                    flavor.contains("phone") && buildType == "release" -> "release_phone_apk_v${versionName}.apk"
-                    flavor.contains("tv") && buildType == "release" -> "release_tv_apk_v${versionName}.apk"
-                    flavor.contains("phone") && buildType == "debug" -> "debug_phone_apk_v${versionName}.apk"
-                    flavor.contains("tv") && buildType == "debug" -> "debug_tv_apk_v${versionName}.apk"
-                    else -> "maxstream_v${versionName}.apk"
-                }
-            }
         }
     }
 }

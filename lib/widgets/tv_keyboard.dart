@@ -45,18 +45,7 @@ class _TvKeyboardState extends State<TvKeyboard> {
       ];
     } else {
       _keyboardLayout = [
-        [
-          'Q',
-          'W',
-          'E',
-          'R',
-          'T',
-          'Y',
-          'U',
-          'I',
-          'O',
-          'P',
-        ],
+        ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'],
         ['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L'],
         ['Z', 'X', 'C', 'V', 'B', 'N', 'M'],
         ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'],
@@ -84,13 +73,17 @@ class _TvKeyboardState extends State<TvKeyboard> {
       });
     } else if (event.isKeyPressed(LogicalKeyboardKey.arrowLeft)) {
       setState(() {
-        _selectedCol =
-            (_selectedCol - 1).clamp(0, _keyboardLayout[_selectedRow].length - 1);
+        _selectedCol = (_selectedCol - 1).clamp(
+          0,
+          _keyboardLayout[_selectedRow].length - 1,
+        );
       });
     } else if (event.isKeyPressed(LogicalKeyboardKey.arrowRight)) {
       setState(() {
-        _selectedCol =
-            (_selectedCol + 1).clamp(0, _keyboardLayout[_selectedRow].length - 1);
+        _selectedCol = (_selectedCol + 1).clamp(
+          0,
+          _keyboardLayout[_selectedRow].length - 1,
+        );
       });
     } else if (event.isKeyPressed(LogicalKeyboardKey.select) ||
         event.isKeyPressed(LogicalKeyboardKey.enter)) {
@@ -154,10 +147,7 @@ class _TvKeyboardState extends State<TvKeyboard> {
               borderRadius: BorderRadius.circular(
                 TvUtils.responsivePadding(12, context),
               ),
-              border: Border.all(
-                color: Colors.grey,
-                width: 2,
-              ),
+              border: Border.all(color: Colors.grey, width: 2),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -186,7 +176,11 @@ class _TvKeyboardState extends State<TvKeyboard> {
                     child: Icon(
                       Icons.clear,
                       color: Colors.red,
-                      size: TvUtils.responsiveFontSize(24, context, maxSize: 40),
+                      size: TvUtils.responsiveFontSize(
+                        24,
+                        context,
+                        maxSize: 40,
+                      ),
                     ),
                   ),
               ],
@@ -195,39 +189,28 @@ class _TvKeyboardState extends State<TvKeyboard> {
           SizedBox(height: TvUtils.responsivePadding(24, context)),
 
           // Keyboard
-          Container(
-            padding: EdgeInsets.all(TvUtils.responsivePadding(16, context)),
-            decoration: BoxDecoration(
-              color: const Color(0xFF1A1A1A),
-              borderRadius: BorderRadius.circular(
-                TvUtils.responsivePadding(12, context),
-              ),
-              border: Border.all(
-                color: Colors.grey[800]!,
-                width: 1,
-              ),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                for (int row = 0; row < _keyboardLayout.length; row++)
-                  Padding(
-                    padding: EdgeInsets.only(
-                      bottom: row < _keyboardLayout.length - 1
-                          ? TvUtils.responsivePadding(8, context)
-                          : 0,
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        for (int col = 0;
-                            col < _keyboardLayout[row].length;
-                            col++)
-                          Padding(
-                            padding: EdgeInsets.only(
-                              right: col < _keyboardLayout[row].length - 1
-                                  ? TvUtils.responsivePadding(8, context)
-                                  : 0,
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (int row = 0; row < _keyboardLayout.length; row++)
+                Padding(
+                  padding: EdgeInsets.only(
+                    bottom: row < _keyboardLayout.length - 1
+                        ? TvUtils.responsivePadding(12, context)
+                        : 0,
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      for (
+                        int col = 0;
+                        col < _keyboardLayout[row].length;
+                        col++
+                      )
+                        Expanded(
+                          child: Padding(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: TvUtils.responsivePadding(4, context),
                             ),
                             child: _buildKey(
                               _keyboardLayout[row][col],
@@ -235,27 +218,24 @@ class _TvKeyboardState extends State<TvKeyboard> {
                               col,
                             ),
                           ),
-                      ],
-                    ),
-                  ),
-
-                // Status row
-                SizedBox(height: TvUtils.responsivePadding(16, context)),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    if (!_isSymbols) ...[
-                      _buildStatus('CAPS', _capsLock),
-                      SizedBox(width: TvUtils.responsivePadding(16, context)),
+                        ),
                     ],
-                    _buildStatus(
-                      _isSymbols ? 'ABC' : 'SYM',
-                      _isSymbols,
-                    ),
-                  ],
+                  ),
                 ),
-              ],
-            ),
+
+              // Status row
+              SizedBox(height: TvUtils.responsivePadding(16, context)),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  if (!_isSymbols) ...[
+                    _buildStatus('CAPS', _capsLock),
+                    SizedBox(width: TvUtils.responsivePadding(16, context)),
+                  ],
+                  _buildStatus(_isSymbols ? 'ABC' : 'SYM', _isSymbols),
+                ],
+              ),
+            ],
           ),
         ],
       ),
@@ -271,40 +251,23 @@ class _TvKeyboardState extends State<TvKeyboard> {
       'SYM',
       'ABC',
       'CAPS',
-      'DONE'
+      'DONE',
     ].contains(key);
-
-    double keyWidth;
-    if (key == 'SPACE') {
-      keyWidth = 150 * TvUtils.getScaleFactor(context);
-    } else if (key == 'BACKSPACE' ||
-        key == 'CLEAR' ||
-        key == 'SYM' ||
-        key == 'ABC' ||
-        key == 'CAPS' ||
-        key == 'DONE') {
-      keyWidth = 90 * TvUtils.getScaleFactor(context);
-    } else {
-      keyWidth = 60 * TvUtils.getScaleFactor(context);
-    }
-
-    keyWidth = keyWidth.clamp(40, 200);
 
     return GestureDetector(
       onTap: () => _pressKey(key),
       child: Container(
-        width: keyWidth,
-        height: TvUtils.responsiveButtonHeight(context) * 0.6,
+        height: TvUtils.responsiveButtonHeight(context) * 0.5,
         decoration: BoxDecoration(
           color: isFocused
               ? const Color(0xFFE50914)
               : (isSpecial ? Colors.grey[700] : Colors.grey[800]),
           border: Border.all(
             color: isFocused ? Colors.white : Colors.transparent,
-            width: isFocused ? 3 : 0,
+            width: isFocused ? 2 : 1,
           ),
           borderRadius: BorderRadius.circular(
-            TvUtils.responsivePadding(8, context),
+            TvUtils.responsivePadding(6, context),
           ),
         ),
         child: Center(
@@ -312,14 +275,12 @@ class _TvKeyboardState extends State<TvKeyboard> {
             key,
             style: TextStyle(
               color: isFocused ? Colors.white : Colors.white70,
-              fontSize: TvUtils.responsiveFontSize(
-                14,
-                context,
-                maxSize: 28,
-              ),
+              fontSize: TvUtils.responsiveFontSize(12, context, maxSize: 20),
               fontWeight: isFocused ? FontWeight.bold : FontWeight.normal,
             ),
             textAlign: TextAlign.center,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
         ),
       ),
@@ -342,11 +303,7 @@ class _TvKeyboardState extends State<TvKeyboard> {
         label,
         style: TextStyle(
           color: Colors.white,
-          fontSize: TvUtils.responsiveFontSize(
-            12,
-            context,
-            maxSize: 18,
-          ),
+          fontSize: TvUtils.responsiveFontSize(12, context, maxSize: 18),
           fontWeight: FontWeight.bold,
         ),
       ),

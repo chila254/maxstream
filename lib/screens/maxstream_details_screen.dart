@@ -28,16 +28,19 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
   Map<String, dynamic>? details;
   List<Map<String, dynamic>> cast = [];
   List<Map<String, dynamic>> recommendations = [];
+  late ScrollController _scrollController;
 
   @override
   void initState() {
     super.initState();
+    _scrollController = ScrollController();
     _loadDetails();
   }
 
   @override
   void dispose() {
     _youtubeController?.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -178,6 +181,7 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
         body: isLoading
             ? buildLoadingShimmer()
             : CustomScrollView(
+                controller: _scrollController,
                 physics: const BouncingScrollPhysics(),
                 slivers: [
                   buildSliverAppBar(),
@@ -281,96 +285,127 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
               bottom: 16,
               left: 16,
               right: 16,
-              child: Row(
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: posterPath != null
-                        ? Image.network(
-                            TmdbApiService.getPosterUrl(posterPath),
-                            width: 100,
-                            height: 150,
-                            fit: BoxFit.cover,
-                          )
-                        : Container(
-                            width: 100,
-                            height: 150,
-                            color: Colors.grey[800],
-                            child: const Icon(Icons.movie),
-                          ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          details?['title'] ??
-                              details?['name'] ??
-                              widget.item.title,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        if (details?['release_date'] != null ||
-                            details?['first_air_date'] != null)
+              child: SingleChildScrollView(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Container(
+                        color: Colors.grey[800],
+                        child: posterPath != null
+                            ? Image.network(
+                                TmdbApiService.getPosterUrl(posterPath),
+                                width: 110,
+                                height: 165,
+                                fit: BoxFit.cover,
+                                errorBuilder: (context, error, stackTrace) =>
+                                    Container(
+                                      width: 110,
+                                      height: 165,
+                                      color: Colors.grey[800],
+                                      child: const Icon(Icons.movie, size: 40),
+                                    ),
+                              )
+                            : Container(
+                                width: 110,
+                                height: 165,
+                                color: Colors.grey[800],
+                                child: const Icon(Icons.movie, size: 40),
+                              ),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
                           Text(
-                            getYear(),
+                            details?['title'] ??
+                                details?['name'] ??
+                                widget.item.title,
                             style: const TextStyle(
-                              color: Colors.grey,
-                              fontSize: 16,
+                              color: Colors.white,
+                              fontSize: 22,
+                              fontWeight: FontWeight.bold,
                             ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
                           ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Icon(Icons.star, color: Colors.amber, size: 20),
-                            const SizedBox(width: 4),
+                          const SizedBox(height: 4),
+                          if (details?['release_date'] != null ||
+                              details?['first_air_date'] != null)
                             Text(
-                              '${details?['vote_average']?.toStringAsFixed(1) ?? 'N/A'}',
-                              style: const TextStyle(color: Colors.white),
-                            ),
-                            const SizedBox(width: 16),
-                            IconButton(
-                              onPressed: _toggleWatchlist,
-                              icon: Icon(
-                                isSaved
-                                    ? Icons.bookmark
-                                    : Icons.bookmark_border,
-                                color: isSaved ? Colors.red : Colors.white,
+                              getYear(),
+                              style: const TextStyle(
+                                color: Colors.grey,
+                                fontSize: 14,
                               ),
                             ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        // Watch Now button with modern player
-                        SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton.icon(
-                            onPressed: () => playContent(),
-                            icon: const Icon(
-                              Icons.play_arrow,
-                              color: Colors.white,
-                            ),
-                            label: const Text(
-                              'Watch Now',
-                              style: TextStyle(color: Colors.white),
-                            ),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.red,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(vertical: 12),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Icon(Icons.star, color: Colors.amber, size: 20),
+                              const SizedBox(width: 4),
+                              Text(
+                                '${details?['vote_average']?.toStringAsFixed(1) ?? 'N/A'}/10',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 14,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              SizedBox(
+                                width: 32,
+                                height: 32,
+                                child: IconButton(
+                                  padding: EdgeInsets.zero,
+                                  onPressed: _toggleWatchlist,
+                                  icon: Icon(
+                                    isSaved
+                                        ? Icons.bookmark_rounded
+                                        : Icons.bookmark_border_rounded,
+                                    color: isSaved ? Colors.red : Colors.white,
+                                    size: 20,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          // Watch Now button
+                          SizedBox(
+                            width: double.infinity,
+                            height: 40,
+                            child: ElevatedButton.icon(
+                              onPressed: () => playContent(),
+                              icon: const Icon(
+                                Icons.play_arrow,
+                                color: Colors.white,
+                                size: 18,
+                              ),
+                              label: const Text(
+                                'Play',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 14,
+                                ),
+                              ),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.red,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 8,
+                                ),
+                              ),
                             ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ],
@@ -450,6 +485,14 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
     final genres = (details?['genres'] as List<dynamic>?)
         ?.map((g) => g['name'].toString())
         .join(', ');
+    final productionCompanies =
+        (details?['production_companies'] as List<dynamic>?)
+            ?.map((c) => c['name'].toString())
+            .join(', ');
+    final productionCountries =
+        (details?['production_countries'] as List<dynamic>?)
+            ?.map((c) => c['name'].toString())
+            .join(', ');
 
     return Column(
       children: [
@@ -461,6 +504,10 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
           'Language',
           details?['original_language']?.toUpperCase() ?? 'N/A',
         ),
+        if (productionCompanies != null && productionCompanies.isNotEmpty)
+          buildInfoRow('Production', productionCompanies),
+        if (productionCountries != null && productionCountries.isNotEmpty)
+          buildInfoRow('Country', productionCountries),
         buildInfoRow('Status', details?['status'] ?? 'Unknown'),
         const SizedBox(height: 24),
         buildWatchProvidersSection(),

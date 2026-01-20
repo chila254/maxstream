@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../utils/tv_utils.dart';
+import '../../utils/tv_dpad_navigation_mixin.dart';
+import '../../widgets/tv_focus_widget.dart';
 import 'tv_home_screen.dart';
 import 'tv_search_screen.dart';
 import 'tv_genre_screen.dart';
@@ -14,7 +16,7 @@ class TvMainScreen extends StatefulWidget {
   State<TvMainScreen> createState() => _TvMainScreenState();
 }
 
-class _TvMainScreenState extends State<TvMainScreen> {
+class _TvMainScreenState extends State<TvMainScreen> with TvDpadNavigationMixin {
   int _currentIndex = 0;
 
   // Screens corresponding to phone app structure
@@ -51,9 +53,42 @@ class _TvMainScreenState extends State<TvMainScreen> {
     ];
   }
 
+  // D-Pad Navigation Implementation
+  @override
+  int get maxFocusIndex => _titles.length - 1; // Home, Search, Genres, Series, Watchlist, More
+
+  @override
+  void onFocusChanged(int index) {
+    setState(() => _currentIndex = index);
+  }
+
+  @override
+  void onSelectPressed() {
+    // Screen changes are handled by onFocusChanged
+  }
+
+  @override
+  void onLeftPressed() {
+    // Navigate left in sidebar
+    if (_currentIndex > 0) {
+      setFocusIndex(_currentIndex - 1);
+    }
+  }
+
+  @override
+  void onRightPressed() {
+    // Navigate right in sidebar
+    if (_currentIndex < maxFocusIndex) {
+      setFocusIndex(_currentIndex + 1);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return WillPopScope(
+    return RawKeyboardListener(
+      onKey: handleKeyEvent,
+      focusNode: focusNode,
+      child: WillPopScope(
       onWillPop: () async {
         if (_currentIndex != 0) {
           setState(() {
@@ -81,6 +116,7 @@ class _TvMainScreenState extends State<TvMainScreen> {
             ),
           ],
         ),
+      ),
       ),
     );
   }
@@ -143,19 +179,21 @@ class _TvMainScreenState extends State<TvMainScreen> {
     final iconSize = TvUtils.responsiveFontSize(24, context, maxSize: 36);
     final padding = TvUtils.responsivePadding(10, context);
 
-    return Padding(
-      padding: EdgeInsets.symmetric(
-        horizontal: TvUtils.responsivePadding(6, context),
-        vertical: TvUtils.responsivePadding(6, context),
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: () {
-            setState(() {
-              _currentIndex = index;
-            });
-          },
+    return TvFocusButton(
+      isFocused: isSelected,
+      borderRadius: BorderRadius.circular(10),
+      onTap: () {
+        setState(() {
+          _currentIndex = index;
+        });
+      },
+      child: Padding(
+        padding: EdgeInsets.symmetric(
+          horizontal: TvUtils.responsivePadding(6, context),
+          vertical: TvUtils.responsivePadding(6, context),
+        ),
+        child: Material(
+          color: Colors.transparent,
           child: Container(
             padding: EdgeInsets.all(padding),
             decoration: BoxDecoration(
@@ -188,10 +226,10 @@ class _TvMainScreenState extends State<TvMainScreen> {
                   overflow: TextOverflow.ellipsis,
                 ),
               ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
+              ),
+              ),
+              ),
+              ),
+              );
+              }
+              }

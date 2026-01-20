@@ -5,6 +5,7 @@ import '../../services/auth_service.dart';
 import '../../services/biometric_service.dart';
 import '../../services/secure_password_service.dart';
 import '../../utils/tv_utils.dart';
+import 'tv_main_screen.dart';
 
 class TvLoginScreen extends StatefulWidget {
   const TvLoginScreen({super.key});
@@ -375,8 +376,12 @@ class _TvLoginScreenState extends State<TvLoginScreen> {
         _emailController.text.trim(),
         _passwordController.text,
       );
-      // AuthGate will handle navigation based on auth state
-      if (mounted) Navigator.pop(context);
+      // Navigate to TV main screen after successful authentication
+      if (mounted) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (context) => const TvMainScreen()),
+        );
+      }
     } catch (e) {
       _showError('Login failed: $e');
     } finally {
@@ -417,43 +422,72 @@ class _TvLoginScreenState extends State<TvLoginScreen> {
           child: SingleChildScrollView(
             child: Center(
               child: Padding(
-                padding: EdgeInsets.all(TvUtils.responsivePadding(48, context)),
-                child: Row(
+                padding: EdgeInsets.all(TvUtils.responsivePadding(24, context)),
+                child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    // Left side: Branding
-                    Expanded(
-                      flex: 1,
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(
-                            'MaxStream',
-                            style: TextStyle(
-                              fontSize: TvUtils.responsiveFontSize(56, context),
-                              fontWeight: FontWeight.bold,
-                              color: const Color(0xFFE50914),
-                            ),
+                    // Top: Branding with Netflix-style effect
+                    Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        // Glow effect layer
+                        Text(
+                          'MaxStream',
+                          style: TextStyle(
+                            fontSize: TvUtils.responsiveFontSize(56, context),
+                            fontWeight: FontWeight.bold,
+                            color: const Color(
+                              0xFFE50914,
+                            ).withValues(alpha: 0.3),
+                            shadows: [
+                              Shadow(
+                                offset: const Offset(0, 0),
+                                blurRadius: 40,
+                                color: const Color(
+                                  0xFFE50914,
+                                ).withValues(alpha: 0.6),
+                              ),
+                              Shadow(
+                                offset: const Offset(0, 0),
+                                blurRadius: 20,
+                                color: const Color(
+                                  0xFFE50914,
+                                ).withValues(alpha: 0.4),
+                              ),
+                            ],
                           ),
-                          SizedBox(
-                            height: TvUtils.responsivePadding(24, context),
+                        ),
+                        // Main text
+                        Text(
+                          'MaxStream',
+                          style: TextStyle(
+                            fontSize: TvUtils.responsiveFontSize(56, context),
+                            fontWeight: FontWeight.bold,
+                            color: const Color(0xFFE50914),
+                            shadows: [
+                              Shadow(
+                                offset: const Offset(2, 2),
+                                blurRadius: 10,
+                                color: Colors.black.withValues(alpha: 0.8),
+                              ),
+                            ],
                           ),
-                          Text(
-                            'Watch Anywhere',
-                            style: TextStyle(
-                              fontSize: TvUtils.responsiveFontSize(28, context),
-                              color: Colors.grey,
-                            ),
-                          ),
-                        ],
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: TvUtils.responsivePadding(8, context)),
+                    Text(
+                      'Watch Anywhere',
+                      style: TextStyle(
+                        fontSize: TvUtils.responsiveFontSize(28, context),
+                        color: Colors.grey,
                       ),
                     ),
+                    SizedBox(height: TvUtils.responsivePadding(32, context)),
 
-                    SizedBox(width: TvUtils.responsivePadding(64, context)),
-
-                    // Right side: Login form
-                    Expanded(
-                      flex: 1,
+                    // Login form
+                    SizedBox(
+                      width: TvUtils.getOptimalContentWidth(context),
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
@@ -469,7 +503,7 @@ class _TvLoginScreenState extends State<TvLoginScreen> {
                             ],
                           ),
                           SizedBox(
-                            height: TvUtils.responsivePadding(48, context),
+                            height: TvUtils.responsivePadding(24, context),
                           ),
 
                           // Content based on selected tab
@@ -481,7 +515,7 @@ class _TvLoginScreenState extends State<TvLoginScreen> {
                           ),
 
                           SizedBox(
-                            height: TvUtils.responsivePadding(32, context),
+                            height: TvUtils.responsivePadding(16, context),
                           ),
 
                           // Navigation hints

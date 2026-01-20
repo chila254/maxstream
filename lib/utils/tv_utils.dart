@@ -102,6 +102,7 @@ class TvButtonStyle {
 
     return ElevatedButton.styleFrom(
       backgroundColor: const Color(0xFFE50914),
+      foregroundColor: Colors.white,
       padding: EdgeInsets.symmetric(vertical: buttonHeight / 2),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(

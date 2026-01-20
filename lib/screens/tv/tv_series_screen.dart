@@ -29,10 +29,12 @@ class _TvSeriesScreenState extends State<TvSeriesScreen> {
   String? trailerUrl;
   List<Map<String, dynamic>> cast = [];
   List<Map<String, dynamic>> recommendations = [];
+  late ScrollController _scrollController;
 
   @override
   void initState() {
     super.initState();
+    _scrollController = ScrollController();
     _loadSeriesDetails();
     _checkWatchlistStatus();
   }
@@ -40,6 +42,7 @@ class _TvSeriesScreenState extends State<TvSeriesScreen> {
   @override
   void dispose() {
     _youtubeController?.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -223,6 +226,7 @@ class _TvSeriesScreenState extends State<TvSeriesScreen> {
         body: isLoading
             ? _buildLoadingShimmer()
             : CustomScrollView(
+                controller: _scrollController,
                 slivers: [
                   _buildSliverAppBar(),
                   SliverToBoxAdapter(
@@ -230,10 +234,20 @@ class _TvSeriesScreenState extends State<TvSeriesScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         _buildDetailsSection(),
-                        if (cast.isNotEmpty) _buildCastSection(),
+                        if (_youtubeController != null) ...[
+                          const SizedBox(height: 24),
+                          _buildTrailerSection(),
+                        ],
+                        const SizedBox(height: 24),
                         _buildEpisodesSection(),
-                        if (recommendations.isNotEmpty)
+                        if (cast.isNotEmpty) ...[
+                          const SizedBox(height: 24),
+                          _buildCastSection(),
+                        ],
+                        if (recommendations.isNotEmpty) ...[
+                          const SizedBox(height: 24),
                           _buildRecommendationsSection(),
+                        ],
                         const SizedBox(height: 40),
                       ],
                     ),
@@ -251,7 +265,7 @@ class _TvSeriesScreenState extends State<TvSeriesScreen> {
       child: CustomScrollView(
         slivers: [
           SliverAppBar(
-            expandedHeight: 300,
+            expandedHeight: 550,
             flexibleSpace: Container(color: Colors.grey[800]),
           ),
           SliverToBoxAdapter(
@@ -281,10 +295,17 @@ class _TvSeriesScreenState extends State<TvSeriesScreen> {
   }
 
   Widget _buildSliverAppBar() {
-    final backdropPath = seriesDetails?['backdrop_path'] ?? widget.seriesItem.backdropPath;
+    final backdropPath =
+        seriesDetails?['backdrop_path'] ?? widget.seriesItem.backdropPath;
+    final rating = seriesDetails?['vote_average']?.toStringAsFixed(1) ?? 'N/A';
+    final year = getYear();
+    final genres = widget.seriesItem.genres.join(', ');
+    final country = widget.seriesItem.country;
+    final overview =
+        seriesDetails?['overview'] ?? widget.seriesItem.description;
 
     return SliverAppBar(
-      expandedHeight: 400,
+      expandedHeight: 550,
       pinned: true,
       backgroundColor: const Color(0xFF1A1A1A),
       scrolledUnderElevation: 0,
@@ -296,6 +317,8 @@ class _TvSeriesScreenState extends State<TvSeriesScreen> {
               Image.network(
                 'https://image.tmdb.org/t/p/w1280$backdropPath',
                 fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) =>
+                    Container(color: Colors.grey[800]),
               )
             else
               Container(color: Colors.grey[800]),
@@ -304,11 +327,151 @@ class _TvSeriesScreenState extends State<TvSeriesScreen> {
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.transparent,
-                    Colors.black.withOpacity(0.8),
-                  ],
+                  colors: [Colors.transparent, Colors.black.withOpacity(0.9)],
                 ),
+              ),
+            ),
+            Positioned(
+              bottom: TvUtils.responsivePadding(20, context),
+              left: TvUtils.responsivePadding(20, context),
+              right: TvUtils.responsivePadding(20, context),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Title
+                  Text(
+                    widget.seriesItem.title,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: TvUtils.responsiveFontSize(
+                        28,
+                        context,
+                        maxSize: 36,
+                      ),
+                      fontWeight: FontWeight.bold,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  SizedBox(height: TvUtils.responsivePadding(12, context)),
+                  // Meta Info (Rating, Year, Genres, Country)
+                  Row(
+                    children: [
+                      // Rating
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.white54),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          '$rating/10',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: TvUtils.responsiveFontSize(12, context),
+                          ),
+                        ),
+                      ),
+                      SizedBox(width: TvUtils.responsivePadding(12, context)),
+                      // Year
+                      Text(
+                        year,
+                        style: TextStyle(
+                          color: Colors.grey,
+                          fontSize: TvUtils.responsiveFontSize(12, context),
+                        ),
+                      ),
+                      SizedBox(width: TvUtils.responsivePadding(12, context)),
+                      // Genres
+                      Expanded(
+                        child: Text(
+                          genres,
+                          style: TextStyle(
+                            color: Colors.grey,
+                            fontSize: TvUtils.responsiveFontSize(12, context),
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (country.isNotEmpty) ...[
+                    SizedBox(height: TvUtils.responsivePadding(8, context)),
+                    Text(
+                      'Country: $country',
+                      style: TextStyle(
+                        color: Colors.grey,
+                        fontSize: TvUtils.responsiveFontSize(12, context),
+                      ),
+                    ),
+                  ],
+                  SizedBox(height: TvUtils.responsivePadding(12, context)),
+                  // Overview
+                  Text(
+                    overview,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: TvUtils.responsiveFontSize(14, context),
+                      height: 1.4,
+                    ),
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  SizedBox(height: TvUtils.responsivePadding(16, context)),
+                  // Buttons
+                  Row(
+                    children: [
+                      ElevatedButton.icon(
+                        icon: const Icon(Icons.play_arrow),
+                        label: Text(
+                          'Watch',
+                          style: TextStyle(
+                            fontSize: TvUtils.responsiveFontSize(16, context),
+                          ),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red,
+                          padding: EdgeInsets.symmetric(
+                            horizontal: TvUtils.responsivePadding(24, context),
+                            vertical: TvUtils.responsivePadding(12, context),
+                          ),
+                        ),
+                        onPressed: () {
+                          if (currentEpisodes.isNotEmpty) {
+                            _playEpisode(currentEpisodes[0]);
+                          }
+                        },
+                      ),
+                      SizedBox(width: TvUtils.responsivePadding(12, context)),
+                      ElevatedButton.icon(
+                        icon: Icon(
+                          isInWatchlist
+                              ? Icons.favorite
+                              : Icons.favorite_border,
+                        ),
+                        label: Text(
+                          isInWatchlist ? 'In List' : 'Add List',
+                          style: TextStyle(
+                            fontSize: TvUtils.responsiveFontSize(16, context),
+                          ),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.grey[800],
+                          padding: EdgeInsets.symmetric(
+                            horizontal: TvUtils.responsivePadding(24, context),
+                            vertical: TvUtils.responsivePadding(12, context),
+                          ),
+                        ),
+                        onPressed: _toggleWatchlist,
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
           ],
@@ -318,100 +481,24 @@ class _TvSeriesScreenState extends State<TvSeriesScreen> {
   }
 
   Widget _buildDetailsSection() {
-    final fontSize = TvUtils.responsiveFontSize(24, context, maxSize: 32);
     final padding = TvUtils.responsivePadding(24, context);
 
     return Padding(
-      padding: EdgeInsets.all(padding),
+      padding: EdgeInsets.symmetric(
+        horizontal: padding,
+        vertical: padding * 0.5,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            widget.seriesItem.title,
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: fontSize,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Text(
-                getYear(),
-                style: TextStyle(
-                  color: Colors.grey,
-                  fontSize: TvUtils.responsiveFontSize(18, context),
-                ),
-              ),
-              const SizedBox(width: 16),
-              if (seriesDetails?['vote_average'] != null)
-                Row(
-                  children: [
-                    const Icon(Icons.star, color: Colors.amber, size: 20),
-                    const SizedBox(width: 4),
-                    Text(
-                      '${seriesDetails!['vote_average'].toStringAsFixed(1)}/10',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: TvUtils.responsiveFontSize(18, context),
-                      ),
-                    ),
-                  ],
-                ),
-            ],
-          ),
-          const SizedBox(height: 24),
-          Row(
-            children: [
-              ElevatedButton.icon(
-                icon: const Icon(Icons.play_arrow),
-                label: Text(
-                  'Watch Now',
-                  style: TextStyle(
-                    fontSize: TvUtils.responsiveFontSize(18, context),
-                  ),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.red,
-                  padding: EdgeInsets.symmetric(
-                    horizontal: padding,
-                    vertical: padding * 0.6,
-                  ),
-                ),
-                onPressed: currentEpisodes.isNotEmpty
-                    ? () => _playEpisode(currentEpisodes[0])
-                    : null,
-              ),
-              const SizedBox(width: 16),
-              ElevatedButton.icon(
-                icon: Icon(
-                  isInWatchlist ? Icons.favorite : Icons.favorite_border,
-                ),
-                label: Text(
-                  'Watchlist',
-                  style: TextStyle(
-                    fontSize: TvUtils.responsiveFontSize(18, context),
-                  ),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.grey[800],
-                  padding: EdgeInsets.symmetric(
-                    horizontal: padding,
-                    vertical: padding * 0.6,
-                  ),
-                ),
-                onPressed: _toggleWatchlist,
-              ),
-            ],
-          ),
-          const SizedBox(height: 24),
-          if (seriesDetails?['overview'] != null)
+          if (seriesDetails?['overview'] != null &&
+              (seriesDetails!['overview'] as String).isNotEmpty)
             Text(
               seriesDetails!['overview'],
               style: TextStyle(
-                color: Colors.white,
-                fontSize: TvUtils.responsiveFontSize(16, context),
+                color: Colors.grey[300],
+                fontSize: TvUtils.responsiveFontSize(14, context),
+                height: 1.6,
               ),
             ),
         ],
@@ -457,7 +544,9 @@ class _TvSeriesScreenState extends State<TvSeriesScreen> {
                       borderRadius: BorderRadius.circular(12),
                       child: actor['profile_path'] != null
                           ? Image.network(
-                              TmdbApiService.getProfileUrl(actor['profile_path']),
+                              TmdbApiService.getProfileUrl(
+                                actor['profile_path'],
+                              ),
                               width: 180,
                               height: 180,
                               fit: BoxFit.cover,
@@ -489,6 +578,50 @@ class _TvSeriesScreenState extends State<TvSeriesScreen> {
                 ),
               );
             },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTrailerSection() {
+    final padding = TvUtils.responsivePadding(24, context);
+    final fontSize = TvUtils.responsiveFontSize(22, context, maxSize: 28);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: EdgeInsets.symmetric(horizontal: padding),
+          child: Text(
+            'Trailer',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: fontSize,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        Padding(
+          padding: EdgeInsets.symmetric(horizontal: padding),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: SizedBox(
+              height: 300,
+              child: YoutubePlayer(
+                controller: _youtubeController!,
+                showVideoProgressIndicator: true,
+                progressIndicatorColor: Colors.red,
+                progressColors: const ProgressBarColors(
+                  playedColor: Colors.red,
+                  handleColor: Colors.redAccent,
+                ),
+                onReady: () {
+                  _youtubeController?.pause();
+                },
+              ),
+            ),
           ),
         ),
       ],
@@ -594,8 +727,8 @@ class _TvSeriesScreenState extends State<TvSeriesScreen> {
                                     ? ClipRRect(
                                         borderRadius:
                                             const BorderRadius.horizontal(
-                                          left: Radius.circular(12),
-                                        ),
+                                              left: Radius.circular(12),
+                                            ),
                                         child: Image.network(
                                           'https://image.tmdb.org/t/p/w300${episode.stillPath}',
                                           fit: BoxFit.cover,
@@ -613,8 +746,7 @@ class _TvSeriesScreenState extends State<TvSeriesScreen> {
                                   child: Column(
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.center,
+                                    mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
                                       Row(
                                         children: [
@@ -623,9 +755,11 @@ class _TvSeriesScreenState extends State<TvSeriesScreen> {
                                             style: TextStyle(
                                               color: Colors.red,
                                               fontWeight: FontWeight.bold,
-                                              fontSize: TvUtils
-                                                  .responsiveFontSize(18,
-                                                      context),
+                                              fontSize:
+                                                  TvUtils.responsiveFontSize(
+                                                    18,
+                                                    context,
+                                                  ),
                                             ),
                                           ),
                                           Expanded(
@@ -634,9 +768,11 @@ class _TvSeriesScreenState extends State<TvSeriesScreen> {
                                               style: TextStyle(
                                                 color: Colors.white,
                                                 fontWeight: FontWeight.w500,
-                                                fontSize: TvUtils
-                                                    .responsiveFontSize(18,
-                                                        context),
+                                                fontSize:
+                                                    TvUtils.responsiveFontSize(
+                                                      18,
+                                                      context,
+                                                    ),
                                               ),
                                               overflow: TextOverflow.ellipsis,
                                             ),
@@ -649,9 +785,11 @@ class _TvSeriesScreenState extends State<TvSeriesScreen> {
                                           episode.overview,
                                           style: TextStyle(
                                             color: Colors.grey,
-                                            fontSize: TvUtils
-                                                .responsiveFontSize(14,
-                                                    context),
+                                            fontSize:
+                                                TvUtils.responsiveFontSize(
+                                                  14,
+                                                  context,
+                                                ),
                                           ),
                                           maxLines: 2,
                                           overflow: TextOverflow.ellipsis,
@@ -723,9 +861,8 @@ class _TvSeriesScreenState extends State<TvSeriesScreen> {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => TvSeriesScreen(
-                        seriesItem: Movie.fromJson(item),
-                      ),
+                      builder: (context) =>
+                          TvSeriesScreen(seriesItem: Movie.fromJson(item)),
                     ),
                   );
                 },
@@ -770,14 +907,14 @@ class _TvSeriesScreenState extends State<TvSeriesScreen> {
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
-                      ],
-                      ),
-                      ),
-                      );
-                      },
-                      ),
-                      ),
-                      ],
-                      );
-                      }
-                      }
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}

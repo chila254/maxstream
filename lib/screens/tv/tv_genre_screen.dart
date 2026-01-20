@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../services/tmdb_api_service.dart';
 import '../../utils/tv_utils.dart';
+import '../../utils/tv_dpad_navigation_mixin.dart';
 import '../../widgets/custom_loading_widget.dart';
 
 class TvGenreScreen extends StatefulWidget {
@@ -10,7 +11,7 @@ class TvGenreScreen extends StatefulWidget {
   State<TvGenreScreen> createState() => _TvGenreScreenState();
 }
 
-class _TvGenreScreenState extends State<TvGenreScreen> {
+class _TvGenreScreenState extends State<TvGenreScreen> with TvDpadNavigationMixin {
   Map<int, String> _movieGenres = {};
   Map<int, String> _tvGenres = {};
   bool _isLoadingGenres = false;
@@ -37,6 +38,34 @@ class _TvGenreScreenState extends State<TvGenreScreen> {
     _scrollController.dispose();
     super.dispose();
   }
+
+  // D-Pad Navigation Implementation
+  @override
+  int get maxFocusIndex => _showDetailView
+      ? (_contentByGenre.isNotEmpty ? _contentByGenre.length - 1 : 0)
+      : (_movieGenres.length + _tvGenres.length - 1).clamp(0, 100);
+
+  @override
+  void onFocusChanged(int index) {
+    setState(() {
+      if (!_showDetailView) {
+        // Genre selection
+      } else {
+        // Content selection
+      }
+    });
+  }
+
+  @override
+  void onSelectPressed() {
+    // Selection handled by genre/content cards
+  }
+
+  @override
+  void onLeftPressed() {}
+
+  @override
+  void onRightPressed() {}
 
   void _onScroll() {
     if (_scrollController.position.pixels ==
@@ -137,11 +166,11 @@ class _TvGenreScreenState extends State<TvGenreScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (_showDetailView) {
-      return _buildDetailView();
-    }
-
-    return _buildGenreListView();
+    return RawKeyboardListener(
+      onKey: handleKeyEvent,
+      focusNode: focusNode,
+      child: _showDetailView ? _buildDetailView() : _buildGenreListView(),
+    );
   }
 
   Widget _buildGenreListView() {
@@ -335,7 +364,7 @@ class _TvGenreScreenState extends State<TvGenreScreen> {
                   if (index == _contentByGenre.length) {
                     return Center(
                       child: const CustomLoadingWidget(
-                        size: 30,
+                        size: 40,
                         color: Color(0xFFE50914),
                         style: LoadingStyle.dots,
                       ),
@@ -363,27 +392,35 @@ class _TvGenreScreenState extends State<TvGenreScreen> {
                             borderRadius: BorderRadius.circular(
                               TvUtils.responsivePadding(8, context),
                             ),
-                            child: posterPath != null
-                                ? Image.network(
-                                    TmdbApiService.getPosterUrl(posterPath),
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (context, error, stackTrace) {
-                                      return Container(
-                                        color: Colors.grey[800],
-                                        child: const Icon(
-                                          Icons.image_not_supported,
-                                          color: Colors.grey,
-                                        ),
-                                      );
-                                    },
-                                  )
-                                : Container(
-                                    color: Colors.grey[800],
-                                    child: const Icon(
-                                      Icons.image_not_supported,
-                                      color: Colors.grey,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(
+                                  TvUtils.responsivePadding(8, context),
+                                ),
+                              ),
+                              child: posterPath != null
+                                  ? Image.network(
+                                      TmdbApiService.getPosterUrl(posterPath),
+                                      fit: BoxFit.cover,
+                                      errorBuilder:
+                                          (context, error, stackTrace) {
+                                            return Container(
+                                              color: Colors.grey[800],
+                                              child: const Icon(
+                                                Icons.image_not_supported,
+                                                color: Colors.grey,
+                                              ),
+                                            );
+                                          },
+                                    )
+                                  : Container(
+                                      color: Colors.grey[800],
+                                      child: const Icon(
+                                        Icons.image_not_supported,
+                                        color: Colors.grey,
+                                      ),
                                     ),
-                                  ),
+                            ),
                           ),
                         ),
                         SizedBox(height: TvUtils.responsivePadding(8, context)),

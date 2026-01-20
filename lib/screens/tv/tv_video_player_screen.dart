@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import 'package:dio/dio.dart';
 import 'package:video_player/video_player.dart';
 import 'package:chewie/chewie.dart';
 import '../../utils/tv_utils.dart';
 import '../../services/watch_history_service.dart';
+import '../../services/m3u8_service.dart';
 
 class TvVideoPlayerScreen extends StatefulWidget {
   final String title;
@@ -133,26 +135,96 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
   }
 
   Future<void> _loadEmbeddedVideo() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+
     try {
-      // M3u8Service currently not available
-      // TODO: Implement stream URL fetching
-      if (mounted) {
-        setState(() {
-          _error = 'Stream loading not yet implemented for TV';
-          _isLoading = false;
-        });
-      }
+      await _tryNextServer();
     } catch (e) {
       if (mounted) {
         setState(() {
-          _error = 'Failed to load stream: $e';
+          _error = 'Failed to load embedded video: $e';
+          _isLoading = false;
         });
       }
     }
   }
 
+  Future<void> _tryNextServer() async {
+    // Get all available servers
+    final servers = EmbeddedVideoService.getServers();
+
+    // Skip servers we've already tried
+    while (_currentServerIndex < servers.length) {
+      final server = servers[_currentServerIndex];
+      _currentServerIndex++;
+
+      // Check if we already tried this server
+      if (_triedServers.any((tried) => tried['name'] == server['name'])) {
+        continue;
+      }
+
+      try {
+        debugPrint('Trying server: ${server['name']}');
+
+        final embedUrl = EmbeddedVideoService.buildEmbedUrl(
+          server['baseUrl']!,
+          widget.tmdbId,
+          widget.season,
+          widget.episode,
+          widget.isMovie,
+        );
+
+        // Quick check if server responds
+        final dio = EmbeddedVideoService.getDioClient();
+        final response = await dio
+            .head(embedUrl)
+            .timeout(
+              const Duration(seconds: 10),
+              onTimeout: () {
+                throw DioException(
+                  requestOptions: RequestOptions(path: embedUrl),
+                  message: 'Connection timeout',
+                  type: DioExceptionType.connectionTimeout,
+                );
+              },
+            );
+
+        if (response.statusCode == 200 || response.statusCode == 403) {
+          _streamData = {
+            'embedUrl': embedUrl,
+            'title': 'Video Content',
+            'quality': 'HD',
+            'source': server['name'],
+            'type': 'embed',
+            'isPlayable': true,
+          };
+
+          if (mounted) {
+            _loadStreamInWebView(_streamData!);
+          }
+          return;
+        }
+      } on DioException catch (e) {
+        _triedServers.add({'name': server['name'], 'error': e.message});
+        debugPrint('Server ${server['name']} failed: ${e.message}');
+        continue;
+      }
+    }
+
+    // All servers failed
+    if (mounted) {
+      setState(() {
+        _error = 'All servers failed. Please try again later.';
+        _isLoading = false;
+      });
+    }
+  }
+
   void _loadStreamInWebView(Map<String, dynamic> streamUrl) {
-    final embedUrl = streamUrl['url'] ?? '';
+    final embedUrl = streamUrl['embedUrl'] ?? '';
     if (embedUrl.isNotEmpty) {
       _webViewController.loadRequest(Uri.parse(embedUrl));
     }
@@ -181,21 +253,6 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
         }
       })();
     ''');
-  }
-
-  void _tryNextServer() {
-    if (_streamData == null) return;
-
-    _currentServerIndex++;
-    if (_currentServerIndex < (_streamData!['servers']?.length ?? 0)) {
-      final nextServer = _streamData!['servers'][_currentServerIndex];
-      _triedServers.add(nextServer);
-      _loadStreamInWebView({'url': nextServer['url']});
-    } else {
-      setState(() {
-        _error = 'All servers failed. Please try again later.';
-      });
-    }
   }
 
   @override

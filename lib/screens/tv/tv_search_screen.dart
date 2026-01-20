@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import '../../widgets/tv_keyboard.dart';
+import '../../widgets/custom_loading_widget.dart';
+import '../../widgets/tv_focus_widget.dart';
 import '../../utils/tv_utils.dart';
+import '../../utils/tv_dpad_navigation_mixin.dart';
 import '../../services/tmdb_api_service.dart';
 
 class TvSearchScreen extends StatefulWidget {
@@ -10,11 +13,15 @@ class TvSearchScreen extends StatefulWidget {
   State<TvSearchScreen> createState() => _TvSearchScreenState();
 }
 
-class _TvSearchScreenState extends State<TvSearchScreen> {
+class _TvSearchScreenState extends State<TvSearchScreen>
+    with TvDpadNavigationMixin {
   String _searchQuery = '';
   List<Map<String, dynamic>> _searchResults = [];
   bool _isLoading = false;
   bool _showNoResults = false;
+  int? _focusedResultIndex;
+  bool _keyboardFocused = true;
+  static const int _columnsPerRow = 6;
 
   Future<void> _performSearch(String query) async {
     setState(() {
@@ -62,137 +69,188 @@ class _TvSearchScreenState extends State<TvSearchScreen> {
     Navigator.pop(context, _searchQuery);
   }
 
+  // D-Pad Navigation Implementation
+  @override
+  int get maxFocusIndex => _keyboardFocused ? 0 : (_searchResults.length - 1);
+
+  @override
+  void onFocusChanged(int index) {
+    if (!_keyboardFocused) {
+      setState(() => _focusedResultIndex = index);
+    }
+  }
+
+  @override
+  void onSelectPressed() {
+    if (_keyboardFocused) {
+      // Keyboard is focused, submit search
+      _submitSearch();
+    } else if (_focusedResultIndex != null &&
+        _focusedResultIndex! < _searchResults.length) {
+      final item = _searchResults[_focusedResultIndex!];
+      Navigator.pop(context, item);
+    }
+  }
+
+  @override
+  void onLeftPressed() {
+    if (!_keyboardFocused &&
+        _focusedResultIndex != null &&
+        _focusedResultIndex! > 0) {
+      setState(() => _focusedResultIndex = _focusedResultIndex! - 1);
+    }
+  }
+
+  @override
+  void onRightPressed() {
+    if (!_keyboardFocused &&
+        _focusedResultIndex != null &&
+        _focusedResultIndex! < _searchResults.length - 1) {
+      setState(() => _focusedResultIndex = _focusedResultIndex! + 1);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
+    return RawKeyboardListener(
+      onKey: handleKeyEvent,
+      focusNode: focusNode,
+      child: Scaffold(
         backgroundColor: Colors.black,
-        title: Text(
-          'Search',
-          style: TextStyle(
-            fontSize: TvUtils.responsiveFontSize(32, context, maxSize: 48),
-            color: Colors.white,
+        appBar: AppBar(
+          backgroundColor: Colors.black,
+          title: Text(
+            'Search',
+            style: TextStyle(
+              fontSize: TvUtils.responsiveFontSize(32, context, maxSize: 48),
+              color: Colors.white,
+            ),
+          ),
+          leading: IconButton(
+            icon: Icon(
+              Icons.arrow_back,
+              size: TvUtils.responsiveFontSize(28, context, maxSize: 40),
+            ),
+            onPressed: () => Navigator.pop(context),
           ),
         ),
-        leading: IconButton(
-          icon: Icon(
-            Icons.arrow_back,
-            size: TvUtils.responsiveFontSize(28, context, maxSize: 40),
-          ),
-          onPressed: () => Navigator.pop(context),
-        ),
-      ),
-      body: SingleChildScrollView(
-        child: Padding(
-          padding: EdgeInsets.all(TvUtils.responsivePadding(32, context)),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Left: Keyboard
-              Expanded(
-                flex: 1,
-                child: TvKeyboard(
-                  initialText: _searchQuery,
-                  onInput: _performSearch,
-                  onSubmit: _submitSearch,
+        body: Row(
+          children: [
+            // Left side: Keyboard - narrow and tall
+            SizedBox(
+              width: MediaQuery.of(context).size.width * 0.15,
+              child: Padding(
+                padding: EdgeInsets.symmetric(
+                  horizontal: TvUtils.responsivePadding(12, context),
+                  vertical: TvUtils.responsivePadding(24, context),
                 ),
-              ),
-
-              SizedBox(width: TvUtils.responsivePadding(48, context)),
-
-              // Right: Search Results
-              Expanded(
-                flex: 1,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Results',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: TvUtils.responsiveFontSize(
-                          24,
-                          context,
-                          maxSize: 36,
-                        ),
-                        fontWeight: FontWeight.bold,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.grey.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(
+                      TvUtils.responsivePadding(12, context),
+                    ),
+                    border: Border.all(
+                      color: _keyboardFocused
+                          ? Colors.white
+                          : Colors.grey.withValues(alpha: 0.3),
+                      width: _keyboardFocused ? 2 : 1.5,
+                    ),
+                  ),
+                  padding: EdgeInsets.all(
+                    TvUtils.responsivePadding(12, context),
+                  ),
+                  child: GestureDetector(
+                    onTap: () => setState(() => _keyboardFocused = true),
+                    child: SingleChildScrollView(
+                      child: TvKeyboard(
+                        initialText: _searchQuery,
+                        onInput: _performSearch,
+                        onSubmit: _submitSearch,
                       ),
                     ),
-                    SizedBox(height: TvUtils.responsivePadding(24, context)),
-                    if (_isLoading)
-                      Center(
-                        child: Padding(
-                          padding: EdgeInsets.all(
-                            TvUtils.responsivePadding(32, context),
-                          ),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const CircularProgressIndicator(
-                                valueColor: AlwaysStoppedAnimation<Color>(
-                                  Color(0xFFE50914),
-                                ),
-                              ),
-                              SizedBox(
-                                height: TvUtils.responsivePadding(16, context),
-                              ),
-                              Text(
-                                'Searching...',
-                                style: TextStyle(
-                                  color: Colors.grey,
-                                  fontSize: TvUtils.responsiveFontSize(
-                                    16,
-                                    context,
-                                    maxSize: 24,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      )
-                    else if (_showNoResults || _searchResults.isEmpty)
-                      Center(
-                        child: Padding(
-                          padding: EdgeInsets.all(
-                            TvUtils.responsivePadding(32, context),
-                          ),
-                          child: Text(
-                            'No results found for "$_searchQuery"',
-                            style: TextStyle(
-                              color: Colors.grey,
-                              fontSize: TvUtils.responsiveFontSize(
-                                16,
-                                context,
-                                maxSize: 24,
-                              ),
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                        ),
-                      )
-                    else
-                      Wrap(
-                        spacing: TvUtils.responsivePadding(16, context),
-                        runSpacing: TvUtils.responsivePadding(16, context),
-                        children: [
-                          for (final result in _searchResults)
-                            _buildResultCard(result),
-                        ],
-                      ),
-                  ],
+                  ),
                 ),
               ),
-            ],
-          ),
+            ),
+
+            // Right side: Results section (6 columns)
+            Expanded(
+              child: Padding(
+                padding: EdgeInsets.symmetric(
+                  horizontal: TvUtils.responsivePadding(24, context),
+                  vertical: TvUtils.responsivePadding(24, context),
+                ),
+                child: GestureDetector(
+                  onTap: () => setState(() => _keyboardFocused = false),
+                  child: _buildResultsView(),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  Widget _buildResultCard(Map<String, dynamic> result) {
+  Widget _buildResultsView() {
+    if (_isLoading) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const CustomLoadingWidget(
+              size: 50,
+              color: Color(0xFFE50914),
+              style: LoadingStyle.dots,
+            ),
+            SizedBox(height: TvUtils.responsivePadding(16, context)),
+            Text(
+              'Searching...',
+              style: TextStyle(
+                color: Colors.grey,
+                fontSize: TvUtils.responsiveFontSize(16, context),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_showNoResults || _searchResults.isEmpty) {
+      return Center(
+        child: Text(
+          _searchQuery.isEmpty
+              ? 'Start typing to search'
+              : 'No results found for "$_searchQuery"',
+          style: TextStyle(
+            color: Colors.grey,
+            fontSize: TvUtils.responsiveFontSize(16, context),
+          ),
+          textAlign: TextAlign.center,
+        ),
+      );
+    }
+
+    return GridView.builder(
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: _columnsPerRow,
+        childAspectRatio: 0.6,
+        crossAxisSpacing: TvUtils.responsivePadding(12, context),
+        mainAxisSpacing: TvUtils.responsivePadding(12, context),
+      ),
+      itemCount: _searchResults.length,
+      itemBuilder: (context, index) => _buildResultCard(
+        _searchResults[index],
+        isFocused: _focusedResultIndex == index,
+      ),
+    );
+  }
+
+  Widget _buildResultCard(
+    Map<String, dynamic> result, {
+    bool isFocused = false,
+  }) {
     final posterPath = result['poster_path'];
     final title = result['media_type'] == 'tv'
         ? (result['name'] ?? 'Unknown')
@@ -204,7 +262,9 @@ class _TvSearchScreenState extends State<TvSearchScreen> {
     final cardWidth = TvUtils.responsiveButtonHeight(context) * 2;
     final cardHeight = cardWidth * 1.5;
 
-    return GestureDetector(
+    return TvContentFocusCard(
+      isFocused: isFocused,
+      scale: 1.12,
       onTap: () {
         Navigator.pop(context, result);
       },

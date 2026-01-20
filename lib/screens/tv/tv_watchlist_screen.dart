@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import '../../database/db_helper.dart';
 import '../../models/movie.dart';
 import '../../utils/tv_utils.dart';
+import '../../utils/tv_dpad_navigation_mixin.dart';
+import '../../widgets/tv_focus_widget.dart';
 import 'tv_details_screen.dart';
 import 'tv_series_screen.dart';
 
@@ -13,13 +15,14 @@ class TvWatchlistScreen extends StatefulWidget {
 }
 
 class _TvWatchlistScreenState extends State<TvWatchlistScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, TvDpadNavigationMixin {
   List<Movie> watchlistItems = [];
   List<Movie> movies = [];
   List<Movie> series = [];
   bool isLoading = true;
   bool _showVertical = false;
   late TabController _tabController;
+  int? _focusedItemIndex;
 
   @override
   void initState() {
@@ -33,6 +36,30 @@ class _TvWatchlistScreenState extends State<TvWatchlistScreen>
     _tabController.dispose();
     super.dispose();
   }
+
+  // D-Pad Navigation Implementation
+  @override
+  int get maxFocusIndex {
+    if (movies.isEmpty && series.isEmpty) return 0;
+    final currentList = _tabController.index == 0 ? watchlistItems : _tabController.index == 1 ? movies : series;
+    return currentList.isEmpty ? 0 : currentList.length - 1;
+  }
+
+  @override
+  void onFocusChanged(int index) {
+    setState(() => _focusedItemIndex = index);
+  }
+
+  @override
+  void onSelectPressed() {
+    // Selection handled by content cards
+  }
+
+  @override
+  void onLeftPressed() {}
+
+  @override
+  void onRightPressed() {}
 
   Future<void> _loadWatchlist() async {
     setState(() => isLoading = true);
@@ -85,7 +112,10 @@ class _TvWatchlistScreenState extends State<TvWatchlistScreen>
   Widget build(BuildContext context) {
     final fontSize = TvUtils.responsiveFontSize(24, context, maxSize: 32);
 
-    return Scaffold(
+    return RawKeyboardListener(
+      onKey: handleKeyEvent,
+      focusNode: focusNode,
+      child: Scaffold(
       backgroundColor: const Color(0xFF121212),
       appBar: AppBar(
         backgroundColor: const Color(0xFF1A1A1A),
@@ -178,6 +208,7 @@ class _TvWatchlistScreenState extends State<TvWatchlistScreen>
                           : _buildHorizontalList(series)),
               ],
             ),
+      ),
     );
   }
 
@@ -226,7 +257,8 @@ class _TvWatchlistScreenState extends State<TvWatchlistScreen>
       itemCount: items.length,
       itemBuilder: (context, index) {
         final item = items[index];
-        return _buildWatchlistItem(item);
+        final isFocused = _focusedItemIndex == index;
+        return _buildWatchlistItem(item, isFocused: isFocused);
       },
     );
   }
@@ -252,8 +284,10 @@ class _TvWatchlistScreenState extends State<TvWatchlistScreen>
     );
   }
 
-  Widget _buildWatchlistItem(Movie item) {
-    return GestureDetector(
+  Widget _buildWatchlistItem(Movie item, {bool isFocused = false}) {
+    return TvContentFocusCard(
+      isFocused: isFocused,
+      scale: 1.12,
       onTap: () {
         if (!mounted) return;
         Navigator.push(
@@ -372,49 +406,49 @@ class _TvWatchlistScreenState extends State<TvWatchlistScreen>
               ),
             ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildSeeAllButton() {
-    return GestureDetector(
-      onTap: () {
-        setState(() {
-          _showVertical = true;
-        });
-      },
-      child: Container(
-        width: 200,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Colors.grey[800],
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Icon(
-                  Icons.arrow_forward,
-                  color: Colors.white,
-                  size: 60,
-                ),
-              ),
-            ),
-            SizedBox(height: TvUtils.responsivePadding(8, context)),
-            Text(
-              'See All',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: TvUtils.responsiveFontSize(14, context),
-                fontWeight: FontWeight.w500,
-              ),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
         ),
-      ),
-    );
-  }
-}
+        );
+        }
+
+        Widget _buildSeeAllButton() {
+          return GestureDetector(
+            onTap: () {
+              setState(() {
+                _showVertical = true;
+              });
+            },
+            child: Container(
+              width: 200,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.grey[800],
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(
+                        Icons.arrow_forward,
+                        color: Colors.white,
+                        size: 60,
+                      ),
+                    ),
+                  ),
+                  SizedBox(height: TvUtils.responsivePadding(8, context)),
+                  Text(
+                    'See All',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: TvUtils.responsiveFontSize(14, context),
+                      fontWeight: FontWeight.w500,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+        }
