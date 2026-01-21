@@ -691,88 +691,95 @@ class _TvHomeScreenState extends State<TvHomeScreen>
             child: Row(
               children: List.generate(providers.length, (index) {
                 final provider = providers[index];
+                final isFocused = _focusedSection == 'providers' && 
+                    _sectionItemIndices['providers'] == index;
                 return Padding(
-                  padding: EdgeInsets.only(
-                    right: index == providers.length - 1 ? 0 : 16,
-                  ),
-                  child: GestureDetector(
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => ProviderContentScreen(
-                            providerId: provider.id,
-                            providerName: provider.name,
-                            providerColor: provider.color,
-                          ),
-                        ),
-                      );
-                    },
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: provider.color,
-                        borderRadius: BorderRadius.circular(12),
-                        boxShadow: [
-                          BoxShadow(
-                            color: provider.color.withOpacity(0.5),
-                            blurRadius: 8,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 12,
-                      ),
-                      child: Column(
-                        children: [
-                          Container(
-                            width: 48,
-                            height: 48,
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: provider.logoPath != null
-                                ? Image.network(
-                                    'https://image.tmdb.org/t/p/w92${provider.logoPath}',
-                                    fit: BoxFit.contain,
-                                    errorBuilder:
-                                        (context, error, stackTrace) => Center(
-                                          child: Text(
-                                            provider.name.substring(0, 1),
-                                            style: const TextStyle(
-                                              color: Colors.white,
-                                              fontWeight: FontWeight.bold,
+                    padding: EdgeInsets.only(
+                      right: index == providers.length - 1 ? 0 : 16,
+                    ),
+                    child: GestureDetector(
+                       onTap: () {
+                         Navigator.push(
+                           context,
+                           MaterialPageRoute(
+                             builder: (context) => ProviderContentScreen(
+                               providerId: provider.id,
+                               providerName: provider.name,
+                               providerColor: provider.color,
+                             ),
+                           ),
+                         );
+                       },
+                       child: Container(
+                         width: 130,
+                         height: 70,
+                         decoration: BoxDecoration(
+                           color: provider.color,
+                           borderRadius: BorderRadius.circular(12),
+                           border: isFocused
+                               ? Border.all(color: Colors.white, width: 4)
+                               : null,
+                         ),
+                         padding: EdgeInsets.symmetric(
+                           horizontal: TvUtils.responsivePadding(8, context),
+                           vertical: TvUtils.responsivePadding(6, context),
+                         ),
+                         child: Row(
+                           mainAxisAlignment: MainAxisAlignment.center,
+                           children: [
+                             Container(
+                              width: 35,
+                              height: 35,
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.2),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: provider.logoPath != null
+                                  ? Image.network(
+                                      'https://image.tmdb.org/t/p/w92${provider.logoPath}',
+                                      fit: BoxFit.contain,
+                                      errorBuilder:
+                                          (context, error, stackTrace) => Center(
+                                            child: Text(
+                                              provider.name.substring(0, 1),
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 14,
+                                              ),
                                             ),
                                           ),
+                                    )
+                                  : Center(
+                                      child: Text(
+                                        provider.name.substring(0, 1),
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 14,
                                         ),
-                                  )
-                                : Center(
-                                    child: Text(
-                                      provider.name.substring(0, 1),
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.bold,
                                       ),
                                     ),
-                                  ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            provider.name,
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: TvUtils.responsiveFontSize(12, context),
-                              fontWeight: FontWeight.w600,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                );
+                             ),
+                             SizedBox(width: TvUtils.responsivePadding(6, context)),
+                             Expanded(
+                              child: Text(
+                                provider.name,
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: TvUtils.responsiveFontSize(11, context),
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                textAlign: TextAlign.left,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                             ),
+                           ],
+                         ),
+                       ),
+                     ),
+                  );
               }),
             ),
           ),
@@ -809,23 +816,31 @@ class _TvHomeScreenState extends State<TvHomeScreen>
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                GestureDetector(
-                  onTap: () => _showFullList(title, type),
-                  child: Container(
-                    padding: EdgeInsets.symmetric(
-                      horizontal: TvUtils.responsivePadding(20, context),
-                      vertical: TvUtils.responsivePadding(8, context),
-                    ),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFE50914),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      'See More',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: TvUtils.responsiveFontSize(14, context),
-                        fontWeight: FontWeight.bold,
+                Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(8),
+                    border: _focusedSection == 'see_all_$type'
+                        ? Border.all(color: Colors.white, width: 3)
+                        : null,
+                  ),
+                  child: GestureDetector(
+                    onTap: () => _showFullList(title, type),
+                    child: Container(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: TvUtils.responsivePadding(20, context),
+                        vertical: TvUtils.responsivePadding(8, context),
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE50914),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        'See More',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: TvUtils.responsiveFontSize(14, context),
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ),
                   ),

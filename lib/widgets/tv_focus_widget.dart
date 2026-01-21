@@ -66,16 +66,14 @@ class _TvContentFocusCardState extends State<TvContentFocusCard>
     return GestureDetector(
       onTap: widget.onTap,
       child: Container(
-        decoration: widget.isFocused && widget.showShadow
+        decoration: widget.isFocused
             ? BoxDecoration(
-                boxShadow: [
-                  BoxShadow(
-                    color: widget.shadowColor,
-                    blurRadius: 20,
-                    spreadRadius: 8,
-                    offset: const Offset(0, 8),
+                border: Border(
+                  right: BorderSide(
+                    color: Colors.white,
+                    width: 4,
                   ),
-                ],
+                ),
               )
             : null,
         child: ScaleTransition(scale: _scaleAnimation, child: widget.child),

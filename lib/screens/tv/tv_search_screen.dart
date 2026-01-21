@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../models/movie.dart';
 import '../../widgets/tv_keyboard.dart';
 import '../../widgets/custom_loading_widget.dart';
 import '../../widgets/tv_focus_widget.dart';
 import '../../utils/tv_utils.dart';
 import '../../utils/tv_dpad_navigation_mixin.dart';
 import '../../services/tmdb_api_service.dart';
+import 'tv_details_screen.dart';
+import 'tv_series_screen.dart';
 
 class TvSearchScreen extends StatefulWidget {
   final VoidCallback? onReturnToSidebar;
@@ -106,18 +109,16 @@ class _TvSearchScreenState extends State<TvSearchScreen>
   @override
   int get maxFocusIndex {
     if (_keyboardFocused) return 0;
-    
+
     // Get the current items being displayed
-    final items = _searchQuery.isNotEmpty ? _searchResults : _getTotalRecommendations();
+    final items = _searchQuery.isNotEmpty
+        ? _searchResults
+        : _getTotalRecommendations();
     return items.length - 1;
   }
 
   List<Map<String, dynamic>> _getTotalRecommendations() {
-    return [
-      ..._trendingResults,
-      ..._popularResults,
-      ..._topRatedResults,
-    ];
+    return [..._trendingResults, ..._popularResults, ..._topRatedResults];
   }
 
   @override
@@ -133,27 +134,46 @@ class _TvSearchScreenState extends State<TvSearchScreen>
       // Keyboard is focused, submit search
       _submitSearch();
     } else if (_focusedResultIndex != null) {
-      final items = _searchQuery.isNotEmpty ? _searchResults : _getTotalRecommendations();
+      final items = _searchQuery.isNotEmpty
+          ? _searchResults
+          : _getTotalRecommendations();
       if (_focusedResultIndex! < items.length) {
         final item = items[_focusedResultIndex!];
-        Navigator.pop(context, item);
+        _navigateToContent(item);
       }
+    }
+  }
+
+  void _navigateToContent(Map<String, dynamic> item) {
+    final isMovie = item['media_type'] == 'movie';
+
+    if (isMovie) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) =>
+              TvDetailsScreen(item: Movie.fromJson(item), mediaType: 'movie'),
+        ),
+      );
+    } else {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) =>
+              TvSeriesScreen(seriesItem: Movie.fromJson(item)),
+        ),
+      );
     }
   }
 
   @override
   void onLeftPressed() {
     if (!_keyboardFocused && _focusedResultIndex != null) {
-      if (_focusedResultIndex! % _columnsPerRow == 0) {
-        // At leftmost column: switch back to keyboard
-        setState(() {
-          _keyboardFocused = true;
-          _focusedResultIndex = null;
-        });
-      } else {
-        // Navigate left within grid
-        setState(() => _focusedResultIndex = _focusedResultIndex! - 1);
-      }
+      // Always switch to keyboard focus when pressing left on results
+      setState(() {
+        _keyboardFocused = true;
+        _focusedResultIndex = null;
+      });
     } else if (_keyboardFocused && widget.onReturnToSidebar != null) {
       // On keyboard, left arrow returns to sidebar
       widget.onReturnToSidebar!();
@@ -163,8 +183,10 @@ class _TvSearchScreenState extends State<TvSearchScreen>
   @override
   void handleKeyEvent(RawKeyEvent event) {
     if (_keyboardFocused) {
-      // Let keyboard handle its own navigation
-      // For now, do nothing here
+      // Allow right arrow to switch from keyboard to results
+      if (event.isKeyPressed(LogicalKeyboardKey.arrowRight)) {
+        onRightPressed();
+      }
     } else {
       if (event.isKeyPressed(LogicalKeyboardKey.arrowDown)) {
         _moveDown();
@@ -183,7 +205,9 @@ class _TvSearchScreenState extends State<TvSearchScreen>
 
   void _moveDown() {
     if (_focusedResultIndex == null) return;
-    final items = _searchQuery.isNotEmpty ? _searchResults : _getTotalRecommendations();
+    final items = _searchQuery.isNotEmpty
+        ? _searchResults
+        : _getTotalRecommendations();
     int newIndex = _focusedResultIndex! + _columnsPerRow;
     if (newIndex < items.length) {
       setState(() => _focusedResultIndex = newIndex);
@@ -211,7 +235,9 @@ class _TvSearchScreenState extends State<TvSearchScreen>
       onFocusChanged(0);
     } else if (_focusedResultIndex != null) {
       // Navigate right within grid (next item)
-      final items = _searchQuery.isNotEmpty ? _searchResults : _getTotalRecommendations();
+      final items = _searchQuery.isNotEmpty
+          ? _searchResults
+          : _getTotalRecommendations();
       if (_focusedResultIndex! < items.length - 1) {
         setState(() => _focusedResultIndex = _focusedResultIndex! + 1);
       }
@@ -355,7 +381,7 @@ class _TvSearchScreenState extends State<TvSearchScreen>
       );
     }
 
-      // Show recommendations when search is empty (5x5 grid = 25 items)
+    // Show recommendations when search is empty (5x5 grid = 25 items)
     final allRecommendations = [
       ..._trendingResults,
       ..._popularResults,
@@ -385,9 +411,6 @@ class _TvSearchScreenState extends State<TvSearchScreen>
     final title = result['media_type'] == 'tv'
         ? (result['name'] ?? 'Unknown')
         : (result['title'] ?? 'Unknown');
-    final year = result['media_type'] == 'tv'
-        ? (result['first_air_date']?.toString().split('-')[0] ?? '')
-        : (result['release_date']?.toString().split('-')[0] ?? '');
 
     final cardWidth = TvUtils.responsiveButtonHeight(context) * 2;
     final cardHeight = cardWidth * 1.5;
@@ -396,7 +419,7 @@ class _TvSearchScreenState extends State<TvSearchScreen>
       isFocused: isFocused,
       scale: 1.12,
       onTap: () {
-        Navigator.pop(context, result);
+        _navigateToContent(result);
       },
       child: Container(
         width: cardWidth,
@@ -412,7 +435,7 @@ class _TvSearchScreenState extends State<TvSearchScreen>
           color: Colors.transparent,
           child: InkWell(
             onTap: () {
-              Navigator.pop(context, result);
+              _navigateToContent(result);
             },
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -480,18 +503,6 @@ class _TvSearchScreenState extends State<TvSearchScreen>
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                        if (year.isNotEmpty)
-                          Text(
-                            year,
-                            style: TextStyle(
-                              color: Colors.grey,
-                              fontSize: TvUtils.responsiveFontSize(
-                                10,
-                                context,
-                                maxSize: 12,
-                              ),
-                            ),
-                          ),
                       ],
                     ),
                   ),

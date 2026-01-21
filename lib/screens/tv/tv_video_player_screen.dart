@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:webview_flutter/webview_flutter.dart';
-import 'package:dio/dio.dart';
 import 'package:video_player/video_player.dart';
 import 'package:chewie/chewie.dart';
 import '../../utils/tv_utils.dart';
 import '../../services/watch_history_service.dart';
-import '../../services/m3u8_service.dart';
+import '../../services/tv_scraper_service.dart';
 
 class TvVideoPlayerScreen extends StatefulWidget {
   final String title;
@@ -29,17 +27,12 @@ class TvVideoPlayerScreen extends StatefulWidget {
 }
 
 class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
-  late WebViewController _webViewController;
   bool _isLoading = true;
   String? _error;
-  Map<String, dynamic>? _streamData;
-  int _currentServerIndex = 0;
-  List<Map<String, dynamic>> _triedServers = [];
 
   // Native player variables
   VideoPlayerController? _videoPlayerController;
   ChewieController? _chewieController;
-  bool _useNativePlayer = false;
 
   @override
   void initState() {
@@ -53,222 +46,107 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
 
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
 
-    _initializeWebView();
-    _loadEmbeddedVideo();
+    _loadM3u8Stream();
   }
 
-  void _initializeWebView() {
-    _webViewController = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setUserAgent(
-        'Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.120 Mobile Safari/537.36',
-      )
-      ..setNavigationDelegate(
-        NavigationDelegate(
-          onPageStarted: (String url) {
-            if (mounted) {
-              setState(() {
-                _isLoading = true;
-                _error = null;
-              });
-            }
-            _injectAdBlocker();
-          },
-          onPageFinished: (String url) {
-            _tryExtractVideoUrl();
-
-            if (mounted) {
-              setState(() {
-                _isLoading = false;
-              });
-            }
-            _injectAdBlocker();
-            _startPeriodicAdRemoval();
-          },
-          onWebResourceError: (WebResourceError error) {
-            debugPrint('WebView error: ${error.description}');
-
-            if (error.description.contains('ERR_HTTP2_PROTOCOL_ERROR') ||
-                error.description.contains('net::') ||
-                error.description.contains('ERR_CONNECTION')) {
-              debugPrint(
-                'Network error (may be recoverable): ${error.description}',
-              );
-              _tryNextServer();
-            } else {
-              if (mounted) {
-                setState(() {
-                  _error = error.description;
-                  _isLoading = false;
-                });
-              }
-            }
-          },
-        ),
-      );
-  }
-
-  void _injectAdBlocker() {
-    _webViewController.runJavaScript('''
-      (function() {
-        // Remove common ad elements
-        const adSelectors = [
-          'iframe[src*="ads"]',
-          '[class*="ad-"]',
-          '[id*="ad-"]',
-          '.advertisement',
-          '.ads',
-          '[data-ad-slot]',
-          'script[src*="ads"]',
-        ];
-        adSelectors.forEach(selector => {
-          document.querySelectorAll(selector).forEach(el => el.remove());
-        });
-
-        // Block event tracking
-        window.gtag = function() {};
-        window.dataLayer = [];
-      })();
-    ''');
-  }
-
-  void _startPeriodicAdRemoval() {
-    Future.delayed(const Duration(seconds: 2), () {
-      if (mounted) {
-        _injectAdBlocker();
-        _startPeriodicAdRemoval();
-      }
-    });
-  }
-
-  Future<void> _loadEmbeddedVideo() async {
-    setState(() {
-      _isLoading = true;
-      _error = null;
-    });
+  Future<void> _loadM3u8Stream() async {
+    if (mounted) {
+      setState(() {
+        _isLoading = true;
+        _error = null;
+      });
+    }
 
     try {
-      await _tryNextServer();
+      debugPrint('TvVideoPlayer: Searching for stream: ${widget.title}');
+
+      // Search for the TV channel using scraper
+      final result = await TvScraperService.searchTvChannel(widget.title);
+
+      if (result != null) {
+        final m3u8Url = result['m3u8Url'] as String;
+        debugPrint('TvVideoPlayer: Found m3u8 URL: $m3u8Url');
+
+        // Verify URL is accessible
+        final isValid = await TvScraperService.verifyM3u8Url(m3u8Url);
+
+        if (isValid) {
+          await _initializePlayer(m3u8Url);
+        } else {
+          if (mounted) {
+            setState(() {
+              _error =
+                  'Stream URL is not accessible. Please try a different channel.';
+              _isLoading = false;
+            });
+          }
+        }
+      } else {
+        if (mounted) {
+          setState(() {
+            _error =
+                'Could not find stream for "${widget.title}". Try searching manually.';
+            _isLoading = false;
+          });
+        }
+      }
     } catch (e) {
+      debugPrint('TvVideoPlayer: Error loading stream: $e');
       if (mounted) {
         setState(() {
-          _error = 'Failed to load embedded video: $e';
+          _error = 'Error loading stream: $e';
           _isLoading = false;
         });
       }
     }
   }
 
-  Future<void> _tryNextServer() async {
-    // Get all available servers
-    final servers = EmbeddedVideoService.getServers();
-
-    // Skip servers we've already tried
-    while (_currentServerIndex < servers.length) {
-      final server = servers[_currentServerIndex];
-      _currentServerIndex++;
-
-      // Check if we already tried this server
-      if (_triedServers.any((tried) => tried['name'] == server['name'])) {
-        continue;
-      }
-
-      try {
-        debugPrint('Trying server: ${server['name']}');
-
-        final embedUrl = EmbeddedVideoService.buildEmbedUrl(
-          server['baseUrl']!,
-          widget.tmdbId,
-          widget.season,
-          widget.episode,
-          widget.isMovie,
-        );
-
-        // Quick check if server responds
-        final dio = EmbeddedVideoService.getDioClient();
-        final response = await dio
-            .head(embedUrl)
-            .timeout(
-              const Duration(seconds: 10),
-              onTimeout: () {
-                throw DioException(
-                  requestOptions: RequestOptions(path: embedUrl),
-                  message: 'Connection timeout',
-                  type: DioExceptionType.connectionTimeout,
-                );
-              },
-            );
-
-        if (response.statusCode == 200 || response.statusCode == 403) {
-          _streamData = {
-            'embedUrl': embedUrl,
-            'title': 'Video Content',
-            'quality': 'HD',
-            'source': server['name'],
-            'type': 'embed',
-            'isPlayable': true,
-          };
-
-          if (mounted) {
-            _loadStreamInWebView(_streamData!);
-            // Set a timeout to ensure loading indicator disappears even if onPageFinished never fires
-            Future.delayed(const Duration(seconds: 15), () {
-              if (mounted && _isLoading) {
-                debugPrint('Loading timeout - hiding loading indicator');
-                setState(() {
-                  _isLoading = false;
-                });
-              }
-            });
-          }
-          return;
-        }
-      } on DioException catch (e) {
-        _triedServers.add({'name': server['name'], 'error': e.message});
-        debugPrint('Server ${server['name']} failed: ${e.message}');
-        continue;
-      }
-    }
-
-    // All servers failed
-    if (mounted) {
-      setState(() {
-        _error = 'All servers failed. Please try again later.';
-        _isLoading = false;
-      });
-    }
-  }
-
-  void _loadStreamInWebView(Map<String, dynamic> streamUrl) {
-    final embedUrl = streamUrl['embedUrl'] ?? '';
-    if (embedUrl.isNotEmpty) {
-      _webViewController.loadRequest(Uri.parse(embedUrl));
-    }
-  }
-
-  void _tryExtractVideoUrl() {
-    _webViewController.runJavaScript('''
-      (function() {
-        const videoElement = document.querySelector('video');
-        if (videoElement && videoElement.src) {
-          window.flutter_inappwebview.callHandler('videoUrlFound', {
-            url: videoElement.src,
-            type: 'direct'
+  Future<void> _initializePlayer(String m3u8Url) async {
+    try {
+      _videoPlayerController =
+          VideoPlayerController.networkUrl(Uri.parse(m3u8Url))..addListener(() {
+            if (mounted) {
+              setState(() {});
+            }
           });
-        }
 
-        const sources = document.querySelectorAll('video source');
-        if (sources.length > 0) {
-          const sourceUrl = sources[0].src;
-          if (sourceUrl) {
-            window.flutter_inappwebview.callHandler('videoUrlFound', {
-              url: sourceUrl,
-              type: 'source'
-            });
-          }
-        }
-      })();
-    ''');
+      await _videoPlayerController!.initialize();
+
+      _chewieController = ChewieController(
+        videoPlayerController: _videoPlayerController!,
+        autoPlay: true,
+        looping: false,
+        progressIndicatorDelay: const Duration(milliseconds: 200),
+        hideControlsTimer: const Duration(seconds: 3),
+        allowMuting: true,
+        allowPlaybackSpeedChanging: true,
+        showControls: true,
+        materialProgressColors: ChewieProgressColors(
+          playedColor: Colors.red,
+          handleColor: Colors.red.shade300,
+          backgroundColor: Colors.grey,
+          bufferedColor: Colors.grey.shade700,
+        ),
+      );
+
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('TvVideoPlayer: Error initializing player: $e');
+      if (mounted) {
+        setState(() {
+          _error = 'Failed to initialize video player: $e';
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  void _retryLoading() {
+    _loadM3u8Stream();
   }
 
   @override
@@ -314,30 +192,35 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
       },
       child: Scaffold(
         backgroundColor: Colors.black,
-        body: _useNativePlayer && _chewieController != null
-            ? _buildNativePlayer()
-            : _buildWebPlayer(),
+        body: _chewieController != null
+            ? _buildVideoPlayer()
+            : _buildLoadingOrError(),
       ),
     );
   }
 
-  Widget _buildNativePlayer() {
+  Widget _buildVideoPlayer() {
     return SafeArea(
-      child: Column(
+      child: Stack(
         children: [
-          Expanded(child: Chewie(controller: _chewieController!)),
-          Container(
-            color: Colors.black,
-            padding: const EdgeInsets.all(16),
-            child: Text(
-              widget.title,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
+          Chewie(controller: _chewieController!),
+          Positioned(
+            top: 16,
+            left: 16,
+            child: GestureDetector(
+              onTap: () => Navigator.pop(context),
+              child: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.7),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Icons.arrow_back,
+                  color: Colors.white,
+                  size: 24,
+                ),
               ),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
             ),
           ),
         ],
@@ -345,10 +228,10 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
     );
   }
 
-  Widget _buildWebPlayer() {
+  Widget _buildLoadingOrError() {
     return Stack(
       children: [
-        WebViewWidget(controller: _webViewController),
+        Container(color: Colors.black),
         if (_isLoading)
           Center(
             child: Column(
@@ -360,11 +243,12 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  'Loading video...',
+                  'Loading stream for ${widget.title}...',
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: TvUtils.responsiveFontSize(18, context),
                   ),
+                  textAlign: TextAlign.center,
                 ),
               ],
             ),
@@ -376,14 +260,17 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
               children: [
                 const Icon(Icons.error_outline, color: Colors.red, size: 64),
                 const SizedBox(height: 16),
-                Text(
-                  'Error: $_error',
-                  style: const TextStyle(color: Colors.white, fontSize: 18),
-                  textAlign: TextAlign.center,
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: Text(
+                    'Error: $_error',
+                    style: const TextStyle(color: Colors.white, fontSize: 18),
+                    textAlign: TextAlign.center,
+                  ),
                 ),
                 const SizedBox(height: 24),
                 ElevatedButton(
-                  onPressed: _loadEmbeddedVideo,
+                  onPressed: _retryLoading,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.red,
                     padding: const EdgeInsets.symmetric(

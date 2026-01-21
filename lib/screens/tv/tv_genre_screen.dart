@@ -29,6 +29,7 @@ class _TvGenreScreenState extends State<TvGenreScreen>
   bool _isLoadingMore = false;
   late ScrollController _scrollController;
   static const int _columnsPerRow = 3;
+  int? _focusedContentIndex;
 
   @override
   void initState() {
@@ -53,10 +54,8 @@ class _TvGenreScreenState extends State<TvGenreScreen>
   @override
   void onFocusChanged(int index) {
     setState(() {
-      if (!_showDetailView) {
-        // Genre selection
-      } else {
-        // Content selection
+      if (_showDetailView) {
+        _focusedContentIndex = index;
       }
     });
   }
@@ -414,11 +413,11 @@ class _TvGenreScreenState extends State<TvGenreScreen>
                 controller: _scrollController,
                 padding: EdgeInsets.all(TvUtils.responsivePadding(16, context)),
                 gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 3,
-                  childAspectRatio: 0.6,
-                  crossAxisSpacing: TvUtils.responsivePadding(16, context),
-                  mainAxisSpacing: TvUtils.responsivePadding(16, context),
-                ),
+                   crossAxisCount: 2,
+                   childAspectRatio: 3.0,
+                   crossAxisSpacing: TvUtils.responsivePadding(16, context),
+                   mainAxisSpacing: TvUtils.responsivePadding(12, context),
+                 ),
                 itemCount: _contentByGenre.length + (_isLoadingMore ? 1 : 0),
                 itemBuilder: (context, index) {
                   if (index == _contentByGenre.length) {
@@ -439,24 +438,33 @@ class _TvGenreScreenState extends State<TvGenreScreen>
                   final year = _selectedGenreType == 'tv'
                       ? (item['first_air_date']?.toString().split('-')[0] ?? '')
                       : (item['release_date']?.toString().split('-')[0] ?? '');
+                  final isFocused = _focusedContentIndex == index;
 
                   return GestureDetector(
                     onTap: () {
                       // Navigate to detail screen if needed
                     },
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(
-                              TvUtils.responsivePadding(8, context),
-                            ),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.grey[900],
+                        borderRadius: BorderRadius.circular(8),
+                        border: isFocused
+                            ? Border.all(color: Colors.white, width: 4)
+                            : null,
+                      ),
+                      padding: EdgeInsets.symmetric(
+                        horizontal: TvUtils.responsivePadding(8, context),
+                        vertical: TvUtils.responsivePadding(6, context),
+                      ),
+                      child: Row(
+                        children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(6),
                             child: Container(
+                              width: 60,
+                              height: 60,
                               decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(
-                                  TvUtils.responsivePadding(8, context),
-                                ),
+                                borderRadius: BorderRadius.circular(6),
                               ),
                               child: posterPath != null
                                   ? Image.network(
@@ -482,39 +490,49 @@ class _TvGenreScreenState extends State<TvGenreScreen>
                                     ),
                             ),
                           ),
-                        ),
-                        SizedBox(height: TvUtils.responsivePadding(8, context)),
-                        Text(
-                          title,
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: TvUtils.responsiveFontSize(
-                              12,
-                              context,
-                              maxSize: 16,
+                          SizedBox(width: TvUtils.responsivePadding(8, context)),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(
+                                  title,
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: TvUtils.responsiveFontSize(
+                                      12,
+                                      context,
+                                      maxSize: 14,
+                                    ),
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                if (year.isNotEmpty) ...[
+                                  SizedBox(height: TvUtils.responsivePadding(2, context)),
+                                  Text(
+                                    year,
+                                    style: TextStyle(
+                                      color: Colors.grey,
+                                      fontSize: TvUtils.responsiveFontSize(
+                                        9,
+                                        context,
+                                        maxSize: 10,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ],
                             ),
-                            fontWeight: FontWeight.w500,
                           ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        if (year.isNotEmpty)
-                          Text(
-                            year,
-                            style: TextStyle(
-                              color: Colors.grey,
-                              fontSize: TvUtils.responsiveFontSize(
-                                10,
-                                context,
-                                maxSize: 12,
-                              ),
-                            ),
-                          ),
-                      ],
+                        ],
+                      ),
                     ),
-                  );
-                },
-              ),
+                          );
+                          },
+                          ),
       ),
     );
   }
