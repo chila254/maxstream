@@ -66,18 +66,22 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
       ..setNavigationDelegate(
         NavigationDelegate(
           onPageStarted: (String url) {
-            setState(() {
-              _isLoading = true;
-              _error = null;
-            });
+            if (mounted) {
+              setState(() {
+                _isLoading = true;
+                _error = null;
+              });
+            }
             _injectAdBlocker();
           },
           onPageFinished: (String url) {
             _tryExtractVideoUrl();
 
-            setState(() {
-              _isLoading = false;
-            });
+            if (mounted) {
+              setState(() {
+                _isLoading = false;
+              });
+            }
             _injectAdBlocker();
             _startPeriodicAdRemoval();
           },
@@ -92,9 +96,12 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
               );
               _tryNextServer();
             } else {
-              setState(() {
-                _error = error.description;
-              });
+              if (mounted) {
+                setState(() {
+                  _error = error.description;
+                  _isLoading = false;
+                });
+              }
             }
           },
         ),
@@ -204,6 +211,15 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
 
           if (mounted) {
             _loadStreamInWebView(_streamData!);
+            // Set a timeout to ensure loading indicator disappears even if onPageFinished never fires
+            Future.delayed(const Duration(seconds: 15), () {
+              if (mounted && _isLoading) {
+                debugPrint('Loading timeout - hiding loading indicator');
+                setState(() {
+                  _isLoading = false;
+                });
+              }
+            });
           }
           return;
         }

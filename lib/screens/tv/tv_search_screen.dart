@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../widgets/tv_keyboard.dart';
 import '../../widgets/custom_loading_widget.dart';
 import '../../widgets/tv_focus_widget.dart';
@@ -7,7 +8,9 @@ import '../../utils/tv_dpad_navigation_mixin.dart';
 import '../../services/tmdb_api_service.dart';
 
 class TvSearchScreen extends StatefulWidget {
-  const TvSearchScreen({super.key});
+  final VoidCallback? onReturnToSidebar;
+
+  const TvSearchScreen({super.key, this.onReturnToSidebar});
 
   @override
   State<TvSearchScreen> createState() => _TvSearchScreenState();
@@ -17,11 +20,41 @@ class _TvSearchScreenState extends State<TvSearchScreen>
     with TvDpadNavigationMixin {
   String _searchQuery = '';
   List<Map<String, dynamic>> _searchResults = [];
+  List<Map<String, dynamic>> _trendingResults = [];
+  List<Map<String, dynamic>> _popularResults = [];
+  List<Map<String, dynamic>> _topRatedResults = [];
   bool _isLoading = false;
   bool _showNoResults = false;
   int? _focusedResultIndex;
   bool _keyboardFocused = true;
-  static const int _columnsPerRow = 6;
+  static const int _columnsPerRow = 5;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadRecommendations();
+  }
+
+  Future<void> _loadRecommendations() async {
+    try {
+      final results = await Future.wait([
+        TmdbApiService.fetchTrendingMovies(),
+        TmdbApiService.fetchPopularMovies(),
+        TmdbApiService.fetchTopRatedMovies(),
+      ]);
+
+      if (mounted) {
+        setState(() {
+          // Split 25 total items across 3 categories: 9 + 8 + 8
+          _trendingResults = results[0].take(9).toList();
+          _popularResults = results[1].take(8).toList();
+          _topRatedResults = results[2].take(8).toList();
+        });
+      }
+    } catch (e) {
+      print('Error loading recommendations: $e');
+    }
+  }
 
   Future<void> _performSearch(String query) async {
     setState(() {
@@ -71,7 +104,21 @@ class _TvSearchScreenState extends State<TvSearchScreen>
 
   // D-Pad Navigation Implementation
   @override
-  int get maxFocusIndex => _keyboardFocused ? 0 : (_searchResults.length - 1);
+  int get maxFocusIndex {
+    if (_keyboardFocused) return 0;
+    
+    // Get the current items being displayed
+    final items = _searchQuery.isNotEmpty ? _searchResults : _getTotalRecommendations();
+    return items.length - 1;
+  }
+
+  List<Map<String, dynamic>> _getTotalRecommendations() {
+    return [
+      ..._trendingResults,
+      ..._popularResults,
+      ..._topRatedResults,
+    ];
+  }
 
   @override
   void onFocusChanged(int index) {
@@ -85,28 +132,89 @@ class _TvSearchScreenState extends State<TvSearchScreen>
     if (_keyboardFocused) {
       // Keyboard is focused, submit search
       _submitSearch();
-    } else if (_focusedResultIndex != null &&
-        _focusedResultIndex! < _searchResults.length) {
-      final item = _searchResults[_focusedResultIndex!];
-      Navigator.pop(context, item);
+    } else if (_focusedResultIndex != null) {
+      final items = _searchQuery.isNotEmpty ? _searchResults : _getTotalRecommendations();
+      if (_focusedResultIndex! < items.length) {
+        final item = items[_focusedResultIndex!];
+        Navigator.pop(context, item);
+      }
     }
   }
 
   @override
   void onLeftPressed() {
-    if (!_keyboardFocused &&
-        _focusedResultIndex != null &&
-        _focusedResultIndex! > 0) {
-      setState(() => _focusedResultIndex = _focusedResultIndex! - 1);
+    if (!_keyboardFocused && _focusedResultIndex != null) {
+      if (_focusedResultIndex! % _columnsPerRow == 0) {
+        // At leftmost column: switch back to keyboard
+        setState(() {
+          _keyboardFocused = true;
+          _focusedResultIndex = null;
+        });
+      } else {
+        // Navigate left within grid
+        setState(() => _focusedResultIndex = _focusedResultIndex! - 1);
+      }
+    } else if (_keyboardFocused && widget.onReturnToSidebar != null) {
+      // On keyboard, left arrow returns to sidebar
+      widget.onReturnToSidebar!();
+    }
+  }
+
+  @override
+  void handleKeyEvent(RawKeyEvent event) {
+    if (_keyboardFocused) {
+      // Let keyboard handle its own navigation
+      // For now, do nothing here
+    } else {
+      if (event.isKeyPressed(LogicalKeyboardKey.arrowDown)) {
+        _moveDown();
+      } else if (event.isKeyPressed(LogicalKeyboardKey.arrowUp)) {
+        _moveUp();
+      } else if (event.isKeyPressed(LogicalKeyboardKey.arrowLeft)) {
+        onLeftPressed();
+      } else if (event.isKeyPressed(LogicalKeyboardKey.arrowRight)) {
+        onRightPressed();
+      } else if (event.isKeyPressed(LogicalKeyboardKey.select) ||
+          event.isKeyPressed(LogicalKeyboardKey.enter)) {
+        onSelectPressed();
+      }
+    }
+  }
+
+  void _moveDown() {
+    if (_focusedResultIndex == null) return;
+    final items = _searchQuery.isNotEmpty ? _searchResults : _getTotalRecommendations();
+    int newIndex = _focusedResultIndex! + _columnsPerRow;
+    if (newIndex < items.length) {
+      setState(() => _focusedResultIndex = newIndex);
+      onFocusChanged(newIndex);
+    }
+  }
+
+  void _moveUp() {
+    if (_focusedResultIndex == null) return;
+    int newIndex = _focusedResultIndex! - _columnsPerRow;
+    if (newIndex >= 0) {
+      setState(() => _focusedResultIndex = newIndex);
+      onFocusChanged(newIndex);
     }
   }
 
   @override
   void onRightPressed() {
-    if (!_keyboardFocused &&
-        _focusedResultIndex != null &&
-        _focusedResultIndex! < _searchResults.length - 1) {
-      setState(() => _focusedResultIndex = _focusedResultIndex! + 1);
+    if (_keyboardFocused) {
+      // Switch from keyboard to recommendations/search results
+      setState(() {
+        _keyboardFocused = false;
+        _focusedResultIndex = 0;
+      });
+      onFocusChanged(0);
+    } else if (_focusedResultIndex != null) {
+      // Navigate right within grid (next item)
+      final items = _searchQuery.isNotEmpty ? _searchResults : _getTotalRecommendations();
+      if (_focusedResultIndex! < items.length - 1) {
+        setState(() => _focusedResultIndex = _focusedResultIndex! + 1);
+      }
     }
   }
 
@@ -138,7 +246,7 @@ class _TvSearchScreenState extends State<TvSearchScreen>
           children: [
             // Left side: Keyboard - narrow and tall
             SizedBox(
-              width: MediaQuery.of(context).size.width * 0.15,
+              width: MediaQuery.of(context).size.width * 0.3,
               child: Padding(
                 padding: EdgeInsets.symmetric(
                   horizontal: TvUtils.responsivePadding(12, context),
@@ -217,20 +325,42 @@ class _TvSearchScreenState extends State<TvSearchScreen>
       );
     }
 
-    if (_showNoResults || _searchResults.isEmpty) {
-      return Center(
-        child: Text(
-          _searchQuery.isEmpty
-              ? 'Start typing to search'
-              : 'No results found for "$_searchQuery"',
-          style: TextStyle(
-            color: Colors.grey,
-            fontSize: TvUtils.responsiveFontSize(16, context),
+    // Show search results if query is not empty
+    if (_searchQuery.isNotEmpty) {
+      if (_showNoResults || _searchResults.isEmpty) {
+        return Center(
+          child: Text(
+            'No results found for "$_searchQuery"',
+            style: TextStyle(
+              color: Colors.grey,
+              fontSize: TvUtils.responsiveFontSize(16, context),
+            ),
+            textAlign: TextAlign.center,
           ),
-          textAlign: TextAlign.center,
+        );
+      }
+
+      return GridView.builder(
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: _columnsPerRow,
+          childAspectRatio: 0.6,
+          crossAxisSpacing: TvUtils.responsivePadding(12, context),
+          mainAxisSpacing: TvUtils.responsivePadding(12, context),
+        ),
+        itemCount: _searchResults.length,
+        itemBuilder: (context, index) => _buildResultCard(
+          _searchResults[index],
+          isFocused: _focusedResultIndex == index,
         ),
       );
     }
+
+      // Show recommendations when search is empty (5x5 grid = 25 items)
+    final allRecommendations = [
+      ..._trendingResults,
+      ..._popularResults,
+      ..._topRatedResults,
+    ];
 
     return GridView.builder(
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
@@ -239,9 +369,9 @@ class _TvSearchScreenState extends State<TvSearchScreen>
         crossAxisSpacing: TvUtils.responsivePadding(12, context),
         mainAxisSpacing: TvUtils.responsivePadding(12, context),
       ),
-      itemCount: _searchResults.length,
+      itemCount: allRecommendations.length,
       itemBuilder: (context, index) => _buildResultCard(
-        _searchResults[index],
+        allRecommendations[index],
         isFocused: _focusedResultIndex == index,
       ),
     );

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shimmer/shimmer.dart';
 import 'dart:async';
 import '../../models/movie.dart';
@@ -14,13 +15,16 @@ import 'tv_series_screen.dart';
 import '../provider_content_screen.dart';
 
 class TvHomeScreen extends StatefulWidget {
-  const TvHomeScreen({super.key});
+  final VoidCallback? onReturnToSidebar;
+
+  const TvHomeScreen({super.key, this.onReturnToSidebar});
 
   @override
   State<TvHomeScreen> createState() => _TvHomeScreenState();
 }
 
-class _TvHomeScreenState extends State<TvHomeScreen> with TvDpadNavigationMixin {
+class _TvHomeScreenState extends State<TvHomeScreen>
+    with TvDpadNavigationMixin {
   bool isLoading = true;
   List<Map<String, dynamic>> trendingMovies = [];
   List<Map<String, dynamic>> trendingSeries = [];
@@ -33,8 +37,15 @@ class _TvHomeScreenState extends State<TvHomeScreen> with TvDpadNavigationMixin 
   int _heroBannerPage = 0;
 
   // Focus tracking for content cards
-  int? _focusedItemIndex;
   String? _focusedSection;
+  final Map<String, int> _sectionItemIndices = {
+    'providers': 0,
+    'continue': 0,
+    'trending_movies': 0,
+    'trending_series': 0,
+    'popular_movies': 0,
+    'top_rated': 0,
+  };
 
   @override
   void initState() {
@@ -56,7 +67,17 @@ class _TvHomeScreenState extends State<TvHomeScreen> with TvDpadNavigationMixin 
 
   @override
   void onFocusChanged(int index) {
-    setState(() => _focusedSection = ['hero', 'providers', 'continue', 'trending_movies', 'trending_series', 'popular_movies'][index]);
+    setState(() {
+      _focusedSection = [
+        'hero',
+        'providers',
+        'continue',
+        'trending_movies',
+        'trending_series',
+        'popular_movies',
+        'top_rated',
+      ][index];
+    });
   }
 
   @override
@@ -66,12 +87,56 @@ class _TvHomeScreenState extends State<TvHomeScreen> with TvDpadNavigationMixin 
 
   @override
   void onLeftPressed() {
-    // Navigate within section
+    if (_focusedSection == null) return;
+
+    if (_focusedSection == 'hero' || _focusedSection == 'providers') {
+      // For hero and providers, left might not apply or could cycle
+      return;
+    }
+
+    // Navigate left within content sections
+    final currentIndex = _sectionItemIndices[_focusedSection] ?? 0;
+    if (currentIndex > 0) {
+      setState(() {
+        _sectionItemIndices[_focusedSection!] = currentIndex - 1;
+      });
+    }
   }
 
   @override
   void onRightPressed() {
-    // Navigate within section
+    if (_focusedSection == null) return;
+
+    if (_focusedSection == 'hero' || _focusedSection == 'providers') {
+      // For hero and providers, right might not apply or could cycle
+      return;
+    }
+
+    // Navigate right within content sections
+    final currentIndex = _sectionItemIndices[_focusedSection] ?? 0;
+    final maxItems = _getMaxItemsForSection(_focusedSection!);
+    if (currentIndex < maxItems - 1) {
+      setState(() {
+        _sectionItemIndices[_focusedSection!] = currentIndex + 1;
+      });
+    }
+  }
+
+  int _getMaxItemsForSection(String section) {
+    switch (section) {
+      case 'continue':
+        return continueWatching.take(10).length;
+      case 'trending_movies':
+        return trendingMovies.take(10).length;
+      case 'trending_series':
+        return trendingSeries.take(10).length;
+      case 'popular_movies':
+        return popularMovies.take(10).length;
+      case 'top_rated':
+        return topRatedMovies.take(10).length;
+      default:
+        return 0;
+    }
   }
 
   void _startHeroBannerTimer() {
@@ -135,79 +200,79 @@ class _TvHomeScreenState extends State<TvHomeScreen> with TvDpadNavigationMixin 
       focusNode: focusNode,
       child: Scaffold(
         backgroundColor: const Color(0xFF121212),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF1A1A1A),
-        title: Text(
-          'MaxStream TV',
-          style: TextStyle(
-            fontSize: TvUtils.responsiveFontSize(32, context, maxSize: 48),
-            color: const Color(0xFFE50914),
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        actions: [
-          IconButton(
-            icon: Icon(
-              Icons.search,
-              size: TvUtils.responsiveFontSize(28, context, maxSize: 40),
+        appBar: AppBar(
+          backgroundColor: const Color(0xFF1A1A1A),
+          title: Text(
+            'MaxStream TV',
+            style: TextStyle(
+              fontSize: TvUtils.responsiveFontSize(32, context, maxSize: 48),
+              color: const Color(0xFFE50914),
+              fontWeight: FontWeight.bold,
             ),
-            onPressed: _openSearch,
           ),
-          SizedBox(width: TvUtils.responsivePadding(16, context)),
-        ],
-      ),
-      body: isLoading
-          ? _buildLoadingShimmer()
-          : RefreshIndicator(
-              onRefresh: _loadContent,
-              child: CustomScrollView(
-                slivers: [
-                  SliverToBoxAdapter(child: _buildHeroBanner()),
-                  SliverToBoxAdapter(child: _buildProvidersSection()),
-                  if (continueWatching.isNotEmpty)
+          actions: [
+            IconButton(
+              icon: Icon(
+                Icons.search,
+                size: TvUtils.responsiveFontSize(28, context, maxSize: 40),
+              ),
+              onPressed: _openSearch,
+            ),
+            SizedBox(width: TvUtils.responsivePadding(16, context)),
+          ],
+        ),
+        body: isLoading
+            ? _buildLoadingShimmer()
+            : RefreshIndicator(
+                onRefresh: _loadContent,
+                child: CustomScrollView(
+                  slivers: [
+                    SliverToBoxAdapter(child: _buildHeroBanner()),
+                    SliverToBoxAdapter(child: _buildProvidersSection()),
+                    if (continueWatching.isNotEmpty)
+                      SliverToBoxAdapter(
+                        child: _buildSection(
+                          'Continue Watching',
+                          continueWatching,
+                          'mixed',
+                        ),
+                      ),
                     SliverToBoxAdapter(
                       child: _buildSection(
-                        'Continue Watching',
-                        continueWatching,
-                        'mixed',
+                        'Trending Movies',
+                        trendingMovies,
+                        'movie',
                       ),
                     ),
-                  SliverToBoxAdapter(
-                    child: _buildSection(
-                      'Trending Movies',
-                      trendingMovies,
-                      'movie',
+                    SliverToBoxAdapter(
+                      child: _buildSection(
+                        'Trending Series',
+                        trendingSeries,
+                        'series',
+                      ),
                     ),
-                  ),
-                  SliverToBoxAdapter(
-                    child: _buildSection(
-                      'Trending Series',
-                      trendingSeries,
-                      'series',
+                    SliverToBoxAdapter(
+                      child: _buildSection(
+                        'Popular Movies',
+                        popularMovies,
+                        'movie',
+                      ),
                     ),
-                  ),
-                  SliverToBoxAdapter(
-                    child: _buildSection(
-                      'Popular Movies',
-                      popularMovies,
-                      'movie',
+                    SliverToBoxAdapter(
+                      child: _buildSection(
+                        'Top Rated Movies',
+                        topRatedMovies,
+                        'movie',
+                      ),
                     ),
-                  ),
-                  SliverToBoxAdapter(
-                    child: _buildSection(
-                      'Top Rated Movies',
-                      topRatedMovies,
-                      'movie',
+                    SliverToBoxAdapter(
+                      child: SizedBox(
+                        height: TvUtils.responsivePadding(48, context),
+                      ),
                     ),
-                  ),
-                  SliverToBoxAdapter(
-                    child: SizedBox(
-                      height: TvUtils.responsivePadding(48, context),
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
       ),
     );
   }
@@ -778,7 +843,8 @@ class _TvHomeScreenState extends State<TvHomeScreen> with TvDpadNavigationMixin 
               itemBuilder: (context, index) {
                 final item = items[index];
                 final isFocused =
-                    _focusedSection == type && _focusedItemIndex == index;
+                    _focusedSection == type &&
+                    _sectionItemIndices[type] == index;
                 return _buildContentCard(
                   item,
                   type,
@@ -798,8 +864,11 @@ class _TvHomeScreenState extends State<TvHomeScreen> with TvDpadNavigationMixin 
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) =>
-            _TvFullListScreen(title: title, contentType: type),
+        builder: (context) => _TvFullListScreen(
+          title: title,
+          contentType: type,
+          onReturnToSidebar: widget.onReturnToSidebar,
+        ),
       ),
     );
   }
@@ -939,14 +1008,20 @@ class _ProviderInfo {
 class _TvFullListScreen extends StatefulWidget {
   final String title;
   final String contentType;
+  final VoidCallback? onReturnToSidebar;
 
-  const _TvFullListScreen({required this.title, required this.contentType});
+  const _TvFullListScreen({
+    required this.title,
+    required this.contentType,
+    this.onReturnToSidebar,
+  });
 
   @override
-  _TvFullListScreenState createState() => _TvFullListScreenState();
+  State<_TvFullListScreen> createState() => _TvFullListScreenState();
 }
 
-class _TvFullListScreenState extends State<_TvFullListScreen> {
+class _TvFullListScreenState extends State<_TvFullListScreen>
+    with TvDpadNavigationMixin {
   List<Map<String, dynamic>> _allItems = [];
   bool _isLoading = false;
   bool _isLoadingMore = false;
@@ -965,6 +1040,71 @@ class _TvFullListScreenState extends State<_TvFullListScreen> {
   void dispose() {
     _scrollController.dispose();
     super.dispose();
+  }
+
+  @override
+  int get maxFocusIndex => _allItems.isNotEmpty ? _allItems.length - 1 : 0;
+
+  @override
+  void onFocusChanged(int index) {
+    // Handle focus change if needed
+  }
+
+  @override
+  void onSelectPressed() {
+    // Handle select if needed
+  }
+
+  @override
+  void onLeftPressed() {
+    final currentFocus = getFocusIndex();
+    if (currentFocus > 0 && currentFocus % 3 != 0) {
+      // Navigate left within grid
+      setFocusIndex(currentFocus - 1);
+    } else if (currentFocus % 3 == 0 && widget.onReturnToSidebar != null) {
+      // At leftmost column: return to sidebar
+      widget.onReturnToSidebar!();
+    }
+  }
+
+  @override
+  void onRightPressed() {
+    final currentFocus = getFocusIndex();
+    if (currentFocus + 1 < _allItems.length && (currentFocus + 1) % 3 != 0) {
+      setFocusIndex(currentFocus + 1);
+    }
+  }
+
+  @override
+  void handleKeyEvent(RawKeyEvent event) {
+    if (event.isKeyPressed(LogicalKeyboardKey.arrowDown)) {
+      _moveDown();
+    } else if (event.isKeyPressed(LogicalKeyboardKey.arrowUp)) {
+      _moveUp();
+    } else if (event.isKeyPressed(LogicalKeyboardKey.arrowLeft)) {
+      onLeftPressed();
+    } else if (event.isKeyPressed(LogicalKeyboardKey.arrowRight)) {
+      onRightPressed();
+    } else if (event.isKeyPressed(LogicalKeyboardKey.select) ||
+        event.isKeyPressed(LogicalKeyboardKey.enter)) {
+      onSelectPressed();
+    }
+  }
+
+  void _moveDown() {
+    final currentFocus = getFocusIndex();
+    int newIndex = currentFocus + 3;
+    if (newIndex < _allItems.length) {
+      setFocusIndex(newIndex);
+    }
+  }
+
+  void _moveUp() {
+    final currentFocus = getFocusIndex();
+    int newIndex = currentFocus - 3;
+    if (newIndex >= 0) {
+      setFocusIndex(newIndex);
+    }
   }
 
   Future<void> _loadInitialItems() async {
@@ -1047,82 +1187,86 @@ class _TvFullListScreenState extends State<_TvFullListScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF121212),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF1A1A1A),
-        title: Text(
-          widget.title,
-          style: TextStyle(
-            fontSize: TvUtils.responsiveFontSize(28, context, maxSize: 40),
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
+    return RawKeyboardListener(
+      onKey: handleKeyEvent,
+      focusNode: focusNode,
+      child: Scaffold(
+        backgroundColor: const Color(0xFF121212),
+        appBar: AppBar(
+          backgroundColor: const Color(0xFF1A1A1A),
+          title: Text(
+            widget.title,
+            style: TextStyle(
+              fontSize: TvUtils.responsiveFontSize(28, context, maxSize: 40),
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          leading: IconButton(
+            icon: Icon(
+              Icons.arrow_back,
+              size: TvUtils.responsiveFontSize(24, context, maxSize: 36),
+            ),
+            onPressed: () => Navigator.pop(context),
           ),
         ),
-        leading: IconButton(
-          icon: Icon(
-            Icons.arrow_back,
-            size: TvUtils.responsiveFontSize(24, context, maxSize: 36),
-          ),
-          onPressed: () => Navigator.pop(context),
-        ),
-      ),
-      body: _isLoading
-          ? Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const CustomLoadingWidget(
-                    size: 60,
-                    color: Color(0xFFE50914),
-                    style: LoadingStyle.dots,
-                  ),
-                  SizedBox(height: TvUtils.responsivePadding(24, context)),
-                  Text(
-                    'Loading...',
-                    style: TextStyle(
-                      color: Colors.grey,
-                      fontSize: TvUtils.responsiveFontSize(16, context),
-                    ),
-                  ),
-                ],
-              ),
-            )
-          : _allItems.isEmpty
-          ? Center(
-              child: Text(
-                'No content available',
-                style: TextStyle(
-                  color: Colors.grey,
-                  fontSize: TvUtils.responsiveFontSize(16, context),
-                ),
-              ),
-            )
-          : GridView.builder(
-              controller: _scrollController,
-              padding: EdgeInsets.all(TvUtils.responsivePadding(24, context)),
-              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 3,
-                childAspectRatio: 0.6,
-                crossAxisSpacing: TvUtils.responsivePadding(16, context),
-                mainAxisSpacing: TvUtils.responsivePadding(16, context),
-              ),
-              itemCount: _allItems.length + (_isLoadingMore ? 1 : 0),
-              itemBuilder: (context, index) {
-                if (index == _allItems.length) {
-                  return Center(
-                    child: const CustomLoadingWidget(
-                      size: 40,
+        body: _isLoading
+            ? Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const CustomLoadingWidget(
+                      size: 60,
                       color: Color(0xFFE50914),
                       style: LoadingStyle.dots,
                     ),
-                  );
-                }
+                    SizedBox(height: TvUtils.responsivePadding(24, context)),
+                    Text(
+                      'Loading...',
+                      style: TextStyle(
+                        color: Colors.grey,
+                        fontSize: TvUtils.responsiveFontSize(16, context),
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            : _allItems.isEmpty
+            ? Center(
+                child: Text(
+                  'No content available',
+                  style: TextStyle(
+                    color: Colors.grey,
+                    fontSize: TvUtils.responsiveFontSize(16, context),
+                  ),
+                ),
+              )
+            : GridView.builder(
+                controller: _scrollController,
+                padding: EdgeInsets.all(TvUtils.responsivePadding(24, context)),
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 3,
+                  childAspectRatio: 0.6,
+                  crossAxisSpacing: TvUtils.responsivePadding(16, context),
+                  mainAxisSpacing: TvUtils.responsivePadding(16, context),
+                ),
+                itemCount: _allItems.length + (_isLoadingMore ? 1 : 0),
+                itemBuilder: (context, index) {
+                  if (index == _allItems.length) {
+                    return Center(
+                      child: const CustomLoadingWidget(
+                        size: 40,
+                        color: Color(0xFFE50914),
+                        style: LoadingStyle.dots,
+                      ),
+                    );
+                  }
 
-                final item = _allItems[index];
-                return _buildFullListItem(item);
-              },
-            ),
+                  final item = _allItems[index];
+                  return _buildFullListItem(item);
+                },
+              ),
+      ),
     );
   }
 

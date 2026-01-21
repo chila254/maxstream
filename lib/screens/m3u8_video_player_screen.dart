@@ -64,10 +64,12 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       ..setNavigationDelegate(
         NavigationDelegate(
           onPageStarted: (String url) {
-            setState(() {
-              _isLoading = true;
-              _error = null;
-            });
+            if (mounted) {
+              setState(() {
+                _isLoading = true;
+                _error = null;
+              });
+            }
             // Inject ad blocking immediately when page starts loading
             _injectAdBlocker();
           },
@@ -75,9 +77,11 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
             // Try to extract video URL for native playback
             _tryExtractVideoUrl();
 
-            setState(() {
-              _isLoading = false;
-            });
+            if (mounted) {
+              setState(() {
+                _isLoading = false;
+              });
+            }
             // Continue ad blocking after page loads
             _injectAdBlocker();
             _startPeriodicAdRemoval();
@@ -96,10 +100,12 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
               // Try next server
               _tryNextServer();
             } else {
-              setState(() {
-                _error = error.description;
-                _isLoading = false;
-              });
+              if (mounted) {
+                setState(() {
+                  _error = error.description;
+                  _isLoading = false;
+                });
+              }
             }
           },
           onNavigationRequest: (NavigationRequest request) {
@@ -183,10 +189,20 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
           _triedServers.add(server);
 
           // Load the embed URL in WebView
-          await _webViewController.loadRequest(Uri.parse(embedUrl));
+          try {
+            await _webViewController.loadRequest(Uri.parse(embedUrl));
+          } catch (e) {
+            debugPrint('Error loading request into WebView: $e');
+          }
 
-          setState(() {
-            _isLoading = false;
+          // Set a timeout to ensure loading indicator disappears even if onPageFinished never fires
+          Future.delayed(const Duration(seconds: 15), () {
+            if (mounted && _isLoading) {
+              debugPrint('Loading timeout - hiding loading indicator');
+              setState(() {
+                _isLoading = false;
+              });
+            }
           });
 
           debugPrint('Successfully loaded embed from ${server['name']}');

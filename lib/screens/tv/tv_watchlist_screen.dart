@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../database/db_helper.dart';
 import '../../models/movie.dart';
 import '../../utils/tv_utils.dart';
@@ -8,7 +9,9 @@ import 'tv_details_screen.dart';
 import 'tv_series_screen.dart';
 
 class TvWatchlistScreen extends StatefulWidget {
-  const TvWatchlistScreen({super.key});
+  final VoidCallback? onReturnToSidebar;
+
+  const TvWatchlistScreen({super.key, this.onReturnToSidebar});
 
   @override
   State<TvWatchlistScreen> createState() => _TvWatchlistScreenState();
@@ -23,6 +26,7 @@ class _TvWatchlistScreenState extends State<TvWatchlistScreen>
   bool _showVertical = false;
   late TabController _tabController;
   int? _focusedItemIndex;
+  static const int _columnsPerRow = 4;
 
   @override
   void initState() {
@@ -41,7 +45,11 @@ class _TvWatchlistScreenState extends State<TvWatchlistScreen>
   @override
   int get maxFocusIndex {
     if (movies.isEmpty && series.isEmpty) return 0;
-    final currentList = _tabController.index == 0 ? watchlistItems : _tabController.index == 1 ? movies : series;
+    final currentList = _tabController.index == 0
+        ? watchlistItems
+        : _tabController.index == 1
+        ? movies
+        : series;
     return currentList.isEmpty ? 0 : currentList.length - 1;
   }
 
@@ -56,10 +64,73 @@ class _TvWatchlistScreenState extends State<TvWatchlistScreen>
   }
 
   @override
-  void onLeftPressed() {}
+  void onLeftPressed() {
+    if (_focusedItemIndex != null) {
+      if (_focusedItemIndex! > 0 && _focusedItemIndex! % _columnsPerRow != 0) {
+        // Navigate left within grid (not at row start)
+        setState(() => _focusedItemIndex = _focusedItemIndex! - 1);
+        onFocusChanged(_focusedItemIndex!);
+      } else if (_focusedItemIndex! % _columnsPerRow == 0 && widget.onReturnToSidebar != null) {
+        // At leftmost column: return to sidebar
+        widget.onReturnToSidebar!();
+      }
+    }
+  }
 
   @override
-  void onRightPressed() {}
+  void onRightPressed() {
+    if (_focusedItemIndex != null) {
+      final currentList = _tabController.index == 0
+          ? watchlistItems
+          : _tabController.index == 1
+          ? movies
+          : series;
+      if (_focusedItemIndex! + 1 < currentList.length &&
+          (_focusedItemIndex! + 1) % _columnsPerRow != 0) {
+        setState(() => _focusedItemIndex = _focusedItemIndex! + 1);
+        onFocusChanged(_focusedItemIndex!);
+      }
+    }
+  }
+
+  @override
+  void handleKeyEvent(RawKeyEvent event) {
+    if (event.isKeyPressed(LogicalKeyboardKey.arrowDown)) {
+      _moveDown();
+    } else if (event.isKeyPressed(LogicalKeyboardKey.arrowUp)) {
+      _moveUp();
+    } else if (event.isKeyPressed(LogicalKeyboardKey.arrowLeft)) {
+      onLeftPressed();
+    } else if (event.isKeyPressed(LogicalKeyboardKey.arrowRight)) {
+      onRightPressed();
+    } else if (event.isKeyPressed(LogicalKeyboardKey.select) ||
+        event.isKeyPressed(LogicalKeyboardKey.enter)) {
+      onSelectPressed();
+    }
+  }
+
+  void _moveDown() {
+    if (_focusedItemIndex == null) return;
+    int newIndex = _focusedItemIndex! + _columnsPerRow;
+    final currentList = _tabController.index == 0
+        ? watchlistItems
+        : _tabController.index == 1
+        ? movies
+        : series;
+    if (newIndex < currentList.length) {
+      setState(() => _focusedItemIndex = newIndex);
+      onFocusChanged(newIndex);
+    }
+  }
+
+  void _moveUp() {
+    if (_focusedItemIndex == null) return;
+    int newIndex = _focusedItemIndex! - _columnsPerRow;
+    if (newIndex >= 0) {
+      setState(() => _focusedItemIndex = newIndex);
+      onFocusChanged(newIndex);
+    }
+  }
 
   Future<void> _loadWatchlist() async {
     setState(() => isLoading = true);
@@ -116,98 +187,98 @@ class _TvWatchlistScreenState extends State<TvWatchlistScreen>
       onKey: handleKeyEvent,
       focusNode: focusNode,
       child: Scaffold(
-      backgroundColor: const Color(0xFF121212),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF1A1A1A),
-        title: Text(
-          'My Watchlist',
-          style: TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
-            fontSize: fontSize,
-          ),
-        ),
-        actions: [
-          IconButton(
-            onPressed: _loadWatchlist,
-            icon: Icon(
-              Icons.refresh,
+        backgroundColor: const Color(0xFF121212),
+        appBar: AppBar(
+          backgroundColor: const Color(0xFF1A1A1A),
+          title: Text(
+            'My Watchlist',
+            style: TextStyle(
               color: Colors.white,
-              size: TvUtils.responsiveFontSize(24, context),
+              fontWeight: FontWeight.bold,
+              fontSize: fontSize,
             ),
           ),
-          IconButton(
-            onPressed: () {
-              setState(() {
-                _showVertical = !_showVertical;
-              });
-            },
-            icon: Icon(
-              _showVertical ? Icons.view_module : Icons.view_list,
-              color: Colors.white,
-              size: TvUtils.responsiveFontSize(24, context),
-            ),
-          ),
-          SizedBox(width: TvUtils.responsivePadding(16, context)),
-        ],
-        bottom: TabBar(
-          controller: _tabController,
-          indicatorColor: Colors.red,
-          labelColor: Colors.white,
-          unselectedLabelColor: Colors.grey,
-          tabs: [
-            Tab(
-              text: 'All (${watchlistItems.length})',
-              child: Text(
-                'All (${watchlistItems.length})',
-                style: TextStyle(
-                  fontSize: TvUtils.responsiveFontSize(16, context),
-                ),
+          actions: [
+            IconButton(
+              onPressed: _loadWatchlist,
+              icon: Icon(
+                Icons.refresh,
+                color: Colors.white,
+                size: TvUtils.responsiveFontSize(24, context),
               ),
             ),
-            Tab(
-              text: 'Movies (${movies.length})',
-              child: Text(
-                'Movies (${movies.length})',
-                style: TextStyle(
-                  fontSize: TvUtils.responsiveFontSize(16, context),
-                ),
+            IconButton(
+              onPressed: () {
+                setState(() {
+                  _showVertical = !_showVertical;
+                });
+              },
+              icon: Icon(
+                _showVertical ? Icons.view_module : Icons.view_list,
+                color: Colors.white,
+                size: TvUtils.responsiveFontSize(24, context),
               ),
             ),
-            Tab(
-              text: 'Series (${series.length})',
-              child: Text(
-                'Series (${series.length})',
-                style: TextStyle(
-                  fontSize: TvUtils.responsiveFontSize(16, context),
-                ),
-              ),
-            ),
+            SizedBox(width: TvUtils.responsivePadding(16, context)),
           ],
+          bottom: TabBar(
+            controller: _tabController,
+            indicatorColor: Colors.red,
+            labelColor: Colors.white,
+            unselectedLabelColor: Colors.grey,
+            tabs: [
+              Tab(
+                text: 'All (${watchlistItems.length})',
+                child: Text(
+                  'All (${watchlistItems.length})',
+                  style: TextStyle(
+                    fontSize: TvUtils.responsiveFontSize(16, context),
+                  ),
+                ),
+              ),
+              Tab(
+                text: 'Movies (${movies.length})',
+                child: Text(
+                  'Movies (${movies.length})',
+                  style: TextStyle(
+                    fontSize: TvUtils.responsiveFontSize(16, context),
+                  ),
+                ),
+              ),
+              Tab(
+                text: 'Series (${series.length})',
+                child: Text(
+                  'Series (${series.length})',
+                  style: TextStyle(
+                    fontSize: TvUtils.responsiveFontSize(16, context),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
-      ),
-      body: isLoading
-          ? const Center(child: CircularProgressIndicator(color: Colors.red))
-          : TabBarView(
-              controller: _tabController,
-              children: [
-                watchlistItems.isEmpty
-                    ? _buildEmptyState()
-                    : (_showVertical
-                          ? _buildWatchlistGrid(watchlistItems)
-                          : _buildHorizontalList(watchlistItems)),
-                movies.isEmpty
-                    ? _buildEmptyState()
-                    : (_showVertical
-                          ? _buildWatchlistGrid(movies)
-                          : _buildHorizontalList(movies)),
-                series.isEmpty
-                    ? _buildEmptyState()
-                    : (_showVertical
-                          ? _buildWatchlistGrid(series)
-                          : _buildHorizontalList(series)),
-              ],
-            ),
+        body: isLoading
+            ? const Center(child: CircularProgressIndicator(color: Colors.red))
+            : TabBarView(
+                controller: _tabController,
+                children: [
+                  watchlistItems.isEmpty
+                      ? _buildEmptyState()
+                      : (_showVertical
+                            ? _buildWatchlistGrid(watchlistItems)
+                            : _buildHorizontalList(watchlistItems)),
+                  movies.isEmpty
+                      ? _buildEmptyState()
+                      : (_showVertical
+                            ? _buildWatchlistGrid(movies)
+                            : _buildHorizontalList(movies)),
+                  series.isEmpty
+                      ? _buildEmptyState()
+                      : (_showVertical
+                            ? _buildWatchlistGrid(series)
+                            : _buildHorizontalList(series)),
+                ],
+              ),
       ),
     );
   }
@@ -406,49 +477,49 @@ class _TvWatchlistScreenState extends State<TvWatchlistScreen>
               ),
             ),
         ],
-        ),
-        );
-        }
+      ),
+    );
+  }
 
-        Widget _buildSeeAllButton() {
-          return GestureDetector(
-            onTap: () {
-              setState(() {
-                _showVertical = true;
-              });
-            },
-            child: Container(
-              width: 200,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: Colors.grey[800],
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: const Icon(
-                        Icons.arrow_forward,
-                        color: Colors.white,
-                        size: 60,
-                      ),
-                    ),
-                  ),
-                  SizedBox(height: TvUtils.responsivePadding(8, context)),
-                  Text(
-                    'See All',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: TvUtils.responsiveFontSize(14, context),
-                      fontWeight: FontWeight.w500,
-                    ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
+  Widget _buildSeeAllButton() {
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _showVertical = true;
+        });
+      },
+      child: Container(
+        width: 200,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.grey[800],
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(
+                  Icons.arrow_forward,
+                  color: Colors.white,
+                  size: 60,
+                ),
               ),
             ),
-          );
-        }
-        }
+            SizedBox(height: TvUtils.responsivePadding(8, context)),
+            Text(
+              'See All',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: TvUtils.responsiveFontSize(14, context),
+                fontWeight: FontWeight.w500,
+              ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

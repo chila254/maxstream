@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../utils/tv_utils.dart';
 import '../../utils/tv_dpad_navigation_mixin.dart';
 import '../../widgets/tv_focus_widget.dart';
@@ -18,6 +19,7 @@ class TvMainScreen extends StatefulWidget {
 
 class _TvMainScreenState extends State<TvMainScreen> with TvDpadNavigationMixin {
   int _currentIndex = 0;
+  bool _focusOnSidebar = true; // Track if focus is on sidebar or content
 
   // Screens corresponding to phone app structure
   late List<Widget> _screens;
@@ -44,13 +46,17 @@ class _TvMainScreenState extends State<TvMainScreen> with TvDpadNavigationMixin 
   void initState() {
     super.initState();
     _screens = [
-      const TvHomeScreen(),
-      const TvSearchScreen(),
-      const TvGenreScreen(),
-      const TvSeriesListScreen(),
-      const TvWatchlistScreen(),
-      const TvMoreScreen(),
+      TvHomeScreen(onReturnToSidebar: _returnToSidebar),
+      TvSearchScreen(onReturnToSidebar: _returnToSidebar),
+      TvGenreScreen(onReturnToSidebar: _returnToSidebar),
+      TvSeriesListScreen(onReturnToSidebar: _returnToSidebar),
+      TvWatchlistScreen(onReturnToSidebar: _returnToSidebar),
+      TvMoreScreen(onReturnToSidebar: _returnToSidebar),
     ];
+  }
+
+  void _returnToSidebar() {
+    setState(() => _focusOnSidebar = true);
   }
 
   // D-Pad Navigation Implementation
@@ -68,18 +74,46 @@ class _TvMainScreenState extends State<TvMainScreen> with TvDpadNavigationMixin 
   }
 
   @override
+  void handleKeyEvent(RawKeyEvent event) {
+    if (_focusOnSidebar) {
+      // When focus is on sidebar, handle all navigation
+      if (event.isKeyPressed(LogicalKeyboardKey.arrowDown)) {
+        _moveFocus(1);
+      } else if (event.isKeyPressed(LogicalKeyboardKey.arrowUp)) {
+        _moveFocus(-1);
+      } else if (event.isKeyPressed(LogicalKeyboardKey.arrowLeft)) {
+        onLeftPressed();
+      } else if (event.isKeyPressed(LogicalKeyboardKey.arrowRight)) {
+        onRightPressed();
+      } else if (event.isKeyPressed(LogicalKeyboardKey.select) ||
+          event.isKeyPressed(LogicalKeyboardKey.enter)) {
+        onSelectPressed();
+      }
+    }
+    // Content screens handle their own navigation via their RawKeyboardListener
+  }
+
+  void _moveFocus(int direction) {
+    final newIndex = (_currentIndex + direction).clamp(0, maxFocusIndex);
+    if (newIndex != _currentIndex) {
+      _currentIndex = newIndex;
+      onFocusChanged(newIndex);
+    }
+  }
+
+  @override
   void onLeftPressed() {
-    // Navigate left in sidebar
-    if (_currentIndex > 0) {
-      setFocusIndex(_currentIndex - 1);
+    // Left arrow: Move focus from content to sidebar
+    if (!_focusOnSidebar) {
+      setState(() => _focusOnSidebar = true);
     }
   }
 
   @override
   void onRightPressed() {
-    // Navigate right in sidebar
-    if (_currentIndex < maxFocusIndex) {
-      setFocusIndex(_currentIndex + 1);
+    // Right arrow: Move focus from sidebar to content
+    if (_focusOnSidebar) {
+      setState(() => _focusOnSidebar = false);
     }
   }
 
@@ -128,6 +162,12 @@ class _TvMainScreenState extends State<TvMainScreen> with TvDpadNavigationMixin 
     return Container(
       width: sidebarWidth,
       color: const Color(0xFF1A1A1A),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1A1A1A),
+        border: _focusOnSidebar
+            ? Border(right: BorderSide(color: Colors.red, width: 3))
+            : null,
+      ),
       child: Column(
         children: [
           // Logo/Title
@@ -159,13 +199,15 @@ class _TvMainScreenState extends State<TvMainScreen> with TvDpadNavigationMixin 
             ),
           ),
           Divider(color: Colors.grey[800], thickness: 1),
-          // Navigation Items
+          // Navigation Items - Changed from ListView.builder (vertical) to Column (vertical navigation via up/down)
           Expanded(
-            child: ListView.builder(
-              itemCount: _icons.length,
-              itemBuilder: (context, index) {
-                return _buildNavItem(context, index);
-              },
+            child: SingleChildScrollView(
+              child: Column(
+                children: List.generate(
+                  _icons.length,
+                  (index) => _buildNavItem(context, index),
+                ),
+              ),
             ),
           ),
         ],

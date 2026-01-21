@@ -9,7 +9,9 @@ import '../../widgets/profile_avatar.dart';
 import '../../widgets/tv_focus_widget.dart';
 
 class TvMoreScreen extends StatefulWidget {
-  const TvMoreScreen({super.key});
+  final VoidCallback? onReturnToSidebar;
+
+  const TvMoreScreen({super.key, this.onReturnToSidebar});
 
   @override
   State<TvMoreScreen> createState() => _TvMoreScreenState();
@@ -74,7 +76,12 @@ class _TvMoreScreenState extends State<TvMoreScreen> with TvDpadNavigationMixin 
   }
 
   @override
-  void onLeftPressed() {}
+  void onLeftPressed() {
+    // Return to sidebar
+    if (widget.onReturnToSidebar != null) {
+      widget.onReturnToSidebar!();
+    }
+  }
 
   @override
   void onRightPressed() {}

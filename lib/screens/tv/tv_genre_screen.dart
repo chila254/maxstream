@@ -1,17 +1,21 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../services/tmdb_api_service.dart';
 import '../../utils/tv_utils.dart';
 import '../../utils/tv_dpad_navigation_mixin.dart';
 import '../../widgets/custom_loading_widget.dart';
 
 class TvGenreScreen extends StatefulWidget {
-  const TvGenreScreen({super.key});
+  final VoidCallback? onReturnToSidebar;
+
+  const TvGenreScreen({super.key, this.onReturnToSidebar});
 
   @override
   State<TvGenreScreen> createState() => _TvGenreScreenState();
 }
 
-class _TvGenreScreenState extends State<TvGenreScreen> with TvDpadNavigationMixin {
+class _TvGenreScreenState extends State<TvGenreScreen>
+    with TvDpadNavigationMixin {
   Map<int, String> _movieGenres = {};
   Map<int, String> _tvGenres = {};
   bool _isLoadingGenres = false;
@@ -24,6 +28,7 @@ class _TvGenreScreenState extends State<TvGenreScreen> with TvDpadNavigationMixi
   int _contentPage = 1;
   bool _isLoadingMore = false;
   late ScrollController _scrollController;
+  static const int _columnsPerRow = 3;
 
   @override
   void initState() {
@@ -62,10 +67,65 @@ class _TvGenreScreenState extends State<TvGenreScreen> with TvDpadNavigationMixi
   }
 
   @override
-  void onLeftPressed() {}
+  void onLeftPressed() {
+    if (_showDetailView) {
+      final currentFocus = getFocusIndex();
+      if (currentFocus > 0 && currentFocus % _columnsPerRow != 0) {
+        // Navigate left within grid
+        setFocusIndex(currentFocus - 1);
+      } else if (currentFocus % _columnsPerRow == 0 && widget.onReturnToSidebar != null) {
+        // At leftmost column: return to sidebar
+        widget.onReturnToSidebar!();
+      }
+    }
+  }
 
   @override
-  void onRightPressed() {}
+  void onRightPressed() {
+    if (_showDetailView) {
+      final currentFocus = getFocusIndex();
+      if (currentFocus + 1 < _contentByGenre.length &&
+          (currentFocus + 1) % _columnsPerRow != 0) {
+        setFocusIndex(currentFocus + 1);
+      }
+    }
+  }
+
+  @override
+  void handleKeyEvent(RawKeyEvent event) {
+    if (_showDetailView) {
+      if (event.isKeyPressed(LogicalKeyboardKey.arrowDown)) {
+        _moveDown();
+      } else if (event.isKeyPressed(LogicalKeyboardKey.arrowUp)) {
+        _moveUp();
+      } else if (event.isKeyPressed(LogicalKeyboardKey.arrowLeft)) {
+        onLeftPressed();
+      } else if (event.isKeyPressed(LogicalKeyboardKey.arrowRight)) {
+        onRightPressed();
+      } else if (event.isKeyPressed(LogicalKeyboardKey.select) ||
+          event.isKeyPressed(LogicalKeyboardKey.enter)) {
+        onSelectPressed();
+      }
+    } else {
+      super.handleKeyEvent(event);
+    }
+  }
+
+  void _moveDown() {
+    final currentFocus = getFocusIndex();
+    int newIndex = currentFocus + _columnsPerRow;
+    if (newIndex < _contentByGenre.length) {
+      setFocusIndex(newIndex);
+    }
+  }
+
+  void _moveUp() {
+    final currentFocus = getFocusIndex();
+    int newIndex = currentFocus - _columnsPerRow;
+    if (newIndex >= 0) {
+      setFocusIndex(newIndex);
+    }
+  }
 
   void _onScroll() {
     if (_scrollController.position.pixels ==
