@@ -90,7 +90,37 @@ class _TvSeriesListScreenState extends State<TvSeriesListScreen>
 
   @override
   void onSelectPressed() {
-    // Selection handled by content cards
+    if (_focusedSection != null) {
+      final section = _focusedSection!;
+      final itemIndex = _sectionItemIndices[section] ?? 0;
+      
+      late List<Map<String, dynamic>> items;
+      switch (section) {
+        case 'trending_series':
+          items = trendingSeries;
+          break;
+        case 'popular_series':
+          items = popularSeries;
+          break;
+        case 'top_rated_series':
+          items = topRatedSeries;
+          break;
+        default:
+          return;
+      }
+      
+      if (itemIndex < items.length) {
+        final item = items[itemIndex];
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => TvSeriesScreen(
+              seriesItem: Movie.fromJson(item),
+            ),
+          ),
+        );
+      }
+    }
   }
 
   @override
@@ -219,6 +249,9 @@ class _TvSeriesListScreenState extends State<TvSeriesListScreen>
         trendingSeries = results[0];
         popularSeries = results[1];
         topRatedSeries = results[2];
+        // Set initial focus to first section (trending series)
+        _focusedSection = 'trending_series';
+        _sectionItemIndices['trending_series'] = 0;
       });
 
       // Start auto-scrolling hero banner
@@ -497,34 +530,12 @@ class _TvSeriesListScreenState extends State<TvSeriesListScreen>
   }
 
   Widget _buildAppBar() {
-    final fontSize = TvUtils.responsiveFontSize(28, context, maxSize: 36);
-
     return SliverAppBar(
       floating: true,
       backgroundColor: const Color(0xFF1A1A1A),
       title: Row(
         children: [
-          Container(
-            padding: EdgeInsets.all(TvUtils.responsivePadding(8, context)),
-            decoration: BoxDecoration(
-              color: Colors.red,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(
-              Icons.tv,
-              color: Colors.white,
-              size: TvUtils.responsiveFontSize(24, context),
-            ),
-          ),
-          SizedBox(width: TvUtils.responsivePadding(12, context)),
-          Text(
-            'TV Series',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: fontSize,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
+          // Empty - removed TV Series title to make room for hero banner
         ],
       ),
     );
@@ -581,7 +592,7 @@ class _TvSeriesListScreenState extends State<TvSeriesListScreen>
       child: Column(
         children: [
           SizedBox(
-            height: 550,
+            height: 606,
             child: PageView.builder(
               controller: _heroBannerController,
               onPageChanged: (page) {

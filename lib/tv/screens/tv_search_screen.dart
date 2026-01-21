@@ -3,13 +3,11 @@ import '../../models/movie.dart';
 import '../widgets/tv_keyboard.dart';
 import '../../widgets/custom_loading_widget.dart';
 import '../utils/tv_typography.dart';
-import '../widgets/tv_focus_widget.dart';
 import '../utils/tv_utils.dart';
 import '../utils/tv_dpad_navigation_mixin.dart';
 import '../../services/tmdb_api_service.dart';
-import '../widgets/tv_breadcrumb_navigation.dart';
-import '../widgets/tv_visual_enhancements.dart';
 import '../widgets/tv_dark_mode_polish.dart';
+import '../widgets/tv_content_card.dart';
 import 'tv_details_screen.dart';
 import 'tv_series_screen.dart';
 
@@ -33,7 +31,6 @@ class _TvSearchScreenState extends State<TvSearchScreen>
   bool _showNoResults = false;
   int? _focusedResultIndex;
   bool _keyboardFocused = true;
-  final List<String> _selectedGenreFilters = [];
   static const int _columnsPerRow = 5;
 
   @override
@@ -70,7 +67,12 @@ class _TvSearchScreenState extends State<TvSearchScreen>
 
   @override
   void onLeftPressed() {
-    if (_focusedResultIndex != null) {
+    if (_keyboardFocused) {
+      // If keyboard is focused and at leftmost position, return to sidebar
+      if (widget.onReturnToSidebar != null) {
+        widget.onReturnToSidebar!();
+      }
+    } else if (_focusedResultIndex != null) {
       if (_focusedResultIndex! > 0 &&
           _focusedResultIndex! % _columnsPerRow != 0) {
         setFocusIndex(_focusedResultIndex! - 1);
@@ -183,66 +185,6 @@ class _TvSearchScreenState extends State<TvSearchScreen>
     }
   }
 
-  Widget _buildBreadcrumb() {
-    return TvBreadcrumb(
-      items: [
-        BreadcrumbItem(
-          label: 'Home',
-          icon: 'home',
-          onTap: () => Navigator.pop(context),
-        ),
-        BreadcrumbItem(label: 'Browse', icon: 'search'),
-        BreadcrumbItem(label: 'Search Results'),
-      ],
-      currentIndex: 2,
-      onItemTapped: (index) {
-        if (index == 0) {
-          Navigator.pop(context);
-        }
-      },
-    );
-  }
-
-  Widget _buildGenreFilterChips() {
-    final genres = [
-      'Action',
-      'Comedy',
-      'Drama',
-      'Horror',
-      'Romance',
-      'Sci-Fi',
-      'Thriller',
-      'Animation',
-    ];
-
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      padding: EdgeInsets.symmetric(
-        horizontal: TvUtils.responsivePadding(24, context),
-        vertical: TvUtils.responsivePadding(12, context),
-      ),
-      child: Wrap(
-        spacing: TvUtils.responsivePadding(8, context),
-        children: genres.map((genre) {
-          final isSelected = _selectedGenreFilters.contains(genre);
-          return CategoryChip(
-            label: genre,
-            isSelected: isSelected,
-            onTap: () {
-              setState(() {
-                if (isSelected) {
-                  _selectedGenreFilters.remove(genre);
-                } else {
-                  _selectedGenreFilters.add(genre);
-                }
-              });
-            },
-          );
-        }).toList(),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return DarkModeBackground(
@@ -251,16 +193,12 @@ class _TvSearchScreenState extends State<TvSearchScreen>
         appBar: PreferredSize(
           preferredSize: const Size.fromHeight(56),
           child: DarkModeAppBar(
-            title: 'Search',
-            onBackPressed: () => Navigator.pop(context),
+            title: '',
+            onBackPressed: null,
           ),
         ),
         body: Column(
           children: [
-            // Breadcrumb Navigation
-            _buildBreadcrumb(),
-            // Genre Filter Chips
-            _buildGenreFilterChips(),
             // Search Content
             Expanded(
               child: Row(
@@ -271,7 +209,7 @@ class _TvSearchScreenState extends State<TvSearchScreen>
                     child: Padding(
                       padding: EdgeInsets.symmetric(
                         horizontal: TvUtils.responsivePadding(12, context),
-                        vertical: TvUtils.responsivePadding(24, context),
+                        vertical: TvUtils.responsivePadding(12, context),
                       ),
                       child: Container(
                         decoration: BoxDecoration(
@@ -396,103 +334,28 @@ class _TvSearchScreenState extends State<TvSearchScreen>
     Map<String, dynamic> result, {
     bool isFocused = false,
   }) {
-    final posterPath = result['poster_path'];
     final title = result['media_type'] == 'tv'
         ? (result['name'] ?? 'Unknown')
         : (result['title'] ?? 'Unknown');
 
-    final cardWidth = TvUtils.responsiveButtonHeight(context) * 2;
-    final cardHeight = cardWidth * 1.5;
+    final isMovie = result['media_type'] == 'movie';
+    final posterUrl = TmdbApiService.getPosterUrl(result['poster_path'] ?? '');
+    final rating = (result['vote_average'] as num?)?.toDouble();
+    final dateStr = isMovie
+        ? (result['release_date'] as String?)
+        : (result['first_air_date'] as String?);
+    final year = dateStr != null ? int.tryParse(dateStr.split('-')[0]) : null;
 
-    return TvContentFocusCard(
+    return TvContentCard(
+      posterUrl: posterUrl,
+      title: title,
+      contentType: isMovie ? ContentType.movie : ContentType.series,
+      rating: rating,
+      year: year,
       isFocused: isFocused,
-      scale: 1.12,
-      onTap: () {
-        _navigateToContent(result);
-      },
-      child: Container(
-        width: cardWidth,
-        height: cardHeight,
-        decoration: BoxDecoration(
-          color: const Color(0xFF2A2A2A),
-          borderRadius: BorderRadius.circular(
-            TvUtils.responsivePadding(12, context),
-          ),
-          border: Border.all(color: Colors.grey[700]!, width: 2),
-        ),
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: () {
-              _navigateToContent(result);
-            },
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Poster image
-                Expanded(
-                  flex: 3,
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.only(
-                      topLeft: Radius.circular(
-                        TvUtils.responsivePadding(10, context),
-                      ),
-                      topRight: Radius.circular(
-                        TvUtils.responsivePadding(10, context),
-                      ),
-                    ),
-                    child: posterPath != null
-                        ? Image.network(
-                            TmdbApiService.getPosterUrl(posterPath),
-                            fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) {
-                              return Container(
-                                color: Colors.grey[800],
-                                child: const Icon(
-                                  Icons.image_not_supported,
-                                  color: Colors.grey,
-                                  size: 40,
-                                ),
-                              );
-                            },
-                          )
-                        : Container(
-                            color: Colors.grey[800],
-                            child: const Icon(
-                              Icons.image_not_supported,
-                              color: Colors.grey,
-                              size: 40,
-                            ),
-                          ),
-                  ),
-                ),
-                // Title and year
-                Expanded(
-                  flex: 1,
-                  child: Padding(
-                    padding: EdgeInsets.all(
-                      TvUtils.responsivePadding(8, context),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            title,
-                            style: TvTextStyles.genreTag,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
+      onTap: () => _navigateToContent(result),
+      width: 180,
+      height: 270,
     );
   }
 }

@@ -6,6 +6,10 @@ import '../utils/tv_typography.dart';
 import '../utils/tv_dpad_navigation_mixin.dart';
 import '../../widgets/custom_loading_widget.dart';
 import '../widgets/tv_visual_enhancements.dart';
+import '../widgets/tv_content_card.dart';
+import 'tv_details_screen.dart';
+import 'tv_series_screen.dart';
+import '../../models/movie.dart';
 
 class TvGenreScreen extends StatefulWidget {
   final VoidCallback? onReturnToSidebar;
@@ -64,7 +68,31 @@ class _TvGenreScreenState extends State<TvGenreScreen>
 
   @override
   void onSelectPressed() {
-    // Selection handled by genre/content cards
+    if (_showDetailView && _focusedContentIndex != null && _focusedContentIndex! < _contentByGenre.length) {
+      final item = _contentByGenre[_focusedContentIndex!];
+      final isMovie = _selectedGenreType == 'movie';
+      
+      if (isMovie) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => TvDetailsScreen(
+              item: Movie.fromJson(item),
+              mediaType: 'movie',
+            ),
+          ),
+        );
+      } else {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => TvSeriesScreen(
+              seriesItem: Movie.fromJson(item),
+            ),
+          ),
+        );
+      }
+    }
   }
 
   @override
@@ -201,6 +229,8 @@ class _TvGenreScreenState extends State<TvGenreScreen>
         setState(() {
           if (_contentPage == 1) {
             _contentByGenre = results;
+            // Set initial focus to first item (Action genre)
+            _focusedContentIndex = 0;
           } else {
             _contentByGenre.addAll(results);
           }
@@ -395,10 +425,10 @@ class _TvGenreScreenState extends State<TvGenreScreen>
                 controller: _scrollController,
                 padding: EdgeInsets.all(TvUtils.responsivePadding(16, context)),
                 gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 2,
-                  childAspectRatio: 3.0,
+                  crossAxisCount: 4,
+                  childAspectRatio: 0.6,
                   crossAxisSpacing: TvUtils.responsivePadding(16, context),
-                  mainAxisSpacing: TvUtils.responsivePadding(12, context),
+                  mainAxisSpacing: TvUtils.responsivePadding(16, context),
                 ),
                 itemCount: _contentByGenre.length + (_isLoadingMore ? 1 : 0),
                 itemBuilder: (context, index) {
@@ -413,97 +443,49 @@ class _TvGenreScreenState extends State<TvGenreScreen>
                   }
 
                   final item = _contentByGenre[index];
-                  final posterPath = item['poster_path'];
-                  final title = _selectedGenreType == 'tv'
-                      ? (item['name'] ?? 'Unknown')
-                      : (item['title'] ?? 'Unknown');
-                  final year = _selectedGenreType == 'tv'
-                      ? (item['first_air_date']?.toString().split('-')[0] ?? '')
-                      : (item['release_date']?.toString().split('-')[0] ?? '');
+                  final isMovie = _selectedGenreType == 'movie';
+                  final title = isMovie
+                      ? (item['title'] ?? 'Unknown')
+                      : (item['name'] ?? 'Unknown');
+                  final posterUrl = TmdbApiService.getPosterUrl(item['poster_path'] ?? '');
+                  final rating = (item['vote_average'] as num?)?.toDouble();
+                  final dateStr = isMovie
+                      ? (item['release_date'] as String?)
+                      : (item['first_air_date'] as String?);
+                  final year = dateStr != null ? int.tryParse(dateStr.split('-')[0]) : null;
                   final isFocused = _focusedContentIndex == index;
 
-                  return GestureDetector(
+                  return TvContentCard(
+                    posterUrl: posterUrl,
+                    title: title,
+                    contentType: isMovie ? ContentType.movie : ContentType.series,
+                    rating: rating,
+                    year: year,
+                    isFocused: isFocused,
                     onTap: () {
-                      // Navigate to detail screen if needed
+                      if (isMovie) {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => TvDetailsScreen(
+                              item: Movie.fromJson(item),
+                              mediaType: 'movie',
+                            ),
+                          ),
+                        );
+                      } else {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => TvSeriesScreen(
+                              seriesItem: Movie.fromJson(item),
+                            ),
+                          ),
+                        );
+                      }
                     },
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: Colors.grey[900],
-                        borderRadius: BorderRadius.circular(8),
-                        border: isFocused
-                            ? Border.all(color: Colors.white, width: 4)
-                            : null,
-                      ),
-                      padding: EdgeInsets.symmetric(
-                        horizontal: TvUtils.responsivePadding(8, context),
-                        vertical: TvUtils.responsivePadding(6, context),
-                      ),
-                      child: Row(
-                        children: [
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(6),
-                            child: Container(
-                              width: 60,
-                              height: 60,
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: posterPath != null
-                                  ? Image.network(
-                                      TmdbApiService.getPosterUrl(posterPath),
-                                      fit: BoxFit.cover,
-                                      errorBuilder:
-                                          (context, error, stackTrace) {
-                                            return Container(
-                                              color: Colors.grey[800],
-                                              child: const Icon(
-                                                Icons.image_not_supported,
-                                                color: Colors.grey,
-                                              ),
-                                            );
-                                          },
-                                    )
-                                  : Container(
-                                      color: Colors.grey[800],
-                                      child: const Icon(
-                                        Icons.image_not_supported,
-                                        color: Colors.grey,
-                                      ),
-                                    ),
-                            ),
-                          ),
-                          SizedBox(
-                            width: TvUtils.responsivePadding(8, context),
-                          ),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Text(
-                                  title,
-                                  style: TvTextStyles.genreTag,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                if (year.isNotEmpty) ...[
-                                  SizedBox(
-                                    height: TvUtils.responsivePadding(
-                                      2,
-                                      context,
-                                    ),
-                                  ),
-                                  Text(
-                                    year,
-                                    style: TvTextStyles.metadata,
-                                  ),
-                                ],
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+                    width: 180,
+                    height: 270,
                   );
                 },
               ),

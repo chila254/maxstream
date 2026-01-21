@@ -5,9 +5,8 @@ import '../../models/movie.dart';
 import '../utils/tv_utils.dart';
 import '../utils/tv_typography.dart';
 import '../utils/tv_dpad_navigation_mixin.dart';
-import '../widgets/tv_focus_widget.dart';
-import '../widgets/tv_visual_enhancements.dart';
 import '../widgets/tv_dark_mode_polish.dart';
+import '../widgets/tv_content_card.dart';
 import 'tv_details_screen.dart';
 import 'tv_series_screen.dart';
 
@@ -26,7 +25,6 @@ class _TvWatchlistScreenState extends State<TvWatchlistScreen>
   List<Movie> movies = [];
   List<Movie> series = [];
   bool isLoading = true;
-  bool _showVertical = false;
   late TabController _tabController;
   int? _focusedItemIndex;
   static const int _columnsPerRow = 4;
@@ -63,7 +61,32 @@ class _TvWatchlistScreenState extends State<TvWatchlistScreen>
 
   @override
   void onSelectPressed() {
-    // Selection handled by content cards
+    if (_focusedItemIndex != null) {
+      final currentList = _tabController.index == 0
+          ? watchlistItems
+          : _tabController.index == 1
+          ? movies
+          : series;
+      if (_focusedItemIndex! < currentList.length) {
+        final item = currentList[_focusedItemIndex!];
+        if (item.mediaType == 'tv') {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => TvSeriesScreen(seriesItem: item),
+            ),
+          );
+        } else {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) =>
+                  TvDetailsScreen(item: item, mediaType: 'movie'),
+            ),
+          );
+        }
+      }
+    }
   }
 
   @override
@@ -73,7 +96,8 @@ class _TvWatchlistScreenState extends State<TvWatchlistScreen>
         // Navigate left within grid (not at row start)
         setState(() => _focusedItemIndex = _focusedItemIndex! - 1);
         onFocusChanged(_focusedItemIndex!);
-      } else if (_focusedItemIndex! % _columnsPerRow == 0 && widget.onReturnToSidebar != null) {
+      } else if (_focusedItemIndex! % _columnsPerRow == 0 &&
+          widget.onReturnToSidebar != null) {
         // At leftmost column: return to sidebar
         widget.onReturnToSidebar!();
       }
@@ -143,6 +167,10 @@ class _TvWatchlistScreenState extends State<TvWatchlistScreen>
         watchlistItems = items;
         movies = items.where((item) => item.mediaType != 'tv').toList();
         series = items.where((item) => item.mediaType == 'tv').toList();
+        // Set initial focus to first item in watchlist
+        if (watchlistItems.isNotEmpty) {
+          _focusedItemIndex = 0;
+        }
       });
     } catch (e) {
       print('Error loading watchlist: $e');
@@ -190,92 +218,65 @@ class _TvWatchlistScreenState extends State<TvWatchlistScreen>
       child: DarkModeBackground(
         child: Scaffold(
           backgroundColor: Colors.transparent,
-          appBar: AppBar(
-            backgroundColor: Colors.transparent,
-            elevation: 0,
-            title: GradientText(
-              'My Watchlist',
-              baseStyle: TvTypography.sectionTitle,
-            ),
-          actions: [
-            IconButton(
-              onPressed: _loadWatchlist,
-              icon: Icon(
-                Icons.refresh,
-                color: Colors.white,
-                size: TvUtils.responsiveFontSize(24, context),
-              ),
-            ),
-            IconButton(
-              onPressed: () {
-                setState(() {
-                  _showVertical = !_showVertical;
-                });
-              },
-              icon: Icon(
-                _showVertical ? Icons.view_module : Icons.view_list,
-                color: Colors.white,
-                size: TvUtils.responsiveFontSize(24, context),
-              ),
-            ),
-            SizedBox(width: TvUtils.responsivePadding(16, context)),
-          ],
-          bottom: TabBar(
-            controller: _tabController,
-            indicatorColor: Colors.red,
-            labelColor: Colors.white,
-            unselectedLabelColor: Colors.grey,
-            tabs: [
-              Tab(
-                text: 'All (${watchlistItems.length})',
-                child: Text(
-                  'All (${watchlistItems.length})',
-                  style: TvTypography.labelSmall,
-                ),
-              ),
-              Tab(
-                text: 'Movies (${movies.length})',
-                child: Text(
-                  'Movies (${movies.length})',
-                  style: TvTypography.labelSmall,
-                ),
-              ),
-              Tab(
-                text: 'Series (${series.length})',
-                child: Text(
-                  'Series (${series.length})',
-                  style: TvTypography.labelSmall,
-                ),
-              ),
-            ],
-          ),
-        ),
-          body: isLoading
-              ? const Center(child: CircularProgressIndicator(color: Colors.red))
-            : TabBarView(
+          appBar: PreferredSize(
+            preferredSize: const Size.fromHeight(56),
+            child: AppBar(
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+              title: const SizedBox(),
+              bottom: TabBar(
                 controller: _tabController,
-                children: [
-                  watchlistItems.isEmpty
-                      ? _buildEmptyState()
-                      : (_showVertical
-                            ? _buildWatchlistGrid(watchlistItems)
-                            : _buildHorizontalList(watchlistItems)),
-                  movies.isEmpty
-                      ? _buildEmptyState()
-                      : (_showVertical
-                            ? _buildWatchlistGrid(movies)
-                            : _buildHorizontalList(movies)),
-                  series.isEmpty
-                      ? _buildEmptyState()
-                      : (_showVertical
-                            ? _buildWatchlistGrid(series)
-                            : _buildHorizontalList(series)),
+                indicatorColor: Colors.red,
+                labelColor: Colors.white,
+                unselectedLabelColor: Colors.grey,
+                tabs: [
+                  Tab(
+                    text: 'All (${watchlistItems.length})',
+                    child: Text(
+                      'All (${watchlistItems.length})',
+                      style: TvTypography.labelSmall,
+                    ),
+                  ),
+                  Tab(
+                    text: 'Movies (${movies.length})',
+                    child: Text(
+                      'Movies (${movies.length})',
+                      style: TvTypography.labelSmall,
+                    ),
+                  ),
+                  Tab(
+                    text: 'Series (${series.length})',
+                    child: Text(
+                      'Series (${series.length})',
+                      style: TvTypography.labelSmall,
+                    ),
+                  ),
                 ],
+              ),
+            ),
+          ),
+          body: isLoading
+              ? const Center(
+                  child: CircularProgressIndicator(color: Colors.red),
+                )
+              : TabBarView(
+                  controller: _tabController,
+                  children: [
+                    watchlistItems.isEmpty
+                        ? _buildEmptyState()
+                        : _buildWatchlistGrid(watchlistItems),
+                    movies.isEmpty
+                        ? _buildEmptyState()
+                        : _buildWatchlistGrid(movies),
+                    series.isEmpty
+                        ? _buildEmptyState()
+                        : _buildWatchlistGrid(series),
+                  ],
                 ),
-                ),
-                ),
-                );
-                }
+        ),
+      ),
+    );
+  }
 
   Widget _buildEmptyState() {
     return Center(
@@ -314,7 +315,7 @@ class _TvWatchlistScreenState extends State<TvWatchlistScreen>
     return GridView.builder(
       padding: EdgeInsets.all(TvUtils.responsivePadding(24, context)),
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 4,
+        crossAxisCount: 6,
         childAspectRatio: 0.6,
         crossAxisSpacing: TvUtils.responsivePadding(16, context),
         mainAxisSpacing: TvUtils.responsivePadding(16, context),
@@ -328,192 +329,50 @@ class _TvWatchlistScreenState extends State<TvWatchlistScreen>
     );
   }
 
-  Widget _buildHorizontalList(List<Movie> items) {
-    return ListView.builder(
-      scrollDirection: Axis.horizontal,
-      padding: EdgeInsets.all(TvUtils.responsivePadding(24, context)),
-      itemCount: items.length + 1,
-      itemBuilder: (context, index) {
-        if (index == items.length) {
-          return _buildSeeAllButton();
-        }
-        final item = items[index];
-        return Container(
-          width: 200,
-          margin: EdgeInsets.only(
-            right: TvUtils.responsivePadding(16, context),
-          ),
-          child: _buildWatchlistItem(item),
-        );
-      },
-    );
-  }
-
   Widget _buildWatchlistItem(Movie item, {bool isFocused = false}) {
-    return TvContentFocusCard(
-      isFocused: isFocused,
-      scale: 1.12,
-      onTap: () {
-        if (!mounted) return;
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => item.mediaType == 'tv'
-                ? TvSeriesScreen(seriesItem: item)
-                : TvDetailsScreen(item: item, mediaType: item.mediaType),
-          ),
-        );
-      },
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Stack(
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: item.thumbnail.isNotEmpty
-                      ? Image.network(
-                          item.thumbnail,
-                          width: double.infinity,
-                          height: double.infinity,
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) =>
-                              Container(
-                                color: Colors.grey[800],
-                                child: const Icon(
-                                  Icons.movie,
-                                  color: Colors.grey,
-                                  size: 60,
-                                ),
-                              ),
-                        )
-                      : Container(
-                          width: double.infinity,
-                          height: double.infinity,
-                          color: Colors.grey[800],
-                          child: const Icon(
-                            Icons.movie,
-                            color: Colors.grey,
-                            size: 60,
-                          ),
-                        ),
-                ),
-                Positioned(
-                  top: 8,
-                  right: 8,
-                  child: GestureDetector(
-                    onTap: () => _removeFromWatchlist(item),
-                    child: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.7),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: const Icon(
-                        Icons.close,
-                        color: Colors.white,
-                        size: 24,
-                      ),
-                    ),
-                  ),
-                ),
-                if (item.rating > 0)
-                  Positioned(
-                    bottom: 8,
-                    left: 8,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.7),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(Icons.star, color: Colors.amber, size: 14),
-                          const SizedBox(width: 4),
-                          Text(
-                            item.rating.toStringAsFixed(1),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          SizedBox(height: TvUtils.responsivePadding(8, context)),
-          Text(
-            item.title,
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: TvUtils.responsiveFontSize(14, context),
-              fontWeight: FontWeight.w500,
-            ),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-          ),
-          if (item.year.isNotEmpty)
-            Text(
-              item.year,
-              style: TextStyle(
-                color: Colors.grey,
-                fontSize: TvUtils.responsiveFontSize(12, context),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
+    final contentType = item.mediaType == 'tv'
+        ? ContentType.series
+        : ContentType.movie;
 
-  Widget _buildSeeAllButton() {
-    return GestureDetector(
-      onTap: () {
-        setState(() {
-          _showVertical = true;
-        });
-      },
-      child: Container(
-        width: 200,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Colors.grey[800],
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Icon(
-                  Icons.arrow_forward,
-                  color: Colors.white,
-                  size: 60,
-                ),
+    return Stack(
+      children: [
+        TvContentCard(
+          posterUrl: item.thumbnail,
+          title: item.title,
+          contentType: contentType,
+          rating: item.rating > 0 ? item.rating : null,
+          year: item.year.isNotEmpty ? int.tryParse(item.year) : null,
+          isFocused: isFocused,
+          onTap: () {
+            if (!mounted) return;
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => item.mediaType == 'tv'
+                    ? TvSeriesScreen(seriesItem: item)
+                    : TvDetailsScreen(item: item, mediaType: item.mediaType),
               ),
-            ),
-            SizedBox(height: TvUtils.responsivePadding(8, context)),
-            Text(
-              'See All',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: TvUtils.responsiveFontSize(14, context),
-                fontWeight: FontWeight.w500,
-              ),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
+            );
+          },
+          width: 180,
+          height: 270,
         ),
-      ),
+        Positioned(
+          top: 8,
+          right: 8,
+          child: GestureDetector(
+            onTap: () => _removeFromWatchlist(item),
+            child: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.7),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: const Icon(Icons.close, color: Colors.white, size: 24),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

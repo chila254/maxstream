@@ -137,7 +137,7 @@ class _TvContentCardState extends State<TvContentCard>
   @override
   Widget build(BuildContext context) {
     final cardWidth = widget.width ?? 180.0;
-    final cardHeight = widget.height ?? 270.0;
+    final posterHeight = widget.height ?? 270.0;
 
     return GestureDetector(
       onTap: widget.onTap,
@@ -155,174 +155,103 @@ class _TvContentCardState extends State<TvContentCard>
           ]),
           builder: (context, child) => Transform.scale(
             scale: _scaleAnimation.value,
-            child: Container(
-              width: cardWidth,
-              height: cardHeight,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  // Main shadow
-                  BoxShadow(
-                    color: Colors.black.withValues(
-                      alpha: 0.4 * (widget.isFocused ? 1.0 : 0.6),
-                    ),
-                    blurRadius: _shadowAnimation.value,
-                    spreadRadius: widget.isFocused ? 4 : 2,
-                    offset: Offset(0, widget.isFocused ? 8 : 4),
-                  ),
-                  // Secondary glow shadow
-                  if (widget.isFocused)
-                    BoxShadow(
-                      color: _getContentTypeColor().withValues(alpha: 0.3),
-                      blurRadius: 16,
-                      spreadRadius: 2,
-                    ),
-                ],
-              ),
-              child: Stack(
-                children: [
-                  // Poster Image
-                  ClipRRect(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Poster Image - Full card
+                Container(
+                  width: cardWidth,
+                  height: posterHeight,
+                  decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(16),
-                    child: Stack(
-                      children: [
-                        // Background Image
-                        Image.network(
-                          widget.posterUrl,
-                          width: double.infinity,
-                          height: double.infinity,
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) =>
-                              Container(
-                            color: Colors.grey[900],
-                            child: const Icon(
-                              Icons.broken_image,
-                              color: Colors.grey,
-                              size: 48,
-                            ),
-                          ),
+                    boxShadow: [
+                      // Main shadow
+                      BoxShadow(
+                        color: Colors.black.withValues(
+                          alpha: 0.4 * (widget.isFocused ? 1.0 : 0.6),
                         ),
-                        // Gradient Overlay
-                        Container(
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topCenter,
-                              end: Alignment.bottomCenter,
-                              colors: [
-                                Colors.transparent,
-                                Colors.black.withValues(alpha: 0.3),
-                                Colors.black.withValues(alpha: 0.7),
-                              ],
-                              stops: const [0.0, 0.6, 1.0],
-                            ),
-                          ),
+                        blurRadius: _shadowAnimation.value,
+                        spreadRadius: widget.isFocused ? 4 : 2,
+                        offset: Offset(0, widget.isFocused ? 8 : 4),
+                      ),
+                      // Secondary glow shadow
+                      if (widget.isFocused)
+                        BoxShadow(
+                          color: _getContentTypeColor().withValues(alpha: 0.3),
+                          blurRadius: 16,
+                          spreadRadius: 2,
                         ),
-                        // Hover/Focus Gradient Overlay
-                        if (widget.isFocused || _isHovered)
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(16),
-                            child: BackdropFilter(
-                              filter: ui.ImageFilter.blur(
-                                sigmaX: 2.0,
-                                sigmaY: 2.0,
-                              ),
-                              child: Container(
-                                decoration: BoxDecoration(
-                                  gradient: LinearGradient(
-                                    begin: Alignment.topLeft,
-                                    end: Alignment.bottomRight,
-                                    colors: [
-                                      Colors.white.withValues(
-                                        alpha:
-                                            0.1 * _overlayAnimation.value,
-                                      ),
-                                      Colors.cyan.withValues(
-                                        alpha:
-                                            0.15 * _overlayAnimation.value,
-                                      ),
-                                    ],
-                                  ),
+                    ],
+                  ),
+                  child: Stack(
+                    children: [
+                      // Poster Image
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(16),
+                        child: Stack(
+                          children: [
+                            // Background Image
+                            Image.network(
+                              widget.posterUrl,
+                              width: double.infinity,
+                              height: double.infinity,
+                              fit: BoxFit.cover,
+                              errorBuilder: (context, error, stackTrace) =>
+                                  Container(
+                                color: Colors.grey[900],
+                                child: const Icon(
+                                  Icons.broken_image,
+                                  color: Colors.grey,
+                                  size: 48,
                                 ),
                               ),
                             ),
-                          ),
-                      ],
-                    ),
-                  ),
-                  // Content Badge - Top Left
-                  Positioned(
-                    top: 8,
-                    left: 8,
-                    child: _buildContentTypeBadge(),
-                  ),
-                  // Rating Badge - Top Right
-                  if (widget.rating != null)
-                    Positioned(
-                      top: 8,
-                      right: 8,
-                      child: _buildRatingBadge(),
-                    ),
-                  // Title and Info - Bottom
-                  Positioned(
-                    bottom: 0,
-                    left: 0,
-                    right: 0,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            Colors.transparent,
-                            Colors.black.withValues(alpha: 0.9),
+                            // Hover/Focus Gradient Overlay
+                            if (widget.isFocused || _isHovered)
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(16),
+                                child: BackdropFilter(
+                                  filter: ui.ImageFilter.blur(
+                                    sigmaX: 2.0,
+                                    sigmaY: 2.0,
+                                  ),
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      gradient: LinearGradient(
+                                        begin: Alignment.topLeft,
+                                        end: Alignment.bottomRight,
+                                        colors: [
+                                          Colors.white.withValues(
+                                            alpha:
+                                                0.1 * _overlayAnimation.value,
+                                          ),
+                                          Colors.cyan.withValues(
+                                            alpha:
+                                                0.15 * _overlayAnimation.value,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
                           ],
                         ),
                       ),
-                      padding: const EdgeInsets.all(TvSpacing.md),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          // Title
-                          Text(
-                            widget.title,
-                            style: TvTypography.cardTitle,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          if (widget.year != null || widget.duration != null)
-                            Padding(
-                              padding: const EdgeInsets.only(top: TvSpacing.sm),
-                              child: Row(
-                                children: [
-                                  if (widget.year != null) ...[
-                                    Text(
-                                      widget.year.toString(),
-                                      style: TvTypography.caption,
-                                    ),
-                                    const SizedBox(width: TvSpacing.md),
-                                  ],
-                                  if (widget.duration != null) ...[
-                                    Icon(
-                                      widget.contentType == ContentType.series
-                                          ? Icons.tv
-                                          : Icons.access_time,
-                                      size: 12,
-                                      color: Colors.white70,
-                                    ),
-                                    const SizedBox(width: TvSpacing.xs),
-                                    Text(
-                                      widget.duration!,
-                                      style: TvTypography.caption,
-                                    ),
-                                  ],
-                                ],
-                              ),
-                            ),
-                        ],
+                      // Content Badge - Top Left
+                      Positioned(
+                        top: 8,
+                        left: 8,
+                        child: _buildContentTypeBadge(),
                       ),
-                    ),
-                  ),
+                      // Rating Badge - Top Right
+                      if (widget.rating != null)
+                        Positioned(
+                          top: 8,
+                          right: 8,
+                          child: _buildRatingBadge(),
+                        ),
                   // Play Button on Hover/Focus
                   if ((widget.isFocused || _isHovered) &&
                       _overlayAnimation.value > 0.5)
@@ -361,6 +290,33 @@ class _TvContentCardState extends State<TvContentCard>
                     ),
                 ],
               ),
+                ),
+                // Title and Year - Below the cover art
+                Padding(
+                  padding: const EdgeInsets.only(top: TvSpacing.md),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Title
+                      Text(
+                        widget.title,
+                        style: TvTypography.cardTitle,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      if (widget.year != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: TvSpacing.sm),
+                          child: Text(
+                            widget.year.toString(),
+                            style: TvTypography.caption,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
         ),

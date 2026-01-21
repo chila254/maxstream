@@ -67,19 +67,44 @@ class _TvHomeScreenV2State extends State<TvHomeScreenV2>
 
   @override
   void onSelectPressed() {
-    // Selection handled by content cards
+    if (_focusedItemIndex != null) {
+      final allItems = [...trendingMovies, ...trendingSeries, ...popularMovies, ...topRatedMovies];
+      if (_focusedItemIndex! < allItems.length) {
+        _navigateToDetails(allItems[_focusedItemIndex!], 
+          allItems[_focusedItemIndex!]['media_type'] == 'tv' ? 'series' : 'movie');
+      }
+    }
   }
 
   @override
   void onLeftPressed() {
-    if (_focusedItemIndex != null && widget.onReturnToSidebar != null) {
+    // If focus is on first item, return to sidebar
+    if (_focusedItemIndex == 0 && widget.onReturnToSidebar != null) {
       widget.onReturnToSidebar!();
+    } else if (_focusedItemIndex != null && _focusedItemIndex! > 0) {
+      // Move left within content
+      setState(() => _focusedItemIndex = _focusedItemIndex! - 1);
     }
   }
 
   @override
   void onRightPressed() {
-    // No right navigation needed for home screen
+    // Move right within content
+    if (_focusedItemIndex != null) {
+      final maxItems = trendingMovies.length + trendingSeries.length + popularMovies.length + topRatedMovies.length;
+      if (_focusedItemIndex! < maxItems - 1) {
+        setState(() => _focusedItemIndex = _focusedItemIndex! + 1);
+      }
+    }
+  }
+
+  // Set initial focus on first item when content loads
+  void _setInitialFocus() {
+    Future.microtask(() {
+      if (mounted && !_isLoading && _focusedItemIndex == null) {
+        setState(() => _focusedItemIndex = 0);
+      }
+    });
   }
 
   @override
@@ -114,6 +139,9 @@ class _TvHomeScreenV2State extends State<TvHomeScreenV2>
       if (trendingMovies.isNotEmpty) {
         _startHeroBannerTimer();
       }
+
+      // Set initial focus on first item
+      _setInitialFocus();
     } catch (e) {
       safeSetState(() {
         _errorMessage = 'Failed to load content: $e';
@@ -155,7 +183,7 @@ class _TvHomeScreenV2State extends State<TvHomeScreenV2>
           appBar: PreferredSize(
             preferredSize: const Size.fromHeight(56),
             child: DarkModeAppBar(
-              title: 'MaxStream TV',
+              title: '',
               actions: [
                 IconButton(
                   icon: const Icon(
@@ -229,7 +257,7 @@ class _TvHomeScreenV2State extends State<TvHomeScreenV2>
   }
 
   Widget _buildHeroBanner() {
-    final height = 550.0;
+    final height = 606.0;
 
     return SizedBox(
       height: height,
@@ -358,9 +386,42 @@ class _TvHomeScreenV2State extends State<TvHomeScreenV2>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          GradientText(
-            title,
-            baseStyle: TvTypography.sectionTitle,
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              GradientText(
+                title,
+                baseStyle: TvTypography.sectionTitle,
+              ),
+              GestureDetector(
+                onTap: () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('View all $title'),
+                      duration: const Duration(milliseconds: 800),
+                    ),
+                  );
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE50914),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Text(
+                    'See All',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: TvSpacing.titleGap),
           SizedBox(

@@ -9,7 +9,7 @@ import 'tv_genre_screen.dart';
 import 'tv_series_list_screen.dart';
 import 'tv_watchlist_screen.dart';
 import 'tv_more_screen.dart';
-import 'tv_streaming_providers_screen.dart';
+
 
 /// Netflix-style TV main screen with smooth sidebar-to-content navigation
 /// - Instant sidebar selection with visual feedback
@@ -26,13 +26,12 @@ class _TvMainScreenNetflixState extends State<TvMainScreenNetflix>
     with TvNetflixDpadMixin {
   late PageController _contentPageController;
   int _focusedTabIndex = 0;
-  bool _focusOnSidebar = true;
+  bool _focusOnSidebar = false;
 
   final List<String> _titles = [
     'Home',
     'Search',
     'Genres',
-    'Providers',
     'Series',
     'Watchlist',
     'More',
@@ -42,7 +41,6 @@ class _TvMainScreenNetflixState extends State<TvMainScreenNetflix>
     Icons.home,
     Icons.search,
     Icons.theaters,
-    Icons.smart_display,
     Icons.tv,
     Icons.bookmark,
     Icons.more_horiz,
@@ -58,7 +56,6 @@ class _TvMainScreenNetflixState extends State<TvMainScreenNetflix>
       TvHomeScreenV2(onReturnToSidebar: _returnToSidebar),
       TvSearchScreen(onReturnToSidebar: _returnToSidebar),
       TvGenreScreen(onReturnToSidebar: _returnToSidebar),
-      TvStreamingProvidersScreen(onReturnToSidebar: _returnToSidebar),
       TvSeriesListScreen(onReturnToSidebar: _returnToSidebar),
       TvWatchlistScreen(onReturnToSidebar: _returnToSidebar),
       TvMoreScreen(onReturnToSidebar: _returnToSidebar),
@@ -112,6 +109,7 @@ class _TvMainScreenNetflixState extends State<TvMainScreenNetflix>
         focusNode: focusNode,
         child: WillPopScope(
           onWillPop: () async {
+            // Prevent back navigation - stay on main screen
             if (_focusedTabIndex != 0) {
               setState(() => _focusedTabIndex = 0);
               _contentPageController.animateToPage(
@@ -119,9 +117,8 @@ class _TvMainScreenNetflixState extends State<TvMainScreenNetflix>
                 duration: const Duration(milliseconds: 200),
                 curve: Curves.easeOutCubic,
               );
-              return false;
             }
-            return true;
+            return false;
           },
           child: Scaffold(
             backgroundColor: const Color(0xFF121212),

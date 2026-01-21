@@ -30,6 +30,8 @@ class _TvMoreScreenState extends State<TvMoreScreen> with TvDpadNavigationMixin 
     _loadUserInfo();
     _userService.loadAvatar();
     _userService.loadProfilePicture();
+    // Set initial focus to "Help" (first menu item)
+    _focusedMenuItemIndex = 0;
   }
 
   void _handleMenuItemTap(String item) {
