@@ -35,7 +35,8 @@ class ResponsiveUtils {
   }
 
   /// Get responsive columns count for grids
-  static int getColumnsCount(BuildContext context, {
+  static int getColumnsCount(
+    BuildContext context, {
     int mobileColumns = 2,
     int tabletColumns = 3,
     int desktopColumns = 4,
@@ -50,36 +51,22 @@ class ResponsiveUtils {
 
   /// Get responsive horizontal padding
   static double getHorizontalPadding(BuildContext context) {
-    return responsive(
-      context,
-      mobile: 16.0,
-      tablet: 24.0,
-      desktop: 32.0,
-    );
+    return responsive(context, mobile: 16.0, tablet: 24.0, desktop: 32.0);
   }
 
   /// Get responsive card width for movie items
   static double getCardWidth(BuildContext context) {
-    return responsive(
-      context,
-      mobile: 120.0,
-      tablet: 140.0,
-      desktop: 160.0,
-    );
+    return responsive(context, mobile: 120.0, tablet: 140.0, desktop: 160.0);
   }
 
   /// Get responsive card height for movie items
   static double getCardHeight(BuildContext context) {
-    return responsive(
-      context,
-      mobile: 180.0,
-      tablet: 210.0,
-      desktop: 240.0,
-    );
+    return responsive(context, mobile: 180.0, tablet: 210.0, desktop: 240.0);
   }
 
   /// Get responsive font size
-  static double getFontSize(BuildContext context, {
+  static double getFontSize(
+    BuildContext context, {
     required double mobile,
     double? tablet,
     double? desktop,
@@ -93,7 +80,8 @@ class ResponsiveUtils {
   }
 
   /// Get responsive spacing
-  static double getSpacing(BuildContext context, {
+  static double getSpacing(
+    BuildContext context, {
     required double mobile,
     double? tablet,
     double? desktop,
@@ -129,32 +117,17 @@ class ResponsiveUtils {
 
   /// Get responsive grid spacing
   static double getGridSpacing(BuildContext context) {
-    return responsive(
-      context,
-      mobile: 8.0,
-      tablet: 12.0,
-      desktop: 16.0,
-    );
+    return responsive(context, mobile: 8.0, tablet: 12.0, desktop: 16.0);
   }
 
   /// Get responsive app bar height
   static double getAppBarHeight(BuildContext context) {
-    return responsive(
-      context,
-      mobile: 80.0,
-      tablet: 90.0,
-      desktop: 100.0,
-    );
+    return responsive(context, mobile: 80.0, tablet: 90.0, desktop: 100.0);
   }
 
   /// Get responsive navigation bar height
   static double getNavBarHeight(BuildContext context) {
-    return responsive(
-      context,
-      mobile: 70.0,
-      tablet: 80.0,
-      desktop: 90.0,
-    );
+    return responsive(context, mobile: 70.0, tablet: 80.0, desktop: 90.0);
   }
 
   /// Get responsive bottom sheet max height
@@ -203,10 +176,7 @@ class ResponsiveBuilder extends StatelessWidget {
 class ResponsiveLayoutBuilder extends StatelessWidget {
   final Widget Function(BuildContext context, Size size) builder;
 
-  const ResponsiveLayoutBuilder({
-    super.key,
-    required this.builder,
-  });
+  const ResponsiveLayoutBuilder({super.key, required this.builder});
 
   @override
   Widget build(BuildContext context) {

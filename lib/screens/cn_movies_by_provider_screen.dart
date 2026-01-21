@@ -135,7 +135,7 @@ class _CnMoviesByProviderScreenState extends State<CnMoviesByProviderScreen> {
         });
       }
     } catch (e) {
-      print('Error loading preferences: $e');
+      // Error loading preferences: $e
     }
   }
 
@@ -153,15 +153,13 @@ class _CnMoviesByProviderScreenState extends State<CnMoviesByProviderScreen> {
         provider.id,
         page: 1,
       );
-      print(
-        'Loaded ${movies.length} movies for ${provider.name} (ID: ${provider.id})',
-      );
+      // Loaded ${movies.length} movies for ${provider.name}
       if (movies.isEmpty) {
-        print('No movies found for ${provider.name}. This might be due to:');
-        print('1. TMDB API limitations for this provider');
-        print('2. No content available in the US region');
-        print('3. Provider ID might be incorrect');
-        print('4. TMDB API key restrictions');
+        // No movies found for ${provider.name}. This might be due to:
+        // 1. TMDB API limitations for this provider
+        // 2. No content available in the US region
+        // 3. Provider ID might be incorrect
+        // 4. TMDB API key restrictions
       }
       if (mounted) {
         setState(() {
@@ -170,7 +168,7 @@ class _CnMoviesByProviderScreenState extends State<CnMoviesByProviderScreen> {
         });
       }
     } catch (e) {
-      print('Error loading movies for ${provider.name}: $e');
+      // Error loading movies for ${provider.name}
       if (mounted) {
         setState(() {
           isLoadingMap[provider.id] = false;
@@ -216,7 +214,7 @@ class _CnMoviesByProviderScreenState extends State<CnMoviesByProviderScreen> {
         });
       }
     } catch (e) {
-      print('Error loading more movies: $e');
+      // Error loading more movies
       if (mounted) {
         setState(() {
           isLoadingMoreMap[providerId] = false;
@@ -274,7 +272,7 @@ class _CnMoviesByProviderScreenState extends State<CnMoviesByProviderScreen> {
                     curve: Curves.easeInOut,
                     decoration: BoxDecoration(
                       color: isSelected
-                          ? provider.color.withOpacity(0.95)
+                          ? provider.color.withValues(alpha: 0.95)
                           : provider.color,
                       borderRadius: BorderRadius.circular(16),
                       border: isSelected
@@ -283,7 +281,7 @@ class _CnMoviesByProviderScreenState extends State<CnMoviesByProviderScreen> {
                       boxShadow: isSelected
                           ? [
                               BoxShadow(
-                                color: provider.color.withOpacity(0.5),
+                                color: provider.color.withValues(alpha: 0.5),
                                 blurRadius: 10,
                                 spreadRadius: 2,
                               ),

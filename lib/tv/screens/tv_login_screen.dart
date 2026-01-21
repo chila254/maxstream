@@ -4,8 +4,9 @@ import '../../services/device_code_auth_service.dart';
 import '../../services/auth_service.dart';
 import '../../services/biometric_service.dart';
 import '../../services/secure_password_service.dart';
-import '../../utils/tv_utils.dart';
-import 'tv_main_screen.dart';
+import '../utils/tv_utils.dart';
+import '../utils/tv_typography.dart';
+import 'tv_main_screen_netflix.dart';
 
 class TvLoginScreen extends StatefulWidget {
   const TvLoginScreen({super.key});
@@ -198,38 +199,26 @@ class _TvLoginScreenState extends State<TvLoginScreen> {
       builder: (context) => AlertDialog(
         backgroundColor: const Color(0xFF1A1A1A),
         title: Text(
-          'Biometric Sign In',
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: TvUtils.responsiveFontSize(20, context),
-          ),
-        ),
-        content: Text(
-          'Use $biometricType to sign in?',
-          style: TextStyle(
-            color: Colors.grey,
-            fontSize: TvUtils.responsiveFontSize(16, context),
-          ),
-        ),
+           'Biometric Sign In',
+           style: TvTypography.cardTitle,
+         ),
+         content: Text(
+           'Use $biometricType to sign in?',
+           style: TvTypography.bodyMedium,
+         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
             child: Text(
               'Use Password',
-              style: TextStyle(
-                color: Colors.grey,
-                fontSize: TvUtils.responsiveFontSize(14, context),
-              ),
+              style: TvTextStyles.subtitle,
             ),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
             child: Text(
               'Use $biometricType',
-              style: TextStyle(
-                color: const Color(0xFFE50914),
-                fontSize: TvUtils.responsiveFontSize(14, context),
-              ),
+              style: TvTypography.buttonText,
             ),
           ),
         ],
@@ -246,38 +235,26 @@ class _TvLoginScreenState extends State<TvLoginScreen> {
       builder: (context) => AlertDialog(
         backgroundColor: const Color(0xFF1A1A1A),
         title: Text(
-          'Save Password',
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: TvUtils.responsiveFontSize(20, context),
-          ),
-        ),
-        content: Text(
-          'Save password for $email?',
-          style: TextStyle(
-            color: Colors.grey,
-            fontSize: TvUtils.responsiveFontSize(16, context),
-          ),
-        ),
+           'Save Password',
+           style: TvTypography.cardTitle,
+         ),
+         content: Text(
+           'Save password for $email?',
+           style: TvTypography.bodyMedium,
+         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
             child: Text(
               'Don\'t Save',
-              style: TextStyle(
-                color: Colors.grey,
-                fontSize: TvUtils.responsiveFontSize(14, context),
-              ),
+              style: TvTextStyles.subtitle,
             ),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
             child: Text(
               'Save',
-              style: TextStyle(
-                color: const Color(0xFFE50914),
-                fontSize: TvUtils.responsiveFontSize(14, context),
-              ),
+              style: TvTypography.buttonText,
             ),
           ),
         ],
@@ -311,7 +288,7 @@ class _TvLoginScreenState extends State<TvLoginScreen> {
 
       if (mounted) {
         Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const TvMainScreen()),
+          MaterialPageRoute(builder: (_) => const TvMainScreenNetflix()),
         );
       }
     } catch (e) {
@@ -363,7 +340,7 @@ class _TvLoginScreenState extends State<TvLoginScreen> {
 
       if (mounted) {
         Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const TvMainScreen()),
+          MaterialPageRoute(builder: (_) => const TvMainScreenNetflix()),
         );
       }
     } catch (e) {
@@ -380,19 +357,13 @@ class _TvLoginScreenState extends State<TvLoginScreen> {
       builder: (context) => AlertDialog(
         backgroundColor: const Color(0xFF1A1A1A),
         title: Text(
-          'Enter Password',
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: TvUtils.responsiveFontSize(20, context),
-          ),
-        ),
-        content: TextField(
-          controller: passwordController,
-          obscureText: true,
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: TvUtils.responsiveFontSize(16, context),
-          ),
+           'Enter Password',
+           style: TvTypography.cardTitle,
+         ),
+         content: TextField(
+           controller: passwordController,
+           obscureText: true,
+           style: TvTypography.bodyLarge,
           decoration: InputDecoration(
             hintText: 'Password',
             hintStyle: TextStyle(color: Colors.grey),
@@ -403,7 +374,7 @@ class _TvLoginScreenState extends State<TvLoginScreen> {
             onPressed: () => Navigator.pop(context),
             child: Text(
               'Cancel',
-              style: TextStyle(color: Colors.grey),
+              style: TvTextStyles.subtitle,
             ),
           ),
           TextButton(
@@ -443,7 +414,7 @@ class _TvLoginScreenState extends State<TvLoginScreen> {
 
       if (mounted) {
         Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const TvMainScreen()),
+          MaterialPageRoute(builder: (_) => const TvMainScreenNetflix()),
         );
       }
     } catch (e) {

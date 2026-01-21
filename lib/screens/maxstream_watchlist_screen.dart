@@ -43,7 +43,7 @@ class _MaxStreamWatchlistScreenState extends State<MaxStreamWatchlistScreen>
         series = items.where((item) => item.mediaType == 'tv').toList();
       });
     } catch (e) {
-      print('Error loading watchlist: $e');
+      // Error loading watchlist
     } finally {
       setState(() => isLoading = false);
     }
@@ -72,7 +72,7 @@ class _MaxStreamWatchlistScreenState extends State<MaxStreamWatchlistScreen>
         );
       }
     } catch (e) {
-      print('Error removing from watchlist: $e');
+      // Error removing from watchlist
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -245,7 +245,7 @@ class _MaxStreamWatchlistScreenState extends State<MaxStreamWatchlistScreen>
                     child: Container(
                       padding: const EdgeInsets.all(4),
                       decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.7),
+                        color: Colors.black.withValues(alpha: 0.7),
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: const Icon(
@@ -263,7 +263,7 @@ class _MaxStreamWatchlistScreenState extends State<MaxStreamWatchlistScreen>
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
                       decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.7),
+                        color: Colors.black.withValues(alpha: 0.7),
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: Row(

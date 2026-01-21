@@ -92,7 +92,7 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
       }
       _checkWatchlistStatus();
     } catch (e) {
-      print('Error loading details: $e');
+      // Error loading details
     } finally {
       setState(() => isLoading = false);
     }
@@ -146,7 +146,7 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
         );
       }
     } catch (e) {
-      print('Error toggling watchlist: $e');
+      // Error toggling watchlist
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

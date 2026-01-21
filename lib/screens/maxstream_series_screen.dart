@@ -95,7 +95,7 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
         }
       }
     } catch (e) {
-      print('Error loading series details: $e');
+      // Error loading series details
     } finally {
       setState(() => isLoading = false);
     }
@@ -121,7 +121,7 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
         });
       }
     } catch (e) {
-      print('Error loading episodes: $e');
+      // Error loading episodes
       if (mounted) {
         setState(() {
           isLoadingEpisodes = false;
@@ -180,7 +180,7 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
         );
       }
     } catch (e) {
-      print('Error toggling watchlist: $e');
+      // Error toggling watchlist
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

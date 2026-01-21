@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../../models/movie.dart';
-import '../../widgets/tv_keyboard.dart';
+import '../widgets/tv_keyboard.dart';
 import '../../widgets/custom_loading_widget.dart';
-import '../../widgets/tv_focus_widget.dart';
-import '../../utils/tv_utils.dart';
-import '../../utils/tv_dpad_navigation_mixin.dart';
+import '../utils/tv_typography.dart';
+import '../widgets/tv_focus_widget.dart';
+import '../utils/tv_utils.dart';
+import '../utils/tv_dpad_navigation_mixin.dart';
 import '../../services/tmdb_api_service.dart';
+import '../widgets/tv_breadcrumb_navigation.dart';
+import '../widgets/tv_visual_enhancements.dart';
+import '../widgets/tv_dark_mode_polish.dart';
 import 'tv_details_screen.dart';
 import 'tv_series_screen.dart';
 
@@ -30,12 +33,65 @@ class _TvSearchScreenState extends State<TvSearchScreen>
   bool _showNoResults = false;
   int? _focusedResultIndex;
   bool _keyboardFocused = true;
+  final List<String> _selectedGenreFilters = [];
   static const int _columnsPerRow = 5;
 
   @override
   void initState() {
     super.initState();
     _loadRecommendations();
+  }
+
+  // D-Pad Navigation Implementation
+  @override
+  int get maxFocusIndex {
+    final items = _searchQuery.isNotEmpty
+        ? _searchResults
+        : [..._trendingResults, ..._popularResults, ..._topRatedResults];
+    return items.isEmpty ? 0 : items.length - 1;
+  }
+
+  @override
+  void onFocusChanged(int index) {
+    setState(() => _focusedResultIndex = index);
+  }
+
+  @override
+  void onSelectPressed() {
+    if (_focusedResultIndex != null) {
+      final items = _searchQuery.isNotEmpty
+          ? _searchResults
+          : [..._trendingResults, ..._popularResults, ..._topRatedResults];
+      if (_focusedResultIndex! < items.length) {
+        _navigateToContent(items[_focusedResultIndex!]);
+      }
+    }
+  }
+
+  @override
+  void onLeftPressed() {
+    if (_focusedResultIndex != null) {
+      if (_focusedResultIndex! > 0 &&
+          _focusedResultIndex! % _columnsPerRow != 0) {
+        setFocusIndex(_focusedResultIndex! - 1);
+      } else if (_focusedResultIndex! % _columnsPerRow == 0 &&
+          widget.onReturnToSidebar != null) {
+        widget.onReturnToSidebar!();
+      }
+    }
+  }
+
+  @override
+  void onRightPressed() {
+    if (_focusedResultIndex != null) {
+      final items = _searchQuery.isNotEmpty
+          ? _searchResults
+          : [..._trendingResults, ..._popularResults, ..._topRatedResults];
+      if (_focusedResultIndex! + 1 < items.length &&
+          (_focusedResultIndex! + 1) % _columnsPerRow != 0) {
+        setFocusIndex(_focusedResultIndex! + 1);
+      }
+    }
   }
 
   Future<void> _loadRecommendations() async {
@@ -55,7 +111,7 @@ class _TvSearchScreenState extends State<TvSearchScreen>
         });
       }
     } catch (e) {
-      print('Error loading recommendations: $e');
+      debugPrint('Error loading recommendations: $e');
     }
   }
 
@@ -90,7 +146,7 @@ class _TvSearchScreenState extends State<TvSearchScreen>
         });
       }
     } catch (e) {
-      print('Search error: $e');
+      debugPrint('Search error: $e');
       if (mounted) {
         setState(() {
           _isLoading = false;
@@ -103,45 +159,6 @@ class _TvSearchScreenState extends State<TvSearchScreen>
   void _submitSearch() {
     if (_searchQuery.isEmpty) return;
     Navigator.pop(context, _searchQuery);
-  }
-
-  // D-Pad Navigation Implementation
-  @override
-  int get maxFocusIndex {
-    if (_keyboardFocused) return 0;
-
-    // Get the current items being displayed
-    final items = _searchQuery.isNotEmpty
-        ? _searchResults
-        : _getTotalRecommendations();
-    return items.length - 1;
-  }
-
-  List<Map<String, dynamic>> _getTotalRecommendations() {
-    return [..._trendingResults, ..._popularResults, ..._topRatedResults];
-  }
-
-  @override
-  void onFocusChanged(int index) {
-    if (!_keyboardFocused) {
-      setState(() => _focusedResultIndex = index);
-    }
-  }
-
-  @override
-  void onSelectPressed() {
-    if (_keyboardFocused) {
-      // Keyboard is focused, submit search
-      _submitSearch();
-    } else if (_focusedResultIndex != null) {
-      final items = _searchQuery.isNotEmpty
-          ? _searchResults
-          : _getTotalRecommendations();
-      if (_focusedResultIndex! < items.length) {
-        final item = items[_focusedResultIndex!];
-        _navigateToContent(item);
-      }
-    }
   }
 
   void _navigateToContent(Map<String, dynamic> item) {
@@ -166,159 +183,140 @@ class _TvSearchScreenState extends State<TvSearchScreen>
     }
   }
 
-  @override
-  void onLeftPressed() {
-    if (!_keyboardFocused && _focusedResultIndex != null) {
-      // Always switch to keyboard focus when pressing left on results
-      setState(() {
-        _keyboardFocused = true;
-        _focusedResultIndex = null;
-      });
-    } else if (_keyboardFocused && widget.onReturnToSidebar != null) {
-      // On keyboard, left arrow returns to sidebar
-      widget.onReturnToSidebar!();
-    }
+  Widget _buildBreadcrumb() {
+    return TvBreadcrumb(
+      items: [
+        BreadcrumbItem(
+          label: 'Home',
+          icon: 'home',
+          onTap: () => Navigator.pop(context),
+        ),
+        BreadcrumbItem(label: 'Browse', icon: 'search'),
+        BreadcrumbItem(label: 'Search Results'),
+      ],
+      currentIndex: 2,
+      onItemTapped: (index) {
+        if (index == 0) {
+          Navigator.pop(context);
+        }
+      },
+    );
   }
 
-  @override
-  void handleKeyEvent(RawKeyEvent event) {
-    if (_keyboardFocused) {
-      // Allow right arrow to switch from keyboard to results
-      if (event.isKeyPressed(LogicalKeyboardKey.arrowRight)) {
-        onRightPressed();
-      }
-    } else {
-      if (event.isKeyPressed(LogicalKeyboardKey.arrowDown)) {
-        _moveDown();
-      } else if (event.isKeyPressed(LogicalKeyboardKey.arrowUp)) {
-        _moveUp();
-      } else if (event.isKeyPressed(LogicalKeyboardKey.arrowLeft)) {
-        onLeftPressed();
-      } else if (event.isKeyPressed(LogicalKeyboardKey.arrowRight)) {
-        onRightPressed();
-      } else if (event.isKeyPressed(LogicalKeyboardKey.select) ||
-          event.isKeyPressed(LogicalKeyboardKey.enter)) {
-        onSelectPressed();
-      }
-    }
-  }
+  Widget _buildGenreFilterChips() {
+    final genres = [
+      'Action',
+      'Comedy',
+      'Drama',
+      'Horror',
+      'Romance',
+      'Sci-Fi',
+      'Thriller',
+      'Animation',
+    ];
 
-  void _moveDown() {
-    if (_focusedResultIndex == null) return;
-    final items = _searchQuery.isNotEmpty
-        ? _searchResults
-        : _getTotalRecommendations();
-    int newIndex = _focusedResultIndex! + _columnsPerRow;
-    if (newIndex < items.length) {
-      setState(() => _focusedResultIndex = newIndex);
-      onFocusChanged(newIndex);
-    }
-  }
-
-  void _moveUp() {
-    if (_focusedResultIndex == null) return;
-    int newIndex = _focusedResultIndex! - _columnsPerRow;
-    if (newIndex >= 0) {
-      setState(() => _focusedResultIndex = newIndex);
-      onFocusChanged(newIndex);
-    }
-  }
-
-  @override
-  void onRightPressed() {
-    if (_keyboardFocused) {
-      // Switch from keyboard to recommendations/search results
-      setState(() {
-        _keyboardFocused = false;
-        _focusedResultIndex = 0;
-      });
-      onFocusChanged(0);
-    } else if (_focusedResultIndex != null) {
-      // Navigate right within grid (next item)
-      final items = _searchQuery.isNotEmpty
-          ? _searchResults
-          : _getTotalRecommendations();
-      if (_focusedResultIndex! < items.length - 1) {
-        setState(() => _focusedResultIndex = _focusedResultIndex! + 1);
-      }
-    }
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      padding: EdgeInsets.symmetric(
+        horizontal: TvUtils.responsivePadding(24, context),
+        vertical: TvUtils.responsivePadding(12, context),
+      ),
+      child: Wrap(
+        spacing: TvUtils.responsivePadding(8, context),
+        children: genres.map((genre) {
+          final isSelected = _selectedGenreFilters.contains(genre);
+          return CategoryChip(
+            label: genre,
+            isSelected: isSelected,
+            onTap: () {
+              setState(() {
+                if (isSelected) {
+                  _selectedGenreFilters.remove(genre);
+                } else {
+                  _selectedGenreFilters.add(genre);
+                }
+              });
+            },
+          );
+        }).toList(),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    return RawKeyboardListener(
-      onKey: handleKeyEvent,
-      focusNode: focusNode,
+    return DarkModeBackground(
       child: Scaffold(
-        backgroundColor: Colors.black,
-        appBar: AppBar(
-          backgroundColor: Colors.black,
-          title: Text(
-            'Search',
-            style: TextStyle(
-              fontSize: TvUtils.responsiveFontSize(32, context, maxSize: 48),
-              color: Colors.white,
-            ),
-          ),
-          leading: IconButton(
-            icon: Icon(
-              Icons.arrow_back,
-              size: TvUtils.responsiveFontSize(28, context, maxSize: 40),
-            ),
-            onPressed: () => Navigator.pop(context),
+        backgroundColor: Colors.transparent,
+        appBar: PreferredSize(
+          preferredSize: const Size.fromHeight(56),
+          child: DarkModeAppBar(
+            title: 'Search',
+            onBackPressed: () => Navigator.pop(context),
           ),
         ),
-        body: Row(
+        body: Column(
           children: [
-            // Left side: Keyboard - narrow and tall
-            SizedBox(
-              width: MediaQuery.of(context).size.width * 0.3,
-              child: Padding(
-                padding: EdgeInsets.symmetric(
-                  horizontal: TvUtils.responsivePadding(12, context),
-                  vertical: TvUtils.responsivePadding(24, context),
-                ),
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: Colors.grey.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(
-                      TvUtils.responsivePadding(12, context),
-                    ),
-                    border: Border.all(
-                      color: _keyboardFocused
-                          ? Colors.white
-                          : Colors.grey.withValues(alpha: 0.3),
-                      width: _keyboardFocused ? 2 : 1.5,
-                    ),
-                  ),
-                  padding: EdgeInsets.all(
-                    TvUtils.responsivePadding(12, context),
-                  ),
-                  child: GestureDetector(
-                    onTap: () => setState(() => _keyboardFocused = true),
-                    child: SingleChildScrollView(
-                      child: TvKeyboard(
-                        initialText: _searchQuery,
-                        onInput: _performSearch,
-                        onSubmit: _submitSearch,
+            // Breadcrumb Navigation
+            _buildBreadcrumb(),
+            // Genre Filter Chips
+            _buildGenreFilterChips(),
+            // Search Content
+            Expanded(
+              child: Row(
+                children: [
+                  // Left side: Keyboard - narrow and tall
+                  SizedBox(
+                    width: MediaQuery.of(context).size.width * 0.3,
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: TvUtils.responsivePadding(12, context),
+                        vertical: TvUtils.responsivePadding(24, context),
+                      ),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.grey.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(
+                            TvUtils.responsivePadding(12, context),
+                          ),
+                          border: Border.all(
+                            color: _keyboardFocused
+                                ? Colors.white
+                                : Colors.grey.withValues(alpha: 0.3),
+                            width: _keyboardFocused ? 2 : 1.5,
+                          ),
+                        ),
+                        padding: EdgeInsets.all(
+                          TvUtils.responsivePadding(12, context),
+                        ),
+                        child: GestureDetector(
+                          onTap: () => setState(() => _keyboardFocused = true),
+                          child: SingleChildScrollView(
+                            child: TvKeyboard(
+                              initialText: _searchQuery,
+                              onInput: _performSearch,
+                              onSubmit: _submitSearch,
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                   ),
-                ),
-              ),
-            ),
 
-            // Right side: Results section (6 columns)
-            Expanded(
-              child: Padding(
-                padding: EdgeInsets.symmetric(
-                  horizontal: TvUtils.responsivePadding(24, context),
-                  vertical: TvUtils.responsivePadding(24, context),
-                ),
-                child: GestureDetector(
-                  onTap: () => setState(() => _keyboardFocused = false),
-                  child: _buildResultsView(),
-                ),
+                  // Right side: Results section (6 columns)
+                  Expanded(
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: TvUtils.responsivePadding(24, context),
+                        vertical: TvUtils.responsivePadding(24, context),
+                      ),
+                      child: GestureDetector(
+                        onTap: () => setState(() => _keyboardFocused = false),
+                        child: _buildResultsView(),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
@@ -339,13 +337,7 @@ class _TvSearchScreenState extends State<TvSearchScreen>
               style: LoadingStyle.dots,
             ),
             SizedBox(height: TvUtils.responsivePadding(16, context)),
-            Text(
-              'Searching...',
-              style: TextStyle(
-                color: Colors.grey,
-                fontSize: TvUtils.responsiveFontSize(16, context),
-              ),
-            ),
+            Text('Searching...', style: TvTypography.bodyMedium),
           ],
         ),
       );
@@ -357,10 +349,7 @@ class _TvSearchScreenState extends State<TvSearchScreen>
         return Center(
           child: Text(
             'No results found for "$_searchQuery"',
-            style: TextStyle(
-              color: Colors.grey,
-              fontSize: TvUtils.responsiveFontSize(16, context),
-            ),
+            style: TvTypography.bodyMedium,
             textAlign: TextAlign.center,
           ),
         );
@@ -490,15 +479,7 @@ class _TvSearchScreenState extends State<TvSearchScreen>
                         Expanded(
                           child: Text(
                             title,
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: TvUtils.responsiveFontSize(
-                                12,
-                                context,
-                                maxSize: 16,
-                              ),
-                              fontWeight: FontWeight.bold,
-                            ),
+                            style: TvTextStyles.genreTag,
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                           ),

@@ -91,7 +91,7 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
           break;
       }
     } catch (e) {
-      print('Error searching: $e');
+      // Error searching
     } finally {
       setState(() => isLoading = false);
     }
@@ -339,7 +339,7 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
                         decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.7),
+                          color: Colors.black.withValues(alpha: 0.7),
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: Row(

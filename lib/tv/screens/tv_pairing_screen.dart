@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../services/device_code_service.dart';
+import '../utils/tv_typography.dart';
+import '../../services/device_code_service.dart';
 
 class TVPairingScreen extends StatefulWidget {
   const TVPairingScreen({super.key});
@@ -66,7 +67,7 @@ class _TVPairingScreenState extends State<TVPairingScreen> {
       backgroundColor: const Color(0xFF121212),
       appBar: AppBar(
         backgroundColor: const Color(0xFF1A1A1A),
-        title: const Text('TV Pairing', style: TextStyle(color: Colors.white)),
+        title: const Text('TV Pairing', style: TextStyle(color: Colors.white)),  // TV-specific title
         iconTheme: const IconThemeData(color: Colors.white),
         elevation: 0,
       ),
@@ -105,10 +106,7 @@ class _TVPairingScreenState extends State<TVPairingScreen> {
                               const SizedBox(height: 4),
                               Text(
                                 'Without entering your password',
-                                style: TextStyle(
-                                  color: Colors.grey[400],
-                                  fontSize: 14,
-                                ),
+                                style: TvTextStyles.subtitle,
                               ),
                             ],
                           ),
@@ -128,7 +126,7 @@ class _TVPairingScreenState extends State<TVPairingScreen> {
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
                 ),
-              ),
+              ),  // TODO: Use TvTypography
               const SizedBox(height: 16),
               _buildInstructionStep(
                 number: '1',

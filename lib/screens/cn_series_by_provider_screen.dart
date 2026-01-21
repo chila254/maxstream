@@ -135,7 +135,7 @@ class _CnSeriesByProviderScreenState extends State<CnSeriesByProviderScreen> {
         });
       }
     } catch (e) {
-      print('Error loading preferences: $e');
+      // Error loading preferences
     }
   }
 
@@ -153,15 +153,9 @@ class _CnSeriesByProviderScreenState extends State<CnSeriesByProviderScreen> {
         provider.id,
         page: 1,
       );
-      print(
-        'Loaded ${series.length} series for ${provider.name} (ID: ${provider.id})',
-      );
+      // Loaded ${series.length} series for ${provider.name}
       if (series.isEmpty) {
-        print('No series found for ${provider.name}. This might be due to:');
-        print('1. TMDB API limitations for this provider');
-        print('2. No content available in the US region');
-        print('3. Provider ID might be incorrect');
-        print('4. TMDB API key restrictions');
+        // No series found for ${provider.name}
       }
       if (mounted) {
         setState(() {
@@ -170,7 +164,7 @@ class _CnSeriesByProviderScreenState extends State<CnSeriesByProviderScreen> {
         });
       }
     } catch (e) {
-      print('Error loading series for ${provider.name}: $e');
+      // Error loading series for ${provider.name}
       if (mounted) {
         setState(() {
           isLoadingMap[provider.id] = false;
@@ -216,7 +210,7 @@ class _CnSeriesByProviderScreenState extends State<CnSeriesByProviderScreen> {
         });
       }
     } catch (e) {
-      print('Error loading more series: $e');
+      // Error loading more series
       if (mounted) {
         setState(() {
           isLoadingMoreMap[providerId] = false;
@@ -274,7 +268,7 @@ class _CnSeriesByProviderScreenState extends State<CnSeriesByProviderScreen> {
                     curve: Curves.easeInOut,
                     decoration: BoxDecoration(
                       color: isSelected
-                          ? provider.color.withOpacity(0.95)
+                          ? provider.color.withValues(alpha: 0.95)
                           : provider.color,
                       borderRadius: BorderRadius.circular(16),
                       border: isSelected
@@ -283,7 +277,7 @@ class _CnSeriesByProviderScreenState extends State<CnSeriesByProviderScreen> {
                       boxShadow: isSelected
                           ? [
                               BoxShadow(
-                                color: provider.color.withOpacity(0.5),
+                                color: provider.color.withValues(alpha: 0.5),
                                 blurRadius: 10,
                                 spreadRadius: 2,
                               ),

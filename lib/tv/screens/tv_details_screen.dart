@@ -1,13 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:youtube_player_flutter/youtube_player_flutter.dart';
 import 'package:shimmer/shimmer.dart';
+import 'dart:ui' as ui;
 import '../../database/db_helper.dart';
 import '../../models/movie.dart';
 import '../../models/series.dart';
 import '../../services/tmdb_api_service.dart';
-import '../../utils/tv_utils.dart';
-import '../../utils/tv_dpad_navigation_mixin.dart';
-import '../../widgets/tv_focus_widget.dart';
+import '../utils/tv_utils.dart';
+import '../utils/tv_typography.dart';
+import '../utils/tv_dpad_navigation_mixin.dart';
+import '../widgets/tv_breadcrumb_navigation.dart';
+import '../widgets/tv_quick_actions.dart';
+import '../widgets/tv_visual_enhancements.dart';
+import '../widgets/tv_dark_mode_polish.dart';
 import 'tv_video_player_screen.dart';
 
 class TvDetailsScreen extends StatefulWidget {
@@ -40,6 +45,8 @@ class _TvDetailsScreenState extends State<TvDetailsScreen>
   String? seriesStatus;
   late ScrollController _scrollController;
   int? _focusedButtonIndex;
+  int _focusedActionIndex = 0;
+  List<String> _selectedGenres = [];
 
   @override
   void initState() {
@@ -150,7 +157,7 @@ class _TvDetailsScreenState extends State<TvDetailsScreen>
       }
       _checkWatchlistStatus();
     } catch (e) {
-      print('Error loading details: $e');
+      // Error loading details
     } finally {
       setState(() => isLoading = false);
     }
@@ -185,7 +192,7 @@ class _TvDetailsScreenState extends State<TvDetailsScreen>
         });
       }
     } catch (e) {
-      print('Error loading episodes: $e');
+      // Error loading episodes
       if (mounted) {
         setState(() {
           isLoadingEpisodes = false;
@@ -251,48 +258,182 @@ class _TvDetailsScreenState extends State<TvDetailsScreen>
             _youtubeController?.pause();
           }
         },
-        child: Scaffold(
-        backgroundColor: const Color(0xFF121212),
-        body: isLoading
-            ? _buildLoadingShimmer()
-            : CustomScrollView(
-                controller: _scrollController,
-                slivers: [
-                  _buildSliverAppBar(),
-                  SliverToBoxAdapter(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _buildDetailsSection(),
-                        const SizedBox(height: 24),
-                        _buildActionButtons(),
-                        if (_youtubeController != null) ...[
-                          const SizedBox(height: 32),
-                          _buildTrailerSection(),
-                        ],
-                        if (isTvSeries && seasons.isNotEmpty) ...[
-                          const SizedBox(height: 32),
-                          _buildSeasonsSection(),
-                          const SizedBox(height: 24),
-                          _buildEpisodesSection(),
-                        ],
-                        const SizedBox(height: 32),
-                        _buildInfoSection(),
-                        if (cast.isNotEmpty) ...[
-                          const SizedBox(height: 24),
-                          _buildCastSection(),
-                        ],
-                        if (recommendations.isNotEmpty) ...[
-                          const SizedBox(height: 24),
-                          _buildRecommendationsSection(),
-                        ],
-                        const SizedBox(height: 40),
-                      ],
-                    ),
+        child: DarkModeBackground(
+          child: Scaffold(
+            backgroundColor: Colors.transparent,
+            appBar: PreferredSize(
+              preferredSize: const Size.fromHeight(56),
+              child: DarkModeAppBar(
+                title: widget.item.title,
+                onBackPressed: () {
+                  _youtubeController?.pause();
+                  Navigator.pop(context);
+                },
+                actions: [
+                  IconButton(
+                    icon: const Icon(Icons.share, color: Color(0xFFE50914)),
+                    onPressed: () => _shareContent(),
                   ),
                 ],
               ),
+            ),
+            body: isLoading
+                ? _buildLoadingShimmer()
+                : CustomScrollView(
+                    controller: _scrollController,
+                    slivers: [
+                      // Breadcrumb Navigation
+                      SliverToBoxAdapter(child: _buildBreadcrumb(isTvSeries)),
+                      SliverToBoxAdapter(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _buildDetailsSection(),
+                            const SizedBox(height: 24),
+                            // Quick Action Buttons
+                            _buildQuickActions(),
+                            const SizedBox(height: 24),
+                            // Genre Chips
+                            _buildGenreChips(),
+                            const SizedBox(height: 24),
+                            if (_youtubeController != null) ...[
+                              _buildTrailerSection(),
+                              const SizedBox(height: 32),
+                            ],
+                            if (isTvSeries && seasons.isNotEmpty) ...[
+                              _buildSeasonsSection(),
+                              const SizedBox(height: 24),
+                              _buildEpisodesSection(),
+                              const SizedBox(height: 32),
+                            ],
+                            _buildInfoSection(),
+                            if (cast.isNotEmpty) ...[
+                              const SizedBox(height: 24),
+                              EnhancedDivider(addGradient: true),
+                              const SizedBox(height: 24),
+                              _buildCastSection(),
+                            ],
+                            if (recommendations.isNotEmpty) ...[
+                              const SizedBox(height: 24),
+                              EnhancedDivider(addGradient: true),
+                              const SizedBox(height: 24),
+                              _buildRecommendationsSection(),
+                            ],
+                            const SizedBox(height: 40),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+          ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildBreadcrumb(bool isTvSeries) {
+    return TvBreadcrumb(
+      items: [
+        BreadcrumbItem(
+          label: 'Home',
+          icon: 'home',
+          onTap: () => Navigator.pop(context),
+        ),
+        BreadcrumbItem(label: 'Browse', icon: 'movies'),
+        BreadcrumbItem(
+          label: isTvSeries ? 'Series' : 'Movies',
+          icon: isTvSeries ? 'series' : 'movies',
+        ),
+        BreadcrumbItem(label: widget.item.title),
+      ],
+      currentIndex: 3,
+      onItemTapped: (index) {
+        if (index == 0) {
+          Navigator.pop(context);
+        }
+      },
+    );
+  }
+
+  Widget _buildQuickActions() {
+    final actions = [
+      QuickAction(
+        label: 'Play',
+        icon: Icons.play_arrow,
+        onPressed: () => playContent(),
+        color: const Color(0xFFE50914),
+      ),
+      QuickAction(
+        label: isSaved ? 'Remove' : 'Add to List',
+        icon: isSaved ? Icons.favorite : Icons.favorite_border,
+        onPressed: () => _toggleWatchlist(),
+      ),
+      QuickAction(
+        label: 'Share',
+        icon: Icons.share,
+        onPressed: () => _shareContent(),
+      ),
+    ];
+
+    return TvQuickActionsBar(
+      actions: actions,
+      focusedIndex: _focusedActionIndex,
+      onFocusChanged: (index) {
+        setState(() => _focusedActionIndex = index);
+      },
+    );
+  }
+
+  Widget _buildGenreChips() {
+    if (widget.item.genres.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: EdgeInsets.symmetric(
+        horizontal: TvUtils.responsivePadding(24, context),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Genres',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: TvUtils.responsiveFontSize(18, context),
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          SizedBox(height: TvUtils.responsivePadding(12, context)),
+          Wrap(
+            spacing: TvUtils.responsivePadding(8, context),
+            runSpacing: TvUtils.responsivePadding(8, context),
+            children: widget.item.genres.map((genre) {
+              final isSelected = _selectedGenres.contains(genre);
+              return CategoryChip(
+                label: genre,
+                isSelected: isSelected,
+                onTap: () {
+                  setState(() {
+                    if (isSelected) {
+                      _selectedGenres.remove(genre);
+                    } else {
+                      _selectedGenres.add(genre);
+                    }
+                  });
+                },
+              );
+            }).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _shareContent() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Share: ${widget.item.title}'),
+        backgroundColor: const Color(0xFFE50914),
+        behavior: SnackBarBehavior.floating,
       ),
     );
   }
@@ -333,185 +474,58 @@ class _TvDetailsScreenState extends State<TvDetailsScreen>
     );
   }
 
-  Widget _buildSliverAppBar() {
-    final backdropPath = details?['backdrop_path'] ?? widget.item.backdropPath;
-    final posterPath = details?['poster_path'] ?? widget.item.posterPath;
-
-    return SliverAppBar(
-      expandedHeight: 400,
-      pinned: true,
-      backgroundColor: const Color(0xFF1A1A1A),
-      scrolledUnderElevation: 0,
-      flexibleSpace: FlexibleSpaceBar(
-        background: Transform.scale(
-          scale: 1.0,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              if (backdropPath.isNotEmpty)
-                Image.network(
-                  'https://image.tmdb.org/t/p/w1280$backdropPath',
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) =>
-                      Container(color: Colors.grey[800]),
-                )
-              else
-                Container(color: Colors.grey[800]),
-              Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [Colors.transparent, Colors.black.withOpacity(0.9)],
-                  ),
-                ),
-              ),
-              // Poster image overlay at bottom
-              if (posterPath.isNotEmpty)
-                Positioned(
-                  bottom: 12,
-                  left: 24,
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: Image.network(
-                      'https://image.tmdb.org/t/p/w342$posterPath',
-                      width: 100,
-                      height: 150,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) => Container(
-                        width: 100,
-                        height: 150,
-                        color: Colors.grey[800],
-                        child: const Icon(Icons.movie, size: 40),
-                      ),
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _buildDetailsSection() {
-    final fontSize = TvUtils.responsiveFontSize(28, context, maxSize: 36);
-    final padding = TvUtils.responsivePadding(24, context);
-
     return Padding(
-      padding: EdgeInsets.symmetric(horizontal: padding),
+      padding: const EdgeInsets.symmetric(
+        horizontal: TvSpacing.sectionPaddingH,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Title
-          Text(
-            widget.item.title,
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: fontSize,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 12),
+          // Title with Gradient
+          GradientText(widget.item.title, baseStyle: TvTypography.heroTitle),
+          const SizedBox(height: TvSpacing.md),
           // Rating and Year
           Row(
             children: [
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.white54),
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Text(
-                  '${widget.item.rating.toStringAsFixed(1)}/10',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: TvUtils.responsiveFontSize(14, context),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: BackdropFilter(
+                  filter: ui.ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: TvSpacing.md,
+                      vertical: TvSpacing.sm,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.1),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.3),
+                        width: 1.5,
+                      ),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.star, color: Colors.amber, size: 16),
+                        const SizedBox(width: 4),
+                        Text(
+                          '${widget.item.rating.toStringAsFixed(1)}/10',
+                          style: TvTypography.labelSmall,
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
-              const SizedBox(width: 12),
-              Text(
-                getYear(),
-                style: TextStyle(
-                  color: Colors.grey,
-                  fontSize: TvUtils.responsiveFontSize(14, context),
-                ),
-              ),
+              const SizedBox(width: TvSpacing.md),
+              Text(getYear(), style: TvTypography.bodyMedium),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: TvSpacing.lg),
           // Description
           if (details?['overview'] != null)
-            Text(
-              details!['overview'],
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: TvUtils.responsiveFontSize(16, context),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildActionButtons() {
-    final padding = TvUtils.responsivePadding(24, context);
-
-    return Padding(
-      padding: EdgeInsets.symmetric(horizontal: padding),
-      child: Row(
-        children: [
-          // Watch Now button with TvFocusButton
-          TvFocusButton(
-            isFocused: _focusedButtonIndex == 0,
-            onTap: () => playContent(),
-            borderRadius: BorderRadius.circular(8),
-            child: ElevatedButton.icon(
-              icon: const Icon(Icons.play_arrow),
-              label: Text(
-                'Watch Now',
-                style: TextStyle(
-                  fontSize: TvUtils.responsiveFontSize(18, context),
-                ),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red,
-                padding: EdgeInsets.symmetric(
-                  horizontal: padding * 0.8,
-                  vertical: padding * 0.5,
-                ),
-              ),
-              onPressed: () => playContent(),
-            ),
-          ),
-          const SizedBox(width: 16),
-          // Add to My List button with TvFocusButton
-          TvFocusButton(
-            isFocused: _focusedButtonIndex == 1,
-            onTap: _toggleWatchlist,
-            borderRadius: BorderRadius.circular(8),
-            child: ElevatedButton.icon(
-              icon: Icon(isSaved ? Icons.favorite : Icons.favorite_border),
-              label: Text(
-                'Add to My List',
-                style: TextStyle(
-                  fontSize: TvUtils.responsiveFontSize(18, context),
-                ),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.grey[800],
-                padding: EdgeInsets.symmetric(
-                  horizontal: padding * 0.8,
-                  vertical: padding * 0.5,
-                ),
-              ),
-              onPressed: _toggleWatchlist,
-            ),
-          ),
+            Text(details!['overview'], style: TvTypography.bodyLarge),
         ],
       ),
     );
@@ -730,7 +744,7 @@ class _TvDetailsScreenState extends State<TvDetailsScreen>
                           width: 56,
                           height: 56,
                           decoration: BoxDecoration(
-                            color: Colors.red.withOpacity(0.9),
+                            color: Colors.red.withValues(alpha: 0.9),
                             shape: BoxShape.circle,
                           ),
                           child: const Icon(
@@ -852,26 +866,50 @@ class _TvDetailsScreenState extends State<TvDetailsScreen>
 
     if (infoItems.isEmpty) return const SizedBox.shrink();
 
-    return Padding(
-      padding: EdgeInsets.symmetric(horizontal: padding),
+    return DarkModePanelEnhanced(
+      padding: EdgeInsets.all(padding),
+      margin: EdgeInsets.symmetric(horizontal: padding),
+      addPattern: true,
+      addGlow: true,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          for (String info in infoItems)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Text(
-                info,
-                style: TextStyle(
-                  color: Colors.grey[400],
-                  fontSize: TvUtils.responsiveFontSize(14, context),
-                  height: 1.5,
+          for (int i = 0; i < infoItems.length; i++) ...[
+            Row(
+              children: [
+                Icon(_getInfoIcon(i), color: const Color(0xFFE50914), size: 18),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    infoItems[i],
+                    style: TextStyle(
+                      color: Colors.grey[300],
+                      fontSize: TvUtils.responsiveFontSize(14, context),
+                      height: 1.5,
+                    ),
+                  ),
                 ),
-              ),
+              ],
             ),
+            if (i < infoItems.length - 1)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                child: EnhancedDivider(addGradient: true),
+              ),
+          ],
         ],
       ),
     );
+  }
+
+  IconData _getInfoIcon(int index) {
+    final icons = [
+      Icons.people,
+      Icons.local_movies,
+      Icons.business,
+      Icons.info,
+    ];
+    return icons[index % icons.length];
   }
 
   Widget _buildCastSection() {

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import '../../utils/tv_utils.dart';
+import '../utils/tv_utils.dart';
+import '../utils/tv_typography.dart';
 
 class TvSplashScreen extends StatefulWidget {
   const TvSplashScreen({super.key});
@@ -37,7 +38,6 @@ class _TvSplashScreenState extends State<TvSplashScreen>
   @override
   Widget build(BuildContext context) {
     final logoSize = TvUtils.responsiveFontSize(200, context, maxSize: 300);
-    final fontSize = TvUtils.responsiveFontSize(32, context, maxSize: 48);
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -61,11 +61,7 @@ class _TvSplashScreenState extends State<TvSplashScreen>
               SizedBox(height: TvUtils.responsivePadding(24, context)),
               Text(
                 'MaxStream TV',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: fontSize,
-                  fontWeight: FontWeight.bold,
-                ),
+                style: TvTypography.heroTitle,
               ),
               SizedBox(height: TvUtils.responsivePadding(32, context)),
               SizedBox(

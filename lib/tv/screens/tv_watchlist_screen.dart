@@ -2,9 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../database/db_helper.dart';
 import '../../models/movie.dart';
-import '../../utils/tv_utils.dart';
-import '../../utils/tv_dpad_navigation_mixin.dart';
-import '../../widgets/tv_focus_widget.dart';
+import '../utils/tv_utils.dart';
+import '../utils/tv_typography.dart';
+import '../utils/tv_dpad_navigation_mixin.dart';
+import '../widgets/tv_focus_widget.dart';
 import 'tv_details_screen.dart';
 import 'tv_series_screen.dart';
 
@@ -181,8 +182,6 @@ class _TvWatchlistScreenState extends State<TvWatchlistScreen>
 
   @override
   Widget build(BuildContext context) {
-    final fontSize = TvUtils.responsiveFontSize(24, context, maxSize: 32);
-
     return RawKeyboardListener(
       onKey: handleKeyEvent,
       focusNode: focusNode,
@@ -192,11 +191,7 @@ class _TvWatchlistScreenState extends State<TvWatchlistScreen>
           backgroundColor: const Color(0xFF1A1A1A),
           title: Text(
             'My Watchlist',
-            style: TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.bold,
-              fontSize: fontSize,
-            ),
+            style: TvTypography.sectionTitle,
           ),
           actions: [
             IconButton(
@@ -231,27 +226,21 @@ class _TvWatchlistScreenState extends State<TvWatchlistScreen>
                 text: 'All (${watchlistItems.length})',
                 child: Text(
                   'All (${watchlistItems.length})',
-                  style: TextStyle(
-                    fontSize: TvUtils.responsiveFontSize(16, context),
-                  ),
+                  style: TvTypography.labelSmall,
                 ),
               ),
               Tab(
                 text: 'Movies (${movies.length})',
                 child: Text(
                   'Movies (${movies.length})',
-                  style: TextStyle(
-                    fontSize: TvUtils.responsiveFontSize(16, context),
-                  ),
+                  style: TvTypography.labelSmall,
                 ),
               ),
               Tab(
                 text: 'Series (${series.length})',
                 child: Text(
                   'Series (${series.length})',
-                  style: TextStyle(
-                    fontSize: TvUtils.responsiveFontSize(16, context),
-                  ),
+                  style: TvTypography.labelSmall,
                 ),
               ),
             ],

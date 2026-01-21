@@ -2,9 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
 import 'package:chewie/chewie.dart';
-import '../../utils/tv_utils.dart';
+import '../utils/tv_utils.dart';
+import '../utils/tv_typography.dart';
 import '../../services/watch_history_service.dart';
-import '../../services/tv_scraper_service.dart';
+import '../services/tv_scraper_service.dart';
 
 class TvVideoPlayerScreen extends StatefulWidget {
   final String title;
@@ -244,10 +245,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
                 const SizedBox(height: 16),
                 Text(
                   'Loading stream for ${widget.title}...',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: TvUtils.responsiveFontSize(18, context),
-                  ),
+                  style: TvTypography.bodyLarge,
                   textAlign: TextAlign.center,
                 ),
               ],
@@ -264,7 +262,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
                   padding: const EdgeInsets.symmetric(horizontal: 24),
                   child: Text(
                     'Error: $_error',
-                    style: const TextStyle(color: Colors.white, fontSize: 18),
+                    style: TvTypography.bodyLarge,
                     textAlign: TextAlign.center,
                   ),
                 ),
@@ -285,7 +283,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
                     ),
-                  ),
+                  ),  // TODO: Use TvTypography
                 ),
               ],
             ),

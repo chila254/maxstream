@@ -51,7 +51,7 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
         continueWatching = results[3].take(10).toList();
       });
     } catch (e) {
-      print('Error loading content: $e');
+      // Error loading content
     } finally {
       setState(() => isLoading = false);
     }
@@ -558,7 +558,7 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
                         vertical: 2,
                       ),
                       decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.7),
+                        color: Colors.black.withValues(alpha: 0.7),
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: Row(
@@ -689,7 +689,7 @@ class _FullListScreenState extends State<_FullListScreen> {
         _isLoading = false;
       });
     } catch (e) {
-      print('Error loading initial items: $e');
+      // Error loading initial items
       setState(() {
         _isLoading = false;
       });
@@ -745,7 +745,7 @@ class _FullListScreenState extends State<_FullListScreen> {
         });
       }
     } catch (e) {
-      print('Error loading more items: $e');
+      // Error loading more items
     } finally {
       setState(() {
         _isLoading = false;

@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../services/tmdb_api_service.dart';
-import '../../utils/tv_utils.dart';
-import '../../utils/tv_dpad_navigation_mixin.dart';
+import '../utils/tv_utils.dart';
+import '../utils/tv_typography.dart';
+import '../utils/tv_dpad_navigation_mixin.dart';
 import '../../widgets/custom_loading_widget.dart';
 
 class TvGenreScreen extends StatefulWidget {
@@ -72,7 +73,8 @@ class _TvGenreScreenState extends State<TvGenreScreen>
       if (currentFocus > 0 && currentFocus % _columnsPerRow != 0) {
         // Navigate left within grid
         setFocusIndex(currentFocus - 1);
-      } else if (currentFocus % _columnsPerRow == 0 && widget.onReturnToSidebar != null) {
+      } else if (currentFocus % _columnsPerRow == 0 &&
+          widget.onReturnToSidebar != null) {
         // At leftmost column: return to sidebar
         widget.onReturnToSidebar!();
       }
@@ -246,10 +248,7 @@ class _TvGenreScreenState extends State<TvGenreScreen>
             SizedBox(height: TvUtils.responsivePadding(16, context)),
             Text(
               'Loading genres...',
-              style: TextStyle(
-                color: Colors.grey,
-                fontSize: TvUtils.responsiveFontSize(16, context),
-              ),
+              style: TvTypography.bodyLarge,
             ),
           ],
         ),
@@ -335,15 +334,7 @@ class _TvGenreScreenState extends State<TvGenreScreen>
             child: Center(
               child: Text(
                 genreName,
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: TvUtils.responsiveFontSize(
-                    16,
-                    context,
-                    maxSize: 24,
-                  ),
-                  fontWeight: FontWeight.w500,
-                ),
+                style: TvTypography.cardTitle,
               ),
             ),
           ),
@@ -364,10 +355,7 @@ class _TvGenreScreenState extends State<TvGenreScreen>
           backgroundColor: const Color(0xFF1A1A1A),
           title: Text(
             _selectedGenreName ?? 'Genre',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: TvUtils.responsiveFontSize(24, context, maxSize: 36),
-            ),
+            style: TvTypography.subsectionTitle,
           ),
           leading: IconButton(
             icon: Icon(
@@ -391,10 +379,7 @@ class _TvGenreScreenState extends State<TvGenreScreen>
                     SizedBox(height: TvUtils.responsivePadding(16, context)),
                     Text(
                       'Loading content...',
-                      style: TextStyle(
-                        color: Colors.grey,
-                        fontSize: TvUtils.responsiveFontSize(16, context),
-                      ),
+                      style: TvTypography.bodyMedium,
                     ),
                   ],
                 ),
@@ -403,21 +388,18 @@ class _TvGenreScreenState extends State<TvGenreScreen>
             ? Center(
                 child: Text(
                   'No content found for this genre',
-                  style: TextStyle(
-                    color: Colors.grey,
-                    fontSize: TvUtils.responsiveFontSize(16, context),
-                  ),
+                  style: TvTypography.bodyMedium,
                 ),
               )
             : GridView.builder(
                 controller: _scrollController,
                 padding: EdgeInsets.all(TvUtils.responsivePadding(16, context)),
                 gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                   crossAxisCount: 2,
-                   childAspectRatio: 3.0,
-                   crossAxisSpacing: TvUtils.responsivePadding(16, context),
-                   mainAxisSpacing: TvUtils.responsivePadding(12, context),
-                 ),
+                  crossAxisCount: 2,
+                  childAspectRatio: 3.0,
+                  crossAxisSpacing: TvUtils.responsivePadding(16, context),
+                  mainAxisSpacing: TvUtils.responsivePadding(12, context),
+                ),
                 itemCount: _contentByGenre.length + (_isLoadingMore ? 1 : 0),
                 itemBuilder: (context, index) {
                   if (index == _contentByGenre.length) {
@@ -490,7 +472,9 @@ class _TvGenreScreenState extends State<TvGenreScreen>
                                     ),
                             ),
                           ),
-                          SizedBox(width: TvUtils.responsivePadding(8, context)),
+                          SizedBox(
+                            width: TvUtils.responsivePadding(8, context),
+                          ),
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -498,30 +482,20 @@ class _TvGenreScreenState extends State<TvGenreScreen>
                               children: [
                                 Text(
                                   title,
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: TvUtils.responsiveFontSize(
-                                      12,
-                                      context,
-                                      maxSize: 14,
-                                    ),
-                                    fontWeight: FontWeight.w500,
-                                  ),
+                                  style: TvTextStyles.genreTag,
                                   maxLines: 2,
                                   overflow: TextOverflow.ellipsis,
                                 ),
                                 if (year.isNotEmpty) ...[
-                                  SizedBox(height: TvUtils.responsivePadding(2, context)),
+                                  SizedBox(
+                                    height: TvUtils.responsivePadding(
+                                      2,
+                                      context,
+                                    ),
+                                  ),
                                   Text(
                                     year,
-                                    style: TextStyle(
-                                      color: Colors.grey,
-                                      fontSize: TvUtils.responsiveFontSize(
-                                        9,
-                                        context,
-                                        maxSize: 10,
-                                      ),
-                                    ),
+                                    style: TvTextStyles.metadata,
                                   ),
                                 ],
                               ],
@@ -530,9 +504,9 @@ class _TvGenreScreenState extends State<TvGenreScreen>
                         ],
                       ),
                     ),
-                          );
-                          },
-                          ),
+                  );
+                },
+              ),
       ),
     );
   }

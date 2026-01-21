@@ -3,10 +3,11 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../services/user_service.dart';
 import '../../services/auth_service.dart';
-import '../../utils/tv_utils.dart';
-import '../../utils/tv_dpad_navigation_mixin.dart';
+import '../utils/tv_utils.dart';
+import '../utils/tv_typography.dart';
+import '../utils/tv_dpad_navigation_mixin.dart';
 import '../../widgets/profile_avatar.dart';
-import '../../widgets/tv_focus_widget.dart';
+import '../widgets/tv_focus_widget.dart';
 
 class TvMoreScreen extends StatefulWidget {
   final VoidCallback? onReturnToSidebar;
@@ -96,13 +97,9 @@ class _TvMoreScreenState extends State<TvMoreScreen> with TvDpadNavigationMixin 
       appBar: AppBar(
         backgroundColor: const Color(0xFF1A1A1A),
         title: Text(
-          'More',
-          style: TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
-            fontSize: TvUtils.responsiveFontSize(28, context, maxSize: 36),
-          ),
-        ),
+           'More',
+           style: TvTypography.sectionTitle,
+         ),
       ),
       body: SingleChildScrollView(
         child: Column(
@@ -132,19 +129,12 @@ class _TvMoreScreenState extends State<TvMoreScreen> with TvDpadNavigationMixin 
           SizedBox(height: TvUtils.responsivePadding(16, context)),
           Text(
             _userName,
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: TvUtils.responsiveFontSize(24, context, maxSize: 32),
-              fontWeight: FontWeight.bold,
-            ),
+            style: TvTypography.subsectionTitle,
           ),
           if (_userEmail.isNotEmpty)
             Text(
               _userEmail,
-              style: TextStyle(
-                color: Colors.grey,
-                fontSize: TvUtils.responsiveFontSize(16, context),
-              ),
+              style: TvTypography.bodyMedium,
             ),
         ],
       ),

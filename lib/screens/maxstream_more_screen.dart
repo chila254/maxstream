@@ -7,7 +7,7 @@ import '../screens/sign_in_screen.dart';
 import '../screens/profile_settings_screen.dart';
 import '../screens/watch_history_screen.dart';
 import '../screens/streaming_provider_settings_screen.dart';
-import '../screens/tv_pairing_screen.dart';
+import '../tv/screens/tv_pairing_screen.dart';
 import '../widgets/profile_avatar.dart';
 
 class MaxStreamMoreScreen extends StatefulWidget {

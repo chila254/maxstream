@@ -67,7 +67,7 @@ class _ProviderContentScreenState extends State<ProviderContentScreen> {
         });
       }
     } catch (e) {
-      print('Error loading movies for ${widget.providerName}: $e');
+      // Error loading movies
       if (mounted) {
         setState(() => _isLoadingMovies = false);
       }
@@ -90,7 +90,7 @@ class _ProviderContentScreenState extends State<ProviderContentScreen> {
         });
       }
     } catch (e) {
-      print('Error loading shows for ${widget.providerName}: $e');
+      // Error loading shows
       if (mounted) {
         setState(() => _isLoadingShows = false);
       }
@@ -134,7 +134,7 @@ class _ProviderContentScreenState extends State<ProviderContentScreen> {
         setState(() => _isLoadingMoreMovies = false);
       }
     } catch (e) {
-      print('Error loading more movies: $e');
+      // Error loading more movies
       if (mounted) {
         setState(() => _isLoadingMoreMovies = false);
       }
@@ -160,7 +160,7 @@ class _ProviderContentScreenState extends State<ProviderContentScreen> {
         setState(() => _isLoadingMoreShows = false);
       }
     } catch (e) {
-      print('Error loading more shows: $e');
+      // Error loading more shows
       if (mounted) {
         setState(() => _isLoadingMoreShows = false);
       }
