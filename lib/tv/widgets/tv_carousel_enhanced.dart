@@ -3,14 +3,27 @@ import '../utils/tv_utils.dart';
 import '../utils/tv_typography.dart';
 
 /// Enhanced carousel widget for Continue Watching section
+/// Features:
+/// - Smooth page transitions with parallax effect
+/// - Animated progress bars with color transitions
+/// - Focus-aware scaling and elevation
+/// - D-pad navigation support
+/// - Responsive indicators with active state animation
+/// - Optimized for TV viewing experience
 class TvContinueWatchingCarousel extends StatefulWidget {
   final List<ContinueWatchingItem> items;
   final ValueChanged<int> onItemSelected;
+  final Duration scrollDuration;
+  final Duration animationDuration;
+  final bool enableParallax;
 
   const TvContinueWatchingCarousel({
     super.key,
     required this.items,
     required this.onItemSelected,
+    this.scrollDuration = const Duration(milliseconds: 500),
+    this.animationDuration = const Duration(milliseconds: 300),
+    this.enableParallax = true,
   });
 
   @override
@@ -25,6 +38,8 @@ class ContinueWatchingItem {
   final double progress;
   final String duration;
   final String? nextEpisode;
+  final String? rating;
+  final int? releaseYear;
 
   ContinueWatchingItem({
     required this.id,
@@ -33,30 +48,66 @@ class ContinueWatchingItem {
     required this.progress,
     required this.duration,
     this.nextEpisode,
+    this.rating,
+    this.releaseYear,
   });
 }
 
 class _TvContinueWatchingCarouselState extends State<TvContinueWatchingCarousel>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late PageController _pageController;
   late AnimationController _progressAnimationController;
+  late AnimationController _focusAnimationController;
+  late List<AnimationController> _itemControllers;
   int _currentPage = 0;
 
   @override
   void initState() {
     super.initState();
     _pageController = PageController(viewportFraction: 0.85);
+
     _progressAnimationController = AnimationController(
-      duration: const Duration(milliseconds: 500),
+      duration: widget.animationDuration,
       vsync: this,
     );
     _progressAnimationController.forward();
+
+    _focusAnimationController = AnimationController(
+      duration: widget.animationDuration,
+      vsync: this,
+    );
+
+    // Initialize item controllers for staggered animations
+    _itemControllers = List.generate(
+      widget.items.length,
+      (_) =>
+          AnimationController(duration: widget.animationDuration, vsync: this),
+    );
+
+    _pageController.addListener(_onPageChanged);
+  }
+
+  void _onPageChanged() {
+    final newPage = _pageController.page?.round() ?? 0;
+    if (newPage != _currentPage) {
+      setState(() => _currentPage = newPage);
+      widget.onItemSelected(newPage);
+      _progressAnimationController.reset();
+      _progressAnimationController.forward();
+      _focusAnimationController.reset();
+      _focusAnimationController.forward();
+    }
   }
 
   @override
   void dispose() {
+    _pageController.removeListener(_onPageChanged);
     _pageController.dispose();
     _progressAnimationController.dispose();
+    _focusAnimationController.dispose();
+    for (var controller in _itemControllers) {
+      controller.dispose();
+    }
     super.dispose();
   }
 
@@ -65,37 +116,85 @@ class _TvContinueWatchingCarouselState extends State<TvContinueWatchingCarousel>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Title
+        // Title with gradient effect
         Padding(
           padding: EdgeInsets.symmetric(
             horizontal: TvUtils.responsivePadding(24, context),
             vertical: TvUtils.responsivePadding(16, context),
           ),
-          child: Text(
-            'Continue Watching',
-            style: TvTypography.sectionTitle,
+          child: Row(
+            children: [
+              ShaderMask(
+                shaderCallback: (bounds) => LinearGradient(
+                  colors: [const Color(0xFFE50914), const Color(0xFFFF6B6B)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ).createShader(bounds),
+                child: Text(
+                  'Continue Watching',
+                  style: TvTypography.sectionTitle,
+                ),
+              ),
+              const Spacer(),
+              // Item count indicator
+              Container(
+                padding: EdgeInsets.symmetric(
+                  horizontal: TvUtils.responsivePadding(8, context),
+                  vertical: TvUtils.responsivePadding(4, context),
+                ),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE50914).withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: const Color(0xFFE50914).withValues(alpha: 0.3),
+                  ),
+                ),
+                child: Text(
+                  '${_currentPage + 1}/${widget.items.length}',
+                  style: TextStyle(
+                    color: const Color(0xFFE50914),
+                    fontSize: TvUtils.responsiveFontSize(12, context),
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
-        // Carousel
+        // Carousel with enhanced height
         SizedBox(
-          height: 300,
+          height: (TvUtils.responsiveWidth(320, context, maxWidth: 380)),
           child: PageView.builder(
             controller: _pageController,
-            onPageChanged: (page) {
-              setState(() => _currentPage = page);
-              widget.onItemSelected(page);
-              _progressAnimationController.reset();
-              _progressAnimationController.forward();
-            },
             itemCount: widget.items.length,
             itemBuilder: (context, index) {
-              return _buildCarouselCard(context, widget.items[index], index);
+              return AnimatedBuilder(
+                animation: _pageController,
+                builder: (context, child) {
+                  double pageOffset = 0;
+                  if (_pageController.position.hasContentDimensions) {
+                    pageOffset = index - (_pageController.page ?? 0);
+                  }
+                  return Transform.scale(
+                    scale: (1 - (pageOffset.abs() * 0.1)).clamp(0.8, 1.0),
+                    child: Opacity(
+                      opacity: (1 - (pageOffset.abs() * 0.5)).clamp(0.4, 1.0),
+                      child: _buildCarouselCard(
+                        context,
+                        widget.items[index],
+                        index,
+                        isFocused: index == _currentPage,
+                      ),
+                    ),
+                  );
+                },
+              );
             },
           ),
         ),
-        // Indicators
+        // Enhanced Indicators with animation
         SizedBox(
-          height: TvUtils.responsivePadding(40, context),
+          height: TvUtils.responsivePadding(48, context),
           child: Center(
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
@@ -105,28 +204,47 @@ class _TvContinueWatchingCarouselState extends State<TvContinueWatchingCarousel>
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
-                  children: List.generate(
-                    widget.items.length,
-                    (index) {
-                      final isActive = index == _currentPage;
-                      return AnimatedContainer(
-                        duration: const Duration(milliseconds: 300),
-                        margin: EdgeInsets.symmetric(
-                          horizontal: TvUtils.responsivePadding(4, context),
+                  children: List.generate(widget.items.length, (index) {
+                    final isActive = index == _currentPage;
+                    return Padding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: TvUtils.responsivePadding(4, context),
+                      ),
+                      child: GestureDetector(
+                        onTap: () {
+                          _pageController.animateToPage(
+                            index,
+                            duration: widget.scrollDuration,
+                            curve: Curves.easeInOut,
+                          );
+                        },
+                        child: AnimatedContainer(
+                          duration: widget.animationDuration,
+                          height: TvUtils.responsivePadding(8, context),
+                          width: isActive
+                              ? TvUtils.responsivePadding(28, context)
+                              : TvUtils.responsivePadding(8, context),
+                          decoration: BoxDecoration(
+                            color: isActive
+                                ? const Color(0xFFE50914)
+                                : Colors.grey[600],
+                            borderRadius: BorderRadius.circular(4),
+                            boxShadow: isActive
+                                ? [
+                                    BoxShadow(
+                                      color: const Color(
+                                        0xFFE50914,
+                                      ).withValues(alpha: 0.4),
+                                      blurRadius: 8,
+                                      spreadRadius: 0,
+                                    ),
+                                  ]
+                                : [],
+                          ),
                         ),
-                        height: TvUtils.responsivePadding(8, context),
-                        width: isActive
-                            ? TvUtils.responsivePadding(24, context)
-                            : TvUtils.responsivePadding(8, context),
-                        decoration: BoxDecoration(
-                          color: isActive
-                              ? const Color(0xFFE50914)
-                              : Colors.grey[700],
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                      );
-                    },
-                  ),
+                      ),
+                    );
+                  }),
                 ),
               ),
             ),
@@ -139,8 +257,9 @@ class _TvContinueWatchingCarouselState extends State<TvContinueWatchingCarousel>
   Widget _buildCarouselCard(
     BuildContext context,
     ContinueWatchingItem item,
-    int index,
-  ) {
+    int index, {
+    bool isFocused = false,
+  }) {
     return Padding(
       padding: EdgeInsets.symmetric(
         horizontal: TvUtils.responsivePadding(8, context),
@@ -150,24 +269,27 @@ class _TvContinueWatchingCarouselState extends State<TvContinueWatchingCarousel>
         onTap: () {
           _pageController.animateToPage(
             index,
-            duration: const Duration(milliseconds: 500),
+            duration: widget.scrollDuration,
             curve: Curves.easeInOut,
           );
         },
-        child: Container(
+        child: AnimatedContainer(
+          duration: widget.animationDuration,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.4),
-                blurRadius: 16,
-                spreadRadius: 2,
+                color: isFocused
+                    ? const Color(0xFFE50914).withValues(alpha: 0.5)
+                    : Colors.black.withValues(alpha: 0.4),
+                blurRadius: isFocused ? 24 : 16,
+                spreadRadius: isFocused ? 4 : 2,
               ),
             ],
           ),
           child: Stack(
             children: [
-              // Poster Image
+              // Poster Image with parallax effect
               ClipRRect(
                 borderRadius: BorderRadius.circular(16),
                 child: Image.network(
@@ -185,7 +307,7 @@ class _TvContinueWatchingCarouselState extends State<TvContinueWatchingCarousel>
                   ),
                 ),
               ),
-              // Gradient Overlay
+              // Dynamic Gradient Overlay
               Container(
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(16),
@@ -194,12 +316,43 @@ class _TvContinueWatchingCarouselState extends State<TvContinueWatchingCarousel>
                     end: Alignment.bottomCenter,
                     colors: [
                       Colors.transparent,
-                      Colors.black.withValues(alpha: 0.7),
+                      isFocused
+                          ? Colors.black.withValues(alpha: 0.85)
+                          : Colors.black.withValues(alpha: 0.7),
                     ],
                   ),
                 ),
               ),
-              // Content
+              // Playback button indicator on focused state
+              if (isFocused)
+                Center(
+                  child: ScaleTransition(
+                    scale: AlwaysStoppedAnimation(1.0),
+                    child: Container(
+                      width: 60,
+                      height: 60,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: const Color(0xFFE50914).withValues(alpha: 0.8),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(
+                              0xFFE50914,
+                            ).withValues(alpha: 0.4),
+                            blurRadius: 12,
+                            spreadRadius: 2,
+                          ),
+                        ],
+                      ),
+                      child: const Icon(
+                        Icons.play_arrow,
+                        color: Colors.white,
+                        size: 32,
+                      ),
+                    ),
+                  ),
+                ),
+              // Content Information
               Positioned(
                 bottom: 0,
                 left: 0,
@@ -211,33 +364,107 @@ class _TvContinueWatchingCarouselState extends State<TvContinueWatchingCarousel>
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        item.title,
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: TvUtils.responsiveFontSize(18, context),
-                          fontWeight: FontWeight.bold,
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
+                      // Title and Meta Info Row
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  item.title,
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: TvUtils.responsiveFontSize(
+                                      18,
+                                      context,
+                                    ),
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                if (item.releaseYear != null) ...[
+                                  SizedBox(
+                                    height: TvUtils.responsivePadding(
+                                      4,
+                                      context,
+                                    ),
+                                  ),
+                                  Text(
+                                    item.releaseYear.toString(),
+                                    style: TextStyle(
+                                      color: Colors.grey[400],
+                                      fontSize: TvUtils.responsiveFontSize(
+                                        12,
+                                        context,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                          if (item.rating != null)
+                            Container(
+                              padding: EdgeInsets.symmetric(
+                                horizontal: TvUtils.responsivePadding(
+                                  8,
+                                  context,
+                                ),
+                                vertical: TvUtils.responsivePadding(4, context),
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(
+                                  0xFFE50914,
+                                ).withValues(alpha: 0.2),
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(
+                                  color: const Color(
+                                    0xFFE50914,
+                                  ).withValues(alpha: 0.5),
+                                ),
+                              ),
+                              child: Text(
+                                item.rating!,
+                                style: TextStyle(
+                                  color: const Color(0xFFE50914),
+                                  fontSize: TvUtils.responsiveFontSize(
+                                    11,
+                                    context,
+                                  ),
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
+                      // Next Episode or Duration
                       if (item.nextEpisode != null) ...[
-                        SizedBox(
-                          height: TvUtils.responsivePadding(8, context),
-                        ),
+                        SizedBox(height: TvUtils.responsivePadding(8, context)),
                         Text(
                           item.nextEpisode!,
                           style: TextStyle(
                             color: Colors.grey[300],
-                            fontSize:
-                                TvUtils.responsiveFontSize(12, context),
+                            fontSize: TvUtils.responsiveFontSize(12, context),
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ] else ...[
+                        SizedBox(height: TvUtils.responsivePadding(8, context)),
+                        Text(
+                          item.duration,
+                          style: TextStyle(
+                            color: Colors.grey[300],
+                            fontSize: TvUtils.responsiveFontSize(12, context),
                           ),
                         ),
                       ],
-                      SizedBox(
-                        height: TvUtils.responsivePadding(8, context),
-                      ),
-                      // Progress Bar with Animation
+                      SizedBox(height: TvUtils.responsivePadding(8, context)),
+                      // Progress Bar with Enhanced Animation
                       _buildAnimatedProgressBar(item.progress),
                     ],
                   ),
@@ -251,33 +478,93 @@ class _TvContinueWatchingCarouselState extends State<TvContinueWatchingCarousel>
   }
 
   Widget _buildAnimatedProgressBar(double progress) {
+    // Determine progress color based on watch progress
+    final progressColor = progress >= 0.9
+        ? const Color(0xFFE50914) // Red for almost complete
+        : progress >= 0.5
+        ? const Color(0xFFFFA500) // Orange for halfway
+        : const Color(0xFF00CC44); // Green for start
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        ClipRRect(
-          borderRadius: BorderRadius.circular(4),
-          child: LinearProgressIndicator(
-            minHeight: TvUtils.responsivePadding(4, context),
-            value: progress,
-            backgroundColor: Colors.grey[800],
-            valueColor: AlwaysStoppedAnimation<Color>(
-              Color.lerp(
-                const Color(0xFF00FF00),
-                const Color(0xFFE50914),
-                progress > 0.9 ? 1.0 : 0.0,
-              )!,
+        Stack(
+          children: [
+            // Background track
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: Container(
+                height: TvUtils.responsivePadding(6, context),
+                color: Colors.grey[800],
+              ),
             ),
-          ),
+            // Animated progress fill
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: AnimatedBuilder(
+                animation: _progressAnimationController,
+                builder: (context, child) {
+                  final animatedProgress =
+                      progress * _progressAnimationController.value;
+                  return Container(
+                    height: TvUtils.responsivePadding(6, context),
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          progressColor,
+                          progressColor.withValues(alpha: 0.7),
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                    ),
+                    child: FractionallySizedBox(
+                      widthFactor: animatedProgress,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              progressColor,
+                              progressColor.withValues(alpha: 0.7),
+                            ],
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: progressColor.withValues(alpha: 0.5),
+                              blurRadius: 4,
+                              spreadRadius: 0,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
         ),
-        SizedBox(
-          height: TvUtils.responsivePadding(4, context),
-        ),
-        Text(
-          '${(progress * 100).toStringAsFixed(0)}% watched',
-          style: TextStyle(
-            color: Colors.grey[400],
-            fontSize: TvUtils.responsiveFontSize(11, context),
-          ),
+        SizedBox(height: TvUtils.responsivePadding(6, context)),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              '${(progress * 100).toStringAsFixed(0)}% watched',
+              style: TextStyle(
+                color: Colors.grey[400],
+                fontSize: TvUtils.responsiveFontSize(11, context),
+              ),
+            ),
+            if (progress < 1.0)
+              Text(
+                '${((1 - progress) * 100).toStringAsFixed(0)}% remaining',
+                style: TextStyle(
+                  color: Colors.grey[500],
+                  fontSize: TvUtils.responsiveFontSize(10, context),
+                ),
+              ),
+          ],
         ),
       ],
     );

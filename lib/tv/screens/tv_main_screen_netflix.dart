@@ -9,6 +9,7 @@ import 'tv_genre_screen.dart';
 import 'tv_series_list_screen.dart';
 import 'tv_watchlist_screen.dart';
 import 'tv_more_screen.dart';
+import 'tv_streaming_providers_screen.dart';
 
 /// Netflix-style TV main screen with smooth sidebar-to-content navigation
 /// - Instant sidebar selection with visual feedback
@@ -31,6 +32,7 @@ class _TvMainScreenNetflixState extends State<TvMainScreenNetflix>
     'Home',
     'Search',
     'Genres',
+    'Providers',
     'Series',
     'Watchlist',
     'More',
@@ -40,6 +42,7 @@ class _TvMainScreenNetflixState extends State<TvMainScreenNetflix>
     Icons.home,
     Icons.search,
     Icons.theaters,
+    Icons.smart_display,
     Icons.tv,
     Icons.bookmark,
     Icons.more_horiz,
@@ -55,6 +58,7 @@ class _TvMainScreenNetflixState extends State<TvMainScreenNetflix>
       TvHomeScreenV2(onReturnToSidebar: _returnToSidebar),
       TvSearchScreen(onReturnToSidebar: _returnToSidebar),
       TvGenreScreen(onReturnToSidebar: _returnToSidebar),
+      TvStreamingProvidersScreen(onReturnToSidebar: _returnToSidebar),
       TvSeriesListScreen(onReturnToSidebar: _returnToSidebar),
       TvWatchlistScreen(onReturnToSidebar: _returnToSidebar),
       TvMoreScreen(onReturnToSidebar: _returnToSidebar),
@@ -123,12 +127,13 @@ class _TvMainScreenNetflixState extends State<TvMainScreenNetflix>
             backgroundColor: const Color(0xFF121212),
             body: Row(
               children: [
-                // Sidebar - Always visible, instant selection
+                // Sidebar - Always visible with smooth focus animations
                 TvNetflixSidebar(
                   selectedIndex: _focusedTabIndex,
                   isFocused: _focusOnSidebar,
                   titles: _titles,
                   icons: _icons,
+                  itemAnimationDuration: const Duration(milliseconds: 250),
                   onItemSelected: (index) {
                     // Tap on sidebar item: instant visual feedback
                     setState(() {

@@ -8,6 +8,7 @@ import '../../database/db_helper.dart';
 import '../utils/tv_utils.dart';
 import '../utils/tv_dpad_navigation_mixin.dart';
 import '../widgets/tv_breadcrumb_navigation.dart';
+import '../widgets/tv_visual_enhancements.dart';
 import '../widgets/tv_dark_mode_polish.dart';
 import 'tv_video_player_screen.dart';
 
@@ -270,10 +271,9 @@ class _TvSeriesScreenState extends State<TvSeriesScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
+          GradientText(
             widget.seriesItem.title,
-            style: TextStyle(
-              color: Colors.white,
+            baseStyle: TextStyle(
               fontSize: fontSize,
               fontWeight: FontWeight.bold,
             ),
@@ -426,10 +426,9 @@ class _TvSeriesScreenState extends State<TvSeriesScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
+          GradientText(
             'Cast',
-            style: TextStyle(
-              color: Colors.white,
+            baseStyle: TextStyle(
               fontSize: TvUtils.responsiveFontSize(20, context),
               fontWeight: FontWeight.bold,
             ),
@@ -717,10 +716,9 @@ class _TvSeriesScreenState extends State<TvSeriesScreen>
       children: [
         Padding(
           padding: EdgeInsets.all(padding),
-          child: Text(
+          child: GradientText(
             'More Like This',
-            style: TextStyle(
-              color: Colors.white,
+            baseStyle: TextStyle(
               fontSize: fontSize,
               fontWeight: FontWeight.bold,
             ),
@@ -864,13 +862,19 @@ class _TvSeriesScreenState extends State<TvSeriesScreen>
                           _buildEpisodesSection(),
                           if (cast.isNotEmpty) ...[
                             const SizedBox(height: 24),
-                            EnhancedDivider(addGradient: true),
+                            SectionDivider(
+                              title: 'Cast',
+                              icon: Icons.people,
+                            ),
                             const SizedBox(height: 24),
                             _buildCastSection(),
                           ],
                           if (recommendations.isNotEmpty) ...[
                             const SizedBox(height: 24),
-                            EnhancedDivider(addGradient: true),
+                            SectionDivider(
+                              title: 'More Like This',
+                              icon: Icons.favorite,
+                            ),
                             const SizedBox(height: 24),
                             _buildRecommendationsSection(),
                           ],

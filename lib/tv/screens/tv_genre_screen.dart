@@ -5,6 +5,7 @@ import '../utils/tv_utils.dart';
 import '../utils/tv_typography.dart';
 import '../utils/tv_dpad_navigation_mixin.dart';
 import '../../widgets/custom_loading_widget.dart';
+import '../widgets/tv_visual_enhancements.dart';
 
 class TvGenreScreen extends StatefulWidget {
   final VoidCallback? onReturnToSidebar;
@@ -281,10 +282,9 @@ class _TvGenreScreenState extends State<TvGenreScreen>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
+        GradientText(
           title,
-          style: TextStyle(
-            color: Colors.white,
+          baseStyle: TextStyle(
             fontSize: TvUtils.responsiveFontSize(24, context, maxSize: 36),
             fontWeight: FontWeight.bold,
           ),

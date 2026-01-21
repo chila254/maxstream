@@ -2,12 +2,20 @@ import 'package:flutter/material.dart';
 import '../utils/tv_utils.dart';
 
 /// Enhanced sidebar with smooth animations for TV app
+/// Features:
+/// - Smooth expand/collapse animation
+/// - Individual item entrance animations
+/// - Focus-aware visual feedback
+/// - Responsive sizing and spacing
 class TvAnimatedSidebar extends StatefulWidget {
   final List<SidebarItem> items;
   final int selectedIndex;
   final ValueChanged<int> onItemSelected;
   final double width;
   final bool isExpanded;
+  final bool isFocused;
+  final Duration expandDuration;
+  final Duration itemAnimationDuration;
 
   const TvAnimatedSidebar({
     super.key,
@@ -16,6 +24,9 @@ class TvAnimatedSidebar extends StatefulWidget {
     required this.onItemSelected,
     this.width = 280,
     this.isExpanded = true,
+    this.isFocused = false,
+    this.expandDuration = const Duration(milliseconds: 500),
+    this.itemAnimationDuration = const Duration(milliseconds: 300),
   });
 
   @override
@@ -47,7 +58,7 @@ class _TvAnimatedSidebarState extends State<TvAnimatedSidebar>
   void initState() {
     super.initState();
     _expandController = AnimationController(
-      duration: const Duration(milliseconds: 500),
+      duration: widget.expandDuration,
       vsync: this,
     );
 
@@ -97,7 +108,7 @@ class _TvAnimatedSidebarState extends State<TvAnimatedSidebar>
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.3),
+                color: Colors.black.withValues(alpha: widget.isFocused ? 0.5 : 0.3),
                 blurRadius: 8,
                 spreadRadius: 0,
               ),
@@ -107,7 +118,7 @@ class _TvAnimatedSidebarState extends State<TvAnimatedSidebar>
             child: SingleChildScrollView(
               child: Column(
                 children: [
-                  // Sidebar Header
+                  // Sidebar Header with fade animation
                   if (widget.isExpanded)
                     Padding(
                       padding: EdgeInsets.all(
@@ -115,18 +126,22 @@ class _TvAnimatedSidebarState extends State<TvAnimatedSidebar>
                       ),
                       child: Opacity(
                         opacity: _expandAnimation.value,
-                        child: Text(
-                          'MaxStream',
-                          style: TextStyle(
-                            color: const Color(0xFFE50914),
-                            fontSize:
-                                TvUtils.responsiveFontSize(24, context),
-                            fontWeight: FontWeight.bold,
+                        child: ScaleTransition(
+                          scale: _expandAnimation,
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            'MaxStream',
+                            style: TextStyle(
+                              color: const Color(0xFFE50914),
+                              fontSize:
+                                  TvUtils.responsiveFontSize(24, context),
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ),
                       ),
                     ),
-                  // Menu Items
+                  // Menu Items with staggered animation
                   ...List.generate(
                     widget.items.length,
                     (index) {
@@ -151,13 +166,16 @@ class _TvAnimatedSidebarState extends State<TvAnimatedSidebar>
   Widget _buildSidebarItem(SidebarItem item, bool isSelected, int index) {
     return MouseRegion(
       cursor: SystemMouseCursors.click,
+      onEnter: (_) {
+        // Could add hover animation here if needed
+      },
       child: GestureDetector(
         onTap: () {
           widget.onItemSelected(index);
           item.onTap?.call();
         },
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 300),
+          duration: widget.itemAnimationDuration,
           margin: EdgeInsets.symmetric(
             horizontal: TvUtils.responsivePadding(8, context),
             vertical: TvUtils.responsivePadding(4, context),
@@ -177,27 +195,40 @@ class _TvAnimatedSidebarState extends State<TvAnimatedSidebar>
                   : Colors.transparent,
               width: 2,
             ),
+            boxShadow: isSelected
+                ? [
+                    BoxShadow(
+                      color: const Color(0xFFE50914).withValues(alpha: 0.2),
+                      blurRadius: 8,
+                      spreadRadius: 0,
+                    ),
+                  ]
+                : [],
           ),
           child: Row(
             children: [
-              // Icon
-              Icon(
-                item.icon,
-                color: isSelected
-                    ? const Color(0xFFE50914)
-                    : Colors.grey[400],
-                size: TvUtils.responsiveFontSize(22, context),
+              // Icon with scale animation on selection
+              AnimatedScale(
+                scale: isSelected ? 1.15 : 1.0,
+                duration: widget.itemAnimationDuration,
+                child: Icon(
+                  item.icon,
+                  color: isSelected
+                      ? const Color(0xFFE50914)
+                      : Colors.grey[400],
+                  size: TvUtils.responsiveFontSize(22, context),
+                ),
               ),
               if (widget.isExpanded) ...[
                 SizedBox(
                   width: TvUtils.responsivePadding(12, context),
                 ),
-                // Label
+                // Label with opacity animation
                 Expanded(
                   child: Opacity(
                     opacity: _expandAnimation.value,
-                    child: Text(
-                      item.label,
+                    child: AnimatedDefaultTextStyle(
+                      duration: widget.itemAnimationDuration,
                       style: TextStyle(
                         color: isSelected
                             ? const Color(0xFFE50914)
@@ -208,27 +239,35 @@ class _TvAnimatedSidebarState extends State<TvAnimatedSidebar>
                             ? FontWeight.bold
                             : FontWeight.normal,
                       ),
-                      overflow: TextOverflow.ellipsis,
+                      child: Text(
+                        item.label,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
                   ),
                 ),
-                // Badge
+                // Badge with animation
                 if (item.badge != null)
-                  Container(
-                    padding: EdgeInsets.symmetric(
-                      horizontal: TvUtils.responsivePadding(8, context),
-                      vertical: TvUtils.responsivePadding(2, context),
-                    ),
-                    decoration: BoxDecoration(
-                      color: item.badgeColor ?? const Color(0xFFE50914),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      item.badge!,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
+                  ScaleTransition(
+                    scale: isSelected
+                        ? AlwaysStoppedAnimation(1.0)
+                        : AlwaysStoppedAnimation(0.9),
+                    child: Container(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: TvUtils.responsivePadding(8, context),
+                        vertical: TvUtils.responsivePadding(2, context),
+                      ),
+                      decoration: BoxDecoration(
+                        color: item.badgeColor ?? const Color(0xFFE50914),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        item.badge!,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ),
                   ),

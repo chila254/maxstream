@@ -6,6 +6,8 @@ import '../utils/tv_utils.dart';
 import '../utils/tv_typography.dart';
 import '../utils/tv_dpad_navigation_mixin.dart';
 import '../widgets/tv_focus_widget.dart';
+import '../widgets/tv_visual_enhancements.dart';
+import '../widgets/tv_dark_mode_polish.dart';
 import 'tv_details_screen.dart';
 import 'tv_series_screen.dart';
 
@@ -185,14 +187,16 @@ class _TvWatchlistScreenState extends State<TvWatchlistScreen>
     return RawKeyboardListener(
       onKey: handleKeyEvent,
       focusNode: focusNode,
-      child: Scaffold(
-        backgroundColor: const Color(0xFF121212),
-        appBar: AppBar(
-          backgroundColor: const Color(0xFF1A1A1A),
-          title: Text(
-            'My Watchlist',
-            style: TvTypography.sectionTitle,
-          ),
+      child: DarkModeBackground(
+        child: Scaffold(
+          backgroundColor: Colors.transparent,
+          appBar: AppBar(
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+            title: GradientText(
+              'My Watchlist',
+              baseStyle: TvTypography.sectionTitle,
+            ),
           actions: [
             IconButton(
               onPressed: _loadWatchlist,
@@ -246,8 +250,8 @@ class _TvWatchlistScreenState extends State<TvWatchlistScreen>
             ],
           ),
         ),
-        body: isLoading
-            ? const Center(child: CircularProgressIndicator(color: Colors.red))
+          body: isLoading
+              ? const Center(child: CircularProgressIndicator(color: Colors.red))
             : TabBarView(
                 controller: _tabController,
                 children: [
@@ -267,10 +271,11 @@ class _TvWatchlistScreenState extends State<TvWatchlistScreen>
                             ? _buildWatchlistGrid(series)
                             : _buildHorizontalList(series)),
                 ],
-              ),
-      ),
-    );
-  }
+                ),
+                ),
+                ),
+                );
+                }
 
   Widget _buildEmptyState() {
     return Center(

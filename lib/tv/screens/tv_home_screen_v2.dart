@@ -12,6 +12,7 @@ import '../widgets/tv_content_card.dart';
 import '../widgets/tv_carousel_enhanced.dart';
 import '../widgets/tv_visual_enhancements.dart';
 import '../widgets/tv_dark_mode_polish.dart';
+import '../widgets/tv_streaming_providers_widget.dart';
 import 'tv_search_screen.dart';
 import 'tv_details_screen.dart';
 import 'tv_series_screen.dart';
@@ -185,6 +186,10 @@ class _TvHomeScreenV2State extends State<TvHomeScreenV2>
             SliverToBoxAdapter(child: _buildHeroBanner()),
             SliverToBoxAdapter(child: _buildHeroBannerIndicators()),
           ],
+          // Streaming Providers Section
+          SliverToBoxAdapter(
+            child: _buildStreamingProvidersSection(),
+          ),
           if (continueWatching.isNotEmpty)
             SliverToBoxAdapter(
               child: _buildContinueWatchingCarousel(),
@@ -270,9 +275,51 @@ class _TvHomeScreenV2State extends State<TvHomeScreenV2>
     );
   }
 
+  Widget _buildStreamingProvidersSection() {
+    // Major streaming providers available
+    final providerIds = [8, 9, 337, 15, 2, 3]; // Netflix, Prime, Disney+, Hulu, Apple TV+, Google Play
+
+    return Container(
+      padding: EdgeInsets.symmetric(
+        vertical: TvUtils.responsivePadding(16, context),
+        horizontal: TvUtils.responsivePadding(24, context),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          GradientText(
+            'Watch On',
+            baseStyle: TextStyle(
+              fontSize: TvUtils.responsiveFontSize(20, context),
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          SizedBox(height: TvUtils.responsivePadding(12, context)),
+          TvStreamingProvidersHorizontalList(
+            providerIds: providerIds,
+            onProviderSelected: (provider) {
+              // Navigate to provider content or show provider details
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('${provider.name} selected'),
+                  duration: const Duration(milliseconds: 800),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildContinueWatchingCarousel() {
     final items = continueWatching.take(10).map((item) {
       final titleKey = item['title'] != null ? 'title' : 'name';
+      final dateKey = item['title'] != null ? 'release_date' : 'first_air_date';
+      final dateStr = item[dateKey] as String?;
+      final year = dateStr != null ? int.tryParse(dateStr.split('-')[0]) : null;
+      final rating = (item['vote_average'] as num?)?.toDouble();
+      
       return ContinueWatchingItem(
         id: item['id'].toString(),
         title: item[titleKey] ?? 'Unknown',
@@ -280,11 +327,16 @@ class _TvHomeScreenV2State extends State<TvHomeScreenV2>
         progress: 0.65, // Default progress, can be fetched from watch history
         duration: '45 min',
         nextEpisode: 'Season 2 • Episode 3',
+        rating: rating != null ? '${rating.toStringAsFixed(1)}/10' : null,
+        releaseYear: year,
       );
     }).toList();
 
     return TvContinueWatchingCarousel(
       items: items,
+      scrollDuration: const Duration(milliseconds: 500),
+      animationDuration: const Duration(milliseconds: 300),
+      enableParallax: true,
       onItemSelected: (index) {
         if (index < continueWatching.length) {
           _navigateToDetails(continueWatching[index], 'movie');

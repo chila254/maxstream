@@ -309,13 +309,19 @@ class _TvDetailsScreenState extends State<TvDetailsScreen>
                             _buildInfoSection(),
                             if (cast.isNotEmpty) ...[
                               const SizedBox(height: 24),
-                              EnhancedDivider(addGradient: true),
+                              SectionDivider(
+                                title: 'Cast',
+                                icon: Icons.people,
+                              ),
                               const SizedBox(height: 24),
                               _buildCastSection(),
                             ],
                             if (recommendations.isNotEmpty) ...[
                               const SizedBox(height: 24),
-                              EnhancedDivider(addGradient: true),
+                              SectionDivider(
+                                title: 'More Like This',
+                                icon: Icons.favorite,
+                              ),
                               const SizedBox(height: 24),
                               _buildRecommendationsSection(),
                             ],
