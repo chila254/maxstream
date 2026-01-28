@@ -4,7 +4,7 @@ import 'package:provider/provider.dart';
 import '../providers/tv_navigation_provider.dart';
 import '../widgets/tv_sidebar_navigation.dart';
 import '../utils/tv_focus_manager.dart';
-import 'tv_home_screen_v2.dart';
+import 'tv_home_screen.dart';
 import 'tv_search_screen.dart';
 import 'tv_genre_screen.dart';
 import 'tv_series_list_screen.dart';
@@ -163,7 +163,7 @@ class _TvMaxStreamMainState extends State<TvMaxStreamMain> {
 
   List<Widget> _buildScreens() {
     return [
-      TvHomeScreenV2(
+      TvHomeScreen(
         onReturnToSidebar: () => _onNavItemSelected(0),
         navigatorKey: _navigatorKey,
       ),

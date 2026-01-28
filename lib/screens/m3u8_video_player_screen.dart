@@ -4,6 +4,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 import 'package:video_player/video_player.dart';
 import 'package:chewie/chewie.dart';
 import '../services/phone_scraper_service.dart';
+import '../services/direct_m3u8_service.dart';
 
 class M3U8VideoPlayerScreen extends StatefulWidget {
   final String title;
@@ -125,12 +126,109 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     });
 
     try {
-      await _tryNextServer();
+      // First, try to fetch direct m3u8 URL
+      await _tryDirectM3u8Stream();
     } catch (e) {
       setState(() {
         _error = 'Failed to load embedded video: $e';
         _isLoading = false;
       });
+    }
+  }
+
+  /// Try to fetch direct m3u8 stream for movies/series
+  Future<void> _tryDirectM3u8Stream() async {
+    try {
+      debugPrint('M3U8VideoPlayer: Attempting to fetch direct m3u8 stream...');
+
+      late Map<String, dynamic>? result;
+
+      if (widget.isMovie) {
+        result = await DirectM3u8Service.fetchMovieStreamUrl(
+          widget.title,
+          null,
+          widget.tmdbId,
+        );
+      } else {
+        result = await DirectM3u8Service.fetchSeriesStreamUrl(
+          widget.title,
+          widget.season,
+          widget.episode,
+          widget.tmdbId,
+        );
+      }
+
+      if (result != null && result['url'] != null) {
+        final m3u8Url = result['url'] as String;
+        debugPrint(
+          'M3U8VideoPlayer: Found direct m3u8 stream from ${result['source']}: $m3u8Url',
+        );
+
+        _streamData = {
+          'streamUrl': m3u8Url,
+          'title': widget.title,
+          'quality': 'HD',
+          'source': result['source'] ?? 'Direct M3U8',
+          'type': 'direct_m3u8',
+          'isPlayable': true,
+        };
+
+        // Attempt to play directly using native video player
+        await _playDirectM3u8(m3u8Url);
+        return;
+      }
+
+      debugPrint(
+        'M3U8VideoPlayer: No direct m3u8 stream found, falling back to embed providers...',
+      );
+      // If no direct m3u8 found, try embed providers
+      await _tryNextServer();
+    } catch (e) {
+      debugPrint('M3U8VideoPlayer: Error fetching direct m3u8: $e');
+      // Fall back to embed providers if direct m3u8 fails
+      await _tryNextServer();
+    }
+  }
+
+  /// Play direct m3u8 stream using native video player
+  Future<void> _playDirectM3u8(String m3u8Url) async {
+    try {
+      debugPrint(
+        'M3U8VideoPlayer: Initializing native player with m3u8: $m3u8Url',
+      );
+
+      // Dispose previous controllers
+      await _videoPlayerController?.dispose();
+      _chewieController?.dispose();
+
+      _videoPlayerController = VideoPlayerController.networkUrl(
+        Uri.parse(m3u8Url),
+      );
+
+      await _videoPlayerController!.initialize();
+
+      _chewieController = ChewieController(
+        videoPlayerController: _videoPlayerController!,
+        autoPlay: true,
+        looping: false,
+        allowFullScreen: true,
+        allowMuting: true,
+        fullScreenByDefault: true,
+      );
+
+      _useNativePlayer = true;
+
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+
+      debugPrint('M3U8VideoPlayer: Native player initialized successfully');
+    } catch (e) {
+      debugPrint('M3U8VideoPlayer: Error initializing native player: $e');
+      // If native player fails, fall back to embed providers
+      await _tryNextServer();
     }
   }
 

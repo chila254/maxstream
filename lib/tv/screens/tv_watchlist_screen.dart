@@ -5,10 +5,7 @@ import '../../database/db_helper.dart';
 import '../../models/movie.dart';
 import '../../services/logger_service.dart';
 import '../providers/tv_navigation_provider.dart';
-import '../utils/tv_utils.dart';
-import '../utils/tv_typography.dart';
-import '../utils/tv_focus_manager.dart';
-import '../utils/tv_navigation_handler.dart';
+import '../utils/index.dart';
 import '../widgets/tv_dark_mode_polish.dart';
 import '../widgets/tv_content_card.dart';
 import 'tv_details_screen.dart';
@@ -30,23 +27,38 @@ class _TvWatchlistScreenState extends State<TvWatchlistScreen>
   List<Movie> series = [];
   bool isLoading = true;
   late TabController _tabController;
+  late ScrollController _scrollController;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
-    
-    // Integrate with navigation provider
+    _scrollController = ScrollController();
+
+    // Register scroll controller and integrate with navigation provider
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<TvNavigationProvider>();
+      final navProvider = context.read<TvNavigationProvider>();
+      navProvider.registerScrollController(4, _scrollController);
+
+      // Restore scroll position if available
+      final savedOffset = navProvider.getScrollOffset(4);
+      if (savedOffset > 0 && _scrollController.hasClients) {
+        _scrollController.jumpTo(savedOffset);
+      }
+
+      // Add scroll listener to save scroll offset
+      _scrollController.addListener(() {
+        navProvider.saveScrollOffset(4, _scrollController.offset);
+      });
     });
-    
+
     _loadWatchlist();
   }
 
   @override
   void dispose() {
     _tabController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -58,8 +70,6 @@ class _TvWatchlistScreenState extends State<TvWatchlistScreen>
         watchlistItems = items;
         movies = items.where((item) => item.mediaType != 'tv').toList();
         series = items.where((item) => item.mediaType == 'tv').toList();
-        // Set initial focus to first item in watchlist
-        if (watchlistItems.isNotEmpty) {}
       });
     } catch (e) {
       LoggerService.error('Error loading watchlist: $e', e);
@@ -107,7 +117,11 @@ class _TvWatchlistScreenState extends State<TvWatchlistScreen>
         body: Focus(
           onKey: (node, event) {
             if (event.isKeyPressed(LogicalKeyboardKey.arrowLeft)) {
-              context.read<TvNavigationProvider>().setFocusOnSidebar(true);
+              if (widget.onReturnToSidebar != null) {
+                widget.onReturnToSidebar!();
+              } else {
+                context.read<TvNavigationProvider>().setFocusOnSidebar(true);
+              }
               return KeyEventResult.handled;
             }
             return KeyEventResult.ignored;
@@ -313,12 +327,11 @@ class _WatchlistGridFocusState extends State<_WatchlistGridFocus> {
     super.initState();
     _focusedIndex = 0;
     _scrollController = ScrollController();
-    
+
     _focusNodes = List.generate(
       widget.items.length,
-      (index) => FocusNode(
-        onKey: (node, event) => _handleItemKeyEvent(event, index),
-      ),
+      (index) =>
+          FocusNode(onKey: (node, event) => _handleItemKeyEvent(event, index)),
     );
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -343,7 +356,10 @@ class _WatchlistGridFocusState extends State<_WatchlistGridFocus> {
     final currentCol = index % widget.itemsPerRow;
 
     if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
-      if (TvNavigation.isAtLeftBoundary(index, itemsPerRow: widget.itemsPerRow)) {
+      if (TvNavigation.isAtLeftBoundary(
+        index,
+        itemsPerRow: widget.itemsPerRow,
+      )) {
         TvFocusManager.focusSidebar();
         widget.onReturnToSidebar();
         return KeyEventResult.handled;
@@ -353,7 +369,8 @@ class _WatchlistGridFocusState extends State<_WatchlistGridFocus> {
         return KeyEventResult.handled;
       }
     } else if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
-      if (index < widget.items.length - 1 && currentCol < widget.itemsPerRow - 1) {
+      if (index < widget.items.length - 1 &&
+          currentCol < widget.itemsPerRow - 1) {
         final nextIndex = index + 1;
         _focusNodes[nextIndex].requestFocus();
         return KeyEventResult.handled;
@@ -392,7 +409,7 @@ class _WatchlistGridFocusState extends State<_WatchlistGridFocus> {
       itemCount: widget.items.length,
       itemBuilder: (context, index) {
         final isFocused = _focusedIndex == index;
-        
+
         return Focus(
           focusNode: _focusNodes[index],
           onFocusChange: (hasFocus) {
@@ -407,7 +424,9 @@ class _WatchlistGridFocusState extends State<_WatchlistGridFocus> {
               duration: const Duration(milliseconds: 150),
               decoration: BoxDecoration(
                 border: Border.all(
-                  color: isFocused ? const Color(0xFFE50914) : Colors.transparent,
+                  color: isFocused
+                      ? const Color(0xFFE50914)
+                      : Colors.transparent,
                   width: 3,
                 ),
                 borderRadius: BorderRadius.circular(8),
@@ -427,7 +446,11 @@ class _WatchlistGridFocusState extends State<_WatchlistGridFocus> {
                           color: Colors.black.withValues(alpha: 0.7),
                           borderRadius: BorderRadius.circular(20),
                         ),
-                        child: const Icon(Icons.close, color: Colors.white, size: 24),
+                        child: const Icon(
+                          Icons.close,
+                          color: Colors.white,
+                          size: 24,
+                        ),
                       ),
                     ),
                   ),

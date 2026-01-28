@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import '../utils/tv_utils.dart';
-import '../utils/tv_typography.dart';
+import '../utils/index.dart';
 
 class TvSplashScreen extends StatefulWidget {
   const TvSplashScreen({super.key});

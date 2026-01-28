@@ -1,16 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../utils/tv_typography.dart';
+import '../utils/index.dart';
 import '../../services/device_code_service.dart';
 
-class TVPairingScreen extends StatefulWidget {
-  const TVPairingScreen({super.key});
+class TvPairingScreen extends StatefulWidget {
+  const TvPairingScreen({super.key});
 
   @override
-  State<TVPairingScreen> createState() => _TVPairingScreenState();
+  State<TvPairingScreen> createState() => _TvPairingScreenState();
 }
 
-class _TVPairingScreenState extends State<TVPairingScreen> {
+class _TvPairingScreenState extends State<TvPairingScreen> {
   String? _generatedCode;
   bool _isLoading = false;
   String? _errorMessage;

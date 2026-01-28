@@ -158,7 +158,7 @@ class _MaxStreamMoreScreenState extends State<MaxStreamMoreScreen> {
               context,
               PageRouteBuilder(
                 pageBuilder: (context, animation, secondaryAnimation) =>
-                    const TVPairingScreen(),
+                    const TvPairingScreen(),
                 transitionsBuilder:
                     (context, animation, secondaryAnimation, child) {
                       return SlideTransition(

@@ -4,8 +4,7 @@ import '../../services/device_code_auth_service.dart';
 import '../../services/auth_service.dart';
 import '../../services/biometric_service.dart';
 import '../../services/secure_password_service.dart';
-import '../utils/tv_utils.dart';
-import '../utils/tv_typography.dart';
+import '../utils/index.dart';
 import 'tv_maxstream_main.dart';
 
 class TvLoginScreen extends StatefulWidget {

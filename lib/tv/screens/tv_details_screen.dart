@@ -9,9 +9,7 @@ import '../../models/series.dart';
 import '../../services/tmdb_api_service.dart';
 import '../../services/logger_service.dart';
 import '../providers/tv_navigation_provider.dart';
-import '../utils/tv_utils.dart';
-import '../utils/tv_typography.dart';
-import '../utils/tv_focus_manager.dart';
+import '../utils/index.dart';
 import '../widgets/tv_breadcrumb_navigation.dart';
 import '../widgets/tv_quick_actions.dart';
 import '../widgets/tv_visual_enhancements.dart';
@@ -211,91 +209,93 @@ class _TvDetailsScreenState extends State<TvDetailsScreen> {
             context.read<TvNavigationProvider>().setDeepNavigating(false);
           }
         },
-      child: Stack(
-        children: [
-          // Background Image with Blur
-          Positioned.fill(
-            child: Container(
-              decoration: BoxDecoration(
-                image: DecorationImage(
-                  image: NetworkImage(
-                    TmdbApiService.getBackdropUrl(widget.item.backdropPath),
+        child: Stack(
+          children: [
+            // Background Image with Blur
+            Positioned.fill(
+              child: Container(
+                decoration: BoxDecoration(
+                  image: DecorationImage(
+                    image: NetworkImage(
+                      TmdbApiService.getBackdropUrl(widget.item.backdropPath),
+                    ),
+                    fit: BoxFit.cover,
                   ),
-                  fit: BoxFit.cover,
                 ),
-              ),
-              child: BackdropFilter(
-                filter: ui.ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                child: Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        Colors.black.withValues(alpha: 0.3),
-                        Colors.black.withValues(alpha: 0.7),
-                        Colors.black.withValues(alpha: 0.9),
-                      ],
+                child: BackdropFilter(
+                  filter: ui.ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.black.withValues(alpha: 0.3),
+                          Colors.black.withValues(alpha: 0.7),
+                          Colors.black.withValues(alpha: 0.9),
+                        ],
+                      ),
                     ),
                   ),
                 ),
               ),
             ),
-          ),
-          // Main Content
-          Scaffold(
-            backgroundColor: Colors.transparent,
-            appBar: PreferredSize(
-              preferredSize: const Size.fromHeight(56),
-              child: DarkModeAppBar(
-                title: widget.item.title,
-                onBackPressed: () {
-                  context.read<TvNavigationProvider>().setDeepNavigating(false);
-                  Navigator.pop(context);
-                },
-                actions: [
-                  IconButton(
-                    icon: const Icon(Icons.share, color: Color(0xFFE50914)),
-                    onPressed: () => _shareContent(),
-                  ),
-                ],
+            // Main Content
+            Scaffold(
+              backgroundColor: Colors.transparent,
+              appBar: PreferredSize(
+                preferredSize: const Size.fromHeight(56),
+                child: DarkModeAppBar(
+                  title: widget.item.title,
+                  onBackPressed: () {
+                    context.read<TvNavigationProvider>().setDeepNavigating(
+                      false,
+                    );
+                    Navigator.pop(context);
+                  },
+                  actions: [
+                    IconButton(
+                      icon: const Icon(Icons.share, color: Color(0xFFE50914)),
+                      onPressed: () => _shareContent(),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            body: isLoading
-                ? _buildLoadingShimmer()
-                : CustomScrollView(
-                    controller: _scrollController,
-                    slivers: [
-                      // Breadcrumb Navigation
-                      SliverToBoxAdapter(child: _buildBreadcrumb(isTvSeries)),
-                      SliverToBoxAdapter(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _buildDetailsSection(),
-                            const SizedBox(height: 24),
-                            // Quick Action Buttons
-                            _buildQuickActions(),
-                            const SizedBox(height: 24),
-                            // Genre Chips
-                            _buildGenreChips(),
-                            const SizedBox(height: 24),
-                            if (isTvSeries && seasons.isNotEmpty) ...[
-                              _buildSeasonsSection(),
-                              const SizedBox(height: 16),
-                              _buildEpisodesSection(),
+              body: isLoading
+                  ? _buildLoadingShimmer()
+                  : CustomScrollView(
+                      controller: _scrollController,
+                      slivers: [
+                        // Breadcrumb Navigation
+                        SliverToBoxAdapter(child: _buildBreadcrumb(isTvSeries)),
+                        SliverToBoxAdapter(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _buildDetailsSection(),
                               const SizedBox(height: 24),
+                              // Quick Action Buttons
+                              _buildQuickActions(),
+                              const SizedBox(height: 24),
+                              // Genre Chips
+                              _buildGenreChips(),
+                              const SizedBox(height: 24),
+                              if (isTvSeries && seasons.isNotEmpty) ...[
+                                _buildSeasonsSection(),
+                                const SizedBox(height: 16),
+                                _buildEpisodesSection(),
+                                const SizedBox(height: 24),
+                              ],
+                              _buildInfoSection(),
+                              const SizedBox(height: 40),
                             ],
-                            _buildInfoSection(),
-                            const SizedBox(height: 40),
-                          ],
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
+                      ],
+                    ),
             ),
-        ],
-      ),
+          ],
+        ),
       ),
     );
   }

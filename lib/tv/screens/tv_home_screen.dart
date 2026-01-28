@@ -6,11 +6,7 @@ import '../../models/movie.dart';
 import '../../services/tmdb_api_service.dart';
 import '../../services/watch_history_service.dart';
 import '../providers/tv_navigation_provider.dart';
-import '../utils/tv_utils.dart';
-import '../utils/tv_typography.dart';
-import '../utils/tv_dpad_navigation_mixin.dart';
-import '../utils/tv_content_screen_mixin.dart';
-import '../utils/tv_focus_manager.dart';
+import '../utils/index.dart';
 import '../widgets/tv_enhanced_hero_banner.dart';
 import '../widgets/tv_content_card.dart';
 import '../widgets/tv_carousel_enhanced.dart';
@@ -25,17 +21,17 @@ import 'tv_video_player_screen.dart';
 /// Netflix-style TV Home Screen (non-freezing version)
 /// Data loads asynchronously without blocking navigation
 /// Persists scroll position across navigation
-class TvHomeScreenV2 extends StatefulWidget {
+class TvHomeScreen extends StatefulWidget {
   final VoidCallback? onReturnToSidebar;
   final GlobalKey<NavigatorState>? navigatorKey;
 
-  const TvHomeScreenV2({super.key, this.onReturnToSidebar, this.navigatorKey});
+  const TvHomeScreen({super.key, this.onReturnToSidebar, this.navigatorKey});
 
   @override
-  State<TvHomeScreenV2> createState() => _TvHomeScreenV2State();
+  State<TvHomeScreen> createState() => _TvHomeScreenState();
 }
 
-class _TvHomeScreenV2State extends State<TvHomeScreenV2>
+class _TvHomeScreenState extends State<TvHomeScreen>
     with TvContentScreenMixin, TvDPadNavigationMixin {
   bool _isLoading = true;
   String? _errorMessage;
@@ -51,6 +47,7 @@ class _TvHomeScreenV2State extends State<TvHomeScreenV2>
   late FocusNode _heroBannerFocusNode; // Hero banner gets initial focus
   Timer? _heroBannerTimer;
   int _heroBannerPage = 0;
+  bool _userInteractingWithHeroBanner = false;
 
   @override
   void initState() {
@@ -85,7 +82,9 @@ class _TvHomeScreenV2State extends State<TvHomeScreenV2>
     _heroBannerController.dispose();
     _contentScrollController.dispose();
     _heroBannerFocusNode.dispose();
+    // Safely cancel timer with error handling
     _heroBannerTimer?.cancel();
+    _heroBannerTimer = null;
     super.dispose();
   }
 
@@ -124,17 +123,50 @@ class _TvHomeScreenV2State extends State<TvHomeScreenV2>
   }
 
   void _startHeroBannerTimer() {
+    // Cancel existing timer safely
     _heroBannerTimer?.cancel();
-    _heroBannerTimer = Timer.periodic(const Duration(seconds: 15), (timer) {
-      if (trendingMovies.isNotEmpty && _heroBannerController.hasClients) {
-        _heroBannerPage = (_heroBannerPage + 1) % trendingMovies.length;
-        _heroBannerController.animateToPage(
-          _heroBannerPage,
-          duration: const Duration(milliseconds: 400),
-          curve: Curves.easeInOut,
-        );
-      }
-    });
+    _heroBannerTimer = null;
+
+    // Only start timer if not in user interaction
+    if (!_userInteractingWithHeroBanner) {
+      _heroBannerTimer = Timer.periodic(const Duration(seconds: 15), (timer) {
+        // Check if widget is still mounted and user isn't interacting
+        if (!mounted || _userInteractingWithHeroBanner) {
+          timer.cancel();
+          return;
+        }
+
+        if (trendingMovies.isNotEmpty && _heroBannerController.hasClients) {
+          _heroBannerPage = (_heroBannerPage + 1) % trendingMovies.length;
+          try {
+            _heroBannerController.animateToPage(
+              _heroBannerPage,
+              duration: const Duration(milliseconds: 400),
+              curve: Curves.easeInOut,
+            );
+          } catch (e) {
+            debugPrint('Hero banner animation error: $e');
+          }
+        }
+      });
+    }
+  }
+
+  void _pauseHeroBannerTimer() {
+    _userInteractingWithHeroBanner = true;
+    _heroBannerTimer?.cancel();
+    _heroBannerTimer = null;
+  }
+
+  void _resumeHeroBannerTimer() {
+    _userInteractingWithHeroBanner = false;
+    if (trendingMovies.isNotEmpty) {
+      Future.delayed(const Duration(seconds: 5), () {
+        if (mounted && !_userInteractingWithHeroBanner) {
+          _startHeroBannerTimer();
+        }
+      });
+    }
   }
 
   @override
@@ -152,78 +184,80 @@ class _TvHomeScreenV2State extends State<TvHomeScreenV2>
   }
 
   Widget _buildContent() {
-    return Focus(
-      onKey: (node, event) {
-        if (event.isKeyPressed(LogicalKeyboardKey.arrowUp)) {
-          if (_contentScrollController.offset > 0) {
-            _contentScrollController.animateTo(
-              _contentScrollController.offset - 300,
-              duration: const Duration(milliseconds: 300),
-              curve: Curves.easeInOut,
-            );
+    return SafeArea(
+      child: Focus(
+        onKey: (node, event) {
+          if (event.isKeyPressed(LogicalKeyboardKey.arrowUp)) {
+            if (_contentScrollController.offset > 0) {
+              _contentScrollController.animateTo(
+                _contentScrollController.offset - 300,
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeInOut,
+              );
+            }
+            return KeyEventResult.handled;
+          } else if (event.isKeyPressed(LogicalKeyboardKey.arrowDown)) {
+            if (_contentScrollController.offset <
+                _contentScrollController.position.maxScrollExtent) {
+              _contentScrollController.animateTo(
+                _contentScrollController.offset + 300,
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeInOut,
+              );
+            }
+            return KeyEventResult.handled;
           }
-          return KeyEventResult.handled;
-        } else if (event.isKeyPressed(LogicalKeyboardKey.arrowDown)) {
-          if (_contentScrollController.offset <
-              _contentScrollController.position.maxScrollExtent) {
-            _contentScrollController.animateTo(
-              _contentScrollController.offset + 300,
-              duration: const Duration(milliseconds: 300),
-              curve: Curves.easeInOut,
-            );
-          }
-          return KeyEventResult.handled;
-        }
-        return KeyEventResult.ignored;
-      },
-      autofocus: true,
-      child: RefreshIndicator(
-        onRefresh: _loadContent,
-        child: CustomScrollView(
-          controller: _contentScrollController,
-          slivers: [
-            if (trendingMovies.isNotEmpty) ...[
-              SliverToBoxAdapter(child: _buildHeroBanner()),
-              SliverToBoxAdapter(child: _buildHeroBannerIndicators()),
+          return KeyEventResult.ignored;
+        },
+        autofocus: true,
+        child: RefreshIndicator(
+          onRefresh: _loadContent,
+          child: CustomScrollView(
+            controller: _contentScrollController,
+            slivers: [
+              if (trendingMovies.isNotEmpty) ...[
+                SliverToBoxAdapter(child: _buildHeroBanner()),
+                SliverToBoxAdapter(child: _buildHeroBannerIndicators()),
+              ],
+              // Streaming Providers Section
+              SliverToBoxAdapter(child: _buildStreamingProvidersSection()),
+              if (continueWatching.isNotEmpty)
+                SliverToBoxAdapter(child: _buildContinueWatchingCarousel()),
+              SliverToBoxAdapter(
+                child: _buildSection(
+                  'Trending Movies',
+                  trendingMovies.take(10).toList(),
+                  'movie',
+                  sectionName: 'trending_movies',
+                ),
+              ),
+              SliverToBoxAdapter(
+                child: _buildSection(
+                  'Trending Series',
+                  trendingSeries.take(10).toList(),
+                  'series',
+                  sectionName: 'trending_series',
+                ),
+              ),
+              SliverToBoxAdapter(
+                child: _buildSection(
+                  'Popular Movies',
+                  popularMovies.take(10).toList(),
+                  'movie',
+                  sectionName: 'popular_movies',
+                ),
+              ),
+              SliverToBoxAdapter(
+                child: _buildSection(
+                  'Top Rated',
+                  topRatedMovies.take(10).toList(),
+                  'movie',
+                  sectionName: 'top_rated_movies',
+                ),
+              ),
+              SliverToBoxAdapter(child: SizedBox(height: 40)),
             ],
-            // Streaming Providers Section
-            SliverToBoxAdapter(child: _buildStreamingProvidersSection()),
-            if (continueWatching.isNotEmpty)
-              SliverToBoxAdapter(child: _buildContinueWatchingCarousel()),
-            SliverToBoxAdapter(
-              child: _buildSection(
-                'Trending Movies',
-                trendingMovies.take(10).toList(),
-                'movie',
-                sectionName: 'trending_movies',
-              ),
-            ),
-            SliverToBoxAdapter(
-              child: _buildSection(
-                'Trending Series',
-                trendingSeries.take(10).toList(),
-                'series',
-                sectionName: 'trending_series',
-              ),
-            ),
-            SliverToBoxAdapter(
-              child: _buildSection(
-                'Popular Movies',
-                popularMovies.take(10).toList(),
-                'movie',
-                sectionName: 'popular_movies',
-              ),
-            ),
-            SliverToBoxAdapter(
-              child: _buildSection(
-                'Top Rated',
-                topRatedMovies.take(10).toList(),
-                'movie',
-                sectionName: 'top_rated_movies',
-              ),
-            ),
-            SliverToBoxAdapter(child: SizedBox(height: 40)),
-          ],
+          ),
         ),
       ),
     );
@@ -250,35 +284,53 @@ class _TvHomeScreenV2State extends State<TvHomeScreenV2>
         return KeyEventResult.ignored;
       },
       child: SizedBox(
+        width: double.infinity,
         height: height,
-        child: PageView.builder(
-          controller: _heroBannerController,
-          itemCount: trendingMovies.length,
-          onPageChanged: (index) {
-            setState(() {
-              _heroBannerPage = index;
-            });
-          },
-          itemBuilder: (context, index) {
-            final movie = trendingMovies[index];
-            final backdropUrl = TmdbApiService.getBackdropUrl(
-              movie['backdrop_path'] ?? '',
-            );
-            final title = movie['title'] ?? movie['name'] ?? 'Unknown';
-            final rating = (movie['vote_average'] as num?)?.toDouble() ?? 0.0;
-            final overview = movie['overview'] ?? '';
+        child: GestureDetector(
+          onLongPress: _pauseHeroBannerTimer,
+          onLongPressUp: _resumeHeroBannerTimer,
+          child: MouseRegion(
+            onEnter: (_) => _pauseHeroBannerTimer(),
+            onExit: (_) => _resumeHeroBannerTimer(),
+            child: PageView.builder(
+              controller: _heroBannerController,
+              onPageChanged: (index) {
+                setState(() {
+                  _heroBannerPage = index;
+                });
+                // Pause auto-scroll when user manually navigates
+                _pauseHeroBannerTimer();
+                // Resume after 5 seconds of inactivity
+                Future.delayed(const Duration(seconds: 5), () {
+                  if (mounted) {
+                    _resumeHeroBannerTimer();
+                  }
+                });
+              },
+              itemCount: trendingMovies.length,
+              itemBuilder: (context, index) {
+                final movie = trendingMovies[index];
+                final backdropUrl = TmdbApiService.getBackdropUrl(
+                  movie['backdrop_path'] ?? '',
+                );
+                final title = movie['title'] ?? movie['name'] ?? 'Unknown';
+                final rating =
+                    (movie['vote_average'] as num?)?.toDouble() ?? 0.0;
+                final overview = movie['overview'] ?? '';
 
-            return TvEnhancedHeroBanner(
-              backdropUrl: backdropUrl,
-              title: title,
-              description: overview,
-              rating: rating > 0 ? rating : null,
-              onTap: () => _navigateToDetails(movie, 'movie'),
-              onWatchNow: () => _playMovie(movie),
-              onDetails: () => _navigateToDetails(movie, 'movie'),
-              isFocused: _heroBannerFocusNode.hasFocus,
-            );
-          },
+                return TvEnhancedHeroBanner(
+                  backdropUrl: backdropUrl,
+                  title: title,
+                  description: overview,
+                  rating: rating > 0 ? rating : null,
+                  onTap: () => _navigateToDetails(movie, 'movie'),
+                  onWatchNow: () => _playMovie(movie),
+                  onDetails: () => _navigateToDetails(movie, 'movie'),
+                  isFocused: _heroBannerFocusNode.hasFocus,
+                );
+              },
+            ),
+          ),
         ),
       ),
     );

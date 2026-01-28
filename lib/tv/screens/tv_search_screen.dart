@@ -5,11 +5,7 @@ import '../../models/movie.dart';
 import '../providers/tv_navigation_provider.dart';
 import '../widgets/tv_keyboard.dart';
 import '../../widgets/custom_loading_widget.dart';
-import '../utils/tv_typography.dart';
-import '../utils/tv_utils.dart';
-import '../utils/tv_keyboard_focus_manager.dart';
-import '../utils/tv_focus_manager.dart';
-import '../utils/tv_navigation_handler.dart';
+import '../utils/index.dart';
 import '../../services/tmdb_api_service.dart';
 import '../widgets/tv_dark_mode_polish.dart';
 import '../widgets/tv_content_card.dart';
@@ -38,7 +34,7 @@ class _TvSearchScreenState extends State<TvSearchScreen> {
   late TvKeyboardFocusManager _focusManager;
   late ScrollController _contentScrollController;
   static const int _columnsPerRow = 4;
-  
+
   // Three-zone focus management (Netflix-style)
   late FocusNode _keyboardZoneFocusNode;
   late FocusNode _resultsZoneFocusNode;
@@ -50,7 +46,7 @@ class _TvSearchScreenState extends State<TvSearchScreen> {
     _focusManager = TvKeyboardFocusManager();
     _contentScrollController = ScrollController();
     _focusManager.activateKeyboard();
-    
+
     // Initialize focus zones
     _keyboardZoneFocusNode = FocusNode();
     _resultsZoneFocusNode = FocusNode();
@@ -61,7 +57,7 @@ class _TvSearchScreenState extends State<TvSearchScreen> {
       context.read<TvNavigationProvider>().setSearchFocused(true);
       // Default focus to keyboard zone (Netflix pattern)
       _keyboardZoneFocusNode.requestFocus();
-      
+
       _contentScrollController.addListener(() {
         context.read<TvNavigationProvider>().saveScrollOffset(
           1,
@@ -82,17 +78,17 @@ class _TvSearchScreenState extends State<TvSearchScreen> {
     for (var node in _resultCardFocusNodes) {
       node.dispose();
     }
+    // Reset search focus state when leaving the screen
+    context.read<TvNavigationProvider>().setSearchFocused(false);
     super.dispose();
   }
-  
+
   /// Ensure result focus nodes exist for dynamic content
   void _ensureResultFocusNodes(int count) {
     while (_resultCardFocusNodes.length < count) {
       final index = _resultCardFocusNodes.length;
       _resultCardFocusNodes.add(
-        FocusNode(
-          onKey: (node, event) => _handleResultCardKey(event, index),
-        ),
+        FocusNode(onKey: (node, event) => _handleResultCardKey(event, index)),
       );
     }
   }
@@ -170,36 +166,43 @@ class _TvSearchScreenState extends State<TvSearchScreen> {
   }
 
   /// Handle D-pad navigation within result cards
+  /// Supports grid navigation and zone transitions
   KeyEventResult _handleResultCardKey(RawKeyEvent event, int index) {
     if (event is! RawKeyDownEvent) return KeyEventResult.ignored;
 
-    final currentResults = _searchQuery.isNotEmpty ? _movieResults : _trendingResults;
-    final currentCol = index % _columnsPerRow;
+    final currentResults = _searchQuery.isNotEmpty
+        ? _searchResults
+        : _trendingResults;
 
-    // LEFT: Move left or return to sidebar/keyboard
+    // Handle LEFT key - return to keyboard at left boundary
     if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
-      if (TvNavigation.isAtLeftBoundary(index, itemsPerRow: _columnsPerRow)) {
-        // At leftmost - return to sidebar
-        TvFocusManager.focusSidebar();
+      final isAtLeftBoundary = (index % _columnsPerRow) == 0;
+      if (isAtLeftBoundary) {
+        // At leftmost column - return focus to keyboard
+        _keyboardZoneFocusNode.requestFocus();
         return KeyEventResult.handled;
-      }
-      // Move to previous card in row
-      if (index > 0) {
-        _resultCardFocusNodes[index - 1].requestFocus();
-        return KeyEventResult.handled;
+      } else {
+        // Move left within grid
+        if (index > 0) {
+          _resultCardFocusNodes[index - 1].requestFocus();
+          return KeyEventResult.handled;
+        }
       }
     }
 
-    // RIGHT: Move right
+    // Handle RIGHT key - move right within grid
     if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
-      if (index < currentResults.length - 1 && 
-          currentCol < _columnsPerRow - 1) {
-        _resultCardFocusNodes[index + 1].requestFocus();
-        return KeyEventResult.handled;
+      if (index < currentResults.length - 1) {
+        final nextIndex = index + 1;
+        if (nextIndex < _resultCardFocusNodes.length &&
+            nextIndex < currentResults.length) {
+          _resultCardFocusNodes[nextIndex].requestFocus();
+          return KeyEventResult.handled;
+        }
       }
     }
 
-    // UP: Move to previous row
+    // Handle UP key - move up in grid
     if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
       final upIndex = index - _columnsPerRow;
       if (upIndex >= 0) {
@@ -208,19 +211,22 @@ class _TvSearchScreenState extends State<TvSearchScreen> {
       }
     }
 
-    // DOWN: Move to next row
+    // Handle DOWN key - move down in grid
     if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
       final downIndex = index + _columnsPerRow;
-      if (downIndex < currentResults.length) {
+      if (downIndex < currentResults.length &&
+          downIndex < _resultCardFocusNodes.length) {
         _resultCardFocusNodes[downIndex].requestFocus();
         return KeyEventResult.handled;
       }
     }
 
-    // SELECT: Navigate to content
+    // SELECT key - navigate to content
     if (event.logicalKey == LogicalKeyboardKey.select) {
-      _navigateToContent(currentResults[index]);
-      return KeyEventResult.handled;
+      if (index < currentResults.length) {
+        _navigateToContent(currentResults[index]);
+        return KeyEventResult.handled;
+      }
     }
 
     return KeyEventResult.ignored;
@@ -241,8 +247,9 @@ class _TvSearchScreenState extends State<TvSearchScreen> {
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (context) =>
-              TvSeriesScreen(seriesItem: Movie.fromJson(item)),
+          builder: (context) => TvSeriesScreen(
+            seriesItem: Movie.fromJson(item),
+          ),
         ),
       );
     }
@@ -259,20 +266,26 @@ class _TvSearchScreenState extends State<TvSearchScreen> {
               children: [
                 // ZONE 1: Sidebar (handled by main screen)
                 // Only shown when returning to sidebar - managed by parent
-                
+
                 // ZONE 2: Keyboard Panel (25% width)
                 Focus(
                   focusNode: _keyboardZoneFocusNode,
                   onKey: (node, event) {
                     if (event.isKeyPressed(LogicalKeyboardKey.arrowRight)) {
-                      // Jump to results
+                      // Jump to first result card
                       if (_resultCardFocusNodes.isNotEmpty) {
-                        _resultCardFocusNodes[0].requestFocus();
+                        Future.microtask(() {
+                          _resultCardFocusNodes[0].requestFocus();
+                        });
                         return KeyEventResult.handled;
                       }
-                    } else if (event.isKeyPressed(LogicalKeyboardKey.arrowLeft)) {
+                    } else if (event.isKeyPressed(
+                      LogicalKeyboardKey.arrowLeft,
+                    )) {
                       // Return to sidebar
-                      navProvider.setFocusOnSidebar(true);
+                      context.read<TvNavigationProvider>().setFocusOnSidebar(
+                        true,
+                      );
                       return KeyEventResult.handled;
                     }
                     return KeyEventResult.ignored;
@@ -343,15 +356,19 @@ class _TvSearchScreenState extends State<TvSearchScreen> {
                         LogicalKeyboardKey.arrowDown,
                       )) {
                         if (_contentScrollController.offset <
-                            _contentScrollController
-                                .position
-                                .maxScrollExtent) {
+                            _contentScrollController.position.maxScrollExtent) {
                           _contentScrollController.animateTo(
                             _contentScrollController.offset + 300,
                             duration: const Duration(milliseconds: 300),
                             curve: Curves.easeInOut,
                           );
                         }
+                        return KeyEventResult.handled;
+                      } else if (event.isKeyPressed(
+                        LogicalKeyboardKey.arrowLeft,
+                      )) {
+                        // Return to keyboard from results
+                        _keyboardZoneFocusNode.requestFocus();
                         return KeyEventResult.handled;
                       }
                       return KeyEventResult.ignored;
@@ -434,67 +451,71 @@ class _TvSearchScreenState extends State<TvSearchScreen> {
               ),
             ),
             SliverGrid(
-               gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                 crossAxisCount: _columnsPerRow,
-                 childAspectRatio: 0.6,
-                 crossAxisSpacing: TvUtils.responsivePadding(12, context),
-                 mainAxisSpacing: TvUtils.responsivePadding(12, context),
-               ),
-               delegate: SliverChildBuilderDelegate((context, index) {
-                 final item = _movieResults[index];
-                 // Ensure focus nodes exist
-                 _ensureResultFocusNodes(_movieResults.length);
-                 
-                 return Focus(
-                   focusNode: _resultCardFocusNodes[index],
-                   child: _buildResultCard(item),
-                 );
-                 }, childCount: _movieResults.length),
-                 ),
-                 SliverToBoxAdapter(
-                 child: SizedBox(height: TvUtils.responsivePadding(32, context)),
-                 ),
-                 ],
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: _columnsPerRow,
+                childAspectRatio: 0.6,
+                crossAxisSpacing: TvUtils.responsivePadding(12, context),
+                mainAxisSpacing: TvUtils.responsivePadding(12, context),
+              ),
+              delegate: SliverChildBuilderDelegate((context, index) {
+                final item = _movieResults[index];
+                // Ensure focus nodes exist
+                _ensureResultFocusNodes(_movieResults.length);
 
-                 // Series Section
-                 if (_seriesResults.isNotEmpty) ...[
-                 SliverToBoxAdapter(
-                 child: Padding(
-                 padding: EdgeInsets.only(
-                   bottom: TvUtils.responsivePadding(16, context),
-                 ),
-                 child: Text(
-                   'TV Series (${_seriesResults.length})',
-                   style: TextStyle(
-                     color: Colors.white,
-                     fontSize: TvUtils.responsiveFontSize(
-                       18,
-                       context,
-                       maxSize: 24,
-                     ),
-                     fontWeight: FontWeight.bold,
-                   ),
-                 ),
-                 ),
-                 ),
-                 SliverGrid(
-                 gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                 crossAxisCount: _columnsPerRow,
-                 childAspectRatio: 0.6,
-                 crossAxisSpacing: TvUtils.responsivePadding(12, context),
-                 mainAxisSpacing: TvUtils.responsivePadding(12, context),
-                 ),
-                 delegate: SliverChildBuilderDelegate((context, index) {
-                 final item = _seriesResults[index];
-                 // Ensure focus nodes exist (series uses same nodes as movies)
-                 _ensureResultFocusNodes(_seriesResults.length);
-                 
-                 return Focus(
-                   focusNode: _resultCardFocusNodes[index],
-                   child: _buildResultCard(item),
-                 );
-               }, childCount: _seriesResults.length),
-             ),
+                return Focus(
+                  focusNode: _resultCardFocusNodes[index],
+                  onKey: (node, event) => _handleResultCardKey(event, index),
+                  child: _buildResultCard(item),
+                );
+              }, childCount: _movieResults.length),
+            ),
+            SliverToBoxAdapter(
+              child: SizedBox(height: TvUtils.responsivePadding(32, context)),
+            ),
+          ],
+
+          // Series Section
+          if (_seriesResults.isNotEmpty) ...[
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.only(
+                  bottom: TvUtils.responsivePadding(16, context),
+                ),
+                child: Text(
+                  'TV Series (${_seriesResults.length})',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: TvUtils.responsiveFontSize(
+                      18,
+                      context,
+                      maxSize: 24,
+                    ),
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+            SliverGrid(
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: _columnsPerRow,
+                childAspectRatio: 0.6,
+                crossAxisSpacing: TvUtils.responsivePadding(12, context),
+                mainAxisSpacing: TvUtils.responsivePadding(12, context),
+              ),
+              delegate: SliverChildBuilderDelegate((context, index) {
+                final item = _seriesResults[index];
+                // Ensure focus nodes exist (offset by movies count)
+                final actualIndex = _movieResults.length + index;
+                _ensureResultFocusNodes(actualIndex + 1);
+
+                return Focus(
+                  focusNode: _resultCardFocusNodes[actualIndex],
+                  onKey: (node, event) =>
+                      _handleResultCardKey(event, actualIndex),
+                  child: _buildResultCard(item),
+                );
+              }, childCount: _seriesResults.length),
+            ),
             SliverToBoxAdapter(
               child: SizedBox(height: TvUtils.responsivePadding(32, context)),
             ),
@@ -535,10 +556,14 @@ class _TvSearchScreenState extends State<TvSearchScreen> {
               crossAxisSpacing: TvUtils.responsivePadding(12, context),
               mainAxisSpacing: TvUtils.responsivePadding(12, context),
             ),
-            delegate: SliverChildBuilderDelegate(
-              (context, index) => _buildResultCard(_trendingResults[index]),
-              childCount: _trendingResults.length,
-            ),
+            delegate: SliverChildBuilderDelegate((context, index) {
+              _ensureResultFocusNodes(_trendingResults.length);
+              return Focus(
+                focusNode: _resultCardFocusNodes[index],
+                onKey: (node, event) => _handleResultCardKey(event, index),
+                child: _buildResultCard(_trendingResults[index]),
+              );
+            }, childCount: _trendingResults.length),
           ),
           SliverToBoxAdapter(
             child: SizedBox(height: TvUtils.responsivePadding(32, context)),
@@ -573,10 +598,14 @@ class _TvSearchScreenState extends State<TvSearchScreen> {
               crossAxisSpacing: TvUtils.responsivePadding(12, context),
               mainAxisSpacing: TvUtils.responsivePadding(12, context),
             ),
-            delegate: SliverChildBuilderDelegate(
-              (context, index) => _buildResultCard(_popularResults[index]),
-              childCount: _popularResults.length,
-            ),
+            delegate: SliverChildBuilderDelegate((context, index) {
+              _ensureResultFocusNodes(_popularResults.length);
+              return Focus(
+                focusNode: _resultCardFocusNodes[index],
+                onKey: (node, event) => _handleResultCardKey(event, index),
+                child: _buildResultCard(_popularResults[index]),
+              );
+            }, childCount: _popularResults.length),
           ),
           SliverToBoxAdapter(
             child: SizedBox(height: TvUtils.responsivePadding(32, context)),
@@ -611,10 +640,14 @@ class _TvSearchScreenState extends State<TvSearchScreen> {
               crossAxisSpacing: TvUtils.responsivePadding(12, context),
               mainAxisSpacing: TvUtils.responsivePadding(12, context),
             ),
-            delegate: SliverChildBuilderDelegate(
-              (context, index) => _buildResultCard(_topRatedResults[index]),
-              childCount: _topRatedResults.length,
-            ),
+            delegate: SliverChildBuilderDelegate((context, index) {
+              _ensureResultFocusNodes(_topRatedResults.length);
+              return Focus(
+                focusNode: _resultCardFocusNodes[index],
+                onKey: (node, event) => _handleResultCardKey(event, index),
+                child: _buildResultCard(_topRatedResults[index]),
+              );
+            }, childCount: _topRatedResults.length),
           ),
           SliverToBoxAdapter(
             child: SizedBox(height: TvUtils.responsivePadding(32, context)),

@@ -32,15 +32,14 @@ class _TvSidebarNavigationState extends State<TvSidebarNavigation> {
   void initState() {
     super.initState();
     _scrollController = ScrollController();
-    
+
     // Create focus nodes for each menu item (indices: 0=Home, 1=Search, 2=Genre, 3=Series, 4=Watchlist, 5=Settings)
     _menuItemFocusNodes = List.generate(
       widget.titles.length,
-      (index) => FocusNode(
-        onKey: (node, event) => _handleMenuKeyEvent(event, index),
-      ),
+      (index) =>
+          FocusNode(onKey: (node, event) => _handleMenuKeyEvent(event, index)),
     );
-    
+
     // Auto-focus the last focused item or first item
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final lastFocused = TvFocusManager.getLastSidebarItemFocus();
@@ -87,12 +86,13 @@ class _TvSidebarNavigationState extends State<TvSidebarNavigation> {
     }
     super.dispose();
   }
-   
+
   /// Handle D-pad navigation within sidebar menu
   /// Saves focus when moving between items for Netflix-style restoration
+  /// LEFT key returns focus to content area
   KeyEventResult _handleMenuKeyEvent(RawKeyEvent event, int itemIndex) {
     if (event is! RawKeyDownEvent) return KeyEventResult.ignored;
-    
+
     if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
       // Move to next menu item
       if (itemIndex < _menuItemFocusNodes.length - 1) {
@@ -105,12 +105,16 @@ class _TvSidebarNavigationState extends State<TvSidebarNavigation> {
         _menuItemFocusNodes[itemIndex - 1].requestFocus();
         return KeyEventResult.handled;
       }
+    } else if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+      // LEFT key: Move focus back to content area (Netflix-style)
+      // This is handled by the parent Action in tv_maxstream_main
+      return KeyEventResult.ignored;
     } else if (event.logicalKey == LogicalKeyboardKey.select) {
       // Select menu item
       widget.onItemSelected(itemIndex);
       return KeyEventResult.handled;
     }
-    
+
     return KeyEventResult.ignored;
   }
 
@@ -293,7 +297,9 @@ class _TvSidebarNavigationState extends State<TvSidebarNavigation> {
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: isSelected ? 11 : 10,
-                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                    fontWeight: isSelected
+                        ? FontWeight.bold
+                        : FontWeight.normal,
                   ),
                   child: Text(
                     widget.titles[index],
@@ -319,40 +325,26 @@ class _TvSidebarNavigationState extends State<TvSidebarNavigation> {
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
         child: TweenAnimationBuilder<double>(
-          tween: Tween<double>(
-            begin: 1.0,
-            end: isSelected ? 1.08 : 1.0,
-          ),
+          tween: Tween<double>(begin: 1.0, end: isSelected ? 1.08 : 1.0),
           duration: const Duration(milliseconds: 300),
           curve: Curves.easeOutBack,
           builder: (context, scale, child) {
-            return Transform.scale(
-              scale: scale,
-              child: child,
-            );
+            return Transform.scale(scale: scale, child: child);
           },
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 300),
-            padding: const EdgeInsets.symmetric(
-              horizontal: 12,
-              vertical: 16,
-            ),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
             margin: const EdgeInsets.symmetric(horizontal: 8),
             decoration: BoxDecoration(
               color: const Color(0xFFE50914),
               borderRadius: BorderRadius.circular(16),
               border: isSelected
                   ? Border.all(color: Colors.white, width: 2)
-                  : Border.all(
-                      color: const Color(0xFFE50914),
-                      width: 1.5,
-                    ),
+                  : Border.all(color: const Color(0xFFE50914), width: 1.5),
               boxShadow: isSelected
                   ? [
                       BoxShadow(
-                        color: const Color(
-                          0xFFE50914,
-                        ).withValues(alpha: 0.5),
+                        color: const Color(0xFFE50914).withValues(alpha: 0.5),
                         blurRadius: 12,
                         spreadRadius: 2,
                       ),
@@ -366,11 +358,7 @@ class _TvSidebarNavigationState extends State<TvSidebarNavigation> {
                   scale: isSelected ? 1.15 : 1.0,
                   duration: const Duration(milliseconds: 300),
                   curve: Curves.easeOutBack,
-                  child: Icon(
-                    Icons.settings,
-                    color: Colors.white,
-                    size: 24,
-                  ),
+                  child: Icon(Icons.settings, color: Colors.white, size: 24),
                 ),
                 const SizedBox(height: 6),
                 AnimatedDefaultTextStyle(

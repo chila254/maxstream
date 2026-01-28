@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../utils/tv_utils.dart';
 import '../utils/tv_typography.dart';
+import '../utils/tv_image_cache_util.dart';
 
 /// Enhanced carousel widget for Continue Watching section
 /// Features:
@@ -40,6 +41,7 @@ class ContinueWatchingItem {
   final String? nextEpisode;
   final String? rating;
   final int? releaseYear;
+  final DateTime? watchedAt; // New: timestamp of when user stopped watching
 
   ContinueWatchingItem({
     required this.id,
@@ -50,7 +52,28 @@ class ContinueWatchingItem {
     this.nextEpisode,
     this.rating,
     this.releaseYear,
+    this.watchedAt,
   });
+
+  /// Format the watched timestamp as user-friendly text
+  String getWatchedTimeAgo() {
+    if (watchedAt == null) return '';
+
+    final now = DateTime.now();
+    final difference = now.difference(watchedAt!);
+
+    if (difference.inMinutes < 1) {
+      return 'Just now';
+    } else if (difference.inMinutes < 60) {
+      return '${difference.inMinutes}m ago';
+    } else if (difference.inHours < 24) {
+      return '${difference.inHours}h ago';
+    } else if (difference.inDays < 7) {
+      return '${difference.inDays}d ago';
+    } else {
+      return '${(difference.inDays / 7).ceil()}w ago';
+    }
+  }
 }
 
 class _TvContinueWatchingCarouselState extends State<TvContinueWatchingCarousel>
@@ -64,7 +87,8 @@ class _TvContinueWatchingCarouselState extends State<TvContinueWatchingCarousel>
   @override
   void initState() {
     super.initState();
-    _pageController = PageController(viewportFraction: 0.85);
+    // Better viewport fraction - allows seeing previous/next items
+    _pageController = PageController(viewportFraction: 0.75);
 
     _progressAnimationController = AnimationController(
       duration: widget.animationDuration,
@@ -161,7 +185,7 @@ class _TvContinueWatchingCarouselState extends State<TvContinueWatchingCarousel>
             ],
           ),
         ),
-        // Carousel with enhanced height
+        // Carousel with enhanced height and better viewport
         SizedBox(
           height: (TvUtils.responsiveWidth(320, context, maxWidth: 380)),
           child: PageView.builder(
@@ -289,11 +313,14 @@ class _TvContinueWatchingCarouselState extends State<TvContinueWatchingCarousel>
           ),
           child: Stack(
             children: [
-              // Poster Image with parallax effect
+              // Poster Image with parallax effect - use cached image
               ClipRRect(
                 borderRadius: BorderRadius.circular(16),
-                child: Image.network(
-                  item.posterUrl,
+                child: Image(
+                  image: TvImageCacheUtil.getCachedImage(
+                    item.posterUrl,
+                    cacheType: ImageCacheType.poster,
+                  ),
                   width: double.infinity,
                   height: double.infinity,
                   fit: BoxFit.cover,
@@ -455,12 +482,33 @@ class _TvContinueWatchingCarouselState extends State<TvContinueWatchingCarousel>
                         ),
                       ] else ...[
                         SizedBox(height: TvUtils.responsivePadding(8, context)),
-                        Text(
-                          item.duration,
-                          style: TextStyle(
-                            color: Colors.grey[300],
-                            fontSize: TvUtils.responsiveFontSize(12, context),
-                          ),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              item.duration,
+                              style: TextStyle(
+                                color: Colors.grey[300],
+                                fontSize: TvUtils.responsiveFontSize(
+                                  12,
+                                  context,
+                                ),
+                              ),
+                            ),
+                            // Watched timestamp
+                            if (item.watchedAt != null)
+                              Text(
+                                'Watched ${item.getWatchedTimeAgo()}',
+                                style: TextStyle(
+                                  color: Colors.grey[500],
+                                  fontSize: TvUtils.responsiveFontSize(
+                                    10,
+                                    context,
+                                  ),
+                                  fontStyle: FontStyle.italic,
+                                ),
+                              ),
+                          ],
                         ),
                       ],
                       SizedBox(height: TvUtils.responsivePadding(8, context)),

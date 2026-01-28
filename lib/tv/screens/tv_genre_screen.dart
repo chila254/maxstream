@@ -4,10 +4,7 @@ import 'package:provider/provider.dart';
 import '../../services/tmdb_api_service.dart';
 import '../../services/logger_service.dart';
 import '../providers/tv_navigation_provider.dart';
-import '../utils/tv_utils.dart';
-import '../utils/tv_typography.dart';
-import '../utils/tv_focus_manager.dart';
-import '../utils/tv_navigation_handler.dart';
+import '../utils/index.dart';
 import '../../widgets/custom_loading_widget.dart';
 import '../widgets/tv_visual_enhancements.dart';
 import '../widgets/tv_content_card.dart';
@@ -198,7 +195,11 @@ class _TvGenreScreenState extends State<TvGenreScreen> {
           }
           return KeyEventResult.handled;
         } else if (event.isKeyPressed(LogicalKeyboardKey.arrowLeft)) {
-          context.read<TvNavigationProvider>().setFocusOnSidebar(true);
+          if (widget.onReturnToSidebar != null) {
+            widget.onReturnToSidebar!();
+          } else {
+            context.read<TvNavigationProvider>().setFocusOnSidebar(true);
+          }
           return KeyEventResult.handled;
         }
         return KeyEventResult.ignored;
@@ -479,10 +480,19 @@ class _TvGenreScreenState extends State<TvGenreScreen> {
                         } else if (event.isKeyPressed(
                           LogicalKeyboardKey.arrowLeft,
                         )) {
-                          if (TvNavigation.isAtLeftBoundary(index, itemsPerRow: 4)) {
+                          if (TvNavigation.isAtLeftBoundary(
+                            index,
+                            itemsPerRow: 4,
+                          )) {
                             // At leftmost - return to sidebar
-                            TvFocusManager.focusSidebar();
-                            context.read<TvNavigationProvider>().setFocusOnSidebar(true);
+                            if (widget.onReturnToSidebar != null) {
+                              widget.onReturnToSidebar!();
+                            } else {
+                              TvFocusManager.focusSidebar();
+                              context
+                                  .read<TvNavigationProvider>()
+                                  .setFocusOnSidebar(true);
+                            }
                           } else {
                             node.previousFocus();
                           }
@@ -621,7 +631,9 @@ class _TvGenreScreenState extends State<TvGenreScreen> {
             vertical: TvUtils.responsivePadding(10, context),
           ),
           decoration: BoxDecoration(
-            color: isSelected ? const Color(0xFFE50914) : const Color(0xFF2A2A2A),
+            color: isSelected
+                ? const Color(0xFFE50914)
+                : const Color(0xFF2A2A2A),
             border: Border.all(
               color: isSelected ? Colors.white : Colors.grey[700]!,
               width: isSelected ? 2 : 1.5,

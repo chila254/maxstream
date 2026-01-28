@@ -6,9 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../../services/user_service.dart';
 import '../../services/auth_service.dart';
 import '../providers/tv_navigation_provider.dart';
-import '../utils/tv_utils.dart';
-import '../utils/tv_typography.dart';
-import '../utils/tv_focus_manager.dart';
+import '../utils/index.dart';
 import '../../widgets/profile_avatar.dart';
 import '../widgets/tv_focus_widget.dart';
 
@@ -34,15 +32,14 @@ class _TvMoreScreenState extends State<TvMoreScreen> {
     _loadUserInfo();
     _userService.loadAvatar();
     _userService.loadProfilePicture();
-    
+
     // Create focus nodes for menu items (4 items: Help, About, Community, SignOut)
     _menuFocusNodes = List.generate(
       4,
-      (index) => FocusNode(
-        onKey: (node, event) => _handleMenuKeyEvent(event, index),
-      ),
+      (index) =>
+          FocusNode(onKey: (node, event) => _handleMenuKeyEvent(event, index)),
     );
-    
+
     // Integrate with navigation provider
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final navProvider = context.read<TvNavigationProvider>();
@@ -50,11 +47,11 @@ class _TvMoreScreenState extends State<TvMoreScreen> {
       // Set initial focus to first menu item
       _menuFocusNodes[0].requestFocus();
     });
-    
+
     // Set initial focus to "Help" (first menu item)
     _focusedMenuItemIndex = 0;
   }
-  
+
   @override
   void dispose() {
     for (var node in _menuFocusNodes) {
@@ -62,11 +59,11 @@ class _TvMoreScreenState extends State<TvMoreScreen> {
     }
     super.dispose();
   }
-  
+
   /// Handle D-pad navigation for menu items
   KeyEventResult _handleMenuKeyEvent(RawKeyEvent event, int itemIndex) {
     if (event is! RawKeyDownEvent) return KeyEventResult.ignored;
-    
+
     if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
       // Move to next menu item
       if (itemIndex < _menuFocusNodes.length - 1) {
@@ -85,14 +82,18 @@ class _TvMoreScreenState extends State<TvMoreScreen> {
       return KeyEventResult.handled;
     } else if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
       // Return to sidebar
-      TvFocusManager.focusSidebar();
-      context.read<TvNavigationProvider>().setFocusOnSidebar(true);
+      if (widget.onReturnToSidebar != null) {
+        widget.onReturnToSidebar!();
+      } else {
+        TvFocusManager.focusSidebar();
+        context.read<TvNavigationProvider>().setFocusOnSidebar(true);
+      }
       return KeyEventResult.handled;
     }
-    
+
     return KeyEventResult.ignored;
   }
-  
+
   /// Handle menu item selection by index
   void _selectMenuItem(int index) {
     switch (index) {
@@ -417,7 +418,7 @@ class _TvMoreScreenState extends State<TvMoreScreen> {
               try {
                 // Clear navigation state
                 context.read<TvNavigationProvider>().clearState();
-                
+
                 await AuthService.signOut();
                 // AuthGate will handle navigation when auth state changes
                 if (mounted) {

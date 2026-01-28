@@ -4,6 +4,25 @@ import 'package:html/parser.dart' as html_parser;
 import 'package:html/dom.dart' as html_dom;
 
 /// Service to fetch direct m3u8 URLs for TV channels
+///
+/// ⚠️ MAINTENANCE WARNING:
+/// This service uses web scraping with hardcoded DOM selectors from external websites.
+/// These selectors are BRITTLE and will break if the target websites change their HTML structure.
+///
+/// Sites currently scraped:
+/// - tvstreamlive.net
+/// - freetv.ch
+/// - iptvx.one
+/// - iptv-org.github.io
+///
+/// RECOMMENDATIONS:
+/// 1. Monitor scraping failures in logs - they indicate website structure changes
+/// 2. Consider moving to a backend service that handles scraping separately
+/// 3. Implement circuit breaker pattern to avoid repeated failures
+/// 4. Add automatic fallback to cached data when scraping fails
+/// 5. Consider using a TV scraping API instead of direct web scraping
+///
+/// TODO: Refactor to use backend service instead of client-side scraping
 class TvScraperService {
   static const String _tag = 'TvScraperService';
 
@@ -19,11 +38,7 @@ class TvScraperService {
       'baseUrl': 'https://m3u.freetv.ch',
       'type': 'playlist',
     },
-    {
-      'name': 'IPTV Stalker',
-      'baseUrl': 'https://iptvx.one',
-      'type': 'html',
-    },
+    {'name': 'IPTV Stalker', 'baseUrl': 'https://iptvx.one', 'type': 'html'},
     {
       'name': 'IPTV Org',
       'baseUrl': 'https://iptv-org.github.io',
@@ -31,7 +46,8 @@ class TvScraperService {
     },
     {
       'name': 'IPTV Playlist',
-      'baseUrl': 'https://raw.githubusercontent.com/iptv-org/iptv/master/index.m3u',
+      'baseUrl':
+          'https://raw.githubusercontent.com/iptv-org/iptv/master/index.m3u',
       'type': 'playlist',
     },
   ];
@@ -63,7 +79,9 @@ class TvScraperService {
   }
 
   /// Search for a TV channel and get direct m3u8 URL
-  static Future<Map<String, dynamic>?> searchTvChannel(String channelName) async {
+  static Future<Map<String, dynamic>?> searchTvChannel(
+    String channelName,
+  ) async {
     try {
       debugPrint('$_tag: Searching for TV channel: "$channelName"');
 
@@ -95,7 +113,9 @@ class TvScraperService {
   }
 
   /// Fetch m3u8 playlist and search for channel
-  static Future<Map<String, dynamic>?> getM3u8Playlist(String playlistUrl) async {
+  static Future<Map<String, dynamic>?> getM3u8Playlist(
+    String playlistUrl,
+  ) async {
     try {
       debugPrint('$_tag: Fetching M3U8 playlist from: $playlistUrl');
 
@@ -104,7 +124,9 @@ class TvScraperService {
 
       if (response.statusCode == 200) {
         final content = response.data as String;
-        debugPrint('$_tag: Successfully fetched playlist (${content.length} bytes)');
+        debugPrint(
+          '$_tag: Successfully fetched playlist (${content.length} bytes)',
+        );
 
         return {
           'playlistUrl': playlistUrl,
@@ -189,7 +211,9 @@ class TvScraperService {
     Dio dio,
   ) async {
     try {
-      final response = await dio.get(baseUrl).timeout(const Duration(seconds: 10));
+      final response = await dio
+          .get(baseUrl)
+          .timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
         final content = response.data as String;
@@ -222,7 +246,9 @@ class TvScraperService {
     Dio dio,
   ) async {
     try {
-      final response = await dio.get(baseUrl).timeout(const Duration(seconds: 10));
+      final response = await dio
+          .get(baseUrl)
+          .timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
         final htmlDoc = html_parser.parse(response.data);
@@ -257,16 +283,19 @@ class TvScraperService {
     Dio dio,
   ) async {
     try {
-      final response = await dio.get(baseUrl).timeout(const Duration(seconds: 10));
+      final response = await dio
+          .get(baseUrl)
+          .timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
         final jsonData = response.data;
 
         if (jsonData is List) {
           final channel = jsonData.firstWhere(
-            (item) => (item['name'] as String?)
-                    ?.toLowerCase()
-                    .contains(channelName.toLowerCase()) ??
+            (item) =>
+                (item['name'] as String?)?.toLowerCase().contains(
+                  channelName.toLowerCase(),
+                ) ??
                 false,
             orElse: () => {},
           );
@@ -307,7 +336,8 @@ class TvScraperService {
           // Check if the next line is a URL
           if (i + 1 < lines.length) {
             final nextLine = lines[i + 1].trim();
-            if (nextLine.startsWith('http://') || nextLine.startsWith('https://')) {
+            if (nextLine.startsWith('http://') ||
+                nextLine.startsWith('https://')) {
               return nextLine;
             }
           }
@@ -381,9 +411,12 @@ class TvScraperService {
           .head(m3u8Url)
           .timeout(const Duration(seconds: 8))
           .catchError((e) {
-        // Try GET if HEAD fails
-        return dio.get(m3u8Url, options: Options(responseType: ResponseType.bytes));
-      });
+            // Try GET if HEAD fails
+            return dio.get(
+              m3u8Url,
+              options: Options(responseType: ResponseType.bytes),
+            );
+          });
 
       final isValid = response.statusCode == 200 || response.statusCode == 206;
 

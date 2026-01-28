@@ -7,8 +7,7 @@ import '../../models/series.dart';
 import '../../services/tmdb_api_service.dart';
 import '../../database/db_helper.dart';
 import '../providers/tv_navigation_provider.dart';
-import '../utils/tv_utils.dart';
-import '../utils/tv_focus_manager.dart';
+import '../utils/index.dart';
 import '../widgets/tv_breadcrumb_navigation.dart';
 import '../widgets/tv_visual_enhancements.dart';
 import '../widgets/tv_dark_mode_polish.dart';
@@ -174,14 +173,14 @@ class _TvSeriesScreenState extends State<TvSeriesScreen> {
         builder: (context) => TvVideoPlayerScreen(
           title:
               '${widget.seriesItem.title} - S${season.seasonNumber}E${episode.episodeNumber}: ${episode.name}',
-              tmdbId: widget.seriesItem.id.toString(),
-              isMovie: false,
-              season: season.seasonNumber,
-              episode: episode.episodeNumber,
-              ),
-              ),
-              );
-              }
+          tmdbId: widget.seriesItem.id.toString(),
+          isMovie: false,
+          season: season.seasonNumber,
+          episode: episode.episodeNumber,
+        ),
+      ),
+    );
+  }
 
   void _shareContent() {
     // Share functionality placeholder
@@ -319,8 +318,6 @@ class _TvSeriesScreenState extends State<TvSeriesScreen> {
       ),
     );
   }
-
-
 
   Widget _buildCastSection() {
     if (cast.isEmpty) return const SizedBox.shrink();
@@ -749,56 +746,56 @@ class _TvSeriesScreenState extends State<TvSeriesScreen> {
                   Navigator.pop(context);
                   context.read<TvNavigationProvider>().returnToSidebar();
                 },
-              actions: [
-                IconButton(
-                  icon: const Icon(Icons.share, color: Color(0xFFE50914)),
-                  onPressed: () => _shareContent(),
-                ),
-              ],
+                actions: [
+                  IconButton(
+                    icon: const Icon(Icons.share, color: Color(0xFFE50914)),
+                    onPressed: () => _shareContent(),
+                  ),
+                ],
+              ),
             ),
-          ),
-          body: isLoading
-              ? _buildLoadingShimmer()
-              : CustomScrollView(
-                  controller: _scrollController,
-                  slivers: [
-                    // Breadcrumb Navigation
-                    SliverToBoxAdapter(child: _buildBreadcrumb()),
-                    SliverToBoxAdapter(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _buildDetailsSection(),
-                          const SizedBox(height: 24),
-                          // Quick Action Buttons
-                          _buildQuickActions(),
-                          const SizedBox(height: 24),
-                          // Genre Chips
-                          _buildGenreChips(),
-                          const SizedBox(height: 24),
+            body: isLoading
+                ? _buildLoadingShimmer()
+                : CustomScrollView(
+                    controller: _scrollController,
+                    slivers: [
+                      // Breadcrumb Navigation
+                      SliverToBoxAdapter(child: _buildBreadcrumb()),
+                      SliverToBoxAdapter(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _buildDetailsSection(),
+                            const SizedBox(height: 24),
+                            // Quick Action Buttons
+                            _buildQuickActions(),
+                            const SizedBox(height: 24),
+                            // Genre Chips
+                            _buildGenreChips(),
+                            const SizedBox(height: 24),
 
-                          _buildEpisodesSection(),
-                          if (cast.isNotEmpty) ...[
-                            const SizedBox(height: 24),
-                            SectionDivider(title: 'Cast', icon: Icons.people),
-                            const SizedBox(height: 24),
-                            _buildCastSection(),
+                            _buildEpisodesSection(),
+                            if (cast.isNotEmpty) ...[
+                              const SizedBox(height: 24),
+                              SectionDivider(title: 'Cast', icon: Icons.people),
+                              const SizedBox(height: 24),
+                              _buildCastSection(),
+                            ],
+                            if (recommendations.isNotEmpty) ...[
+                              const SizedBox(height: 24),
+                              SectionDivider(
+                                title: 'More Like This',
+                                icon: Icons.favorite,
+                              ),
+                              const SizedBox(height: 24),
+                              _buildRecommendationsSection(),
+                            ],
+                            const SizedBox(height: 40),
                           ],
-                          if (recommendations.isNotEmpty) ...[
-                            const SizedBox(height: 24),
-                            SectionDivider(
-                              title: 'More Like This',
-                              icon: Icons.favorite,
-                            ),
-                            const SizedBox(height: 24),
-                            _buildRecommendationsSection(),
-                          ],
-                          const SizedBox(height: 40),
-                        ],
+                        ),
                       ),
-                    ),
-                  ],
-                ),
+                    ],
+                  ),
           ),
         ),
       ),

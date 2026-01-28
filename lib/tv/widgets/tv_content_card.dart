@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:ui' as ui;
+import '../utils/tv_image_cache_util.dart';
 
 /// Enum to define content type
 enum ContentType { movie, series, documentary, special }
@@ -54,7 +55,7 @@ class _TvContentCardState extends State<TvContentCard>
   void initState() {
     super.initState();
     _focusNode = FocusNode();
-    
+
     _animationController = AnimationController(
       duration: widget.animationDuration,
       vsync: this,
@@ -149,161 +150,167 @@ class _TvContentCardState extends State<TvContentCard>
           onEnter: (_) => setState(() => _isHovered = true),
           onExit: (_) => setState(() => _isHovered = false),
           child: AnimatedBuilder(
-          animation: Listenable.merge([
-            _scaleAnimation,
-            _shadowAnimation,
-            _overlayAnimation,
-          ]),
-          builder: (context, child) => Transform.scale(
-            scale: _scaleAnimation.value,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Poster Image - Full card
-                Container(
-                  width: cardWidth,
-                  height: posterHeight,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: [
-                      // Main shadow
-                      BoxShadow(
-                        color: Colors.black.withValues(
-                          alpha: 0.4 * (_focusNode.hasFocus ? 1.0 : 0.6),
-                        ),
-                        blurRadius: _shadowAnimation.value,
-                        spreadRadius: _focusNode.hasFocus ? 4 : 2,
-                        offset: Offset(0, _focusNode.hasFocus ? 8 : 4),
-                      ),
-                      // Secondary glow shadow
-                      if (_focusNode.hasFocus)
+            animation: Listenable.merge([
+              _scaleAnimation,
+              _shadowAnimation,
+              _overlayAnimation,
+            ]),
+            builder: (context, child) => Transform.scale(
+              scale: _scaleAnimation.value,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Poster Image - Full card
+                  Container(
+                    width: cardWidth,
+                    height: posterHeight,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        // Main shadow
                         BoxShadow(
-                          color: _getContentTypeColor().withValues(alpha: 0.3),
-                          blurRadius: 16,
-                          spreadRadius: 2,
+                          color: Colors.black.withValues(
+                            alpha: 0.4 * (_focusNode.hasFocus ? 1.0 : 0.6),
+                          ),
+                          blurRadius: _shadowAnimation.value,
+                          spreadRadius: _focusNode.hasFocus ? 4 : 2,
+                          offset: Offset(0, _focusNode.hasFocus ? 8 : 4),
                         ),
-                    ],
-                  ),
-                  child: Stack(
-                    children: [
-                      // Poster Image
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(16),
-                        child: Stack(
-                          children: [
-                            // Background Image
-                            Image.network(
-                              widget.posterUrl,
-                              width: double.infinity,
-                              height: double.infinity,
-                              fit: BoxFit.cover,
-                              errorBuilder: (context, error, stackTrace) =>
-                                  Container(
-                                    color: Colors.grey[900],
-                                    child: const Icon(
-                                      Icons.broken_image,
-                                      color: Colors.grey,
-                                      size: 48,
-                                    ),
-                                  ),
+                        // Secondary glow shadow
+                        if (_focusNode.hasFocus)
+                          BoxShadow(
+                            color: _getContentTypeColor().withValues(
+                              alpha: 0.3,
                             ),
-                            // Hover/Focus Gradient Overlay
-                            if (_focusNode.hasFocus || _isHovered)
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(16),
-                                child: BackdropFilter(
-                                  filter: ui.ImageFilter.blur(
-                                    sigmaX: 2.0,
-                                    sigmaY: 2.0,
-                                  ),
-                                  child: Container(
-                                    decoration: BoxDecoration(
-                                      gradient: LinearGradient(
-                                        begin: Alignment.topLeft,
-                                        end: Alignment.bottomRight,
-                                        colors: [
-                                          Colors.white.withValues(
-                                            alpha:
-                                                0.1 * _overlayAnimation.value,
-                                          ),
-                                          Colors.cyan.withValues(
-                                            alpha:
-                                                0.15 * _overlayAnimation.value,
-                                          ),
-                                        ],
+                            blurRadius: 16,
+                            spreadRadius: 2,
+                          ),
+                      ],
+                    ),
+                    child: Stack(
+                      children: [
+                        // Poster Image
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(16),
+                          child: Stack(
+                            children: [
+                              // Background Image - with caching
+                              Image(
+                                image: TvImageCacheUtil.getCachedImage(
+                                  widget.posterUrl,
+                                  cacheType: ImageCacheType.poster,
+                                ),
+                                width: double.infinity,
+                                height: double.infinity,
+                                fit: BoxFit.cover,
+                                errorBuilder: (context, error, stackTrace) =>
+                                    Container(
+                                      color: Colors.grey[900],
+                                      child: const Icon(
+                                        Icons.broken_image,
+                                        color: Colors.grey,
+                                        size: 48,
+                                      ),
+                                    ),
+                              ),
+                              // Hover/Focus Gradient Overlay
+                              if (_focusNode.hasFocus || _isHovered)
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(16),
+                                  child: BackdropFilter(
+                                    filter: ui.ImageFilter.blur(
+                                      sigmaX: 2.0,
+                                      sigmaY: 2.0,
+                                    ),
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        gradient: LinearGradient(
+                                          begin: Alignment.topLeft,
+                                          end: Alignment.bottomRight,
+                                          colors: [
+                                            Colors.white.withValues(
+                                              alpha:
+                                                  0.1 * _overlayAnimation.value,
+                                            ),
+                                            Colors.cyan.withValues(
+                                              alpha:
+                                                  0.15 *
+                                                  _overlayAnimation.value,
+                                            ),
+                                          ],
+                                        ),
                                       ),
                                     ),
                                   ),
                                 ),
-                              ),
-                          ],
+                            ],
+                          ),
                         ),
-                      ),
-                      // Content Badge - Top Left
-                      Positioned(
-                        top: 8,
-                        left: 8,
-                        child: _buildContentTypeBadge(),
-                      ),
-                      // Rating Badge - Top Right
-                      if (widget.rating != null)
+                        // Content Badge - Top Left
                         Positioned(
                           top: 8,
-                          right: 8,
-                          child: _buildRatingBadge(),
+                          left: 8,
+                          child: _buildContentTypeBadge(),
                         ),
-                      // Play Button on Hover/Focus
-                      if ((_focusNode.hasFocus || _isHovered) &&
-                          _overlayAnimation.value > 0.5)
-                        Positioned.fill(
-                          child: Center(
-                            child: ScaleTransition(
-                              scale: Tween<double>(begin: 0.8, end: 1.0)
-                                  .animate(
-                                    CurvedAnimation(
-                                      parent: _animationController,
-                                      curve: const Interval(
-                                        0.5,
-                                        1.0,
-                                        curve: Curves.easeOut,
+                        // Rating Badge - Top Right
+                        if (widget.rating != null)
+                          Positioned(
+                            top: 8,
+                            right: 8,
+                            child: _buildRatingBadge(),
+                          ),
+                        // Play Button on Hover/Focus
+                        if ((_focusNode.hasFocus || _isHovered) &&
+                            _overlayAnimation.value > 0.5)
+                          Positioned.fill(
+                            child: Center(
+                              child: ScaleTransition(
+                                scale: Tween<double>(begin: 0.8, end: 1.0)
+                                    .animate(
+                                      CurvedAnimation(
+                                        parent: _animationController,
+                                        curve: const Interval(
+                                          0.5,
+                                          1.0,
+                                          curve: Curves.easeOut,
+                                        ),
                                       ),
                                     ),
+                                child: Container(
+                                  width: 56,
+                                  height: 56,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: Colors.white.withValues(alpha: 0.9),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black.withValues(
+                                          alpha: 0.3,
+                                        ),
+                                        blurRadius: 12,
+                                        spreadRadius: 2,
+                                      ),
+                                    ],
                                   ),
-                              child: Container(
-                                width: 56,
-                                height: 56,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: Colors.white.withValues(alpha: 0.9),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black.withValues(
-                                        alpha: 0.3,
-                                      ),
-                                      blurRadius: 12,
-                                      spreadRadius: 2,
-                                    ),
-                                  ],
-                                ),
-                                child: const Icon(
-                                  Icons.play_arrow,
-                                  color: Colors.black,
-                                  size: 32,
+                                  child: const Icon(
+                                    Icons.play_arrow,
+                                    color: Colors.black,
+                                    size: 32,
+                                  ),
                                 ),
                               ),
                             ),
                           ),
-                        ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
       ),
-    ),
     );
   }
 

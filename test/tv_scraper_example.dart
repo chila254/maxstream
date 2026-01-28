@@ -1,6 +1,9 @@
 // Example usage of TvScraperService for fetching direct m3u8 URLs
+//
+// This file demonstrates how to use the TvScraperService API.
+// To run examples, uncomment functions and call them in test code.
 
-import 'tv_scraper_service.dart';
+import 'package:maxstream/tv/services/tv_scraper_service.dart';
 
 /// Example 1: Search for a TV channel by name
 Future<void> searchTvChannelExample() async {

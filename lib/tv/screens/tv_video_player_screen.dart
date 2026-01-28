@@ -4,8 +4,7 @@ import 'package:video_player/video_player.dart';
 import 'package:chewie/chewie.dart';
 import 'package:provider/provider.dart';
 import '../providers/tv_navigation_provider.dart';
-import '../utils/tv_utils.dart';
-import '../utils/tv_typography.dart';
+import '../utils/index.dart';
 import '../../services/watch_history_service.dart';
 import '../services/tv_scraper_service.dart';
 
@@ -32,6 +31,9 @@ class TvVideoPlayerScreen extends StatefulWidget {
 class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
   bool _isLoading = true;
   String? _error;
+  int _retryCount = 0;
+  static const int _maxRetries = 3;
+  List<String> _alternateStreamUrls = [];
 
   // Native player variables
   VideoPlayerController? _videoPlayerController;
@@ -70,19 +72,21 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
         final m3u8Url = result['m3u8Url'] as String;
         debugPrint('TvVideoPlayer: Found m3u8 URL: $m3u8Url');
 
+        // Store alternate streams if available
+        _alternateStreamUrls =
+            (result['alternateUrls'] as List<dynamic>?)
+                ?.cast<String>()
+                .toList() ??
+            [];
+
         // Verify URL is accessible
         final isValid = await TvScraperService.verifyM3u8Url(m3u8Url);
 
         if (isValid) {
           await _initializePlayer(m3u8Url);
         } else {
-          if (mounted) {
-            setState(() {
-              _error =
-                  'Stream URL is not accessible. Please try a different channel.';
-              _isLoading = false;
-            });
-          }
+          // Try alternate streams
+          await _tryAlternateStreams();
         }
       } else {
         if (mounted) {
@@ -95,12 +99,45 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
       }
     } catch (e) {
       debugPrint('TvVideoPlayer: Error loading stream: $e');
-      if (mounted) {
-        setState(() {
-          _error = 'Error loading stream: $e';
-          _isLoading = false;
-        });
+      // Retry with exponential backoff
+      if (_retryCount < _maxRetries) {
+        _retryCount++;
+        await Future.delayed(Duration(seconds: 2 * _retryCount));
+        await _loadM3u8Stream();
+      } else {
+        if (mounted) {
+          setState(() {
+            _error =
+                'Failed to load stream after $_maxRetries attempts: $e\n\nPlease try again later.';
+            _isLoading = false;
+          });
+        }
       }
+    }
+  }
+
+  Future<void> _tryAlternateStreams() async {
+    for (final url in _alternateStreamUrls) {
+      try {
+        debugPrint('TvVideoPlayer: Trying alternate stream: $url');
+        final isValid = await TvScraperService.verifyM3u8Url(url);
+        if (isValid) {
+          await _initializePlayer(url);
+          return;
+        }
+      } catch (e) {
+        debugPrint('TvVideoPlayer: Alternate stream failed: $e');
+        continue;
+      }
+    }
+
+    // All alternates failed
+    if (mounted) {
+      setState(() {
+        _error =
+            'All stream sources are unavailable.\n\nTry a different channel or check your internet connection.';
+        _isLoading = false;
+      });
     }
   }
 
@@ -149,6 +186,8 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
   }
 
   void _retryLoading() {
+    _retryCount = 0;
+    _alternateStreamUrls = [];
     _loadM3u8Stream();
   }
 
@@ -220,24 +259,28 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
 
   Widget _buildVideoPlayer() {
     return SafeArea(
+      top: false, // Don't apply top padding as video should be full screen
+      bottom: false,
       child: Stack(
         children: [
           Chewie(controller: _chewieController!),
-          Positioned(
-            top: 16,
-            left: 16,
-            child: GestureDetector(
-              onTap: _handleBackNavigation,
-              child: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.7),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Icon(
-                  Icons.arrow_back,
-                  color: Colors.white,
-                  size: 24,
+          SafeArea(
+            child: Positioned(
+              top: 16,
+              left: 16,
+              child: GestureDetector(
+                onTap: _handleBackNavigation,
+                child: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.7),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(
+                    Icons.arrow_back,
+                    color: Colors.white,
+                    size: 24,
+                  ),
                 ),
               ),
             ),
@@ -266,6 +309,12 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
                   style: TvTypography.bodyLarge,
                   textAlign: TextAlign.center,
                 ),
+                const SizedBox(height: 8),
+                Text(
+                  'Attempt: $_retryCount/$_maxRetries',
+                  style: const TextStyle(color: Colors.grey, fontSize: 12),
+                  textAlign: TextAlign.center,
+                ),
               ],
             ),
           ),
@@ -279,29 +328,66 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 24),
                   child: Text(
-                    'Error: $_error',
-                    style: TvTypography.bodyLarge,
+                    'Unable to Load Stream',
+                    style: const TextStyle(
+                      color: Colors.red,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
                     textAlign: TextAlign.center,
                   ),
                 ),
-                const SizedBox(height: 24),
-                ElevatedButton(
-                  onPressed: _retryLoading,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.red,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 32,
-                      vertical: 12,
-                    ),
+                const SizedBox(height: 12),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: Text(
+                    _error!,
+                    style: TextStyle(color: Colors.grey[300], fontSize: 16),
+                    textAlign: TextAlign.center,
                   ),
-                  child: const Text(
-                    'Retry',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
+                ),
+                const SizedBox(height: 32),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    ElevatedButton(
+                      onPressed: _retryLoading,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 32,
+                          vertical: 12,
+                        ),
+                      ),
+                      child: const Text(
+                        'Retry',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ),
-                  ),
+                    const SizedBox(width: 16),
+                    ElevatedButton(
+                      onPressed: () => Navigator.pop(context),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.grey[700],
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 32,
+                          vertical: 12,
+                        ),
+                      ),
+                      child: const Text(
+                        'Go Back',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),

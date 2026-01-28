@@ -9,9 +9,7 @@ import '../../models/series.dart';
 import '../../services/tmdb_api_service.dart';
 import '../../services/logger_service.dart';
 import '../providers/tv_navigation_provider.dart';
-import '../utils/tv_utils.dart';
-import '../utils/tv_typography.dart';
-import '../utils/tv_focus_manager.dart';
+import '../utils/index.dart';
 import '../../widgets/custom_loading_widget.dart';
 import '../widgets/tv_enhanced_hero_banner.dart';
 import '../widgets/tv_content_card.dart';
@@ -49,6 +47,7 @@ class _TvSeriesListScreenState extends State<TvSeriesListScreen> {
   late PageController _heroBannerController;
   Timer? _heroBannerTimer;
   int _heroBannerPage = 0;
+  late ScrollController _scrollController;
 
   // Focus tracking
   final Map<String, int> _sectionItemIndices = {
@@ -61,12 +60,25 @@ class _TvSeriesListScreenState extends State<TvSeriesListScreen> {
   void initState() {
     super.initState();
     _heroBannerController = PageController();
-    
-    // Register with navigation provider for consistency
+    _scrollController = ScrollController();
+
+    // Register scroll controller with navigation provider
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<TvNavigationProvider>();
+      final navProvider = context.read<TvNavigationProvider>();
+      navProvider.registerScrollController(3, _scrollController);
+
+      // Restore scroll position if available
+      final savedOffset = navProvider.getScrollOffset(3);
+      if (savedOffset > 0 && _scrollController.hasClients) {
+        _scrollController.jumpTo(savedOffset);
+      }
+
+      // Add scroll listener to save scroll offset
+      _scrollController.addListener(() {
+        navProvider.saveScrollOffset(3, _scrollController.offset);
+      });
     });
-    
+
     if (widget.seriesItem != null) {
       _loadSeriesDetails();
     } else {
@@ -78,6 +90,7 @@ class _TvSeriesListScreenState extends State<TvSeriesListScreen> {
   void dispose() {
     _heroBannerController.dispose();
     _heroBannerTimer?.cancel();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -204,21 +217,24 @@ class _TvSeriesListScreenState extends State<TvSeriesListScreen> {
           },
           autofocus: true,
           child: CustomScrollView(
+            controller: _scrollController,
             slivers: [
-            _buildAppBar(),
-            if (isLoading)
-              SliverToBoxAdapter(child: _buildLoadingIndicator())
-            else ...[
-              if (trendingSeries.isNotEmpty) _buildHeroBannerSection(),
-              _buildSection('Trending TV Shows', trendingSeries),
-              _buildSection('Popular TV Shows', popularSeries),
-              _buildSection('Top Rated TV Shows', topRatedSeries),
-              SliverToBoxAdapter(
-                child: SizedBox(height: TvUtils.responsivePadding(48, context)),
-              ),
+              _buildAppBar(),
+              if (isLoading)
+                SliverToBoxAdapter(child: _buildLoadingIndicator())
+              else ...[
+                if (trendingSeries.isNotEmpty) _buildHeroBannerSection(),
+                _buildSection('Trending TV Shows', trendingSeries),
+                _buildSection('Popular TV Shows', popularSeries),
+                _buildSection('Top Rated TV Shows', topRatedSeries),
+                SliverToBoxAdapter(
+                  child: SizedBox(
+                    height: TvUtils.responsivePadding(48, context),
+                  ),
+                ),
+              ],
             ],
-          ],
-        ),
+          ),
         ),
       ),
     );
@@ -624,11 +640,15 @@ class _TvSeriesListScreenState extends State<TvSeriesListScreen> {
               height: 320,
               child: Focus(
                 onKey: (node, event) {
-                   if (event.isKeyPressed(LogicalKeyboardKey.arrowLeft)) {
-                     // Return to sidebar at leftmost
-                     context.read<TvNavigationProvider>().setFocusOnSidebar(true);
-                     return KeyEventResult.handled;
-                  } else if (event.isKeyPressed(LogicalKeyboardKey.arrowRight)) {
+                  if (event.isKeyPressed(LogicalKeyboardKey.arrowLeft)) {
+                    // Return to sidebar at leftmost
+                    context.read<TvNavigationProvider>().setFocusOnSidebar(
+                      true,
+                    );
+                    return KeyEventResult.handled;
+                  } else if (event.isKeyPressed(
+                    LogicalKeyboardKey.arrowRight,
+                  )) {
                     node.nextFocus();
                     return KeyEventResult.handled;
                   }
@@ -651,8 +671,9 @@ class _TvSeriesListScreenState extends State<TvSeriesListScreen> {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (context) =>
-                                TvSeriesScreen(seriesItem: Movie.fromJson(item)),
+                            builder: (context) => TvSeriesScreen(
+                              seriesItem: Movie.fromJson(item),
+                            ),
                           ),
                         );
                       },
@@ -764,9 +785,7 @@ class _SeriesCarouselItemFocusState extends State<_SeriesCarouselItemFocus> {
   @override
   void initState() {
     super.initState();
-    _focusNode = FocusNode(
-      onKey: (node, event) => _handleKeyEvent(event),
-    );
+    _focusNode = FocusNode(onKey: (node, event) => _handleKeyEvent(event));
   }
 
   @override
@@ -820,9 +839,9 @@ class _SeriesCarouselItemFocusState extends State<_SeriesCarouselItemFocus> {
           ),
           child: widget.child,
         ),
-        ),
-        );
-        }
+      ),
+    );
+  }
 }
 
 class _TvSeriesFullListScreen extends StatefulWidget {
