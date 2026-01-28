@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
 import 'package:chewie/chewie.dart';
+import 'package:provider/provider.dart';
+import '../providers/tv_navigation_provider.dart';
 import '../utils/tv_utils.dart';
 import '../utils/tv_typography.dart';
 import '../../services/watch_history_service.dart';
@@ -182,6 +184,12 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
     super.dispose();
   }
 
+  void _handleBackNavigation() {
+    // Mark leaving deep navigation
+    context.read<TvNavigationProvider>().setDeepNavigating(false);
+    Navigator.pop(context);
+  }
+
   @override
   Widget build(BuildContext context) {
     return PopScope(
@@ -189,13 +197,23 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
       onPopInvoked: (didPop) {
         if (didPop) {
           _chewieController?.pause();
+          context.read<TvNavigationProvider>().setDeepNavigating(false);
         }
       },
-      child: Scaffold(
-        backgroundColor: Colors.black,
-        body: _chewieController != null
-            ? _buildVideoPlayer()
-            : _buildLoadingOrError(),
+      child: KeyboardListener(
+        onKeyEvent: (event) {
+          if (event.logicalKey == LogicalKeyboardKey.escape ||
+              event.logicalKey == LogicalKeyboardKey.goBack) {
+            _handleBackNavigation();
+          }
+        },
+        focusNode: FocusNode(),
+        child: Scaffold(
+          backgroundColor: Colors.black,
+          body: _chewieController != null
+              ? _buildVideoPlayer()
+              : _buildLoadingOrError(),
+        ),
       ),
     );
   }
@@ -209,7 +227,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
             top: 16,
             left: 16,
             child: GestureDetector(
-              onTap: () => Navigator.pop(context),
+              onTap: _handleBackNavigation,
               child: Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
@@ -283,7 +301,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
                     ),
-                  ),  // TODO: Use TvTypography
+                  ),
                 ),
               ],
             ),

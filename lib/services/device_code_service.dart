@@ -23,23 +23,48 @@ class DeviceCodeService {
       final expiresAt = DateTime.now().add(const Duration(minutes: 15));
       
       print('Writing to Firestore collection: device_codes');
-      await _firestore.collection('device_codes').doc(code).set({
-        'code': code,
-        'userId': user.uid,
-        'email': user.email,
-        'displayName': user.displayName,
-        'createdAt': FieldValue.serverTimestamp(),
-        'expiresAt': Timestamp.fromDate(expiresAt),
-        'isUsed': false,
-      }).timeout(
-        const Duration(seconds: 10),
-        onTimeout: () {
-          throw TimeoutException('Firestore write operation timed out after 10 seconds');
-        },
-      );
-
-      print('Successfully saved device code: $code');
-      return code;
+      
+      // Use exponential backoff retry logic
+      int retryCount = 0;
+      const maxRetries = 3;
+      const baseDelay = Duration(milliseconds: 500);
+      
+      while (retryCount < maxRetries) {
+        try {
+          await _firestore.collection('device_codes').doc(code).set({
+            'code': code,
+            'userId': user.uid,
+            'email': user.email,
+            'displayName': user.displayName,
+            'createdAt': FieldValue.serverTimestamp(),
+            'expiresAt': Timestamp.fromDate(expiresAt),
+            'isUsed': false,
+          }).timeout(
+            const Duration(seconds: 30), // Increased from 10 to 30 seconds
+            onTimeout: () {
+              throw TimeoutException('Firestore write operation timed out after 30 seconds');
+            },
+          );
+          
+          print('Successfully saved device code: $code');
+          return code;
+        } on TimeoutException {
+          retryCount++;
+          if (retryCount < maxRetries) {
+            final delay = baseDelay * (1 << (retryCount - 1)); // Exponential backoff
+            print('Timeout on attempt $retryCount, retrying in ${delay.inMilliseconds}ms...');
+            await Future.delayed(delay);
+          } else {
+            print('Max retries reached. Failed to save device code.');
+            throw TimeoutException('Failed to generate pairing code after $maxRetries attempts. Please check your internet connection and try again.');
+          }
+        }
+      }
+      
+      throw Exception('Failed to generate device code');
+    } on TimeoutException catch (e) {
+      print('Timeout error: $e');
+      throw Exception(e.toString());
     } on FirebaseException catch (e) {
       print('Firebase error generating device code: ${e.code} - ${e.message}');
       throw Exception('Firebase error: ${e.message}');

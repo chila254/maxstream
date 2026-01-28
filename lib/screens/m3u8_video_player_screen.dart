@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
-import 'package:dio/dio.dart';
 import 'package:video_player/video_player.dart';
 import 'package:chewie/chewie.dart';
-import '../services/m3u8_service.dart';
+import '../services/phone_scraper_service.dart';
 
 class M3U8VideoPlayerScreen extends StatefulWidget {
   final String title;
@@ -31,8 +30,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   bool _isLoading = true;
   String? _error;
   Map<String, dynamic>? _streamData;
-  int _currentServerIndex = 0;
-  List<Map<String, dynamic>> _triedServers = [];
+  final List<Map<String, dynamic>> _triedServers = [];
 
   // Native player variables
   VideoPlayerController? _videoPlayerController;
@@ -137,89 +135,155 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   }
 
   Future<void> _tryNextServer() async {
-    // Get all available servers
-    final servers = EmbeddedVideoService.getServers();
+    // List of embed providers for movies/series (not TV channels)
+    final embedProviders = [
+      {'name': 'VidSrc', 'url': _generateVidSrcUrl(), 'type': 'embed'},
+      {'name': '2Embed', 'url': _generate2EmbedUrl(), 'type': 'embed'},
+      {'name': 'FlixHQ', 'url': _generateFlixHQUrl(), 'type': 'embed'},
+      {
+        'name': 'Remotestream',
+        'url': _generateRemotestreamUrl(),
+        'type': 'embed',
+      },
+    ];
 
-    // Skip servers we've already tried
-    while (_currentServerIndex < servers.length) {
-      final server = servers[_currentServerIndex];
-      _currentServerIndex++;
-
-      // Check if we already tried this server
-      if (_triedServers.any((tried) => tried['name'] == server['name'])) {
+    // Try each provider
+    for (final provider in embedProviders) {
+      // Check if we already tried this provider
+      if (_triedServers.any((tried) => tried['name'] == provider['name'])) {
         continue;
       }
 
       try {
-        debugPrint('Trying server: ${server['name']}');
+        debugPrint('Trying source: ${provider['name']}');
+        final embedUrl = provider['url'] as String;
 
-        final embedUrl = EmbeddedVideoService.buildEmbedUrl(
-          server['baseUrl']!,
-          widget.tmdbId,
-          widget.season,
-          widget.episode,
-          widget.isMovie,
-        );
+        if (embedUrl.isEmpty) {
+          debugPrint('Skipping ${provider['name']} - invalid URL');
+          _triedServers.add(provider);
+          continue;
+        }
 
-        // Quick check if server responds
-        final dio = EmbeddedVideoService.getDioClient();
-        final response = await dio
-            .head(embedUrl)
-            .timeout(
-              const Duration(seconds: 10),
-              onTimeout: () {
-                throw DioException(
-                  requestOptions: RequestOptions(path: embedUrl),
-                  message: 'Connection timeout',
-                  type: DioExceptionType.connectionTimeout,
-                );
-              },
-            );
+        // Quick check if embed URL responds
+        try {
+          final statusCode = await PhoneScraperService.getUrlStatus(
+            embedUrl,
+            timeout: const Duration(seconds: 10),
+          );
 
-        if (response.statusCode == 200 || response.statusCode == 403) {
-          _streamData = {
-            'embedUrl': embedUrl,
-            'title': 'Video Content',
-            'quality': 'HD',
-            'source': server['name'],
-            'type': 'embed',
-            'isPlayable': true,
-          };
+          if (statusCode != null &&
+              (statusCode == 200 ||
+                  statusCode == 403 ||
+                  statusCode == 301 ||
+                  statusCode == 302)) {
+            _streamData = {
+              'embedUrl': embedUrl,
+              'title': widget.title,
+              'quality': 'HD',
+              'source': provider['name'],
+              'type': 'embed',
+              'isPlayable': true,
+            };
 
-          _triedServers.add(server);
+            _triedServers.add(provider);
 
-          // Load the embed URL in WebView
-          try {
-            await _webViewController.loadRequest(Uri.parse(embedUrl));
-          } catch (e) {
-            debugPrint('Error loading request into WebView: $e');
-          }
-
-          // Set a timeout to ensure loading indicator disappears even if onPageFinished never fires
-          Future.delayed(const Duration(seconds: 15), () {
-            if (mounted && _isLoading) {
-              debugPrint('Loading timeout - hiding loading indicator');
-              setState(() {
-                _isLoading = false;
-              });
+            // Load the embed URL in WebView
+            try {
+              await _webViewController.loadRequest(Uri.parse(embedUrl));
+            } catch (e) {
+              debugPrint('Error loading request into WebView: $e');
             }
-          });
 
-          debugPrint('Successfully loaded embed from ${server['name']}');
-          return;
+            // Set a timeout to ensure loading indicator disappears even if onPageFinished never fires
+            Future.delayed(const Duration(seconds: 20), () {
+              if (mounted && _isLoading) {
+                debugPrint('Loading timeout - hiding loading indicator');
+                setState(() {
+                  _isLoading = false;
+                });
+              }
+            });
+
+            debugPrint('Successfully loaded embed from ${provider['name']}');
+            return;
+          }
+        } catch (e) {
+          debugPrint('Provider ${provider['name']} health check failed: $e');
+          _triedServers.add(provider);
+          continue;
         }
       } catch (e) {
-        debugPrint('Server ${server['name']} failed: $e');
-        _triedServers.add(server);
+        debugPrint('Provider ${provider['name']} failed: $e');
+        _triedServers.add(provider);
         continue;
       }
     }
 
-    // No servers worked
+    // No sources worked
     setState(() {
-      _error = 'No working embedded video servers found';
+      _error =
+          'No working streaming sources found. Please check:\n'
+          '• Internet connection\n'
+          '• Try again later\n'
+          '• Content might be unavailable';
       _isLoading = false;
     });
+  }
+
+  /// Generate VidSrc embed URL
+  String _generateVidSrcUrl() {
+    try {
+      if (widget.isMovie) {
+        return 'https://vidsrc.me/embed/movie?imdb_id=${widget.tmdbId}';
+      } else {
+        return 'https://vidsrc.me/embed/tv?imdb_id=${widget.tmdbId}&season=${widget.season}&episode=${widget.episode}';
+      }
+    } catch (e) {
+      debugPrint('Error generating VidSrc URL: $e');
+      return '';
+    }
+  }
+
+  /// Generate 2Embed URL
+  String _generate2EmbedUrl() {
+    try {
+      if (widget.isMovie) {
+        return 'https://www.2embed.cc/embed/${widget.tmdbId}';
+      } else {
+        return 'https://www.2embed.cc/embedtv/${widget.tmdbId}&s=${widget.season}&e=${widget.episode}';
+      }
+    } catch (e) {
+      debugPrint('Error generating 2Embed URL: $e');
+      return '';
+    }
+  }
+
+  /// Generate FlixHQ URL
+  String _generateFlixHQUrl() {
+    try {
+      if (widget.isMovie) {
+        return 'https://flixhq.click/watch/movie/${widget.tmdbId}';
+      } else {
+        return 'https://flixhq.click/watch/tv/${widget.tmdbId}-${widget.season}-${widget.episode}';
+      }
+    } catch (e) {
+      debugPrint('Error generating FlixHQ URL: $e');
+      return '';
+    }
+  }
+
+  /// Generate Remotestream URL
+  String _generateRemotestreamUrl() {
+    try {
+      if (widget.isMovie) {
+        return 'https://remotestream.click/embed/movie?id=${widget.tmdbId}';
+      } else {
+        return 'https://remotestream.click/embed/tv?id=${widget.tmdbId}&s=${widget.season}&e=${widget.episode}';
+      }
+    } catch (e) {
+      debugPrint('Error generating Remotestream URL: $e');
+      return '';
+    }
   }
 
   // Ad blocking methods
@@ -547,7 +611,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
             const scripts = document.querySelectorAll('script');
             for (let script of scripts) {
               const content = script.innerHTML;
-              const m3u8Match = content.match(/https?:\/\/[^"']*\.m3u8[^"']*/);
+              const m3u8Match = content.match(/https?:\\/\\/[^"']*\\.m3u8[^"']*/);
               if (m3u8Match) {
                 return m3u8Match[0];
               }

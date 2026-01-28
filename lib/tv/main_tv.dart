@@ -4,7 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../firebase_options.dart';
 import 'screens/tv_splash_screen.dart';
 import 'screens/tv_login_screen.dart';
-import 'screens/tv_main_screen_netflix.dart';
+import 'screens/tv_maxstream_main.dart';
 import '../services/notification_service.dart';
 
 void main() async {
@@ -74,7 +74,7 @@ class TvAuthGate extends StatelessWidget {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const TvSplashScreen();
         } else if (snapshot.hasData) {
-          return const TvMainScreenNetflix(); // signed in
+          return const TvMaxStreamMain(); // signed in
         } else {
           return const TvLoginScreen(); // not signed in
         }

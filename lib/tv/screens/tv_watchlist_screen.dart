@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
 import '../../database/db_helper.dart';
 import '../../models/movie.dart';
+import '../../services/logger_service.dart';
+import '../providers/tv_navigation_provider.dart';
 import '../utils/tv_utils.dart';
 import '../utils/tv_typography.dart';
-import '../utils/tv_dpad_navigation_mixin.dart';
+import '../utils/tv_focus_manager.dart';
+import '../utils/tv_navigation_handler.dart';
 import '../widgets/tv_dark_mode_polish.dart';
 import '../widgets/tv_content_card.dart';
 import 'tv_details_screen.dart';
@@ -20,19 +24,23 @@ class TvWatchlistScreen extends StatefulWidget {
 }
 
 class _TvWatchlistScreenState extends State<TvWatchlistScreen>
-    with SingleTickerProviderStateMixin, TvDpadNavigationMixin {
+    with SingleTickerProviderStateMixin {
   List<Movie> watchlistItems = [];
   List<Movie> movies = [];
   List<Movie> series = [];
   bool isLoading = true;
   late TabController _tabController;
-  int? _focusedItemIndex;
-  static const int _columnsPerRow = 4;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+    
+    // Integrate with navigation provider
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<TvNavigationProvider>();
+    });
+    
     _loadWatchlist();
   }
 
@@ -40,123 +48,6 @@ class _TvWatchlistScreenState extends State<TvWatchlistScreen>
   void dispose() {
     _tabController.dispose();
     super.dispose();
-  }
-
-  // D-Pad Navigation Implementation
-  @override
-  int get maxFocusIndex {
-    if (movies.isEmpty && series.isEmpty) return 0;
-    final currentList = _tabController.index == 0
-        ? watchlistItems
-        : _tabController.index == 1
-        ? movies
-        : series;
-    return currentList.isEmpty ? 0 : currentList.length - 1;
-  }
-
-  @override
-  void onFocusChanged(int index) {
-    setState(() => _focusedItemIndex = index);
-  }
-
-  @override
-  void onSelectPressed() {
-    if (_focusedItemIndex != null) {
-      final currentList = _tabController.index == 0
-          ? watchlistItems
-          : _tabController.index == 1
-          ? movies
-          : series;
-      if (_focusedItemIndex! < currentList.length) {
-        final item = currentList[_focusedItemIndex!];
-        if (item.mediaType == 'tv') {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => TvSeriesScreen(seriesItem: item),
-            ),
-          );
-        } else {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) =>
-                  TvDetailsScreen(item: item, mediaType: 'movie'),
-            ),
-          );
-        }
-      }
-    }
-  }
-
-  @override
-  void onLeftPressed() {
-    if (_focusedItemIndex != null) {
-      if (_focusedItemIndex! > 0 && _focusedItemIndex! % _columnsPerRow != 0) {
-        // Navigate left within grid (not at row start)
-        setState(() => _focusedItemIndex = _focusedItemIndex! - 1);
-        onFocusChanged(_focusedItemIndex!);
-      } else if (_focusedItemIndex! % _columnsPerRow == 0 &&
-          widget.onReturnToSidebar != null) {
-        // At leftmost column: return to sidebar
-        widget.onReturnToSidebar!();
-      }
-    }
-  }
-
-  @override
-  void onRightPressed() {
-    if (_focusedItemIndex != null) {
-      final currentList = _tabController.index == 0
-          ? watchlistItems
-          : _tabController.index == 1
-          ? movies
-          : series;
-      if (_focusedItemIndex! + 1 < currentList.length &&
-          (_focusedItemIndex! + 1) % _columnsPerRow != 0) {
-        setState(() => _focusedItemIndex = _focusedItemIndex! + 1);
-        onFocusChanged(_focusedItemIndex!);
-      }
-    }
-  }
-
-  @override
-  void handleKeyEvent(RawKeyEvent event) {
-    if (event.isKeyPressed(LogicalKeyboardKey.arrowDown)) {
-      _moveDown();
-    } else if (event.isKeyPressed(LogicalKeyboardKey.arrowUp)) {
-      _moveUp();
-    } else if (event.isKeyPressed(LogicalKeyboardKey.arrowLeft)) {
-      onLeftPressed();
-    } else if (event.isKeyPressed(LogicalKeyboardKey.arrowRight)) {
-      onRightPressed();
-    } else if (event.isKeyPressed(LogicalKeyboardKey.select) ||
-        event.isKeyPressed(LogicalKeyboardKey.enter)) {
-      onSelectPressed();
-    }
-  }
-
-  void _moveDown() {
-    if (_focusedItemIndex == null) return;
-    int newIndex = _focusedItemIndex! + _columnsPerRow;
-    final currentList = _tabController.index == 0
-        ? watchlistItems
-        : _tabController.index == 1
-        ? movies
-        : series;
-    if (newIndex < currentList.length) {
-      setState(() => _focusedItemIndex = newIndex);
-      onFocusChanged(newIndex);
-    }
-  }
-
-  void _moveUp() {
-    if (_focusedItemIndex == null) return;
-    int newIndex = _focusedItemIndex! - _columnsPerRow;
-    if (newIndex >= 0) {
-      setState(() => _focusedItemIndex = newIndex);
-      onFocusChanged(newIndex);
-    }
   }
 
   Future<void> _loadWatchlist() async {
@@ -168,12 +59,10 @@ class _TvWatchlistScreenState extends State<TvWatchlistScreen>
         movies = items.where((item) => item.mediaType != 'tv').toList();
         series = items.where((item) => item.mediaType == 'tv').toList();
         // Set initial focus to first item in watchlist
-        if (watchlistItems.isNotEmpty) {
-          _focusedItemIndex = 0;
-        }
+        if (watchlistItems.isNotEmpty) {}
       });
     } catch (e) {
-      print('Error loading watchlist: $e');
+      LoggerService.error('Error loading watchlist: $e', e);
     } finally {
       setState(() => isLoading = false);
     }
@@ -206,27 +95,30 @@ class _TvWatchlistScreenState extends State<TvWatchlistScreen>
         );
       }
     } catch (e) {
-      print('Error removing from watchlist: $e');
+      LoggerService.error('Error removing from watchlist: $e', e);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return RawKeyboardListener(
-      onKey: handleKeyEvent,
-      focusNode: focusNode,
-      child: DarkModeBackground(
-        child: Scaffold(
-          backgroundColor: Colors.transparent,
-          appBar: PreferredSize(
-            preferredSize: const Size.fromHeight(56),
-            child: AppBar(
-              backgroundColor: Colors.transparent,
-              elevation: 0,
-              title: const SizedBox(),
-              bottom: TabBar(
+    return DarkModeBackground(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        body: Focus(
+          onKey: (node, event) {
+            if (event.isKeyPressed(LogicalKeyboardKey.arrowLeft)) {
+              context.read<TvNavigationProvider>().setFocusOnSidebar(true);
+              return KeyEventResult.handled;
+            }
+            return KeyEventResult.ignored;
+          },
+          autofocus: true,
+          child: Column(
+            children: [
+              // Tab Bar
+              TabBar(
                 controller: _tabController,
-                indicatorColor: Colors.red,
+                indicatorColor: const Color(0xFFE50914),
                 labelColor: Colors.white,
                 unselectedLabelColor: Colors.grey,
                 tabs: [
@@ -253,26 +145,29 @@ class _TvWatchlistScreenState extends State<TvWatchlistScreen>
                   ),
                 ],
               ),
-            ),
+              // Tab Content
+              Expanded(
+                child: isLoading
+                    ? const Center(
+                        child: CircularProgressIndicator(color: Colors.red),
+                      )
+                    : TabBarView(
+                        controller: _tabController,
+                        children: [
+                          watchlistItems.isEmpty
+                              ? _buildEmptyState()
+                              : _buildWatchlistGrid(watchlistItems),
+                          movies.isEmpty
+                              ? _buildEmptyState()
+                              : _buildWatchlistGrid(movies),
+                          series.isEmpty
+                              ? _buildEmptyState()
+                              : _buildWatchlistGrid(series),
+                        ],
+                      ),
+              ),
+            ],
           ),
-          body: isLoading
-              ? const Center(
-                  child: CircularProgressIndicator(color: Colors.red),
-                )
-              : TabBarView(
-                  controller: _tabController,
-                  children: [
-                    watchlistItems.isEmpty
-                        ? _buildEmptyState()
-                        : _buildWatchlistGrid(watchlistItems),
-                    movies.isEmpty
-                        ? _buildEmptyState()
-                        : _buildWatchlistGrid(movies),
-                    series.isEmpty
-                        ? _buildEmptyState()
-                        : _buildWatchlistGrid(series),
-                  ],
-                ),
         ),
       ),
     );
@@ -312,24 +207,33 @@ class _TvWatchlistScreenState extends State<TvWatchlistScreen>
   }
 
   Widget _buildWatchlistGrid(List<Movie> items) {
-    return GridView.builder(
-      padding: EdgeInsets.all(TvUtils.responsivePadding(24, context)),
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 6,
-        childAspectRatio: 0.6,
-        crossAxisSpacing: TvUtils.responsivePadding(16, context),
-        mainAxisSpacing: TvUtils.responsivePadding(16, context),
-      ),
-      itemCount: items.length,
+    return _WatchlistGridFocus(
+      items: items,
+      itemsPerRow: 6,
+      onItemSelected: (index) {
+        if (!mounted) return;
+        final item = items[index];
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => item.mediaType == 'tv'
+                ? TvSeriesScreen(seriesItem: item)
+                : TvDetailsScreen(item: item, mediaType: item.mediaType),
+          ),
+        );
+      },
+      onReturnToSidebar: () {
+        context.read<TvNavigationProvider>().setFocusOnSidebar(true);
+      },
       itemBuilder: (context, index) {
         final item = items[index];
-        final isFocused = _focusedItemIndex == index;
-        return _buildWatchlistItem(item, isFocused: isFocused);
+        return _buildWatchlistItem(item);
       },
+      onRemoveItem: (index) => _removeFromWatchlist(items[index]),
     );
   }
 
-  Widget _buildWatchlistItem(Movie item, {bool isFocused = false}) {
+  Widget _buildWatchlistItem(Movie item) {
     final contentType = item.mediaType == 'tv'
         ? ContentType.series
         : ContentType.movie;
@@ -342,7 +246,6 @@ class _TvWatchlistScreenState extends State<TvWatchlistScreen>
           contentType: contentType,
           rating: item.rating > 0 ? item.rating : null,
           year: item.year.isNotEmpty ? int.tryParse(item.year) : null,
-          isFocused: isFocused,
           onTap: () {
             if (!mounted) return;
             Navigator.push(
@@ -362,10 +265,11 @@ class _TvWatchlistScreenState extends State<TvWatchlistScreen>
           right: 8,
           child: GestureDetector(
             onTap: () => _removeFromWatchlist(item),
+            behavior: HitTestBehavior.opaque,
             child: Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.7),
+                color: Colors.black.withValues(alpha: 0.7),
                 borderRadius: BorderRadius.circular(20),
               ),
               child: const Icon(Icons.close, color: Colors.white, size: 24),
@@ -373,6 +277,166 @@ class _TvWatchlistScreenState extends State<TvWatchlistScreen>
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Grid focus handler for watchlist with D-pad navigation
+class _WatchlistGridFocus extends StatefulWidget {
+  final List<Movie> items;
+  final int itemsPerRow;
+  final Function(int) onItemSelected;
+  final VoidCallback onReturnToSidebar;
+  final Widget Function(BuildContext, int) itemBuilder;
+  final Function(int) onRemoveItem;
+
+  const _WatchlistGridFocus({
+    required this.items,
+    required this.itemsPerRow,
+    required this.onItemSelected,
+    required this.onReturnToSidebar,
+    required this.itemBuilder,
+    required this.onRemoveItem,
+  });
+
+  @override
+  State<_WatchlistGridFocus> createState() => _WatchlistGridFocusState();
+}
+
+class _WatchlistGridFocusState extends State<_WatchlistGridFocus> {
+  late int _focusedIndex;
+  late List<FocusNode> _focusNodes;
+  late ScrollController _scrollController;
+
+  @override
+  void initState() {
+    super.initState();
+    _focusedIndex = 0;
+    _scrollController = ScrollController();
+    
+    _focusNodes = List.generate(
+      widget.items.length,
+      (index) => FocusNode(
+        onKey: (node, event) => _handleItemKeyEvent(event, index),
+      ),
+    );
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_focusNodes.isNotEmpty) {
+        _focusNodes[0].requestFocus();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    for (var node in _focusNodes) {
+      node.dispose();
+    }
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  KeyEventResult _handleItemKeyEvent(RawKeyEvent event, int index) {
+    if (event is! RawKeyDownEvent) return KeyEventResult.ignored;
+
+    final currentCol = index % widget.itemsPerRow;
+
+    if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+      if (TvNavigation.isAtLeftBoundary(index, itemsPerRow: widget.itemsPerRow)) {
+        TvFocusManager.focusSidebar();
+        widget.onReturnToSidebar();
+        return KeyEventResult.handled;
+      } else {
+        final prevIndex = index - 1;
+        _focusNodes[prevIndex].requestFocus();
+        return KeyEventResult.handled;
+      }
+    } else if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+      if (index < widget.items.length - 1 && currentCol < widget.itemsPerRow - 1) {
+        final nextIndex = index + 1;
+        _focusNodes[nextIndex].requestFocus();
+        return KeyEventResult.handled;
+      }
+    } else if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+      final nextIndex = index + widget.itemsPerRow;
+      if (nextIndex < widget.items.length) {
+        _focusNodes[nextIndex].requestFocus();
+        return KeyEventResult.handled;
+      }
+    } else if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+      final prevIndex = index - widget.itemsPerRow;
+      if (prevIndex >= 0) {
+        _focusNodes[prevIndex].requestFocus();
+        return KeyEventResult.handled;
+      }
+    } else if (event.logicalKey == LogicalKeyboardKey.select) {
+      widget.onItemSelected(index);
+      return KeyEventResult.handled;
+    }
+
+    return KeyEventResult.ignored;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GridView.builder(
+      controller: _scrollController,
+      padding: EdgeInsets.all(TvUtils.responsivePadding(24, context)),
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: widget.itemsPerRow,
+        childAspectRatio: 0.6,
+        crossAxisSpacing: TvUtils.responsivePadding(16, context),
+        mainAxisSpacing: TvUtils.responsivePadding(16, context),
+      ),
+      itemCount: widget.items.length,
+      itemBuilder: (context, index) {
+        final isFocused = _focusedIndex == index;
+        
+        return Focus(
+          focusNode: _focusNodes[index],
+          onFocusChange: (hasFocus) {
+            if (hasFocus) {
+              setState(() => _focusedIndex = index);
+            }
+          },
+          child: AnimatedScale(
+            scale: isFocused ? 1.05 : 1.0,
+            duration: const Duration(milliseconds: 150),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              decoration: BoxDecoration(
+                border: Border.all(
+                  color: isFocused ? const Color(0xFFE50914) : Colors.transparent,
+                  width: 3,
+                ),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Stack(
+                children: [
+                  widget.itemBuilder(context, index),
+                  Positioned(
+                    top: 8,
+                    right: 8,
+                    child: GestureDetector(
+                      onTap: () => widget.onRemoveItem(index),
+                      behavior: HitTestBehavior.opaque,
+                      child: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.7),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: const Icon(Icons.close, color: Colors.white, size: 24),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }

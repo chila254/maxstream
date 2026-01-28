@@ -1,10 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
 import '../../models/movie.dart';
+import '../providers/tv_navigation_provider.dart';
 import '../widgets/tv_keyboard.dart';
 import '../../widgets/custom_loading_widget.dart';
 import '../utils/tv_typography.dart';
 import '../utils/tv_utils.dart';
-import '../utils/tv_dpad_navigation_mixin.dart';
+import '../utils/tv_keyboard_focus_manager.dart';
+import '../utils/tv_focus_manager.dart';
+import '../utils/tv_navigation_handler.dart';
 import '../../services/tmdb_api_service.dart';
 import '../widgets/tv_dark_mode_polish.dart';
 import '../widgets/tv_content_card.dart';
@@ -20,79 +25,75 @@ class TvSearchScreen extends StatefulWidget {
   State<TvSearchScreen> createState() => _TvSearchScreenState();
 }
 
-class _TvSearchScreenState extends State<TvSearchScreen>
-    with TvDpadNavigationMixin {
+class _TvSearchScreenState extends State<TvSearchScreen> {
   String _searchQuery = '';
   List<Map<String, dynamic>> _searchResults = [];
+  List<Map<String, dynamic>> _movieResults = [];
+  List<Map<String, dynamic>> _seriesResults = [];
   List<Map<String, dynamic>> _trendingResults = [];
   List<Map<String, dynamic>> _popularResults = [];
   List<Map<String, dynamic>> _topRatedResults = [];
   bool _isLoading = false;
   bool _showNoResults = false;
-  int? _focusedResultIndex;
-  bool _keyboardFocused = true;
-  static const int _columnsPerRow = 5;
+  late TvKeyboardFocusManager _focusManager;
+  late ScrollController _contentScrollController;
+  static const int _columnsPerRow = 4;
+  
+  // Three-zone focus management (Netflix-style)
+  late FocusNode _keyboardZoneFocusNode;
+  late FocusNode _resultsZoneFocusNode;
+  late List<FocusNode> _resultCardFocusNodes; // For individual cards
 
   @override
   void initState() {
     super.initState();
+    _focusManager = TvKeyboardFocusManager();
+    _contentScrollController = ScrollController();
+    _focusManager.activateKeyboard();
+    
+    // Initialize focus zones
+    _keyboardZoneFocusNode = FocusNode();
+    _resultsZoneFocusNode = FocusNode();
+    _resultCardFocusNodes = [];
+
+    // Set search focus in navigation provider
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<TvNavigationProvider>().setSearchFocused(true);
+      // Default focus to keyboard zone (Netflix pattern)
+      _keyboardZoneFocusNode.requestFocus();
+      
+      _contentScrollController.addListener(() {
+        context.read<TvNavigationProvider>().saveScrollOffset(
+          1,
+          _contentScrollController.offset,
+        );
+      });
+    });
+
     _loadRecommendations();
   }
 
-  // D-Pad Navigation Implementation
   @override
-  int get maxFocusIndex {
-    final items = _searchQuery.isNotEmpty
-        ? _searchResults
-        : [..._trendingResults, ..._popularResults, ..._topRatedResults];
-    return items.isEmpty ? 0 : items.length - 1;
-  }
-
-  @override
-  void onFocusChanged(int index) {
-    setState(() => _focusedResultIndex = index);
-  }
-
-  @override
-  void onSelectPressed() {
-    if (_focusedResultIndex != null) {
-      final items = _searchQuery.isNotEmpty
-          ? _searchResults
-          : [..._trendingResults, ..._popularResults, ..._topRatedResults];
-      if (_focusedResultIndex! < items.length) {
-        _navigateToContent(items[_focusedResultIndex!]);
-      }
+  void dispose() {
+    _focusManager.dispose();
+    _contentScrollController.dispose();
+    _keyboardZoneFocusNode.dispose();
+    _resultsZoneFocusNode.dispose();
+    for (var node in _resultCardFocusNodes) {
+      node.dispose();
     }
+    super.dispose();
   }
-
-  @override
-  void onLeftPressed() {
-    if (_keyboardFocused) {
-      // If keyboard is focused and at leftmost position, return to sidebar
-      if (widget.onReturnToSidebar != null) {
-        widget.onReturnToSidebar!();
-      }
-    } else if (_focusedResultIndex != null) {
-      if (_focusedResultIndex! > 0 &&
-          _focusedResultIndex! % _columnsPerRow != 0) {
-        setFocusIndex(_focusedResultIndex! - 1);
-      } else if (_focusedResultIndex! % _columnsPerRow == 0 &&
-          widget.onReturnToSidebar != null) {
-        widget.onReturnToSidebar!();
-      }
-    }
-  }
-
-  @override
-  void onRightPressed() {
-    if (_focusedResultIndex != null) {
-      final items = _searchQuery.isNotEmpty
-          ? _searchResults
-          : [..._trendingResults, ..._popularResults, ..._topRatedResults];
-      if (_focusedResultIndex! + 1 < items.length &&
-          (_focusedResultIndex! + 1) % _columnsPerRow != 0) {
-        setFocusIndex(_focusedResultIndex! + 1);
-      }
+  
+  /// Ensure result focus nodes exist for dynamic content
+  void _ensureResultFocusNodes(int count) {
+    while (_resultCardFocusNodes.length < count) {
+      final index = _resultCardFocusNodes.length;
+      _resultCardFocusNodes.add(
+        FocusNode(
+          onKey: (node, event) => _handleResultCardKey(event, index),
+        ),
+      );
     }
   }
 
@@ -106,10 +107,9 @@ class _TvSearchScreenState extends State<TvSearchScreen>
 
       if (mounted) {
         setState(() {
-          // Split 25 total items across 3 categories: 9 + 8 + 8
-          _trendingResults = results[0].take(9).toList();
-          _popularResults = results[1].take(8).toList();
-          _topRatedResults = results[2].take(8).toList();
+          _trendingResults = results[0].take(12).toList();
+          _popularResults = results[1].take(12).toList();
+          _topRatedResults = results[2].take(12).toList();
         });
       }
     } catch (e) {
@@ -124,7 +124,11 @@ class _TvSearchScreenState extends State<TvSearchScreen>
     });
 
     if (query.isEmpty) {
-      setState(() => _searchResults = []);
+      setState(() {
+        _searchResults = [];
+        _movieResults = [];
+        _seriesResults = [];
+      });
       return;
     }
 
@@ -133,17 +137,19 @@ class _TvSearchScreenState extends State<TvSearchScreen>
     try {
       final results = await TmdbApiService.searchAll(query);
       if (mounted) {
-        // Filter to only movies and series, exclude people
-        final filtered = results
-            .where(
-              (item) =>
-                  item['media_type'] == 'movie' || item['media_type'] == 'tv',
-            )
+        // Separate movies and series
+        final movies = results
+            .where((item) => item['media_type'] == 'movie')
+            .toList();
+        final series = results
+            .where((item) => item['media_type'] == 'tv')
             .toList();
 
         setState(() {
-          _searchResults = filtered;
-          _showNoResults = filtered.isEmpty;
+          _searchResults = [...movies, ...series];
+          _movieResults = movies;
+          _seriesResults = series;
+          _showNoResults = _searchResults.isEmpty;
           _isLoading = false;
         });
       }
@@ -161,6 +167,63 @@ class _TvSearchScreenState extends State<TvSearchScreen>
   void _submitSearch() {
     if (_searchQuery.isEmpty) return;
     Navigator.pop(context, _searchQuery);
+  }
+
+  /// Handle D-pad navigation within result cards
+  KeyEventResult _handleResultCardKey(RawKeyEvent event, int index) {
+    if (event is! RawKeyDownEvent) return KeyEventResult.ignored;
+
+    final currentResults = _searchQuery.isNotEmpty ? _movieResults : _trendingResults;
+    final currentCol = index % _columnsPerRow;
+
+    // LEFT: Move left or return to sidebar/keyboard
+    if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+      if (TvNavigation.isAtLeftBoundary(index, itemsPerRow: _columnsPerRow)) {
+        // At leftmost - return to sidebar
+        TvFocusManager.focusSidebar();
+        return KeyEventResult.handled;
+      }
+      // Move to previous card in row
+      if (index > 0) {
+        _resultCardFocusNodes[index - 1].requestFocus();
+        return KeyEventResult.handled;
+      }
+    }
+
+    // RIGHT: Move right
+    if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+      if (index < currentResults.length - 1 && 
+          currentCol < _columnsPerRow - 1) {
+        _resultCardFocusNodes[index + 1].requestFocus();
+        return KeyEventResult.handled;
+      }
+    }
+
+    // UP: Move to previous row
+    if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+      final upIndex = index - _columnsPerRow;
+      if (upIndex >= 0) {
+        _resultCardFocusNodes[upIndex].requestFocus();
+        return KeyEventResult.handled;
+      }
+    }
+
+    // DOWN: Move to next row
+    if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+      final downIndex = index + _columnsPerRow;
+      if (downIndex < currentResults.length) {
+        _resultCardFocusNodes[downIndex].requestFocus();
+        return KeyEventResult.handled;
+      }
+    }
+
+    // SELECT: Navigate to content
+    if (event.logicalKey == LogicalKeyboardKey.select) {
+      _navigateToContent(currentResults[index]);
+      return KeyEventResult.handled;
+    }
+
+    return KeyEventResult.ignored;
   }
 
   void _navigateToContent(Map<String, dynamic> item) {
@@ -190,26 +253,35 @@ class _TvSearchScreenState extends State<TvSearchScreen>
     return DarkModeBackground(
       child: Scaffold(
         backgroundColor: Colors.transparent,
-        appBar: PreferredSize(
-          preferredSize: const Size.fromHeight(56),
-          child: DarkModeAppBar(
-            title: '',
-            onBackPressed: null,
-          ),
-        ),
-        body: Column(
-          children: [
-            // Search Content
-            Expanded(
-              child: Row(
-                children: [
-                  // Left side: Keyboard - narrow and tall
-                  SizedBox(
-                    width: MediaQuery.of(context).size.width * 0.3,
+        body: Consumer<TvNavigationProvider>(
+          builder: (context, navProvider, _) {
+            return Row(
+              children: [
+                // ZONE 1: Sidebar (handled by main screen)
+                // Only shown when returning to sidebar - managed by parent
+                
+                // ZONE 2: Keyboard Panel (25% width)
+                Focus(
+                  focusNode: _keyboardZoneFocusNode,
+                  onKey: (node, event) {
+                    if (event.isKeyPressed(LogicalKeyboardKey.arrowRight)) {
+                      // Jump to results
+                      if (_resultCardFocusNodes.isNotEmpty) {
+                        _resultCardFocusNodes[0].requestFocus();
+                        return KeyEventResult.handled;
+                      }
+                    } else if (event.isKeyPressed(LogicalKeyboardKey.arrowLeft)) {
+                      // Return to sidebar
+                      navProvider.setFocusOnSidebar(true);
+                      return KeyEventResult.handled;
+                    }
+                    return KeyEventResult.ignored;
+                  },
+                  child: SizedBox(
+                    width: MediaQuery.of(context).size.width * 0.25,
                     child: Padding(
-                      padding: EdgeInsets.symmetric(
-                        horizontal: TvUtils.responsivePadding(12, context),
-                        vertical: TvUtils.responsivePadding(12, context),
+                      padding: EdgeInsets.all(
+                        TvUtils.responsivePadding(16, context),
                       ),
                       child: Container(
                         decoration: BoxDecoration(
@@ -218,52 +290,96 @@ class _TvSearchScreenState extends State<TvSearchScreen>
                             TvUtils.responsivePadding(12, context),
                           ),
                           border: Border.all(
-                            color: _keyboardFocused
+                            color: _keyboardZoneFocusNode.hasFocus
                                 ? Colors.white
                                 : Colors.grey.withValues(alpha: 0.3),
-                            width: _keyboardFocused ? 2 : 1.5,
+                            width: _keyboardZoneFocusNode.hasFocus ? 3 : 1.5,
                           ),
+                          boxShadow: _keyboardZoneFocusNode.hasFocus
+                              ? [
+                                  BoxShadow(
+                                    color: Colors.white.withValues(alpha: 0.2),
+                                    blurRadius: 12,
+                                  ),
+                                ]
+                              : [],
                         ),
                         padding: EdgeInsets.all(
-                          TvUtils.responsivePadding(12, context),
+                          TvUtils.responsivePadding(16, context),
                         ),
-                        child: GestureDetector(
-                          onTap: () => setState(() => _keyboardFocused = true),
+                        child: MouseRegion(
+                          onEnter: (_) {
+                            _keyboardZoneFocusNode.requestFocus();
+                          },
                           child: SingleChildScrollView(
                             child: TvKeyboard(
                               initialText: _searchQuery,
                               onInput: _performSearch,
                               onSubmit: _submitSearch,
+                              focusManager: _focusManager,
                             ),
                           ),
                         ),
                       ),
                     ),
                   ),
+                ),
 
-                  // Right side: Results section (6 columns)
-                  Expanded(
+                // ZONE 3: Results Panel (expanded)
+                Expanded(
+                  child: Focus(
+                    focusNode: _resultsZoneFocusNode,
+                    onKey: (node, event) {
+                      if (event.isKeyPressed(LogicalKeyboardKey.arrowUp)) {
+                        if (_contentScrollController.offset > 0) {
+                          _contentScrollController.animateTo(
+                            _contentScrollController.offset - 300,
+                            duration: const Duration(milliseconds: 300),
+                            curve: Curves.easeInOut,
+                          );
+                        }
+                        return KeyEventResult.handled;
+                      } else if (event.isKeyPressed(
+                        LogicalKeyboardKey.arrowDown,
+                      )) {
+                        if (_contentScrollController.offset <
+                            _contentScrollController
+                                .position
+                                .maxScrollExtent) {
+                          _contentScrollController.animateTo(
+                            _contentScrollController.offset + 300,
+                            duration: const Duration(milliseconds: 300),
+                            curve: Curves.easeInOut,
+                          );
+                        }
+                        return KeyEventResult.handled;
+                      }
+                      return KeyEventResult.ignored;
+                    },
                     child: Padding(
-                      padding: EdgeInsets.symmetric(
-                        horizontal: TvUtils.responsivePadding(24, context),
-                        vertical: TvUtils.responsivePadding(24, context),
+                      padding: EdgeInsets.all(
+                        TvUtils.responsivePadding(16, context),
                       ),
-                      child: GestureDetector(
-                        onTap: () => setState(() => _keyboardFocused = false),
-                        child: _buildResultsView(),
+                      child: MouseRegion(
+                        onEnter: (_) {
+                          if (_resultCardFocusNodes.isNotEmpty) {
+                            _resultCardFocusNodes[0].requestFocus();
+                          }
+                        },
+                        child: _buildResultsView(navProvider),
                       ),
                     ),
                   ),
-                ],
-              ),
-            ),
-          ],
+                ),
+              ],
+            );
+          },
         ),
       ),
     );
   }
 
-  Widget _buildResultsView() {
+  Widget _buildResultsView(TvNavigationProvider navProvider) {
     if (_isLoading) {
       return Center(
         child: Column(
@@ -293,47 +409,222 @@ class _TvSearchScreenState extends State<TvSearchScreen>
         );
       }
 
-      return GridView.builder(
-        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: _columnsPerRow,
-          childAspectRatio: 0.6,
-          crossAxisSpacing: TvUtils.responsivePadding(12, context),
-          mainAxisSpacing: TvUtils.responsivePadding(12, context),
-        ),
-        itemCount: _searchResults.length,
-        itemBuilder: (context, index) => _buildResultCard(
-          _searchResults[index],
-          isFocused: _focusedResultIndex == index,
-        ),
+      return CustomScrollView(
+        controller: _contentScrollController,
+        slivers: [
+          // Movies Section
+          if (_movieResults.isNotEmpty) ...[
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.only(
+                  bottom: TvUtils.responsivePadding(16, context),
+                ),
+                child: Text(
+                  'Movies (${_movieResults.length})',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: TvUtils.responsiveFontSize(
+                      18,
+                      context,
+                      maxSize: 24,
+                    ),
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+            SliverGrid(
+               gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                 crossAxisCount: _columnsPerRow,
+                 childAspectRatio: 0.6,
+                 crossAxisSpacing: TvUtils.responsivePadding(12, context),
+                 mainAxisSpacing: TvUtils.responsivePadding(12, context),
+               ),
+               delegate: SliverChildBuilderDelegate((context, index) {
+                 final item = _movieResults[index];
+                 // Ensure focus nodes exist
+                 _ensureResultFocusNodes(_movieResults.length);
+                 
+                 return Focus(
+                   focusNode: _resultCardFocusNodes[index],
+                   child: _buildResultCard(item),
+                 );
+                 }, childCount: _movieResults.length),
+                 ),
+                 SliverToBoxAdapter(
+                 child: SizedBox(height: TvUtils.responsivePadding(32, context)),
+                 ),
+                 ],
+
+                 // Series Section
+                 if (_seriesResults.isNotEmpty) ...[
+                 SliverToBoxAdapter(
+                 child: Padding(
+                 padding: EdgeInsets.only(
+                   bottom: TvUtils.responsivePadding(16, context),
+                 ),
+                 child: Text(
+                   'TV Series (${_seriesResults.length})',
+                   style: TextStyle(
+                     color: Colors.white,
+                     fontSize: TvUtils.responsiveFontSize(
+                       18,
+                       context,
+                       maxSize: 24,
+                     ),
+                     fontWeight: FontWeight.bold,
+                   ),
+                 ),
+                 ),
+                 ),
+                 SliverGrid(
+                 gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                 crossAxisCount: _columnsPerRow,
+                 childAspectRatio: 0.6,
+                 crossAxisSpacing: TvUtils.responsivePadding(12, context),
+                 mainAxisSpacing: TvUtils.responsivePadding(12, context),
+                 ),
+                 delegate: SliverChildBuilderDelegate((context, index) {
+                 final item = _seriesResults[index];
+                 // Ensure focus nodes exist (series uses same nodes as movies)
+                 _ensureResultFocusNodes(_seriesResults.length);
+                 
+                 return Focus(
+                   focusNode: _resultCardFocusNodes[index],
+                   child: _buildResultCard(item),
+                 );
+               }, childCount: _seriesResults.length),
+             ),
+            SliverToBoxAdapter(
+              child: SizedBox(height: TvUtils.responsivePadding(32, context)),
+            ),
+          ],
+        ],
       );
     }
 
-    // Show recommendations when search is empty (5x5 grid = 25 items)
-    final allRecommendations = [
-      ..._trendingResults,
-      ..._popularResults,
-      ..._topRatedResults,
-    ];
+    // Show recommendations when search is empty
+    return CustomScrollView(
+      controller: _contentScrollController,
+      slivers: [
+        // Trending Section
+        if (_trendingResults.isNotEmpty) ...[
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.only(
+                bottom: TvUtils.responsivePadding(16, context),
+              ),
+              child: Text(
+                'Trending Now',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: TvUtils.responsiveFontSize(
+                    18,
+                    context,
+                    maxSize: 24,
+                  ),
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+          SliverGrid(
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: _columnsPerRow,
+              childAspectRatio: 0.6,
+              crossAxisSpacing: TvUtils.responsivePadding(12, context),
+              mainAxisSpacing: TvUtils.responsivePadding(12, context),
+            ),
+            delegate: SliverChildBuilderDelegate(
+              (context, index) => _buildResultCard(_trendingResults[index]),
+              childCount: _trendingResults.length,
+            ),
+          ),
+          SliverToBoxAdapter(
+            child: SizedBox(height: TvUtils.responsivePadding(32, context)),
+          ),
+        ],
 
-    return GridView.builder(
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: _columnsPerRow,
-        childAspectRatio: 0.6,
-        crossAxisSpacing: TvUtils.responsivePadding(12, context),
-        mainAxisSpacing: TvUtils.responsivePadding(12, context),
-      ),
-      itemCount: allRecommendations.length,
-      itemBuilder: (context, index) => _buildResultCard(
-        allRecommendations[index],
-        isFocused: _focusedResultIndex == index,
-      ),
+        // Popular Section
+        if (_popularResults.isNotEmpty) ...[
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.only(
+                bottom: TvUtils.responsivePadding(16, context),
+              ),
+              child: Text(
+                'Popular',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: TvUtils.responsiveFontSize(
+                    18,
+                    context,
+                    maxSize: 24,
+                  ),
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+          SliverGrid(
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: _columnsPerRow,
+              childAspectRatio: 0.6,
+              crossAxisSpacing: TvUtils.responsivePadding(12, context),
+              mainAxisSpacing: TvUtils.responsivePadding(12, context),
+            ),
+            delegate: SliverChildBuilderDelegate(
+              (context, index) => _buildResultCard(_popularResults[index]),
+              childCount: _popularResults.length,
+            ),
+          ),
+          SliverToBoxAdapter(
+            child: SizedBox(height: TvUtils.responsivePadding(32, context)),
+          ),
+        ],
+
+        // Top Rated Section
+        if (_topRatedResults.isNotEmpty) ...[
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.only(
+                bottom: TvUtils.responsivePadding(16, context),
+              ),
+              child: Text(
+                'Top Rated',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: TvUtils.responsiveFontSize(
+                    18,
+                    context,
+                    maxSize: 24,
+                  ),
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+          SliverGrid(
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: _columnsPerRow,
+              childAspectRatio: 0.6,
+              crossAxisSpacing: TvUtils.responsivePadding(12, context),
+              mainAxisSpacing: TvUtils.responsivePadding(12, context),
+            ),
+            delegate: SliverChildBuilderDelegate(
+              (context, index) => _buildResultCard(_topRatedResults[index]),
+              childCount: _topRatedResults.length,
+            ),
+          ),
+          SliverToBoxAdapter(
+            child: SizedBox(height: TvUtils.responsivePadding(32, context)),
+          ),
+        ],
+      ],
     );
   }
 
-  Widget _buildResultCard(
-    Map<String, dynamic> result, {
-    bool isFocused = false,
-  }) {
+  Widget _buildResultCard(Map<String, dynamic> result) {
     final title = result['media_type'] == 'tv'
         ? (result['name'] ?? 'Unknown')
         : (result['title'] ?? 'Unknown');
@@ -352,10 +643,9 @@ class _TvSearchScreenState extends State<TvSearchScreen>
       contentType: isMovie ? ContentType.movie : ContentType.series,
       rating: rating,
       year: year,
-      isFocused: isFocused,
       onTap: () => _navigateToContent(result),
-      width: 180,
-      height: 270,
+      width: 160,
+      height: 240,
     );
   }
 }

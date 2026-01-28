@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'dart:ui' as ui;
-import '../utils/tv_typography.dart';
 
 /// Enum to define content type
 enum ContentType { movie, series, documentary, special }
@@ -11,7 +10,7 @@ enum ContentType { movie, series, documentary, special }
 /// - Hover effects with gradient overlays
 /// - Icon badges for content type
 /// - Rating stars/badges in corners
-/// - Focus states for TV remote navigation
+/// - Focus states using traditional Flutter focus system
 class TvContentCard extends StatefulWidget {
   final String posterUrl;
   final String title;
@@ -19,7 +18,6 @@ class TvContentCard extends StatefulWidget {
   final double? rating;
   final int? year;
   final String? duration;
-  final bool isFocused;
   final VoidCallback onTap;
   final double? width;
   final double? height;
@@ -33,7 +31,6 @@ class TvContentCard extends StatefulWidget {
     this.rating,
     this.year,
     this.duration,
-    this.isFocused = false,
     required this.onTap,
     this.width,
     this.height,
@@ -50,11 +47,14 @@ class _TvContentCardState extends State<TvContentCard>
   late Animation<double> _scaleAnimation;
   late Animation<double> _shadowAnimation;
   late Animation<double> _overlayAnimation;
+  late FocusNode _focusNode;
   bool _isHovered = false;
 
   @override
   void initState() {
     super.initState();
+    _focusNode = FocusNode();
+    
     _animationController = AnimationController(
       duration: widget.animationDuration,
       vsync: this,
@@ -71,28 +71,26 @@ class _TvContentCardState extends State<TvContentCard>
     _overlayAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(parent: _animationController, curve: Curves.easeInOut),
     );
-
-    if (widget.isFocused) {
-      _animationController.forward();
-    }
   }
 
   @override
   void didUpdateWidget(TvContentCard oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.isFocused != oldWidget.isFocused) {
-      if (widget.isFocused) {
-        _animationController.forward();
-      } else {
-        _animationController.reverse();
-      }
-    }
   }
 
   @override
   void dispose() {
+    _focusNode.dispose();
     _animationController.dispose();
     super.dispose();
+  }
+
+  void _onFocusChange(bool isFocused) {
+    if (isFocused) {
+      _animationController.forward();
+    } else {
+      _animationController.reverse();
+    }
   }
 
   String _getContentTypeLabel() {
@@ -139,15 +137,18 @@ class _TvContentCardState extends State<TvContentCard>
     final cardWidth = widget.width ?? 180.0;
     final posterHeight = widget.height ?? 270.0;
 
-    return GestureDetector(
-      onTap: widget.onTap,
-      onTapDown: (_) => setState(() => _isHovered = true),
-      onTapUp: (_) => setState(() => _isHovered = false),
-      onTapCancel: () => setState(() => _isHovered = false),
-      child: MouseRegion(
-        onEnter: (_) => setState(() => _isHovered = true),
-        onExit: (_) => setState(() => _isHovered = false),
-        child: AnimatedBuilder(
+    return Focus(
+      focusNode: _focusNode,
+      onFocusChange: _onFocusChange,
+      child: GestureDetector(
+        onTap: widget.onTap,
+        onTapDown: (_) => setState(() => _isHovered = true),
+        onTapUp: (_) => setState(() => _isHovered = false),
+        onTapCancel: () => setState(() => _isHovered = false),
+        child: MouseRegion(
+          onEnter: (_) => setState(() => _isHovered = true),
+          onExit: (_) => setState(() => _isHovered = false),
+          child: AnimatedBuilder(
           animation: Listenable.merge([
             _scaleAnimation,
             _shadowAnimation,
@@ -169,14 +170,14 @@ class _TvContentCardState extends State<TvContentCard>
                       // Main shadow
                       BoxShadow(
                         color: Colors.black.withValues(
-                          alpha: 0.4 * (widget.isFocused ? 1.0 : 0.6),
+                          alpha: 0.4 * (_focusNode.hasFocus ? 1.0 : 0.6),
                         ),
                         blurRadius: _shadowAnimation.value,
-                        spreadRadius: widget.isFocused ? 4 : 2,
-                        offset: Offset(0, widget.isFocused ? 8 : 4),
+                        spreadRadius: _focusNode.hasFocus ? 4 : 2,
+                        offset: Offset(0, _focusNode.hasFocus ? 8 : 4),
                       ),
                       // Secondary glow shadow
-                      if (widget.isFocused)
+                      if (_focusNode.hasFocus)
                         BoxShadow(
                           color: _getContentTypeColor().withValues(alpha: 0.3),
                           blurRadius: 16,
@@ -199,16 +200,16 @@ class _TvContentCardState extends State<TvContentCard>
                               fit: BoxFit.cover,
                               errorBuilder: (context, error, stackTrace) =>
                                   Container(
-                                color: Colors.grey[900],
-                                child: const Icon(
-                                  Icons.broken_image,
-                                  color: Colors.grey,
-                                  size: 48,
-                                ),
-                              ),
+                                    color: Colors.grey[900],
+                                    child: const Icon(
+                                      Icons.broken_image,
+                                      color: Colors.grey,
+                                      size: 48,
+                                    ),
+                                  ),
                             ),
                             // Hover/Focus Gradient Overlay
-                            if (widget.isFocused || _isHovered)
+                            if (_focusNode.hasFocus || _isHovered)
                               ClipRRect(
                                 borderRadius: BorderRadius.circular(16),
                                 child: BackdropFilter(
@@ -252,65 +253,46 @@ class _TvContentCardState extends State<TvContentCard>
                           right: 8,
                           child: _buildRatingBadge(),
                         ),
-                  // Play Button on Hover/Focus
-                  if ((widget.isFocused || _isHovered) &&
-                      _overlayAnimation.value > 0.5)
-                    Positioned.fill(
-                      child: Center(
-                        child: ScaleTransition(
-                          scale: Tween<double>(begin: 0.8, end: 1.0).animate(
-                            CurvedAnimation(
-                              parent: _animationController,
-                              curve: const Interval(0.5, 1.0,
-                                  curve: Curves.easeOut),
-                            ),
-                          ),
-                          child: Container(
-                            width: 56,
-                            height: 56,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: Colors.white.withValues(alpha: 0.9),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withValues(alpha: 0.3),
-                                  blurRadius: 12,
-                                  spreadRadius: 2,
+                      // Play Button on Hover/Focus
+                      if ((_focusNode.hasFocus || _isHovered) &&
+                          _overlayAnimation.value > 0.5)
+                        Positioned.fill(
+                          child: Center(
+                            child: ScaleTransition(
+                              scale: Tween<double>(begin: 0.8, end: 1.0)
+                                  .animate(
+                                    CurvedAnimation(
+                                      parent: _animationController,
+                                      curve: const Interval(
+                                        0.5,
+                                        1.0,
+                                        curve: Curves.easeOut,
+                                      ),
+                                    ),
+                                  ),
+                              child: Container(
+                                width: 56,
+                                height: 56,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: Colors.white.withValues(alpha: 0.9),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withValues(
+                                        alpha: 0.3,
+                                      ),
+                                      blurRadius: 12,
+                                      spreadRadius: 2,
+                                    ),
+                                  ],
                                 ),
-                              ],
+                                child: const Icon(
+                                  Icons.play_arrow,
+                                  color: Colors.black,
+                                  size: 32,
+                                ),
+                              ),
                             ),
-                            child: const Icon(
-                              Icons.play_arrow,
-                              color: Colors.black,
-                              size: 32,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-                ),
-                // Title and Year - Below the cover art
-                Padding(
-                  padding: const EdgeInsets.only(top: TvSpacing.md),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // Title
-                      Text(
-                        widget.title,
-                        style: TvTypography.cardTitle,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      if (widget.year != null)
-                        Padding(
-                          padding: const EdgeInsets.only(top: TvSpacing.sm),
-                          child: Text(
-                            widget.year.toString(),
-                            style: TvTypography.caption,
                           ),
                         ),
                     ],
@@ -321,6 +303,7 @@ class _TvContentCardState extends State<TvContentCard>
           ),
         ),
       ),
+    ),
     );
   }
 
@@ -341,11 +324,7 @@ class _TvContentCardState extends State<TvContentCard>
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            _getContentTypeIcon(),
-            color: Colors.white,
-            size: 14,
-          ),
+          Icon(_getContentTypeIcon(), color: Colors.white, size: 14),
           const SizedBox(width: 4),
           Text(
             _getContentTypeLabel(),
@@ -363,48 +342,15 @@ class _TvContentCardState extends State<TvContentCard>
 
   Widget _buildRatingBadge() {
     final rating = widget.rating ?? 0;
-    final starsCount = (rating / 2).floor();
 
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.7),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: Colors.amber.withValues(alpha: 0.5),
-          width: 1,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.3),
-            blurRadius: 6,
-            spreadRadius: 1,
-          ),
-        ],
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: List.generate(
-              5,
-              (index) => Icon(
-                Icons.star,
-                size: 12,
-                color: index < starsCount ? Colors.amber : Colors.grey[600],
-              ),
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            rating.toStringAsFixed(1),
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 11,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
+    return Text(
+      rating.toStringAsFixed(1),
+      style: const TextStyle(
+        color: Colors.white,
+        fontSize: 18,
+        fontWeight: FontWeight.bold,
+        shadows: [
+          Shadow(offset: Offset(1, 1), blurRadius: 3, color: Colors.black54),
         ],
       ),
     );
@@ -462,10 +408,7 @@ class TvSimpleContentCard extends StatelessWidget {
                 fit: BoxFit.cover,
                 errorBuilder: (context, error, stackTrace) => Container(
                   color: Colors.grey[900],
-                  child: const Icon(
-                    Icons.broken_image,
-                    color: Colors.grey,
-                  ),
+                  child: const Icon(Icons.broken_image, color: Colors.grey),
                 ),
               ),
             ),
@@ -485,37 +428,28 @@ class TvSimpleContentCard extends StatelessWidget {
               ),
             ),
             // Content Type Badge
-            Positioned(
-              top: 8,
-              left: 8,
-              child: _buildSimpleBadge(),
-            ),
-            // Rating Badge
+            Positioned(top: 8, left: 8, child: _buildSimpleBadge()),
+            // Rating Number - Top Right (no container, just text)
             if (rating != null)
               Positioned(
-                top: 8,
-                right: 8,
-                child: _buildSimpleRatingBadge(),
-              ),
-            // Title
-            Positioned(
-              bottom: 0,
-              left: 0,
-              right: 0,
-              child: Padding(
-                padding: const EdgeInsets.all(10),
+                top: 12,
+                right: 12,
                 child: Text(
-                  title,
+                  rating!.toStringAsFixed(1),
                   style: const TextStyle(
                     color: Colors.white,
-                    fontSize: 13,
+                    fontSize: 16,
                     fontWeight: FontWeight.bold,
+                    shadows: [
+                      Shadow(
+                        offset: Offset(1, 1),
+                        blurRadius: 3,
+                        color: Colors.black54,
+                      ),
+                    ],
                   ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
                 ),
               ),
-            ),
           ],
         ),
       ),
@@ -553,55 +487,13 @@ class TvSimpleContentCard extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            icons[contentType],
-            color: Colors.white,
-            size: 12,
-          ),
+          Icon(icons[contentType], color: Colors.white, size: 12),
           const SizedBox(width: 3),
           Text(
             labels[contentType]!,
             style: const TextStyle(
               color: Colors.white,
               fontSize: 8,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSimpleRatingBadge() {
-    final rating = this.rating ?? 0;
-    final starsCount = (rating / 2).floor();
-
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.6),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: List.generate(
-              5,
-              (index) => Icon(
-                Icons.star,
-                size: 10,
-                color: index < starsCount ? Colors.amber : Colors.grey[700],
-              ),
-            ),
-          ),
-          const SizedBox(height: 1),
-          Text(
-            rating.toStringAsFixed(1),
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 9,
               fontWeight: FontWeight.bold,
             ),
           ),

@@ -64,6 +64,7 @@ class _ActorDetailsScreenState extends State<ActorDetailsScreen>
         });
       }
     } catch (e) {
+      // Error loading additional credits, continue with what we have
     } finally {
       setState(() => isLoading = false);
     }

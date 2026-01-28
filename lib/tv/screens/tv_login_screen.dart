@@ -6,7 +6,7 @@ import '../../services/biometric_service.dart';
 import '../../services/secure_password_service.dart';
 import '../utils/tv_utils.dart';
 import '../utils/tv_typography.dart';
-import 'tv_main_screen_netflix.dart';
+import 'tv_maxstream_main.dart';
 
 class TvLoginScreen extends StatefulWidget {
   const TvLoginScreen({super.key});
@@ -88,28 +88,28 @@ class _TvLoginScreenState extends State<TvLoginScreen> {
     super.dispose();
   }
 
-  void _handleKeyEvent(RawKeyEvent event) {
+  void _handleKeyEvent(KeyEvent event) {
     final maxField = _selectedTab == 0 ? 2 : 3;
-    if (event.isKeyPressed(LogicalKeyboardKey.arrowUp)) {
+    if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
       setState(() {
         _focusedField = (_focusedField - 1).clamp(0, maxField);
         _updateFocus();
       });
-    } else if (event.isKeyPressed(LogicalKeyboardKey.arrowDown)) {
+    } else if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
       setState(() {
         _focusedField = (_focusedField + 1).clamp(0, maxField);
         _updateFocus();
       });
-    } else if (event.isKeyPressed(LogicalKeyboardKey.arrowLeft)) {
+    } else if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
       if (_focusedField == 0) {
         setState(() => _selectedTab = 0);
       }
-    } else if (event.isKeyPressed(LogicalKeyboardKey.arrowRight)) {
+    } else if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
       if (_focusedField == 0) {
         setState(() => _selectedTab = 1);
       }
-    } else if (event.isKeyPressed(LogicalKeyboardKey.select) ||
-        event.isKeyPressed(LogicalKeyboardKey.enter)) {
+    } else if (event.logicalKey == LogicalKeyboardKey.select ||
+        event.logicalKey == LogicalKeyboardKey.enter) {
       if (_focusedField == 0) {
         // Toggle tab
         setState(() => _selectedTab = _selectedTab == 0 ? 1 : 0);
@@ -288,7 +288,7 @@ class _TvLoginScreenState extends State<TvLoginScreen> {
 
       if (mounted) {
         Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const TvMainScreenNetflix()),
+          MaterialPageRoute(builder: (_) => const TvMaxStreamMain()),
         );
       }
     } catch (e) {
@@ -339,12 +339,12 @@ class _TvLoginScreenState extends State<TvLoginScreen> {
       _showSuccess('Login successful!');
 
       if (mounted) {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const TvMainScreenNetflix()),
-        );
-      }
-    } catch (e) {
-      _showError('Authentication error: $e');
+         Navigator.of(context).pushReplacement(
+           MaterialPageRoute(builder: (_) => const TvMaxStreamMain()),
+         );
+       }
+      } catch (e) {
+       _showError('Authentication error: $e');
     }
   }
 
@@ -414,15 +414,15 @@ class _TvLoginScreenState extends State<TvLoginScreen> {
 
       if (mounted) {
         Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const TvMainScreenNetflix()),
+          MaterialPageRoute(builder: (_) => const TvMaxStreamMain()),
         );
       }
-    } catch (e) {
+      } catch (e) {
       _showError('Login failed: $e');
-    } finally {
+      } finally {
       if (mounted) setState(() => _isLoading = false);
-    }
-  }
+      }
+      }
 
   void _showError(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -446,9 +446,9 @@ class _TvLoginScreenState extends State<TvLoginScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-      body: RawKeyboardListener(
+      body: KeyboardListener(
         focusNode: FocusNode(),
-        onKey: _handleKeyEvent,
+        onKeyEvent: _handleKeyEvent,
         child: Padding(
           padding: EdgeInsets.all(TvUtils.responsivePadding(32, context)),
           child: Row(

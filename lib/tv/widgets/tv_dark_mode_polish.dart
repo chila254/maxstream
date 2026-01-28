@@ -741,12 +741,12 @@ class ContrastRatioHelper {
   }
 
   // Check if colors meet WCAG AA standard (4.5:1 for normal text)
-  static bool meetsWCAG_AA(Color foreground, Color background) {
+  static bool meetsWcagAA(Color foreground, Color background) {
     return getContrastRatio(foreground, background) >= 4.5;
   }
 
   // Check if colors meet WCAG AAA standard (7:1 for normal text)
-  static bool meetsWCAG_AAA(Color foreground, Color background) {
+  static bool meetsWcagAAA(Color foreground, Color background) {
     return getContrastRatio(foreground, background) >= 7.0;
   }
 }

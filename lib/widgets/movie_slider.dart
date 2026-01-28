@@ -148,7 +148,7 @@ class _MovieSliderState extends State<MovieSlider> {
                               height: cardHeight,
                               width: cardWidth,
                               fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) => Container(
+                              errorBuilder: (_, _, _) => Container(
                                 height: cardHeight,
                                 width: cardWidth,
                                 color: Colors.grey[800],

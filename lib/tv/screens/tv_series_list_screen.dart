@@ -1,13 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
+import 'package:maxstream/tv/screens/tv_video_player_screen.dart';
 import 'package:shimmer/shimmer.dart';
 import 'dart:async';
 import '../../models/movie.dart';
 import '../../models/series.dart';
 import '../../services/tmdb_api_service.dart';
+import '../../services/logger_service.dart';
+import '../providers/tv_navigation_provider.dart';
 import '../utils/tv_utils.dart';
 import '../utils/tv_typography.dart';
-import '../utils/tv_dpad_navigation_mixin.dart';
+import '../utils/tv_focus_manager.dart';
 import '../../widgets/custom_loading_widget.dart';
 import '../widgets/tv_enhanced_hero_banner.dart';
 import '../widgets/tv_content_card.dart';
@@ -29,8 +33,7 @@ class TvSeriesListScreen extends StatefulWidget {
   State<TvSeriesListScreen> createState() => _TvSeriesListScreenState();
 }
 
-class _TvSeriesListScreenState extends State<TvSeriesListScreen>
-    with TvDpadNavigationMixin {
+class _TvSeriesListScreenState extends State<TvSeriesListScreen> {
   bool isLoading = true;
   List<Map<String, dynamic>> trendingSeries = [];
   List<Map<String, dynamic>> popularSeries = [];
@@ -48,7 +51,6 @@ class _TvSeriesListScreenState extends State<TvSeriesListScreen>
   int _heroBannerPage = 0;
 
   // Focus tracking
-  String? _focusedSection;
   final Map<String, int> _sectionItemIndices = {
     'trending_series': 0,
     'popular_series': 0,
@@ -59,6 +61,12 @@ class _TvSeriesListScreenState extends State<TvSeriesListScreen>
   void initState() {
     super.initState();
     _heroBannerController = PageController();
+    
+    // Register with navigation provider for consistency
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<TvNavigationProvider>();
+    });
+    
     if (widget.seriesItem != null) {
       _loadSeriesDetails();
     } else {
@@ -73,99 +81,9 @@ class _TvSeriesListScreenState extends State<TvSeriesListScreen>
     super.dispose();
   }
 
-  // D-Pad Navigation Implementation
-  @override
-  int get maxFocusIndex => 2; // Trending Series, Popular Series, Top Rated Series
-
-  @override
-  void onFocusChanged(int index) {
-    setState(() {
-      _focusedSection = [
-        'trending_series',
-        'popular_series',
-        'top_rated_series',
-      ][index];
-    });
-  }
-
-  @override
-  void onSelectPressed() {
-    if (_focusedSection != null) {
-      final section = _focusedSection!;
-      final itemIndex = _sectionItemIndices[section] ?? 0;
-      
-      late List<Map<String, dynamic>> items;
-      switch (section) {
-        case 'trending_series':
-          items = trendingSeries;
-          break;
-        case 'popular_series':
-          items = popularSeries;
-          break;
-        case 'top_rated_series':
-          items = topRatedSeries;
-          break;
-        default:
-          return;
-      }
-      
-      if (itemIndex < items.length) {
-        final item = items[itemIndex];
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => TvSeriesScreen(
-              seriesItem: Movie.fromJson(item),
-            ),
-          ),
-        );
-      }
-    }
-  }
-
-  @override
-  void onLeftPressed() {
-    if (_focusedSection == null) return;
-
-    // Navigate left within content sections
-    final currentIndex = _sectionItemIndices[_focusedSection] ?? 0;
-    if (currentIndex > 0) {
-      setState(() {
-        _sectionItemIndices[_focusedSection!] = currentIndex - 1;
-      });
-    }
-  }
-
-  @override
-  void onRightPressed() {
-    if (_focusedSection == null) return;
-
-    // Navigate right within content sections
-    final currentIndex = _sectionItemIndices[_focusedSection] ?? 0;
-    final maxItems = _getMaxItemsForSection(_focusedSection!);
-    if (currentIndex < maxItems - 1) {
-      setState(() {
-        _sectionItemIndices[_focusedSection!] = currentIndex + 1;
-      });
-    }
-  }
-
-  int _getMaxItemsForSection(String section) {
-    switch (section) {
-      case 'trending_series':
-        return trendingSeries.take(10).length;
-      case 'popular_series':
-        return popularSeries.take(10).length;
-      case 'top_rated_series':
-        return topRatedSeries.take(10).length;
-      default:
-        return 0;
-    }
-  }
-
   void _startHeroBannerTimer() {
     _heroBannerTimer?.cancel();
-    _heroBannerTimer = Timer.periodic(const Duration(seconds: 6), (timer) {
+    _heroBannerTimer = Timer.periodic(const Duration(seconds: 15), (timer) {
       if (trendingSeries.isNotEmpty) {
         _heroBannerPage = (_heroBannerPage + 1) % trendingSeries.length;
         if (_heroBannerController.hasClients) {
@@ -200,7 +118,7 @@ class _TvSeriesListScreenState extends State<TvSeriesListScreen>
         }
       }
     } catch (e) {
-      print('Error loading series details: $e');
+      LoggerService.error('Error loading series details: $e', e);
     } finally {
       setState(() => isLoading = false);
     }
@@ -226,7 +144,7 @@ class _TvSeriesListScreenState extends State<TvSeriesListScreen>
         });
       }
     } catch (e) {
-      print('Error loading episodes: $e');
+      LoggerService.error('Error loading episodes: $e', e);
       if (mounted) {
         setState(() {
           isLoadingEpisodes = false;
@@ -250,7 +168,6 @@ class _TvSeriesListScreenState extends State<TvSeriesListScreen>
         popularSeries = results[1];
         topRatedSeries = results[2];
         // Set initial focus to first section (trending series)
-        _focusedSection = 'trending_series';
         _sectionItemIndices['trending_series'] = 0;
       });
 
@@ -259,7 +176,7 @@ class _TvSeriesListScreenState extends State<TvSeriesListScreen>
         _startHeroBannerTimer();
       }
     } catch (e) {
-      print('Error loading series content: $e');
+      LoggerService.error('Error loading series content: $e', e);
     } finally {
       setState(() => isLoading = false);
     }
@@ -273,31 +190,35 @@ class _TvSeriesListScreenState extends State<TvSeriesListScreen>
     }
 
     // Otherwise, show the browse view
-    return RawKeyboardListener(
-      onKey: handleKeyEvent,
-      focusNode: focusNode,
-      child: Scaffold(
-        backgroundColor: const Color(0xFF121212),
-        body: RefreshIndicator(
-          onRefresh: _loadContent,
+    return Scaffold(
+      backgroundColor: const Color(0xFF121212),
+      body: RefreshIndicator(
+        onRefresh: _loadContent,
+        child: Focus(
+          onKey: (node, event) {
+            if (event.isKeyPressed(LogicalKeyboardKey.arrowLeft)) {
+              context.read<TvNavigationProvider>().setFocusOnSidebar(true);
+              return KeyEventResult.handled;
+            }
+            return KeyEventResult.ignored;
+          },
+          autofocus: true,
           child: CustomScrollView(
             slivers: [
-              _buildAppBar(),
-              if (isLoading)
-                SliverToBoxAdapter(child: _buildLoadingIndicator())
-              else ...[
-                if (trendingSeries.isNotEmpty) _buildHeroBannerSection(),
-                _buildSection('Trending TV Shows', trendingSeries),
-                _buildSection('Popular TV Shows', popularSeries),
-                _buildSection('Top Rated TV Shows', topRatedSeries),
-                SliverToBoxAdapter(
-                  child: SizedBox(
-                    height: TvUtils.responsivePadding(48, context),
-                  ),
-                ),
-              ],
+            _buildAppBar(),
+            if (isLoading)
+              SliverToBoxAdapter(child: _buildLoadingIndicator())
+            else ...[
+              if (trendingSeries.isNotEmpty) _buildHeroBannerSection(),
+              _buildSection('Trending TV Shows', trendingSeries),
+              _buildSection('Popular TV Shows', popularSeries),
+              _buildSection('Top Rated TV Shows', topRatedSeries),
+              SliverToBoxAdapter(
+                child: SizedBox(height: TvUtils.responsivePadding(48, context)),
+              ),
             ],
-          ),
+          ],
+        ),
         ),
       ),
     );
@@ -623,7 +544,16 @@ class _TvSeriesListScreenState extends State<TvSeriesListScreen>
                       ),
                     );
                   },
-                  isFocused: true,
+                  onWatchNow: () => _playSeries(series),
+                  onDetails: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) =>
+                            TvSeriesScreen(seriesItem: Movie.fromJson(series)),
+                      ),
+                    );
+                  },
                 );
               },
             ),
@@ -656,28 +586,33 @@ class _TvSeriesListScreenState extends State<TvSeriesListScreen>
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: TvSpacing.sectionPaddingH),
+              padding: const EdgeInsets.symmetric(
+                horizontal: TvSpacing.sectionPaddingH,
+              ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    title,
-                    style: TvTypography.sectionTitle,
-                  ),
-                  GestureDetector(
-                    onTap: () => _showFullList(title),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: TvSpacing.lg,
-                        vertical: TvSpacing.sm,
-                      ),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFE50914),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        'See More',
-                        style: TvTypography.buttonText,
+                  Text(title, style: TvTypography.sectionTitle),
+                  Focus(
+                    onKey: (node, event) {
+                      if (event.isKeyPressed(LogicalKeyboardKey.select)) {
+                        _showFullList(title);
+                        return KeyEventResult.handled;
+                      }
+                      return KeyEventResult.ignored;
+                    },
+                    child: GestureDetector(
+                      onTap: () => _showFullList(title),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: TvSpacing.lg,
+                          vertical: TvSpacing.sm,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE50914),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text('See More', style: TvTypography.buttonText),
                       ),
                     ),
                   ),
@@ -687,20 +622,44 @@ class _TvSeriesListScreenState extends State<TvSeriesListScreen>
             const SizedBox(height: TvSpacing.sectionGap),
             SizedBox(
               height: 320,
-              child: ListView.builder(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: TvSpacing.sectionPaddingH),
-                itemCount: items.take(10).length,
-                itemBuilder: (context, index) {
-                  final item = items[index];
-                  final sectionKey = title.contains('Trending')
-                      ? 'trending_series'
-                      : title.contains('Popular')
-                      ? 'popular_series'
-                      : 'top_rated_series';
-                  final isFocused = _sectionItemIndices[sectionKey] == index;
-                  return _buildSeriesCard(item, isFocused: isFocused);
+              child: Focus(
+                onKey: (node, event) {
+                   if (event.isKeyPressed(LogicalKeyboardKey.arrowLeft)) {
+                     // Return to sidebar at leftmost
+                     context.read<TvNavigationProvider>().setFocusOnSidebar(true);
+                     return KeyEventResult.handled;
+                  } else if (event.isKeyPressed(LogicalKeyboardKey.arrowRight)) {
+                    node.nextFocus();
+                    return KeyEventResult.handled;
+                  }
+                  return KeyEventResult.ignored;
                 },
+                autofocus: false,
+                child: ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: TvSpacing.sectionPaddingH,
+                  ),
+                  itemCount: items.take(10).length,
+                  itemBuilder: (context, index) {
+                    final item = items[index];
+                    return _SeriesCarouselItemFocus(
+                      index: index,
+                      totalItems: items.take(10).length,
+                      item: item,
+                      onSelect: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) =>
+                                TvSeriesScreen(seriesItem: Movie.fromJson(item)),
+                          ),
+                        );
+                      },
+                      child: _buildSeriesCard(item),
+                    );
+                  },
+                ),
               ),
             ),
           ],
@@ -721,7 +680,7 @@ class _TvSeriesListScreenState extends State<TvSeriesListScreen>
     );
   }
 
-  Widget _buildSeriesCard(Map<String, dynamic> item, {bool isFocused = false}) {
+  Widget _buildSeriesCard(Map<String, dynamic> item) {
     final posterUrl = TmdbApiService.getPosterUrl(item['poster_path'] ?? '');
     final title = item['name'] ?? 'Unknown';
     final rating = (item['vote_average'] as num?)?.toDouble();
@@ -730,8 +689,9 @@ class _TvSeriesListScreenState extends State<TvSeriesListScreen>
         ? int.tryParse(firstAirDate.split('-')[0])
         : null;
     final numberOfSeasons = item['number_of_seasons'] as int?;
-    final duration =
-        numberOfSeasons != null ? '$numberOfSeasons Seasons' : null;
+    final duration = numberOfSeasons != null
+        ? '$numberOfSeasons Seasons'
+        : null;
 
     return Container(
       margin: const EdgeInsets.only(right: TvSpacing.cardSpacing),
@@ -742,7 +702,6 @@ class _TvSeriesListScreenState extends State<TvSeriesListScreen>
         rating: rating,
         year: year,
         duration: duration,
-        isFocused: isFocused,
         onTap: () {
           Navigator.push(
             context,
@@ -758,7 +717,112 @@ class _TvSeriesListScreenState extends State<TvSeriesListScreen>
     );
   }
 
+  void _playSeries(Map<String, dynamic> series) {
+    final seriesItem = Movie.fromJson(series);
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => TvVideoPlayerScreen(
+          title: seriesItem.title,
+          tmdbId: seriesItem.id,
+          isMovie: false,
+          season: 1,
+          episode: 1,
+        ),
+      ),
+    );
+  }
+
   // Genre mapping
+}
+
+/// Wrapper widget for series carousel items with focus handling
+class _SeriesCarouselItemFocus extends StatefulWidget {
+  final int index;
+  final int totalItems;
+  final Map<String, dynamic> item;
+  final VoidCallback onSelect;
+  final Widget child;
+
+  const _SeriesCarouselItemFocus({
+    required this.index,
+    required this.totalItems,
+    required this.item,
+    required this.onSelect,
+    required this.child,
+  });
+
+  @override
+  State<_SeriesCarouselItemFocus> createState() =>
+      _SeriesCarouselItemFocusState();
+}
+
+class _SeriesCarouselItemFocusState extends State<_SeriesCarouselItemFocus> {
+  late FocusNode _focusNode;
+  bool _isFocused = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _focusNode = FocusNode(
+      onKey: (node, event) => _handleKeyEvent(event),
+    );
+  }
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  KeyEventResult _handleKeyEvent(RawKeyEvent event) {
+    if (event is! RawKeyDownEvent) return KeyEventResult.ignored;
+
+    if (event.logicalKey == LogicalKeyboardKey.select) {
+      widget.onSelect();
+      return KeyEventResult.handled;
+    } else if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+      if (widget.index == 0) {
+        // At leftmost - return to sidebar
+        TvFocusManager.focusSidebar();
+        context.read<TvNavigationProvider>().setFocusOnSidebar(true);
+      } else {
+        _focusNode.previousFocus();
+      }
+      return KeyEventResult.handled;
+    } else if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+      if (widget.index < widget.totalItems - 1) {
+        _focusNode.nextFocus();
+      }
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Focus(
+      focusNode: _focusNode,
+      onFocusChange: (hasFocus) {
+        setState(() => _isFocused = hasFocus);
+      },
+      child: AnimatedScale(
+        scale: _isFocused ? 1.05 : 1.0,
+        duration: const Duration(milliseconds: 150),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          decoration: BoxDecoration(
+            border: Border.all(
+              color: _isFocused ? const Color(0xFFE50914) : Colors.transparent,
+              width: 3,
+            ),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: widget.child,
+        ),
+        ),
+        );
+        }
 }
 
 class _TvSeriesFullListScreen extends StatefulWidget {
@@ -772,81 +836,12 @@ class _TvSeriesFullListScreen extends StatefulWidget {
       _TvSeriesFullListScreenState();
 }
 
-class _TvSeriesFullListScreenState extends State<_TvSeriesFullListScreen>
-    with TvDpadNavigationMixin {
+class _TvSeriesFullListScreenState extends State<_TvSeriesFullListScreen> {
   List<Map<String, dynamic>> _allItems = [];
   bool _isLoading = false;
   bool _isLoadingMore = false;
   int _currentPage = 1;
   late ScrollController _scrollController;
-  static const int _columnsPerRow = 3;
-
-  @override
-  int get maxFocusIndex => _allItems.isNotEmpty ? _allItems.length - 1 : 0;
-
-  @override
-  void onFocusChanged(int index) {
-    // Handle focus change if needed
-  }
-
-  @override
-  void onSelectPressed() {
-    // Handle select if needed
-  }
-
-  @override
-  void onLeftPressed() {
-    final currentFocus = getFocusIndex();
-    if (currentFocus > 0 && currentFocus % _columnsPerRow != 0) {
-      // Navigate left within grid
-      setFocusIndex(currentFocus - 1);
-    } else if (currentFocus % _columnsPerRow == 0 &&
-        widget.onReturnToSidebar != null) {
-      // At leftmost column: return to sidebar
-      widget.onReturnToSidebar!();
-    }
-  }
-
-  @override
-  void onRightPressed() {
-    final currentFocus = getFocusIndex();
-    if (currentFocus + 1 < _allItems.length &&
-        (currentFocus + 1) % _columnsPerRow != 0) {
-      setFocusIndex(currentFocus + 1);
-    }
-  }
-
-  @override
-  void handleKeyEvent(RawKeyEvent event) {
-    if (event.isKeyPressed(LogicalKeyboardKey.arrowDown)) {
-      _moveDown();
-    } else if (event.isKeyPressed(LogicalKeyboardKey.arrowUp)) {
-      _moveUp();
-    } else if (event.isKeyPressed(LogicalKeyboardKey.arrowLeft)) {
-      onLeftPressed();
-    } else if (event.isKeyPressed(LogicalKeyboardKey.arrowRight)) {
-      onRightPressed();
-    } else if (event.isKeyPressed(LogicalKeyboardKey.select) ||
-        event.isKeyPressed(LogicalKeyboardKey.enter)) {
-      onSelectPressed();
-    }
-  }
-
-  void _moveDown() {
-    final currentFocus = getFocusIndex();
-    int newIndex = currentFocus + _columnsPerRow;
-    if (newIndex < _allItems.length) {
-      setFocusIndex(newIndex);
-    }
-  }
-
-  void _moveUp() {
-    final currentFocus = getFocusIndex();
-    int newIndex = currentFocus - _columnsPerRow;
-    if (newIndex >= 0) {
-      setFocusIndex(newIndex);
-    }
-  }
 
   @override
   void initState() {
@@ -883,7 +878,7 @@ class _TvSeriesFullListScreenState extends State<_TvSeriesFullListScreen>
         });
       }
     } catch (e) {
-      print('Error loading items: $e');
+      LoggerService.error('Error loading items: $e', e);
       if (mounted) {
         setState(() => _isLoading = false);
       }
@@ -922,7 +917,7 @@ class _TvSeriesFullListScreenState extends State<_TvSeriesFullListScreen>
         });
       }
     } catch (e) {
-      print('Error loading more items: $e');
+      LoggerService.error('Error loading more items: $e', e);
     } finally {
       if (mounted) {
         setState(() => _isLoadingMore = false);
@@ -932,86 +927,79 @@ class _TvSeriesFullListScreenState extends State<_TvSeriesFullListScreen>
 
   @override
   Widget build(BuildContext context) {
-    return RawKeyboardListener(
-      onKey: handleKeyEvent,
-      focusNode: focusNode,
-      child: Scaffold(
-        backgroundColor: const Color(0xFF121212),
-        appBar: AppBar(
-          backgroundColor: const Color(0xFF1A1A1A),
-          title: Text(
-            widget.title,
-            style: TextStyle(
-              fontSize: TvUtils.responsiveFontSize(28, context, maxSize: 40),
-              color: Colors.white,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          leading: IconButton(
-            icon: Icon(
-              Icons.arrow_back,
-              size: TvUtils.responsiveFontSize(24, context, maxSize: 36),
-            ),
-            onPressed: () => Navigator.pop(context),
+    return Scaffold(
+      backgroundColor: const Color(0xFF121212),
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF1A1A1A),
+        title: Text(
+          widget.title,
+          style: TextStyle(
+            fontSize: TvUtils.responsiveFontSize(28, context, maxSize: 40),
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
           ),
         ),
-        body: _isLoading
-            ? Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const CustomLoadingWidget(
-                      size: 60,
-                      color: Color(0xFFE50914),
-                      style: LoadingStyle.dots,
-                    ),
-                    SizedBox(height: TvUtils.responsivePadding(24, context)),
-                    Text(
-                      'Loading...',
-                      style: TextStyle(
-                        color: Colors.grey,
-                        fontSize: TvUtils.responsiveFontSize(16, context),
-                      ),
-                    ),
-                  ],
-                ),
-              )
-            : _allItems.isEmpty
-            ? Center(
-                child: Text(
-                  'No content available',
-                  style: TextStyle(
-                    color: Colors.grey,
-                    fontSize: TvUtils.responsiveFontSize(16, context),
-                  ),
-                ),
-              )
-            : GridView.builder(
-                controller: _scrollController,
-                padding: EdgeInsets.all(TvUtils.responsivePadding(24, context)),
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 3,
-                  childAspectRatio: 0.6,
-                  crossAxisSpacing: TvUtils.responsivePadding(16, context),
-                  mainAxisSpacing: TvUtils.responsivePadding(16, context),
-                ),
-                itemCount: _allItems.length + (_isLoadingMore ? 1 : 0),
-                itemBuilder: (context, index) {
-                  if (index == _allItems.length) {
-                    return Center(
-                      child: const CustomLoadingWidget(
-                        size: 40,
-                        color: Color(0xFFE50914),
-                        style: LoadingStyle.dots,
-                      ),
-                    );
-                  }
-
-                  final item = _allItems[index];
-                  return _buildFullListItem(item);
-                },
-              ),
+        leading: IconButton(
+          icon: Icon(
+            Icons.arrow_back,
+            size: TvUtils.responsiveFontSize(24, context, maxSize: 36),
+          ),
+          onPressed: () => Navigator.pop(context),
+        ),
       ),
+      body: _isLoading
+          ? Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const CustomLoadingWidget(
+                    size: 60,
+                    color: Color(0xFFE50914),
+                    style: LoadingStyle.dots,
+                  ),
+                  SizedBox(height: TvUtils.responsivePadding(24, context)),
+                  Text(
+                    'Loading...',
+                    style: TextStyle(
+                      color: Colors.grey,
+                      fontSize: TvUtils.responsiveFontSize(16, context),
+                    ),
+                  ),
+                ],
+              ),
+            )
+          : _allItems.isEmpty
+          ? Center(
+              child: Text(
+                'No content available',
+                style: TextStyle(
+                  color: Colors.grey,
+                  fontSize: TvUtils.responsiveFontSize(16, context),
+                ),
+              ),
+            )
+          : GridView.builder(
+              controller: _scrollController,
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 3,
+                childAspectRatio: 0.6,
+                crossAxisSpacing: 12,
+                mainAxisSpacing: 12,
+              ),
+              itemCount: _allItems.length + (_isLoadingMore ? 1 : 0),
+              itemBuilder: (context, index) {
+                if (index >= _allItems.length) {
+                  return const Padding(
+                    padding: EdgeInsets.all(8.0),
+                    child: CustomLoadingWidget(
+                      size: 40,
+                      color: Color(0xFFE50914),
+                    ),
+                  );
+                }
+                return _buildFullListItem(_allItems[index]);
+              },
+            ),
     );
   }
 

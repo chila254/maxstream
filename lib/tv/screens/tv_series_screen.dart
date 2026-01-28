@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:youtube_player_flutter/youtube_player_flutter.dart';
+import 'package:flutter/services.dart';
 import 'package:shimmer/shimmer.dart';
+import 'package:provider/provider.dart';
 import '../../models/movie.dart';
 import '../../models/series.dart';
 import '../../services/tmdb_api_service.dart';
 import '../../database/db_helper.dart';
+import '../providers/tv_navigation_provider.dart';
 import '../utils/tv_utils.dart';
-import '../utils/tv_dpad_navigation_mixin.dart';
+import '../utils/tv_focus_manager.dart';
 import '../widgets/tv_breadcrumb_navigation.dart';
 import '../widgets/tv_visual_enhancements.dart';
 import '../widgets/tv_dark_mode_polish.dart';
@@ -21,9 +23,7 @@ class TvSeriesScreen extends StatefulWidget {
   State<TvSeriesScreen> createState() => _TvSeriesScreenState();
 }
 
-class _TvSeriesScreenState extends State<TvSeriesScreen>
-    with TvDpadNavigationMixin {
-  YoutubePlayerController? _youtubeController;
+class _TvSeriesScreenState extends State<TvSeriesScreen> {
   Map<String, dynamic>? seriesDetails;
   List<Season> seasons = [];
   int selectedSeasonIndex = 0;
@@ -31,11 +31,9 @@ class _TvSeriesScreenState extends State<TvSeriesScreen>
   bool isLoading = true;
   bool isInWatchlist = false;
   bool isLoadingEpisodes = false;
-  String? trailerUrl;
   List<Map<String, dynamic>> cast = [];
   List<Map<String, dynamic>> recommendations = [];
   late ScrollController _scrollController;
-  int? _focusedButtonIndex;
   final List<String> _selectedGenres = [];
 
   @override
@@ -46,62 +44,10 @@ class _TvSeriesScreenState extends State<TvSeriesScreen>
     _checkWatchlistStatus();
   }
 
-  // D-Pad Navigation Implementation
-  @override
-  int get maxFocusIndex => 1; // 0: Watch Now, 1: Add to My List
-
-  @override
-  void onFocusChanged(int index) {
-    setState(() => _focusedButtonIndex = index);
-  }
-
-  @override
-  void onSelectPressed() {
-    if (_focusedButtonIndex == 0) {
-      if (currentEpisodes.isNotEmpty) {
-        _playEpisode(currentEpisodes[0]);
-      }
-    } else if (_focusedButtonIndex == 1) {
-      _toggleWatchlist();
-    }
-  }
-
-  @override
-  void onLeftPressed() {
-    if (_focusedButtonIndex != null && _focusedButtonIndex! > 0) {
-      setFocusIndex(_focusedButtonIndex! - 1);
-    }
-  }
-
-  @override
-  void onRightPressed() {
-    if (_focusedButtonIndex != null && _focusedButtonIndex! < maxFocusIndex) {
-      setFocusIndex(_focusedButtonIndex! + 1);
-    }
-  }
-
   @override
   void dispose() {
-    _youtubeController?.dispose();
     _scrollController.dispose();
     super.dispose();
-  }
-
-  void _initializeYouTubePlayer(String url) {
-    final videoId = YoutubePlayer.convertUrlToId(url);
-    if (videoId != null) {
-      setState(() {
-        trailerUrl = url;
-        _youtubeController = YoutubePlayerController(
-          initialVideoId: videoId,
-          flags: const YoutubePlayerFlags(
-            autoPlay: false,
-            mute: false,
-            enableCaption: true,
-          ),
-        );
-      });
-    }
   }
 
   Future<void> _loadSeriesDetails() async {
@@ -128,14 +74,6 @@ class _TvSeriesScreenState extends State<TvSeriesScreen>
 
         if (seasons.isNotEmpty) {
           _loadSeasonEpisodes(seasons[0].seasonNumber);
-        }
-
-        final trailerUrlFromApi = await TmdbApiService.getTrailerUrl(
-          int.parse(widget.seriesItem.id),
-          isMovie: false,
-        );
-        if (trailerUrlFromApi.isNotEmpty) {
-          _initializeYouTubePlayer(trailerUrlFromApi);
         }
       }
     } catch (e) {
@@ -236,14 +174,14 @@ class _TvSeriesScreenState extends State<TvSeriesScreen>
         builder: (context) => TvVideoPlayerScreen(
           title:
               '${widget.seriesItem.title} - S${season.seasonNumber}E${episode.episodeNumber}: ${episode.name}',
-          tmdbId: widget.seriesItem.id.toString(),
-          isMovie: false,
-          season: season.seasonNumber,
-          episode: episode.episodeNumber,
-        ),
-      ),
-    );
-  }
+              tmdbId: widget.seriesItem.id.toString(),
+              isMovie: false,
+              season: season.seasonNumber,
+              episode: episode.episodeNumber,
+              ),
+              ),
+              );
+              }
 
   void _shareContent() {
     // Share functionality placeholder
@@ -382,39 +320,7 @@ class _TvSeriesScreenState extends State<TvSeriesScreen>
     );
   }
 
-  Widget _buildTrailerSection() {
-    if (_youtubeController == null) return const SizedBox.shrink();
 
-    return Padding(
-      padding: EdgeInsets.symmetric(
-        horizontal: TvUtils.responsivePadding(24, context),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Trailer',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: TvUtils.responsiveFontSize(20, context),
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 16),
-          AspectRatio(
-            aspectRatio: 16 / 9,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: YoutubePlayer(
-                controller: _youtubeController!,
-                showVideoProgressIndicator: true,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 
   Widget _buildCastSection() {
     if (cast.isEmpty) return const SizedBox.shrink();
@@ -812,22 +718,37 @@ class _TvSeriesScreenState extends State<TvSeriesScreen>
 
   @override
   Widget build(BuildContext context) {
-    return PopScope(
-      canPop: true,
-      onPopInvokedWithResult: (didPop, result) {
-        _youtubeController?.pause();
+    return Focus(
+      onKey: (node, event) {
+        if (event.isKeyPressed(LogicalKeyboardKey.arrowLeft) &&
+            event.isKeyPressed(LogicalKeyboardKey.escape) == false) {
+          Navigator.pop(context);
+          TvFocusManager.focusSidebar();
+          context.read<TvNavigationProvider>().returnToSidebar();
+          return KeyEventResult.handled;
+        } else if (event.isKeyPressed(LogicalKeyboardKey.escape)) {
+          Navigator.pop(context);
+          TvFocusManager.focusSidebar();
+          context.read<TvNavigationProvider>().returnToSidebar();
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
       },
-      child: DarkModeBackground(
-        child: Scaffold(
-          backgroundColor: Colors.transparent,
-          appBar: PreferredSize(
-            preferredSize: const Size.fromHeight(56),
-            child: DarkModeAppBar(
-              title: widget.seriesItem.title,
-              onBackPressed: () {
-                _youtubeController?.pause();
-                Navigator.pop(context);
-              },
+      autofocus: true,
+      child: PopScope(
+        canPop: true,
+        onPopInvokedWithResult: (didPop, result) {},
+        child: DarkModeBackground(
+          child: Scaffold(
+            backgroundColor: Colors.transparent,
+            appBar: PreferredSize(
+              preferredSize: const Size.fromHeight(56),
+              child: DarkModeAppBar(
+                title: widget.seriesItem.title,
+                onBackPressed: () {
+                  Navigator.pop(context);
+                  context.read<TvNavigationProvider>().returnToSidebar();
+                },
               actions: [
                 IconButton(
                   icon: const Icon(Icons.share, color: Color(0xFFE50914)),
@@ -855,17 +776,11 @@ class _TvSeriesScreenState extends State<TvSeriesScreen>
                           // Genre Chips
                           _buildGenreChips(),
                           const SizedBox(height: 24),
-                          if (_youtubeController != null) ...[
-                            _buildTrailerSection(),
-                            const SizedBox(height: 24),
-                          ],
+
                           _buildEpisodesSection(),
                           if (cast.isNotEmpty) ...[
                             const SizedBox(height: 24),
-                            SectionDivider(
-                              title: 'Cast',
-                              icon: Icons.people,
-                            ),
+                            SectionDivider(title: 'Cast', icon: Icons.people),
                             const SizedBox(height: 24),
                             _buildCastSection(),
                           ],
@@ -884,6 +799,7 @@ class _TvSeriesScreenState extends State<TvSeriesScreen>
                     ),
                   ],
                 ),
+          ),
         ),
       ),
     );

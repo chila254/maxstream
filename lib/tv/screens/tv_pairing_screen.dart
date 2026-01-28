@@ -32,11 +32,30 @@ class _TVPairingScreenState extends State<TVPairingScreen> {
       }
     } catch (e) {
       if (mounted) {
+        String userFriendlyMessage = _formatErrorMessage(e.toString());
         setState(() {
-          _errorMessage = 'Error: ${e.toString()}';
+          _errorMessage = userFriendlyMessage;
           _isLoading = false;
         });
       }
+    }
+  }
+
+  String _formatErrorMessage(String error) {
+    // Parse error messages and make them user-friendly
+    if (error.contains('timed out') || error.contains('Timeout')) {
+      return 'Pairing code generation timed out. This usually happens when:\n'
+          '• Your internet connection is slow\n'
+          '• The server is experiencing issues\n\n'
+          'Please try again. If the problem persists, check your internet connection.';
+    } else if (error.contains('not authenticated') || error.contains('User not')) {
+      return 'You need to be logged in to generate a pairing code.\n'
+          'Please log in first.';
+    } else if (error.contains('Firebase')) {
+      return 'Connection to MaxStream service failed.\n'
+          'Please check your internet connection and try again.';
+    } else {
+      return 'Error: $error';
     }
   }
 
@@ -126,7 +145,7 @@ class _TVPairingScreenState extends State<TVPairingScreen> {
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
                 ),
-              ),  // TODO: Use TvTypography
+              ),
               const SizedBox(height: 16),
               _buildInstructionStep(
                 number: '1',

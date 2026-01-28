@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../utils/tv_utils.dart';
+import '../utils/tv_keyboard_focus_manager.dart';
 
 typedef OnKeyboardInput = void Function(String text);
 
@@ -8,12 +9,14 @@ class TvKeyboard extends StatefulWidget {
   final OnKeyboardInput onInput;
   final VoidCallback onSubmit;
   final String initialText;
+  final TvKeyboardFocusManager? focusManager;
 
   const TvKeyboard({
     super.key,
     required this.onInput,
     required this.onSubmit,
     this.initialText = '',
+    this.focusManager,
   });
 
   @override
@@ -27,12 +30,27 @@ class _TvKeyboardState extends State<TvKeyboard> {
   String _input = '';
   bool _capsLock = false;
   bool _isSymbols = false;
+  late FocusNode _keyboardFocusNode;
 
   @override
   void initState() {
     super.initState();
     _input = widget.initialText;
     _initializeKeyboard();
+    _keyboardFocusNode = FocusNode();
+
+    // Activate keyboard focus on init
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _keyboardFocusNode.requestFocus();
+      widget.focusManager?.activateKeyboard();
+    });
+  }
+
+  @override
+  void dispose() {
+    _keyboardFocusNode.dispose();
+    widget.focusManager?.deactivateKeyboard();
+    super.dispose();
   }
 
   void _initializeKeyboard() {
@@ -55,6 +73,7 @@ class _TvKeyboardState extends State<TvKeyboard> {
   }
 
   void _handleKeyEvent(RawKeyEvent event) {
+    // Only handle arrow keys if keyboard is focused
     if (event.isKeyPressed(LogicalKeyboardKey.arrowUp)) {
       setState(() {
         _selectedRow = (_selectedRow - 1).clamp(0, _keyboardLayout.length - 1);
@@ -88,6 +107,10 @@ class _TvKeyboardState extends State<TvKeyboard> {
     } else if (event.isKeyPressed(LogicalKeyboardKey.select) ||
         event.isKeyPressed(LogicalKeyboardKey.enter)) {
       _pressKey(_keyboardLayout[_selectedRow][_selectedCol]);
+    } else if (event.isKeyPressed(LogicalKeyboardKey.escape) ||
+        event.isKeyPressed(LogicalKeyboardKey.goBack)) {
+      // If back is pressed on keyboard, go back to content
+      widget.focusManager?.focusOnContent();
     }
   }
 
@@ -134,7 +157,7 @@ class _TvKeyboardState extends State<TvKeyboard> {
   @override
   Widget build(BuildContext context) {
     return RawKeyboardListener(
-      focusNode: FocusNode(),
+      focusNode: _keyboardFocusNode,
       onKey: _handleKeyEvent,
       child: Column(
         mainAxisSize: MainAxisSize.min,

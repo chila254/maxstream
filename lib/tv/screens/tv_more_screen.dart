@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../services/user_service.dart';
 import '../../services/auth_service.dart';
+import '../providers/tv_navigation_provider.dart';
 import '../utils/tv_utils.dart';
 import '../utils/tv_typography.dart';
-import '../utils/tv_dpad_navigation_mixin.dart';
+import '../utils/tv_focus_manager.dart';
 import '../../widgets/profile_avatar.dart';
 import '../widgets/tv_focus_widget.dart';
 
@@ -18,11 +21,12 @@ class TvMoreScreen extends StatefulWidget {
   State<TvMoreScreen> createState() => _TvMoreScreenState();
 }
 
-class _TvMoreScreenState extends State<TvMoreScreen> with TvDpadNavigationMixin {
+class _TvMoreScreenState extends State<TvMoreScreen> {
   String _userName = 'MaxStream User';
   String _userEmail = 'user@maxstream.app';
   final UserService _userService = UserService();
   int? _focusedMenuItemIndex;
+  late List<FocusNode> _menuFocusNodes;
 
   @override
   void initState() {
@@ -30,22 +34,78 @@ class _TvMoreScreenState extends State<TvMoreScreen> with TvDpadNavigationMixin 
     _loadUserInfo();
     _userService.loadAvatar();
     _userService.loadProfilePicture();
+    
+    // Create focus nodes for menu items (4 items: Help, About, Community, SignOut)
+    _menuFocusNodes = List.generate(
+      4,
+      (index) => FocusNode(
+        onKey: (node, event) => _handleMenuKeyEvent(event, index),
+      ),
+    );
+    
+    // Integrate with navigation provider
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final navProvider = context.read<TvNavigationProvider>();
+      navProvider.setFocusOnSidebar(false);
+      // Set initial focus to first menu item
+      _menuFocusNodes[0].requestFocus();
+    });
+    
     // Set initial focus to "Help" (first menu item)
     _focusedMenuItemIndex = 0;
   }
-
-  void _handleMenuItemTap(String item) {
-    switch (item) {
-      case 'Help':
+  
+  @override
+  void dispose() {
+    for (var node in _menuFocusNodes) {
+      node.dispose();
+    }
+    super.dispose();
+  }
+  
+  /// Handle D-pad navigation for menu items
+  KeyEventResult _handleMenuKeyEvent(RawKeyEvent event, int itemIndex) {
+    if (event is! RawKeyDownEvent) return KeyEventResult.ignored;
+    
+    if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+      // Move to next menu item
+      if (itemIndex < _menuFocusNodes.length - 1) {
+        _menuFocusNodes[itemIndex + 1].requestFocus();
+        return KeyEventResult.handled;
+      }
+    } else if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+      // Move to previous menu item
+      if (itemIndex > 0) {
+        _menuFocusNodes[itemIndex - 1].requestFocus();
+        return KeyEventResult.handled;
+      }
+    } else if (event.logicalKey == LogicalKeyboardKey.select) {
+      // Select menu item
+      _selectMenuItem(itemIndex);
+      return KeyEventResult.handled;
+    } else if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+      // Return to sidebar
+      TvFocusManager.focusSidebar();
+      context.read<TvNavigationProvider>().setFocusOnSidebar(true);
+      return KeyEventResult.handled;
+    }
+    
+    return KeyEventResult.ignored;
+  }
+  
+  /// Handle menu item selection by index
+  void _selectMenuItem(int index) {
+    switch (index) {
+      case 0:
         _showHelpDialog();
         break;
-      case 'About':
+      case 1:
         _showAboutDialog();
         break;
-      case 'Community':
+      case 2:
         _launchUrl('https://t.me/maxstream254');
         break;
-      case 'Sign Out':
+      case 3:
         _signOut();
         break;
     }
@@ -61,58 +121,37 @@ class _TvMoreScreenState extends State<TvMoreScreen> with TvDpadNavigationMixin 
     }
   }
 
-  // D-Pad Navigation Implementation
-  @override
-  int get maxFocusIndex => 3; // Help, About, Community, Sign Out
-
-  @override
-  void onFocusChanged(int index) {
-    setState(() => _focusedMenuItemIndex = index);
-  }
-
-  @override
-  void onSelectPressed() {
-    final menuItems = ['Help', 'About', 'Community', 'Sign Out'];
-    if (_focusedMenuItemIndex != null && _focusedMenuItemIndex! < menuItems.length) {
-      _handleMenuItemTap(menuItems[_focusedMenuItemIndex!]);
-    }
-  }
-
-  @override
-  void onLeftPressed() {
-    // Return to sidebar
-    if (widget.onReturnToSidebar != null) {
-      widget.onReturnToSidebar!();
-    }
-  }
-
-  @override
-  void onRightPressed() {}
-
   @override
   Widget build(BuildContext context) {
-    return RawKeyboardListener(
-      onKey: handleKeyEvent,
-      focusNode: focusNode,
-      child: Scaffold(
+    return Scaffold(
       backgroundColor: const Color(0xFF121212),
       appBar: AppBar(
         backgroundColor: const Color(0xFF1A1A1A),
-        title: Text(
-           'More',
-           style: TvTypography.sectionTitle,
-         ),
+        title: Text('More', style: TvTypography.sectionTitle),
       ),
-      body: SingleChildScrollView(
-        child: Column(
-          children: [
-            _buildUserSection(),
-            SizedBox(height: TvUtils.responsivePadding(32, context)),
-            _buildMenuItems(),
-            SizedBox(height: TvUtils.responsivePadding(32, context)),
-          ],
+      body: Focus(
+        onKey: (node, event) {
+          if (event.isKeyPressed(LogicalKeyboardKey.arrowLeft)) {
+            context.read<TvNavigationProvider>().setFocusOnSidebar(true);
+            return KeyEventResult.handled;
+          } else if (event.isKeyPressed(LogicalKeyboardKey.arrowUp) ||
+              event.isKeyPressed(LogicalKeyboardKey.arrowDown)) {
+            // Let arrow keys pass through for menu navigation
+            return KeyEventResult.ignored;
+          }
+          return KeyEventResult.ignored;
+        },
+        autofocus: true,
+        child: SingleChildScrollView(
+          child: Column(
+            children: [
+              _buildUserSection(),
+              SizedBox(height: TvUtils.responsivePadding(32, context)),
+              _buildMenuItems(),
+              SizedBox(height: TvUtils.responsivePadding(32, context)),
+            ],
+          ),
         ),
-      ),
       ),
     );
   }
@@ -129,15 +168,9 @@ class _TvMoreScreenState extends State<TvMoreScreen> with TvDpadNavigationMixin 
             userService: _userService,
           ),
           SizedBox(height: TvUtils.responsivePadding(16, context)),
-          Text(
-            _userName,
-            style: TvTypography.subsectionTitle,
-          ),
+          Text(_userName, style: TvTypography.subsectionTitle),
           if (_userEmail.isNotEmpty)
-            Text(
-              _userEmail,
-              style: TvTypography.bodyMedium,
-            ),
+            Text(_userEmail, style: TvTypography.bodyMedium),
         ],
       ),
     );
@@ -146,50 +179,82 @@ class _TvMoreScreenState extends State<TvMoreScreen> with TvDpadNavigationMixin 
   Widget _buildMenuItems() {
     return Column(
       children: [
-        TvMenuItem(
-          isFocused: _focusedMenuItemIndex == 0,
-          onTap: () => _showHelpDialog(),
-          child: _buildMenuItem(
-            icon: Icons.help,
-            title: 'Help & Support',
-            onTap: () {
-              _showHelpDialog();
-            },
+        Focus(
+          focusNode: _menuFocusNodes[0],
+          onFocusChange: (hasFocus) {
+            if (hasFocus) {
+              setState(() => _focusedMenuItemIndex = 0);
+            }
+          },
+          child: TvMenuItem(
+            isFocused: _focusedMenuItemIndex == 0,
+            onTap: () => _showHelpDialog(),
+            child: _buildMenuItem(
+              icon: Icons.help,
+              title: 'Help & Support',
+              onTap: () {
+                _showHelpDialog();
+              },
+            ),
           ),
         ),
-        TvMenuItem(
-          isFocused: _focusedMenuItemIndex == 1,
-          onTap: () => _showAboutDialog(),
-          child: _buildMenuItem(
-            icon: Icons.info,
-            title: 'About MaxStream',
-            onTap: () {
-              _showAboutDialog();
-            },
+        Focus(
+          focusNode: _menuFocusNodes[1],
+          onFocusChange: (hasFocus) {
+            if (hasFocus) {
+              setState(() => _focusedMenuItemIndex = 1);
+            }
+          },
+          child: TvMenuItem(
+            isFocused: _focusedMenuItemIndex == 1,
+            onTap: () => _showAboutDialog(),
+            child: _buildMenuItem(
+              icon: Icons.info,
+              title: 'About MaxStream',
+              onTap: () {
+                _showAboutDialog();
+              },
+            ),
           ),
         ),
-        TvMenuItem(
-          isFocused: _focusedMenuItemIndex == 2,
-          onTap: () => _launchUrl('https://t.me/maxstream254'),
-          child: _buildMenuItem(
-            icon: Icons.telegram,
-            title: 'Join Community',
-            onTap: () {
-              _launchUrl('https://t.me/maxstream254');
-            },
+        Focus(
+          focusNode: _menuFocusNodes[2],
+          onFocusChange: (hasFocus) {
+            if (hasFocus) {
+              setState(() => _focusedMenuItemIndex = 2);
+            }
+          },
+          child: TvMenuItem(
+            isFocused: _focusedMenuItemIndex == 2,
+            onTap: () => _launchUrl('https://t.me/maxstream254'),
+            child: _buildMenuItem(
+              icon: Icons.telegram,
+              title: 'Join Community',
+              onTap: () {
+                _launchUrl('https://t.me/maxstream254');
+              },
+            ),
           ),
         ),
         SizedBox(height: TvUtils.responsivePadding(24, context)),
-        TvMenuItem(
-          isFocused: _focusedMenuItemIndex == 3,
-          onTap: () => _signOut(),
-          child: _buildMenuItem(
-            icon: Icons.logout,
-            title: 'Sign Out',
-            onTap: () {
-              _signOut();
-            },
-            isDestructive: true,
+        Focus(
+          focusNode: _menuFocusNodes[3],
+          onFocusChange: (hasFocus) {
+            if (hasFocus) {
+              setState(() => _focusedMenuItemIndex = 3);
+            }
+          },
+          child: TvMenuItem(
+            isFocused: _focusedMenuItemIndex == 3,
+            onTap: () => _signOut(),
+            child: _buildMenuItem(
+              icon: Icons.logout,
+              title: 'Sign Out',
+              onTap: () {
+                _signOut();
+              },
+              isDestructive: true,
+            ),
           ),
         ),
       ],
@@ -350,6 +415,9 @@ class _TvMoreScreenState extends State<TvMoreScreen> with TvDpadNavigationMixin 
             onPressed: () async {
               Navigator.pop(context);
               try {
+                // Clear navigation state
+                context.read<TvNavigationProvider>().clearState();
+                
                 await AuthService.signOut();
                 // AuthGate will handle navigation when auth state changes
                 if (mounted) {

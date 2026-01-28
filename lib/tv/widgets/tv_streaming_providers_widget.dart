@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../utils/tv_utils.dart';
 
 /// Streaming provider data with TMDB information
@@ -16,56 +17,62 @@ class StreamingProvider {
   });
 }
 
-/// Provider logos map with TMDB logo paths
+/// Provider logos map with TMDB logo paths (matching MaxStream mobile app)
 class StreamingProviders {
   static final Map<int, StreamingProvider> providers = {
     8: StreamingProvider(
       id: 8,
       name: 'Netflix',
-      logoPath: '/wwemzKWzDG0at4JZebuCT0IB2Fr.jpg',
+      logoPath: '/pbpMk2JmcoNnQwx5JGpXngfoWtp.jpg',
       accentColor: const Color(0xFFE50914),
     ),
     9: StreamingProvider(
       id: 9,
-      name: 'Amazon Prime Video',
-      logoPath: '/68MNrwlkpF7WnmNvQEzL05O5Vuk.jpg',
+      name: 'Prime Video',
+      logoPath: '/pvske1MyAoymrs5bguRfVqYiM9a.jpg',
       accentColor: const Color(0xFF00A8E1),
     ),
     337: StreamingProvider(
       id: 337,
-      name: 'Disney Plus',
-      logoPath: '/dgPuNKd5E1ejscPr0Yu3Outa11G.jpg',
+      name: 'Disney+',
+      logoPath: '/97yvRBw1GzX7fXprcF80er19ot.jpg',
       accentColor: const Color(0xFF113CCF),
     ),
     15: StreamingProvider(
       id: 15,
       name: 'Hulu',
-      logoPath: '/5NyLm42sCqWAGJogoKB3wAvGEwu.jpg',
+      logoPath: '/bxBlRPEPpMVDc4jMhSrTf2339DW.jpg',
       accentColor: const Color(0xFF1CE783),
     ),
-    2: StreamingProvider(
-      id: 2,
-      name: 'Apple TV Plus',
-      logoPath: '/fSK1xQ7s5W1tnW2gDA2LzNtulqF.jpg',
-      accentColor: const Color(0xFF000000),
+    350: StreamingProvider(
+      id: 350,
+      name: 'Apple TV',
+      logoPath: '/mcbz1LgtErU9p4UdbZ0rG6RTWHX.jpg',
+      accentColor: const Color(0xFF1F1F1F),
     ),
-    3: StreamingProvider(
-      id: 3,
-      name: 'Google Play',
-      logoPath: '/AwqLmV6OWP5x70z2BcXyb5GrSJt.jpg',
-      accentColor: const Color(0xFF4285F4),
-    ),
-    5: StreamingProvider(
-      id: 5,
-      name: 'iTunes',
-      logoPath: '/peURlLlr8jGsmMNuZiZXeeedQoL.jpg',
-      accentColor: const Color(0xFFFB233B),
-    ),
-    14: StreamingProvider(
-      id: 14,
+    1899: StreamingProvider(
+      id: 1899,
       name: 'HBO Max',
-      logoPath: '/JsPd0Pf8Xyf5WcsZN9aX3inmaW.jpg',
-      accentColor: const Color(0xFF5D1049),
+      logoPath: '/jbe4gVSfRlbPTdESXhEKpornsfu.jpg',
+      accentColor: const Color(0xFF542DBF),
+    ),
+    386: StreamingProvider(
+      id: 386,
+      name: 'Peacock',
+      logoPath: '/2aGrp1xw3qhwCYvNGAJZPdjfeeX.jpg',
+      accentColor: const Color(0xFF1B365D),
+    ),
+    582: StreamingProvider(
+      id: 582,
+      name: 'Paramount+',
+      logoPath: '/5qda0qKT6I1tm5EUOlw3YqQ5w.jpg',
+      accentColor: const Color(0xFF0064FF),
+    ),
+    526: StreamingProvider(
+      id: 526,
+      name: 'AMC+',
+      logoPath: '/ovmu6uot1XVvsemM2dDySXLiX57.jpg',
+      accentColor: const Color(0xFF1A1A1A),
     ),
   };
 
@@ -102,84 +109,115 @@ class TvStreamingProviderLogo extends StatelessWidget {
       onTap: onTap,
       child: MouseRegion(
         cursor: onTap != null ? SystemMouseCursors.click : MouseCursor.defer,
-        child: AnimatedContainer(
+        child: TweenAnimationBuilder<double>(
+          tween: Tween<double>(begin: 1.0, end: isFocused ? 1.08 : 1.0),
           duration: const Duration(milliseconds: 300),
-          padding: EdgeInsets.all(TvUtils.responsivePadding(8, context)),
-          decoration: BoxDecoration(
-            color: isFocused
-                ? provider.accentColor.withValues(alpha: 0.15)
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: isFocused ? provider.accentColor : Colors.grey[800]!,
-              width: isFocused ? 2 : 1,
-            ),
-            boxShadow: isFocused
-                ? [
-                    BoxShadow(
-                      color: provider.accentColor.withValues(alpha: 0.3),
-                      blurRadius: 12,
-                      spreadRadius: 2,
-                    ),
-                  ]
-                : [],
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Logo Image
-              Container(
-                width: size,
-                height: size,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(8),
-                  color: Colors.grey[900],
-                ),
-                child: logoUrl.isNotEmpty
-                    ? Image.network(
-                        logoUrl,
-                        fit: BoxFit.contain,
-                        errorBuilder: (context, error, stackTrace) {
-                          return Center(
-                            child: Text(
-                              provider.name.substring(0, 1).toUpperCase(),
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: TvUtils.responsiveFontSize(
-                                  32,
-                                  context,
-                                ),
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          );
-                        },
-                      )
-                    : Center(
-                        child: Icon(
-                          Icons.smart_display,
-                          color: provider.accentColor,
-                          size: size * 0.6,
-                        ),
-                      ),
+          curve: Curves.easeOutBack,
+          builder: (context, scale, child) {
+            return Transform.scale(
+              scale: scale,
+              child: child,
+            );
+          },
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 300),
+            padding: EdgeInsets.all(TvUtils.responsivePadding(12, context)),
+            decoration: BoxDecoration(
+              color: isFocused
+                  ? provider.accentColor.withValues(alpha: 0.2)
+                  : Colors.grey[900],
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: isFocused ? provider.accentColor : Colors.grey[800]!,
+                width: isFocused ? 3 : 2,
               ),
-              // Label
-              if (showLabel) ...[
-                SizedBox(height: TvUtils.responsivePadding(8, context)),
-                Text(
-                  provider.name,
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: TvUtils.responsiveFontSize(12, context),
-                    fontWeight: FontWeight.w600,
+              boxShadow: [
+                if (isFocused)
+                  BoxShadow(
+                    color: provider.accentColor.withValues(alpha: 0.5),
+                    blurRadius: 16,
+                    spreadRadius: 3,
+                  )
+                else
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.3),
+                    blurRadius: 8,
+                    spreadRadius: 1,
                   ),
-                  textAlign: TextAlign.center,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
               ],
-            ],
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Logo Image
+                Container(
+                  width: size,
+                  height: size,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    color: Colors.grey[950],
+                  ),
+                  padding: EdgeInsets.all(TvUtils.responsivePadding(4, context)),
+                  child: logoUrl.isNotEmpty
+                      ? Image.network(
+                          logoUrl,
+                          fit: BoxFit.contain,
+                          errorBuilder: (context, error, stackTrace) {
+                            return Container(
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(8),
+                                color: provider.accentColor
+                                    .withValues(alpha: 0.2),
+                              ),
+                              child: Center(
+                                child: Text(
+                                  provider.name.substring(0, 1).toUpperCase(),
+                                  style: TextStyle(
+                                    color: provider.accentColor,
+                                    fontSize: TvUtils.responsiveFontSize(
+                                      40,
+                                      context,
+                                    ),
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        )
+                      : Container(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(8),
+                            color: provider.accentColor
+                                .withValues(alpha: 0.1),
+                          ),
+                          child: Center(
+                            child: Icon(
+                              Icons.smart_display,
+                              color: provider.accentColor,
+                              size: size * 0.6,
+                            ),
+                          ),
+                        ),
+                ),
+                // Label
+                if (showLabel) ...[
+                  SizedBox(height: TvUtils.responsivePadding(10, context)),
+                  Text(
+                    provider.name,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: TvUtils.responsiveFontSize(13, context),
+                      fontWeight: FontWeight.w700,
+                    ),
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ],
+            ),
           ),
         ),
       ),
@@ -260,12 +298,21 @@ class _TvStreamingProvidersHorizontalListState
               horizontal: TvUtils.responsivePadding(8, context),
               vertical: TvUtils.responsivePadding(4, context),
             ),
-            child: TvStreamingProviderLogo(
-              provider: provider,
-              size: 80,
-              showLabel: true,
-              isFocused: isSelected,
-              onTap: () => widget.onProviderSelected(provider),
+            child: Focus(
+              onKey: (node, event) {
+                if (event.isKeyPressed(LogicalKeyboardKey.select)) {
+                  widget.onProviderSelected(provider);
+                  return KeyEventResult.handled;
+                }
+                return KeyEventResult.ignored;
+              },
+              child: TvStreamingProviderLogo(
+                provider: provider,
+                size: 80,
+                showLabel: true,
+                isFocused: isSelected,
+                onTap: () => widget.onProviderSelected(provider),
+              ),
             ),
           );
         },

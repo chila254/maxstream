@@ -1,32 +1,27 @@
 import 'package:flutter/material.dart';
-import 'dart:ui' as ui;
-import '../utils/tv_utils.dart';
 
-/// Enhanced Hero Banner with smooth animations and modern effects
-/// Features:
-/// - Smooth fade and zoom transitions
-/// - Animated overlay gradient
-/// - Smooth indicator animations
-/// - Title/description fade effects
-/// - Glassmorphism effects with backdrop blur
+/// Enhanced Hero Banner widget for TV
+/// Displays a backdrop image with title, description, and action buttons
 class TvEnhancedHeroBanner extends StatefulWidget {
   final String backdropUrl;
   final String title;
-  final String? description;
+  final String description;
   final double? rating;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
+  final VoidCallback? onWatchNow;
+  final VoidCallback? onDetails;
   final bool isFocused;
-  final Duration transitionDuration;
 
   const TvEnhancedHeroBanner({
     super.key,
     required this.backdropUrl,
     required this.title,
-    this.description,
+    required this.description,
     this.rating,
-    required this.onTap,
+    this.onTap,
+    this.onWatchNow,
+    this.onDetails,
     this.isFocused = false,
-    this.transitionDuration = const Duration(milliseconds: 500),
   });
 
   @override
@@ -36,39 +31,39 @@ class TvEnhancedHeroBanner extends StatefulWidget {
 class _TvEnhancedHeroBannerState extends State<TvEnhancedHeroBanner>
     with SingleTickerProviderStateMixin {
   late AnimationController _animationController;
-  late Animation<double> _fadeAnimation;
   late Animation<double> _scaleAnimation;
-  late Animation<double> _overlayAnimation;
+  late Animation<double> _opacityAnimation;
 
   @override
   void initState() {
     super.initState();
     _animationController = AnimationController(
-      duration: widget.transitionDuration,
+      duration: const Duration(milliseconds: 300),
       vsync: this,
-    );
-
-    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _animationController, curve: Curves.easeOut),
     );
 
     _scaleAnimation = Tween<double>(begin: 1.0, end: 1.05).animate(
       CurvedAnimation(parent: _animationController, curve: Curves.easeOut),
     );
 
-    _overlayAnimation = Tween<double>(begin: 0.4, end: 0.6).animate(
-      CurvedAnimation(parent: _animationController, curve: Curves.easeInOut),
+    _opacityAnimation = Tween<double>(begin: 0.7, end: 1.0).animate(
+      CurvedAnimation(parent: _animationController, curve: Curves.easeOut),
     );
 
-    _animationController.forward();
+    if (widget.isFocused) {
+      _animationController.forward();
+    }
   }
 
   @override
   void didUpdateWidget(TvEnhancedHeroBanner oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.backdropUrl != oldWidget.backdropUrl) {
-      _animationController.reset();
-      _animationController.forward();
+    if (widget.isFocused != oldWidget.isFocused) {
+      if (widget.isFocused) {
+        _animationController.forward();
+      } else {
+        _animationController.reverse();
+      }
     }
   }
 
@@ -82,215 +77,265 @@ class _TvEnhancedHeroBannerState extends State<TvEnhancedHeroBanner>
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: widget.onTap,
-      child: AnimatedBuilder(
-        animation: _animationController,
-        builder: (context, child) => Stack(
-          children: [
-            // Background Image with Scale Animation
-            ScaleTransition(
-              scale: _scaleAnimation,
-              child: Image.network(
-                widget.backdropUrl,
-                width: double.infinity,
-                height: double.infinity,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) => Container(
-                  color: Colors.grey[900],
-                  child: const Icon(
-                    Icons.broken_image,
-                    color: Colors.grey,
-                    size: 80,
+      child: ScaleTransition(
+        scale: _scaleAnimation,
+        child: FadeTransition(
+          opacity: _opacityAnimation,
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: [
+                if (widget.isFocused)
+                  BoxShadow(
+                    color: Colors.red.withValues(alpha: 0.3),
+                    blurRadius: 20,
+                    spreadRadius: 2,
                   ),
-                ),
-              ),
+              ],
             ),
-            // Multi-layer Gradient Overlay with modern glassmorphism effect
-            Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.transparent,
-                    Colors.black.withValues(alpha: 0.3),
-                    Colors.black.withValues(alpha: _overlayAnimation.value),
-                  ],
-                  stops: const [0.0, 0.5, 1.0],
-                ),
-              ),
-            ),
-            // Secondary radial gradient for depth
-            Container(
-              decoration: BoxDecoration(
-                gradient: RadialGradient(
-                  center: Alignment.topRight,
-                  radius: 1.2,
-                  colors: [Colors.black.withValues(alpha: 0.1), Colors.transparent],
-                ),
-              ),
-            ),
-            // Content with Fade Animation
-            FadeTransition(
-              opacity: _fadeAnimation,
-              child: Padding(
-                padding: EdgeInsets.all(TvUtils.responsivePadding(32, context)),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Title
-                    Text(
-                      widget.title,
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: TvUtils.responsiveFontSize(
-                          36,
-                          context,
-                          maxSize: 48,
-                        ),
-                        fontWeight: FontWeight.bold,
-                        shadows: [
-                          Shadow(
-                            color: Colors.black.withValues(alpha: 0.5),
-                            blurRadius: 10,
-                            offset: const Offset(2, 2),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Stack(
+                children: [
+                  // Backdrop image
+                  Image.network(
+                    widget.backdropUrl,
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) {
+                      return Container(
+                        color: Colors.grey[900],
+                        child: const Center(
+                          child: Icon(
+                            Icons.image_not_supported,
+                            color: Colors.grey,
                           ),
+                        ),
+                      );
+                    },
+                  ),
+                  // Gradient overlay
+                  Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.transparent,
+                          Colors.black.withValues(alpha: 0.3),
+                          Colors.black.withValues(alpha: 0.8),
                         ],
+                        stops: const [0.0, 0.5, 1.0],
                       ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
                     ),
-                    SizedBox(height: TvUtils.responsivePadding(12, context)),
-                    // Rating
-                    if (widget.rating != null)
-                      Row(
+                  ),
+                  // Content
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(32, 40, 32, 40),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          ...List.generate(
-                            5,
-                            (index) => Icon(
-                              Icons.star,
-                              color: index < (widget.rating! / 2).floor()
-                                  ? Colors.amber
-                                  : Colors.grey.withValues(alpha: 0.6),
-                              size: 20,
-                            ),
-                          ),
-                          SizedBox(
-                            width: TvUtils.responsivePadding(8, context),
-                          ),
+                          // Title
                           Text(
-                            '${widget.rating!.toStringAsFixed(1)}/10',
-                            style: TextStyle(
-                              color: Colors.white70,
-                              fontSize: TvUtils.responsiveFontSize(14, context),
-                              fontWeight: FontWeight.w500,
+                            widget.title,
+                            style: Theme.of(context).textTheme.headlineSmall
+                                ?.copyWith(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 28,
+                                  letterSpacing: 0.5,
+                                ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 12),
+                          // Rating
+                          if (widget.rating != null && widget.rating! > 0)
+                            Row(
+                              children: [
+                                const Icon(
+                                  Icons.star,
+                                  color: Colors.amber,
+                                  size: 18,
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  '${widget.rating!.toStringAsFixed(1)}/10',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          const SizedBox(height: 12),
+                          // Description
+                          SizedBox(
+                            width: double.infinity,
+                            child: Text(
+                              widget.description,
+                              style: const TextStyle(
+                                color: Colors.white70,
+                                fontSize: 14,
+                                height: 1.5,
+                              ),
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
-                        ],
-                      ),
-                    SizedBox(height: TvUtils.responsivePadding(16, context)),
-                    // Description
-                    if (widget.description != null &&
-                        widget.description!.isNotEmpty)
-                      Text(
-                        widget.description!,
-                        style: TextStyle(
-                          color: Colors.white70,
-                          fontSize: TvUtils.responsiveFontSize(16, context),
-                          fontWeight: FontWeight.w400,
-                          height: 1.5,
-                        ),
-                        maxLines: 3,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                  ],
-                ),
-              ),
-            ),
-            // Play Button with Glassmorphic effect
-            Positioned(
-              top: 50,
-              right: 50,
-              child: FadeTransition(
-                opacity: _fadeAnimation,
-                child: ClipOval(
-                  child: BackdropFilter(
-                    filter: ui.ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Colors.white.withValues(alpha: 0.15),
-                        border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.3),
-                          width: 1.5,
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.3),
-                            blurRadius: 15,
-                            spreadRadius: 2,
-                          ),
-                        ],
-                      ),
-                      padding: const EdgeInsets.all(16),
-                      child: const Icon(
-                        Icons.play_arrow,
-                        color: Colors.white,
-                        size: 40,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
+                          const SizedBox(height: 20),
+                          // Action Buttons
+                          Row(
+                            children: [
+                              // Watch Now Button
+                              if (widget.onWatchNow != null)
+                                GestureDetector(
+                                  onTap: widget.onWatchNow,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 28,
+                                      vertical: 12,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFE50914),
+                                      borderRadius: BorderRadius.circular(8),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: const Color(0xFFE50914)
+                                              .withValues(alpha: 0.4),
+                                          blurRadius: 12,
+                                          spreadRadius: 2,
+                                        ),
+                                      ],
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Icon(
+                                          Icons.play_arrow,
+                                          color: Colors.white,
+                                          size: 20,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          'Watch Now',
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .labelLarge
+                                              ?.copyWith(
+                                                color: Colors.white,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              const SizedBox(width: 16),
+                              // Details Button
+                              if (widget.onDetails != null)
+                                GestureDetector(
+                                  onTap: widget.onDetails,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 28,
+                                      vertical: 12,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withValues(
+                                        alpha: 0.25,
+                                      ),
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(
+                                        color:
+                                            Colors.white.withValues(alpha: 0.5),
+                                        width: 2,
+                                      ),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Icon(
+                                          Icons.info_outline,
+                                          color: Colors.white,
+                                          size: 20,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          'Details',
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .labelLarge
+                                              ?.copyWith(
+                                                color: Colors.white,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                            ],
+                            ),
+                            ],
+                            ),
+                            ),
+                            ),
+                            ],
+                            ),
+                            ),
+                            ),
+                            ),
+                            ),
+                            );
+                            }
+                            }
 
-/// Enhanced Page Indicator with smooth animations
+                            /// Enhanced Page Indicator widget for TV
+/// Shows dots indicating current page in a carousel
 class TvEnhancedPageIndicator extends StatelessWidget {
   final int itemCount;
   final int currentIndex;
   final Duration animationDuration;
+  final Color activeColor;
+  final Color inactiveColor;
+  final double dotSize;
+  final double spacing;
 
   const TvEnhancedPageIndicator({
     super.key,
     required this.itemCount,
     required this.currentIndex,
     this.animationDuration = const Duration(milliseconds: 300),
+    this.activeColor = const Color(0xFFE50914), // Netflix red
+    this.inactiveColor = Colors.grey,
+    this.dotSize = 8.0,
+    this.spacing = 6.0,
   });
 
   @override
   Widget build(BuildContext context) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
-      children: List.generate(
-        itemCount,
-        (index) => AnimatedContainer(
+      children: List.generate(itemCount, (index) {
+        final isActive = index == currentIndex;
+        return AnimatedContainer(
           duration: animationDuration,
-          margin: EdgeInsets.symmetric(horizontal: 4),
-          width: currentIndex == index ? 24 : 8,
-          height: 8,
+          curve: Curves.easeInOut,
+          width: isActive ? dotSize * 2.5 : dotSize,
+          height: dotSize,
+          margin: EdgeInsets.symmetric(horizontal: spacing / 2),
           decoration: BoxDecoration(
-            color: currentIndex == index
-                ? const Color(0xFFE50914)
-                : Colors.grey.withValues(alpha: 0.6),
-            borderRadius: BorderRadius.circular(4),
-            boxShadow: currentIndex == index
-                ? [
-                    BoxShadow(
-                      color: const Color(0xFFE50914).withValues(alpha: 0.5),
-                      blurRadius: 8,
-                      spreadRadius: 1,
-                    ),
-                  ]
-                : null,
+            borderRadius: BorderRadius.circular(dotSize / 2),
+            color: isActive ? activeColor : inactiveColor,
           ),
-        ),
-      ),
+        );
+      }),
     );
   }
 }
