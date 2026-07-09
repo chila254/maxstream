@@ -3,7 +3,6 @@ import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:video_player/video_player.dart';
 import 'package:chewie/chewie.dart';
-import '../services/phone_scraper_service.dart';
 import '../services/direct_m3u8_service.dart';
 
 class M3U8VideoPlayerScreen extends StatefulWidget {
@@ -160,6 +159,11 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
 
       if (result != null && result['url'] != null) {
         final m3u8Url = result['url'] as String;
+        final headers =
+            (result['headers'] as Map?)?.map(
+              (key, value) => MapEntry(key.toString(), value.toString()),
+            ) ??
+            const <String, String>{};
         debugPrint(
           'M3U8VideoPlayer: Found direct m3u8 stream from ${result['source']}: $m3u8Url',
         );
@@ -170,11 +174,12 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
           'quality': 'HD',
           'source': result['source'] ?? 'Direct M3U8',
           'type': 'direct_m3u8',
+          'headers': headers,
           'isPlayable': true,
         };
 
         // Attempt to play directly using native video player
-        await _playDirectM3u8(m3u8Url);
+        await _playDirectM3u8(m3u8Url, headers: headers);
         return;
       }
 
@@ -191,7 +196,10 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   }
 
   /// Play direct m3u8 stream using native video player
-  Future<void> _playDirectM3u8(String m3u8Url) async {
+  Future<void> _playDirectM3u8(
+    String m3u8Url, {
+    Map<String, String> headers = const {},
+  }) async {
     try {
       debugPrint(
         'M3U8VideoPlayer: Initializing native player with m3u8: $m3u8Url',
@@ -203,6 +211,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
 
       _videoPlayerController = VideoPlayerController.networkUrl(
         Uri.parse(m3u8Url),
+        httpHeaders: headers,
       );
 
       await _videoPlayerController!.initialize();
@@ -233,17 +242,19 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   }
 
   Future<void> _tryNextServer() async {
-    // List of embed providers for movies/series (not TV channels)
-    final embedProviders = [
-      {'name': 'VidSrc', 'url': _generateVidSrcUrl(), 'type': 'embed'},
-      {'name': '2Embed', 'url': _generate2EmbedUrl(), 'type': 'embed'},
-      {'name': 'FlixHQ', 'url': _generateFlixHQUrl(), 'type': 'embed'},
-      {
-        'name': 'Remotestream',
-        'url': _generateRemotestreamUrl(),
-        'type': 'embed',
-      },
-    ];
+    final embedProviders = DirectM3u8Service.getEmbedSources().map((source) {
+      final sourceName = source['name'] ?? '';
+      final url = widget.isMovie
+          ? DirectM3u8Service.generateMovieEmbedUrl(widget.tmdbId, sourceName)
+          : DirectM3u8Service.generateTvEmbedUrl(
+              widget.tmdbId,
+              widget.season,
+              widget.episode,
+              sourceName,
+            );
+
+      return {'name': sourceName, 'url': url, 'type': 'embed'};
+    }).toList();
 
     // Try each provider
     for (final provider in embedProviders) {
@@ -262,54 +273,38 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
           continue;
         }
 
-        // Quick check if embed URL responds
+        _streamData = {
+          'embedUrl': embedUrl,
+          'title': widget.title,
+          'quality': 'HD',
+          'source': provider['name'],
+          'type': 'embed',
+          'isPlayable': true,
+        };
+
+        _triedServers.add(provider);
+
+        // Load the embed URL in WebView. Do not preflight with HEAD: several
+        // providers reject probes but work when loaded as a browser page.
         try {
-          final statusCode = await PhoneScraperService.getUrlStatus(
-            embedUrl,
-            timeout: const Duration(seconds: 10),
-          );
-
-          if (statusCode != null &&
-              (statusCode == 200 ||
-                  statusCode == 403 ||
-                  statusCode == 301 ||
-                  statusCode == 302)) {
-            _streamData = {
-              'embedUrl': embedUrl,
-              'title': widget.title,
-              'quality': 'HD',
-              'source': provider['name'],
-              'type': 'embed',
-              'isPlayable': true,
-            };
-
-            _triedServers.add(provider);
-
-            // Load the embed URL in WebView
-            try {
-              await _webViewController.loadRequest(Uri.parse(embedUrl));
-            } catch (e) {
-              debugPrint('Error loading request into WebView: $e');
-            }
-
-            // Set a timeout to ensure loading indicator disappears even if onPageFinished never fires
-            Future.delayed(const Duration(seconds: 20), () {
-              if (mounted && _isLoading) {
-                debugPrint('Loading timeout - hiding loading indicator');
-                setState(() {
-                  _isLoading = false;
-                });
-              }
-            });
-
-            debugPrint('Successfully loaded embed from ${provider['name']}');
-            return;
-          }
+          await _webViewController.loadRequest(Uri.parse(embedUrl));
         } catch (e) {
-          debugPrint('Provider ${provider['name']} health check failed: $e');
-          _triedServers.add(provider);
+          debugPrint('Error loading request into WebView: $e');
           continue;
         }
+
+        // Set a timeout to ensure loading indicator disappears even if onPageFinished never fires
+        Future.delayed(const Duration(seconds: 20), () {
+          if (mounted && _isLoading) {
+            debugPrint('Loading timeout - hiding loading indicator');
+            setState(() {
+              _isLoading = false;
+            });
+          }
+        });
+
+        debugPrint('Successfully loaded embed from ${provider['name']}');
+        return;
       } catch (e) {
         debugPrint('Provider ${provider['name']} failed: $e');
         _triedServers.add(provider);
@@ -326,62 +321,6 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
           '• Content might be unavailable';
       _isLoading = false;
     });
-  }
-
-  /// Generate VidSrc embed URL
-  String _generateVidSrcUrl() {
-    try {
-      if (widget.isMovie) {
-        return 'https://vidsrc.me/embed/movie?imdb_id=${widget.tmdbId}';
-      } else {
-        return 'https://vidsrc.me/embed/tv?imdb_id=${widget.tmdbId}&season=${widget.season}&episode=${widget.episode}';
-      }
-    } catch (e) {
-      debugPrint('Error generating VidSrc URL: $e');
-      return '';
-    }
-  }
-
-  /// Generate 2Embed URL
-  String _generate2EmbedUrl() {
-    try {
-      if (widget.isMovie) {
-        return 'https://www.2embed.cc/embed/${widget.tmdbId}';
-      } else {
-        return 'https://www.2embed.cc/embedtv/${widget.tmdbId}&s=${widget.season}&e=${widget.episode}';
-      }
-    } catch (e) {
-      debugPrint('Error generating 2Embed URL: $e');
-      return '';
-    }
-  }
-
-  /// Generate FlixHQ URL
-  String _generateFlixHQUrl() {
-    try {
-      if (widget.isMovie) {
-        return 'https://flixhq.click/watch/movie/${widget.tmdbId}';
-      } else {
-        return 'https://flixhq.click/watch/tv/${widget.tmdbId}-${widget.season}-${widget.episode}';
-      }
-    } catch (e) {
-      debugPrint('Error generating FlixHQ URL: $e');
-      return '';
-    }
-  }
-
-  /// Generate Remotestream URL
-  String _generateRemotestreamUrl() {
-    try {
-      if (widget.isMovie) {
-        return 'https://remotestream.click/embed/movie?id=${widget.tmdbId}';
-      } else {
-        return 'https://remotestream.click/embed/tv?id=${widget.tmdbId}&s=${widget.season}&e=${widget.episode}';
-      }
-    } catch (e) {
-      debugPrint('Error generating Remotestream URL: $e');
-      return '';
-    }
   }
 
   // Ad blocking methods

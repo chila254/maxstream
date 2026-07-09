@@ -1,427 +1,332 @@
-import 'package:flutter/foundation.dart';
 import 'package:dio/dio.dart';
-import 'package:html/parser.dart' as html_parser;
-import 'package:html/dom.dart' as html_dom;
-import '../services/phone_scraper_service.dart';
+import 'package:flutter/foundation.dart';
 
-/// Service for fetching direct m3u8 URLs for movies and TV series
-/// Integrates with various streaming sources to extract playable m3u8 links
+import 'phone_scraper_service.dart';
+
+/// Resolves movie and episode playback sources from TMDB metadata.
 class DirectM3u8Service {
   static const String _tag = 'DirectM3u8Service';
 
-  /// Direct M3U8 streaming sources that work with movies/series
-  static const List<Map<String, String>> _m3u8Sources = [
+  static const Map<String, String> _browserHeaders = {
+    'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'Accept': '*/*',
+    'Accept-Language': 'en-US,en;q=0.9',
+  };
+
+  /// Browser-based fallback sources. These are loaded by the WebView player when
+  /// a direct HLS/MP4 URL cannot be resolved ahead of time.
+  static const List<Map<String, String>> _embedSources = [
     {
-      'name': 'StreamingSource1',
-      'baseUrl': 'https://m3u.freetv.ch',
-      'type': 'playlist',
+      'name': 'VidLink',
+      'movieUrl': 'https://vidlink.pro/movie/{id}',
+      'tvUrl': 'https://vidlink.pro/tv/{id}/{season}/{episode}',
     },
-    {'name': 'M3U8Direct', 'baseUrl': 'https://iptvx.one', 'type': 'html'},
     {
-      'name': 'IPTV-ORG',
-      'baseUrl': 'https://iptv-org.github.io',
-      'type': 'json',
+      'name': 'VidsrcRu',
+      'movieUrl': 'https://vidsrc.ru/movie/{id}',
+      'tvUrl': 'https://vidsrc.ru/tv/{id}/{season}/{episode}',
     },
     {
-      'name': 'TVStreamLive',
-      'baseUrl': 'https://tvstreamlive.net',
-      'type': 'html',
+      'name': 'VidsrcNet',
+      'movieUrl': 'https://vidsrc-embed.ru/embed/movie?tmdb={id}',
+      'tvUrl':
+          'https://vidsrc-embed.ru/embed/tv?tmdb={id}&season={season}&episode={episode}',
+    },
+    {
+      'name': '2Embed',
+      'movieUrl': 'https://www.2embed.cc/embed/{id}',
+      'tvUrl': 'https://www.2embed.cc/embedtv/{id}&s={season}&e={episode}',
+    },
+    {
+      'name': 'Remotestream',
+      'movieUrl': 'https://remotestream.click/embed/movie?id={id}',
+      'tvUrl':
+          'https://remotestream.click/embed/tv?id={id}&s={season}&e={episode}',
     },
   ];
 
-  /// Fetch direct m3u8 URL for a movie
-  /// Returns a map with stream URL or null if not found
+  /// Fetch a direct HLS/MP4 stream for a movie when an API exposes one.
   static Future<Map<String, dynamic>?> fetchMovieStreamUrl(
     String title,
     int? year,
     String? tmdbId,
   ) async {
-    try {
-      debugPrint(
-        '$_tag: Searching m3u8 stream for movie: $title (Year: $year, TMDB: $tmdbId)',
-      );
+    final id = tmdbId?.trim();
+    if (id == null || id.isEmpty) return null;
 
-      // Try to find stream using title and year
-      for (final source in _m3u8Sources) {
-        try {
-          final result = await _searchStreamInSource(
-            source['baseUrl']!,
-            source['name']!,
-            source['type']!,
-            title,
-            year: year,
-          );
+    debugPrint('$_tag: Resolving movie stream for $title (TMDB: $id)');
 
-          if (result != null) {
-            debugPrint(
-              '$_tag: Found movie stream in ${source['name']}: ${result['url']}',
-            );
-            return result;
-          }
-        } catch (e) {
-          debugPrint('$_tag: Error searching ${source['name']} for movie: $e');
-          continue;
-        }
-      }
+    final attempts = <Future<Map<String, dynamic>?> Function()>[
+      () => _fetchVidflixApi(
+        apiUrl: 'https://vidflix.club/api/movie/$id',
+        referer: 'https://vidflix.club/movie/$id',
+      ),
+      () => _fetchPrimeSrcLinks(
+        serversUrl: 'https://primesrc.me/api/v1/s?tmdb=$id&type=movie',
+      ),
+    ];
 
-      debugPrint('$_tag: No m3u8 URL found for movie: $title');
-      return null;
-    } catch (e) {
-      debugPrint('$_tag: Error fetching movie stream: $e');
-      return null;
-    }
+    return _firstWorking(attempts);
   }
 
-  /// Fetch direct m3u8 URL for a TV series episode
-  /// Returns a map with stream URL or null if not found
+  /// Fetch a direct HLS/MP4 stream for a TV episode when an API exposes one.
   static Future<Map<String, dynamic>?> fetchSeriesStreamUrl(
     String title,
     int season,
     int episode,
     String? tmdbId,
   ) async {
-    try {
-      debugPrint(
-        '$_tag: Searching m3u8 stream for series: $title S${season}E$episode (TMDB: $tmdbId)',
-      );
+    final id = tmdbId?.trim();
+    if (id == null || id.isEmpty) return null;
 
-      // Format series query: "Series Name S01E01"
-      final seriesQuery =
-          '$title S${season.toString().padLeft(2, '0')}'
-          'E${episode.toString().padLeft(2, '0')}';
+    debugPrint(
+      '$_tag: Resolving episode stream for $title S$season E$episode (TMDB: $id)',
+    );
 
-      // Try to find stream using series query
-      for (final source in _m3u8Sources) {
-        try {
-          final result = await _searchStreamInSource(
-            source['baseUrl']!,
-            source['name']!,
-            source['type']!,
-            seriesQuery,
-          );
+    final attempts = <Future<Map<String, dynamic>?> Function()>[
+      () => _fetchVidflixApi(
+        apiUrl: 'https://vidflix.club/api/tv/$id/$season/$episode',
+        referer: 'https://vidflix.club/tv/$id/$season/$episode',
+      ),
+      () => _fetchPrimeSrcLinks(
+        serversUrl:
+            'https://primesrc.me/api/v1/s?tmdb=$id&season=$season&episode=$episode&type=tv',
+      ),
+    ];
 
-          if (result != null) {
-            debugPrint(
-              '$_tag: Found series stream in ${source['name']}: ${result['url']}',
-            );
-            return result;
-          }
-        } catch (e) {
-          debugPrint('$_tag: Error searching ${source['name']} for series: $e');
-          continue;
-        }
-      }
-
-      debugPrint('$_tag: No m3u8 URL found for series: $title');
-      return null;
-    } catch (e) {
-      debugPrint('$_tag: Error fetching series stream: $e');
-      return null;
-    }
+    return _firstWorking(attempts);
   }
 
-  /// Search for stream URL in a specific source
-  static Future<Map<String, dynamic>?> _searchStreamInSource(
-    String baseUrl,
-    String sourceName,
-    String sourceType,
-    String query, {
-    int? year,
-  }) async {
-    try {
-      switch (sourceType) {
-        case 'playlist':
-          return await _searchInM3u8Playlist(
-            baseUrl,
-            sourceName,
-            query,
-            year: year,
-          );
-
-        case 'html':
-          return await _searchInHtmlSource(
-            baseUrl,
-            sourceName,
-            query,
-            year: year,
-          );
-
-        case 'json':
-          return await _searchInJsonSource(baseUrl, sourceName, query);
-
-        default:
-          return null;
-      }
-    } catch (e) {
-      debugPrint('$_tag: Error searching $sourceName: $e');
-      return null;
-    }
-  }
-
-  /// Search for m3u8 URL in M3U8 playlist format
-  static Future<Map<String, dynamic>?> _searchInM3u8Playlist(
-    String playlistUrl,
-    String sourceName,
-    String query, {
-    int? year,
-  }) async {
-    try {
-      final dio = PhoneScraperService.getDioClient();
-      final response = await dio
-          .get(playlistUrl)
-          .timeout(const Duration(seconds: 10));
-
-      if (response.statusCode == 200) {
-        final content = response.data as String;
-        final m3u8Url = _extractM3u8FromPlaylist(content, query, year: year);
-
-        if (m3u8Url != null && await _verifyM3u8Url(m3u8Url)) {
-          return {
-            'url': m3u8Url,
-            'title': query,
-            'source': sourceName,
-            'type': 'direct_m3u8',
-            'isPlayable': true,
-          };
-        }
-      }
-
-      return null;
-    } catch (e) {
-      debugPrint('$_tag: Playlist search error: $e');
-      return null;
-    }
-  }
-
-  /// Search for m3u8 URL in HTML source
-  static Future<Map<String, dynamic>?> _searchInHtmlSource(
-    String baseUrl,
-    String sourceName,
-    String query, {
-    int? year,
-  }) async {
-    try {
-      final dio = PhoneScraperService.getDioClient();
-      final response = await dio
-          .get(baseUrl)
-          .timeout(const Duration(seconds: 10));
-
-      if (response.statusCode == 200) {
-        final htmlDoc = html_parser.parse(response.data);
-        final m3u8Url = _extractM3u8FromHtml(htmlDoc, query, year: year);
-
-        if (m3u8Url != null && await _verifyM3u8Url(m3u8Url)) {
-          return {
-            'url': m3u8Url,
-            'title': query,
-            'source': sourceName,
-            'type': 'direct_m3u8',
-            'isPlayable': true,
-          };
-        }
-      }
-
-      return null;
-    } catch (e) {
-      debugPrint('$_tag: HTML search error: $e');
-      return null;
-    }
-  }
-
-  /// Search for m3u8 URL in JSON API source
-  static Future<Map<String, dynamic>?> _searchInJsonSource(
-    String apiUrl,
-    String sourceName,
-    String query,
+  static Future<Map<String, dynamic>?> _firstWorking(
+    List<Future<Map<String, dynamic>?> Function()> attempts,
   ) async {
-    try {
-      final dio = PhoneScraperService.getDioClient();
-      final response = await dio
-          .get(apiUrl)
-          .timeout(const Duration(seconds: 10));
-
-      if (response.statusCode == 200) {
-        final jsonData = response.data;
-
-        if (jsonData is List) {
-          // Search in JSON array for matching items
-          final match = jsonData.firstWhere(
-            (item) =>
-                (item['name'] as String?)?.toLowerCase().contains(
-                  query.toLowerCase(),
-                ) ??
-                false,
-            orElse: () => null,
-          );
-
-          if (match != null && match['url'] != null) {
-            final m3u8Url = match['url'] as String;
-            if (m3u8Url.contains('.m3u8') && await _verifyM3u8Url(m3u8Url)) {
-              return {
-                'url': m3u8Url,
-                'title': match['name'] ?? query,
-                'source': sourceName,
-                'type': 'direct_m3u8',
-                'isPlayable': true,
-              };
-            }
-          }
-        }
+    for (final attempt in attempts) {
+      try {
+        final result = await attempt();
+        if (result != null) return result;
+      } catch (e) {
+        debugPrint('$_tag: Resolver attempt failed: $e');
       }
-
-      return null;
-    } catch (e) {
-      debugPrint('$_tag: JSON search error: $e');
-      return null;
     }
+    return null;
   }
 
-  /// Extract m3u8 URL from M3U8 playlist content
-  static String? _extractM3u8FromPlaylist(
-    String content,
-    String query, {
-    int? year,
-  }) {
-    try {
-      final lines = content.split('\n');
-      final lowerQuery = query.toLowerCase();
+  static Future<Map<String, dynamic>?> _fetchVidflixApi({
+    required String apiUrl,
+    required String referer,
+  }) async {
+    final dio = PhoneScraperService.getDioClient(
+      receiveTimeout: const Duration(seconds: 12),
+      customHeaders: {..._browserHeaders, 'Referer': referer},
+    );
 
-      for (int i = 0; i < lines.length; i++) {
-        final line = lines[i].trim();
+    final response = await dio.get<dynamic>(apiUrl);
+    if (!_isSuccess(response.statusCode)) return null;
 
-        // Skip comment lines that are metadata
-        if (line.startsWith('#')) continue;
-
-        // Look for lines containing the query
-        if (line.toLowerCase().contains(lowerQuery)) {
-          // Check if the next line is a URL
-          if (i + 1 < lines.length) {
-            final nextLine = lines[i + 1].trim();
-            if ((nextLine.startsWith('http://') ||
-                    nextLine.startsWith('https://')) &&
-                nextLine.contains('.m3u8')) {
-              return nextLine;
-            }
-          }
-
-          // Or if this line itself is a URL
-          if ((line.startsWith('http://') || line.startsWith('https://')) &&
-              line.contains('.m3u8')) {
-            return line;
-          }
-        }
-      }
-
-      return null;
-    } catch (e) {
-      debugPrint('$_tag: Playlist extraction error: $e');
-      return null;
-    }
+    final candidate = _findPlayableUrl(response.data);
+    return _buildResult(
+      candidate,
+      source: 'Vidflix',
+      headers: {..._browserHeaders, 'Referer': referer},
+    );
   }
 
-  /// Extract m3u8 URL from HTML document
-  static String? _extractM3u8FromHtml(
-    html_dom.Document htmlDoc,
-    String query, {
-    int? year,
-  }) {
-    try {
-      // Search for m3u8 links in various HTML elements
-      final m3u8Links = htmlDoc.querySelectorAll('a[href*=".m3u8"]');
+  static Future<Map<String, dynamic>?> _fetchPrimeSrcLinks({
+    required String serversUrl,
+  }) async {
+    final dio = PhoneScraperService.getDioClient(
+      receiveTimeout: const Duration(seconds: 12),
+      customHeaders: {..._browserHeaders, 'Referer': 'https://primesrc.me/'},
+    );
 
-      for (final link in m3u8Links) {
-        final href = link.attributes['href'];
-        if (href != null &&
-            (href.toLowerCase().contains(query.toLowerCase()) ||
-                href.contains('.m3u8'))) {
-          return href;
-        }
+    final serversResponse = await dio.get<dynamic>(serversUrl);
+    if (!_isSuccess(serversResponse.statusCode)) return null;
+
+    final serverKeys = _extractPrimeSrcServerKeys(serversResponse.data);
+    for (final key in serverKeys) {
+      try {
+        final linkResponse = await dio.get<dynamic>(
+          'https://primesrc.me/api/v1/l?key=$key',
+        );
+        if (!_isSuccess(linkResponse.statusCode)) continue;
+
+        final candidate = _findPlayableUrl(linkResponse.data);
+        final result = await _buildResult(
+          candidate,
+          source: 'PrimeSrc',
+          headers: {..._browserHeaders, 'Referer': 'https://primesrc.me/'},
+        );
+        if (result != null) return result;
+      } catch (e) {
+        debugPrint('$_tag: PrimeSrc server failed: $e');
       }
-
-      // Search for video sources
-      final videoSources = htmlDoc.querySelectorAll('source[src*=".m3u8"]');
-      for (final source in videoSources) {
-        final src = source.attributes['src'];
-        if (src != null) {
-          return src;
-        }
-      }
-
-      // Search in script tags for m3u8 URLs
-      final scripts = htmlDoc.querySelectorAll('script');
-      for (final script in scripts) {
-        final scriptContent = script.text;
-        final regex = RegExp(r'https?://[^\s<>]+\.m3u8[^\s<>]*');
-        final match = regex.firstMatch(scriptContent);
-        if (match != null) {
-          return match.group(0);
-        }
-      }
-
-      return null;
-    } catch (e) {
-      debugPrint('$_tag: HTML extraction error: $e');
-      return null;
     }
+
+    return null;
   }
 
-  /// Verify that an m3u8 URL is accessible and valid
-  static Future<bool> _verifyM3u8Url(String url) async {
+  static List<String> _extractPrimeSrcServerKeys(dynamic data) {
+    if (data is! Map) return const [];
+    final servers = data['servers'];
+    if (servers is! List) return const [];
+
+    return servers
+        .whereType<Map>()
+        .map((server) => server['key']?.toString() ?? '')
+        .where((key) => key.isNotEmpty)
+        .toList();
+  }
+
+  static Future<Map<String, dynamic>?> _buildResult(
+    String? url, {
+    required String source,
+    required Map<String, String> headers,
+  }) async {
+    final normalized = _normalizeUrl(url);
+    if (normalized == null || !_isDirectVideoUrl(normalized)) return null;
+
+    if (!await _verifyVideoUrl(normalized, headers: headers)) return null;
+
+    return {
+      'url': normalized,
+      'source': source,
+      'type': normalized.contains('.m3u8') ? 'direct_m3u8' : 'direct_video',
+      'headers': headers,
+      'isPlayable': true,
+    };
+  }
+
+  static String? _findPlayableUrl(dynamic value) {
+    if (value == null) return null;
+
+    if (value is String) {
+      final directMatch = RegExp(
+        r'''https?:\/\/[^\s"'<>]+\.(?:m3u8|mp4)(?:[^\s"'<>]*)?''',
+        caseSensitive: false,
+      ).firstMatch(value);
+      if (directMatch != null) return directMatch.group(0);
+
+      if (value.startsWith('http')) return value;
+      return null;
+    }
+
+    if (value is List) {
+      for (final item in value) {
+        final found = _findPlayableUrl(item);
+        if (found != null) return found;
+      }
+      return null;
+    }
+
+    if (value is Map) {
+      const priorityKeys = [
+        'playlist',
+        'source',
+        'file',
+        'url',
+        'video_url',
+        'link',
+      ];
+
+      for (final key in priorityKeys) {
+        if (!value.containsKey(key)) continue;
+        final found = _findPlayableUrl(value[key]);
+        if (found != null) return found;
+      }
+
+      for (final entry in value.entries) {
+        if (priorityKeys.contains(entry.key)) continue;
+        final found = _findPlayableUrl(entry.value);
+        if (found != null) return found;
+      }
+    }
+
+    return null;
+  }
+
+  static String? _normalizeUrl(String? url) {
+    if (url == null) return null;
+    var normalized = url.trim();
+    if (normalized.isEmpty) return null;
+
+    normalized = normalized
+        .replaceAll(r'\/', '/')
+        .replaceAll('&amp;', '&')
+        .replaceAll(RegExp(r'''^["']+|["']+$'''), '');
+
+    if (normalized.startsWith('//')) return 'https:$normalized';
+    if (!normalized.startsWith('http://') &&
+        !normalized.startsWith('https://')) {
+      return null;
+    }
+    return normalized;
+  }
+
+  static bool _isDirectVideoUrl(String url) {
+    final lower = url.toLowerCase();
+    return lower.contains('.m3u8') || lower.contains('.mp4');
+  }
+
+  static Future<bool> _verifyVideoUrl(
+    String url, {
+    required Map<String, String> headers,
+  }) async {
     try {
       final dio = PhoneScraperService.getDioClient(
-        receiveTimeout: const Duration(seconds: 5),
+        receiveTimeout: const Duration(seconds: 6),
+        customHeaders: headers,
       );
 
       final response = await dio
           .head(url)
-          .timeout(const Duration(seconds: 5))
+          .timeout(const Duration(seconds: 6))
           .catchError((_) {
-            // Try GET if HEAD fails
-            return dio.get(
+            return dio.get<dynamic>(
               url,
               options: Options(responseType: ResponseType.bytes),
             );
           });
 
-      final isValid =
-          response.statusCode != null &&
-          (response.statusCode! == 200 ||
-              response.statusCode! == 206 ||
-              response.statusCode! == 301 ||
-              response.statusCode! == 302);
-
-      if (isValid) {
-        debugPrint('$_tag: M3U8 URL verified: $url');
-      }
-
-      return isValid;
+      return _isSuccess(response.statusCode) || response.statusCode == 206;
     } catch (e) {
-      debugPrint('$_tag: M3U8 verification failed for $url: $e');
+      debugPrint('$_tag: Video URL verification failed: $e');
       return false;
     }
   }
 
-  /// Get available m3u8 sources
-  static List<Map<String, String>> getAvailableSources() {
-    return List<Map<String, String>>.from(_m3u8Sources);
+  static bool _isSuccess(int? statusCode) {
+    return statusCode != null && statusCode >= 200 && statusCode < 400;
   }
 
-  /// Test a custom m3u8 source
-  static Future<bool> testM3u8Source(String url) async {
-    return _verifyM3u8Url(url);
+  /// Get browser fallback sources for movies/TV shows.
+  static List<Map<String, String>> getEmbedSources() {
+    return List<Map<String, String>>.from(_embedSources);
   }
 
-  /// Batch verify multiple m3u8 URLs
-  static Future<List<Map<String, dynamic>>> verifyMultipleUrls(
-    List<String> urls,
-  ) async {
-    final results = <Map<String, dynamic>>[];
+  /// Generate an embed URL for a movie.
+  static String generateMovieEmbedUrl(String tmdbId, String sourceName) {
+    final source = _embedSources.firstWhere(
+      (source) => source['name'] == sourceName,
+      orElse: () => _embedSources.first,
+    );
+    return source['movieUrl']!.replaceAll('{id}', tmdbId);
+  }
 
-    for (final url in urls) {
-      final isValid = await _verifyM3u8Url(url);
-      results.add({'url': url, 'isValid': isValid});
-    }
-
-    return results;
+  /// Generate an embed URL for a TV episode.
+  static String generateTvEmbedUrl(
+    String tmdbId,
+    int season,
+    int episode,
+    String sourceName,
+  ) {
+    final source = _embedSources.firstWhere(
+      (source) => source['name'] == sourceName,
+      orElse: () => _embedSources.first,
+    );
+    return source['tvUrl']!
+        .replaceAll('{id}', tmdbId)
+        .replaceAll('{season}', season.toString())
+        .replaceAll('{episode}', episode.toString());
   }
 }
