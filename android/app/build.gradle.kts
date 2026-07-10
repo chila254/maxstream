@@ -21,7 +21,7 @@ if (keystorePropertiesFile.exists()) {
 android {
     namespace = "com.maxstream.app"
     compileSdk = 36
-    ndkVersion = "29.0.13124710"
+    ndkVersion = "28.2.13676358"
 
     compileOptions {
         isCoreLibraryDesugaringEnabled = true
