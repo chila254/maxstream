@@ -46,9 +46,9 @@ jobs:
       - name: Generate JSON for Gradle
         run: |
           echo "storeFile=../app/key.jks" > android/keystore.properties
-          echo "storePassword=$KEYSTORE_PASSWORD" >> android/key.properties
-          echo "keyAlias=$KEY_ALIAS" >> android/key.properties
-          echo "keyPassword=$KEY_PASSWORD" >> android/key.properties
+          echo "storePassword=$KEYSTORE_PASSWORD" >> android/keystore.properties
+          echo "keyAlias=$KEY_ALIAS" >> android/keystore.properties
+          echo "keyPassword=$KEY_PASSWORD" >> android/keystore.properties
 
       - name: Build APK
         run: flutter build apk --release
