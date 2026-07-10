@@ -48,7 +48,12 @@ jobs:
           echo "storeFile=../app/key.jks" > android/keystore.properties
           echo "storePassword=$KEYSTORE_PASSWORD" >> android/keystore.properties
           echo "keyAlias=$KEY_ALIAS" >> android/keystore.properties
-          echo "keyPassword=$KEY_PASSWORD" >> android/keystore.properties
+          echo "keyPassword=${KEY_PASSWORD:-$KEYSTORE_PASSWORD}" >> android/keystore.properties
+
+      - name: Validate signing config
+        if: env.KEYSTORE_BASE64 != ''
+        run: |
+          keytool -list -keystore android/app/key.jks -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" || true
 
       - name: Build APK
         run: flutter build apk --release
