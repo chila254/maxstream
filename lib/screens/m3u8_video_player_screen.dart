@@ -4,6 +4,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 import 'package:video_player/video_player.dart';
 import 'package:chewie/chewie.dart';
 import '../services/direct_m3u8_service.dart';
+import '../services/vidlink_extractor.dart';
 
 class M3U8VideoPlayerScreen extends StatefulWidget {
   final String title;
@@ -32,6 +33,10 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   Map<String, dynamic>? _streamData;
   final List<Map<String, dynamic>> _triedServers = [];
 
+  // VidLink native extraction state (mirrors streamflix's VidLinkExtractor).
+  bool _extractingVidLink = false;
+  String? _vidLinkEmbedUrl;
+
   // Native player variables
   VideoPlayerController? _videoPlayerController;
   ChewieController? _chewieController;
@@ -57,7 +62,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     _webViewController = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setUserAgent(
-        'Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.120 Mobile Safari/537.36',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       )
       ..setNavigationDelegate(
         NavigationDelegate(
@@ -184,15 +189,56 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       }
 
       debugPrint(
-        'M3U8VideoPlayer: No direct m3u8 stream found, falling back to embed providers...',
+        'M3U8VideoPlayer: No direct m3u8 stream found, trying VidLink native extraction...',
       );
-      // If no direct m3u8 found, try embed providers
+      // Extract VidLink's direct playlist and play it natively (no WebView).
+      if (_startVidLinkExtraction()) return;
+
+      debugPrint(
+        'M3U8VideoPlayer: VidLink extraction unavailable, falling back to embed providers...',
+      );
+      // If extraction cannot start, try embed providers
       await _tryNextServer();
     } catch (e) {
       debugPrint('M3U8VideoPlayer: Error fetching direct m3u8: $e');
-      // Fall back to embed providers if direct m3u8 fails
+      // Try VidLink native extraction, then fall back to embed providers.
+      if (_startVidLinkExtraction()) return;
       await _tryNextServer();
     }
+  }
+
+  /// Start hidden VidLink extraction. Returns true if extraction was initiated
+  /// (callbacks will continue the flow), false if it could not be started.
+  bool _startVidLinkExtraction() {
+    if (_extractingVidLink) return true;
+
+    final url = widget.isMovie
+        ? DirectM3u8Service.generateMovieEmbedUrl(widget.tmdbId, 'VidLink')
+        : DirectM3u8Service.generateTvEmbedUrl(
+            widget.tmdbId,
+            widget.season,
+            widget.episode,
+            'VidLink',
+          );
+
+    if (url.isEmpty) return false;
+
+    _vidLinkEmbedUrl = url;
+    if (mounted) setState(() => _extractingVidLink = true);
+    return true;
+  }
+
+  void _onVidLinkExtracted(String playlist, Map<String, String> headers) {
+    if (!mounted) return;
+    setState(() => _extractingVidLink = false);
+    _playDirectM3u8(playlist, headers: headers);
+  }
+
+  void _onVidLinkError(Object error) {
+    debugPrint('M3U8VideoPlayer: VidLink native extraction failed: $error');
+    if (!mounted) return;
+    setState(() => _extractingVidLink = false);
+    _tryNextServer();
   }
 
   /// Play direct m3u8 stream using native video player
@@ -944,6 +990,13 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
           ? Chewie(controller: _chewieController!)
           : Stack(
               children: [
+                if (_extractingVidLink && _vidLinkEmbedUrl != null)
+                  VidLinkExtractor(
+                    key: const ValueKey('vidlink-extractor'),
+                    embedUrl: _vidLinkEmbedUrl!,
+                    onExtracted: _onVidLinkExtracted,
+                    onError: _onVidLinkError,
+                  ),
                 WebViewWidget(controller: _webViewController),
                 if (_isLoading)
                   const Center(
