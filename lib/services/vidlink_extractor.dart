@@ -4,14 +4,14 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
-/// Desktop User-Agent used by streamflix for its WebViews. Using a desktop UA
-/// (instead of a mobile/WebView one) avoids the "In-App Browser Detected"
+/// Desktop User-Agent used for extraction. Using a desktop UA instead of a
+/// mobile/WebView one avoids the "In-App Browser Detected"
 /// blocks that many embed providers apply to mobile WebViews.
 const String _desktopUserAgent =
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
     '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
-/// Headless extractor that mirrors streamflix's [VidLinkExtractor].
+/// Headless extractor for resolving a direct VidLink playlist.
 ///
 /// It loads the VidLink embed page in a hidden WebView and intercepts the
 /// XHR to `/api/b/` (which returns JSON with the direct HLS `playlist`), then
@@ -21,7 +21,7 @@ class VidLinkExtractor extends StatefulWidget {
   final String embedUrl;
   final Duration timeout;
   final void Function(String playlistUrl, Map<String, String> headers)
-      onExtracted;
+  onExtracted;
   final void Function(Object error)? onError;
 
   const VidLinkExtractor({
@@ -55,10 +55,7 @@ class _VidLinkExtractorState extends State<VidLinkExtractor> {
   Future<void> _handlePlaylist(String playlist) async {
     if (_done) return;
     _done = true;
-    widget.onExtracted(
-      playlist,
-      {'Referer': 'https://vidlink.pro/'},
-    );
+    widget.onExtracted(playlist, {'Referer': 'https://vidlink.pro/'});
   }
 
   @override
@@ -102,8 +99,7 @@ class _VidLinkExtractorState extends State<VidLinkExtractor> {
                 final stream = response.data is Map
                     ? (response.data as Map)['stream']
                     : null;
-                final playlist =
-                    stream is Map ? stream['playlist'] : null;
+                final playlist = stream is Map ? stream['playlist'] : null;
                 if (playlist is String && playlist.isNotEmpty) {
                   await _handlePlaylist(playlist);
                   controller.stopLoading();
@@ -117,7 +113,8 @@ class _VidLinkExtractorState extends State<VidLinkExtractor> {
           onLoadStop: (controller, _) async {
             // As a fallback for builds where the XHR is missed, also override
             // fetch to capture the playlist JSON.
-            await controller.evaluateJavascript(source: '''
+            await controller.evaluateJavascript(
+              source: '''
               (function() {
                 if (window.__maxstreamHooked) return;
                 window.__maxstreamHooked = true;
@@ -141,7 +138,8 @@ class _VidLinkExtractorState extends State<VidLinkExtractor> {
                   return resp;
                 };
               })();
-            ''');
+            ''',
+            );
           },
           onConsoleMessage: (controller, message) {
             // Reserved for debugging intercepted payloads.

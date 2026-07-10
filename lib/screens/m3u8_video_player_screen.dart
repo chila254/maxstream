@@ -32,8 +32,9 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   String? _error;
   Map<String, dynamic>? _streamData;
   final List<Map<String, dynamic>> _triedServers = [];
+  bool _isSelectingServer = false;
 
-  // VidLink native extraction state (mirrors streamflix's VidLinkExtractor).
+  // Native extraction state for the preferred source.
   bool _extractingVidLink = false;
   String? _vidLinkEmbedUrl;
 
@@ -92,23 +93,14 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
           onWebResourceError: (WebResourceError error) {
             debugPrint('WebView error: ${error.description}');
 
-            // HTTP/2 protocol errors are often recoverable with embed servers
-            // Try next server instead of failing
-            if (error.description.contains('ERR_HTTP2_PROTOCOL_ERROR') ||
-                error.description.contains('net::') ||
-                error.description.contains('ERR_CONNECTION')) {
-              debugPrint(
-                'M3U8VideoPlayerScreen: Network-level error (may be recoverable): ${error.description}',
-              );
-              // Try next server
-              _tryNextServer();
-            } else {
-              if (mounted) {
-                setState(() {
-                  _error = error.description;
-                  _isLoading = false;
-                });
-              }
+            // Subresources such as ads, analytics, subtitles, and media chunks
+            // can fail while playback remains healthy. Only surface a main-frame
+            // failure, and never change the selected server automatically.
+            if (error.isForMainFrame == true && mounted) {
+              setState(() {
+                _error = error.description;
+                _isLoading = false;
+              });
             }
           },
           onNavigationRequest: (NavigationRequest request) {
@@ -124,6 +116,9 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   }
 
   Future<void> _loadEmbeddedVideo() async {
+    _triedServers.clear();
+    _isSelectingServer = false;
+
     setState(() {
       _isLoading = true;
       _error = null;
@@ -288,85 +283,94 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   }
 
   Future<void> _tryNextServer() async {
-    final embedProviders = DirectM3u8Service.getEmbedSources().map((source) {
-      final sourceName = source['name'] ?? '';
-      final url = widget.isMovie
-          ? DirectM3u8Service.generateMovieEmbedUrl(widget.tmdbId, sourceName)
-          : DirectM3u8Service.generateTvEmbedUrl(
-              widget.tmdbId,
-              widget.season,
-              widget.episode,
-              sourceName,
-            );
+    if (_isSelectingServer || _useNativePlayer || !mounted) return;
+    _isSelectingServer = true;
 
-      return {'name': sourceName, 'url': url, 'type': 'embed'};
-    }).toList();
+    try {
+      final embedProviders = DirectM3u8Service.getEmbedSources().map((source) {
+        final sourceName = source['name'] ?? '';
+        final url = widget.isMovie
+            ? DirectM3u8Service.generateMovieEmbedUrl(widget.tmdbId, sourceName)
+            : DirectM3u8Service.generateTvEmbedUrl(
+                widget.tmdbId,
+                widget.season,
+                widget.episode,
+                sourceName,
+              );
 
-    // Try each provider
-    for (final provider in embedProviders) {
-      // Check if we already tried this provider
-      if (_triedServers.any((tried) => tried['name'] == provider['name'])) {
-        continue;
-      }
+        return {'name': sourceName, 'url': url, 'type': 'embed'};
+      }).toList();
 
-      try {
-        debugPrint('Trying source: ${provider['name']}');
-        final embedUrl = provider['url'] as String;
+      // Try each provider
+      for (final provider in embedProviders) {
+        // Check if we already tried this provider
+        if (_triedServers.any((tried) => tried['name'] == provider['name'])) {
+          continue;
+        }
 
-        if (embedUrl.isEmpty) {
-          debugPrint('Skipping ${provider['name']} - invalid URL');
+        try {
+          debugPrint('Trying source: ${provider['name']}');
+          final embedUrl = provider['url'] as String;
+
+          if (embedUrl.isEmpty) {
+            debugPrint('Skipping ${provider['name']} - invalid URL');
+            _triedServers.add(provider);
+            continue;
+          }
+
+          _streamData = {
+            'embedUrl': embedUrl,
+            'title': widget.title,
+            'quality': 'HD',
+            'source': provider['name'],
+            'type': 'embed',
+            'isPlayable': true,
+          };
+
+          _triedServers.add(provider);
+
+          // Load the embed URL in WebView. Do not preflight with HEAD: several
+          // providers reject probes but work when loaded as a browser page.
+          try {
+            await _webViewController.loadRequest(Uri.parse(embedUrl));
+          } catch (e) {
+            debugPrint('Error loading request into WebView: $e');
+            continue;
+          }
+
+          // Set a timeout to ensure loading indicator disappears even if onPageFinished never fires
+          Future.delayed(const Duration(seconds: 20), () {
+            if (mounted && _isLoading) {
+              debugPrint('Loading timeout - hiding loading indicator');
+              setState(() {
+                _isLoading = false;
+              });
+            }
+          });
+
+          debugPrint('Successfully loaded embed from ${provider['name']}');
+          return;
+        } catch (e) {
+          debugPrint('Provider ${provider['name']} failed: $e');
           _triedServers.add(provider);
           continue;
         }
-
-        _streamData = {
-          'embedUrl': embedUrl,
-          'title': widget.title,
-          'quality': 'HD',
-          'source': provider['name'],
-          'type': 'embed',
-          'isPlayable': true,
-        };
-
-        _triedServers.add(provider);
-
-        // Load the embed URL in WebView. Do not preflight with HEAD: several
-        // providers reject probes but work when loaded as a browser page.
-        try {
-          await _webViewController.loadRequest(Uri.parse(embedUrl));
-        } catch (e) {
-          debugPrint('Error loading request into WebView: $e');
-          continue;
-        }
-
-        // Set a timeout to ensure loading indicator disappears even if onPageFinished never fires
-        Future.delayed(const Duration(seconds: 20), () {
-          if (mounted && _isLoading) {
-            debugPrint('Loading timeout - hiding loading indicator');
-            setState(() {
-              _isLoading = false;
-            });
-          }
-        });
-
-        debugPrint('Successfully loaded embed from ${provider['name']}');
-        return;
-      } catch (e) {
-        debugPrint('Provider ${provider['name']} failed: $e');
-        _triedServers.add(provider);
-        continue;
       }
-    }
 
-    // No sources worked
-    setState(() {
-      _error =
-          'No working streaming sources found. Please check:\n'
-          '• Internet connection\n'
-          '• Try again later\n'
-          '• Content might be unavailable';
-      _isLoading = false;
-    });
+      // No sources worked
+      if (mounted) {
+        setState(() {
+          _error =
+              'No working streaming sources found. Please check:\n'
+              '• Internet connection\n'
+              '• Try again later\n'
+              '• Content might be unavailable';
+          _isLoading = false;
+        });
+      }
+    } finally {
+      _isSelectingServer = false;
+    }
   }
 
   // Ad blocking methods
