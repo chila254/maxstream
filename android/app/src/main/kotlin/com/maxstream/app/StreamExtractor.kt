@@ -7,6 +7,7 @@ import okhttp3.*
 import okhttp3.dnsoverhttps.DnsOverHttps
 import org.json.JSONObject
 import java.net.InetAddress
+import java.net.URL
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 import java.util.regex.Pattern
@@ -34,7 +35,7 @@ class StreamExtractor {
         try {
             DnsOverHttps.Builder()
                 .client(dohClient)
-                .url("https://dns.google/dns-query".toHttpUrl())
+                .url(HttpUrl.get("https://dns.google/dns-query"))
                 .build()
         } catch (e: Exception) {
             Log.e(TAG, "DoH failed, using system DNS: ${e.message}")
@@ -373,7 +374,8 @@ class StreamExtractor {
     }
 
     private fun httpPost(url: String, body: String): String? {
-        val reqBody = body.toRequestBody("application/json".toMediaType())
+        val mediaType = MediaType.parse("application/json; charset=utf-8")
+        val reqBody = RequestBody.create(mediaType, body.toByteArray(Charsets.UTF_8))
         val request = Request.Builder().url(url).post(reqBody).header("User-Agent", UA).build()
         val response = client.newCall(request).execute()
         return response.body?.string()
