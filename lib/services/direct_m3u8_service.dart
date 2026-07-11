@@ -1,11 +1,35 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
-import 'phone_scraper_service.dart';
-
 /// Resolves movie and episode playback sources from TMDB metadata.
 class DirectM3u8Service {
   static const String _tag = 'DirectM3u8Service';
+
+  static Dio _getDioClient({
+    Duration? connectTimeout,
+    Duration? receiveTimeout,
+    Duration? sendTimeout,
+    Map<String, String>? customHeaders,
+  }) {
+    return Dio(
+      BaseOptions(
+        connectTimeout: connectTimeout ?? const Duration(seconds: 15),
+        receiveTimeout: receiveTimeout ?? const Duration(seconds: 15),
+        sendTimeout: sendTimeout ?? const Duration(seconds: 15),
+        headers: {
+          'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36',
+          'Accept': '*/*',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Accept-Encoding': 'gzip, deflate, br',
+          'Referer': 'https://www.google.com/',
+          ...?customHeaders,
+        },
+        followRedirects: true,
+        maxRedirects: 5,
+      ),
+    );
+  }
 
   static const Map<String, String> _browserHeaders = {
     'User-Agent':
@@ -116,7 +140,7 @@ class DirectM3u8Service {
     required String apiUrl,
     required String referer,
   }) async {
-    final dio = PhoneScraperService.getDioClient(
+    final dio = _getDioClient(
       receiveTimeout: const Duration(seconds: 12),
       customHeaders: {..._browserHeaders, 'Referer': referer},
     );
@@ -135,7 +159,7 @@ class DirectM3u8Service {
   static Future<Map<String, dynamic>?> _fetchPrimeSrcLinks({
     required String serversUrl,
   }) async {
-    final dio = PhoneScraperService.getDioClient(
+    final dio = _getDioClient(
       receiveTimeout: const Duration(seconds: 12),
       customHeaders: {..._browserHeaders, 'Referer': 'https://primesrc.me/'},
     );
@@ -273,7 +297,7 @@ class DirectM3u8Service {
     required Map<String, String> headers,
   }) async {
     try {
-      final dio = PhoneScraperService.getDioClient(
+      final dio = _getDioClient(
         receiveTimeout: const Duration(seconds: 6),
         customHeaders: headers,
       );

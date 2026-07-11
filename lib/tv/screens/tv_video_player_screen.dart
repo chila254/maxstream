@@ -156,17 +156,41 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
         videoPlayerController: _videoPlayerController!,
         autoPlay: true,
         looping: false,
-        progressIndicatorDelay: const Duration(milliseconds: 200),
-        hideControlsTimer: const Duration(seconds: 3),
+        showControlsOnInitialize: true,
         allowMuting: true,
         allowPlaybackSpeedChanging: true,
-        showControls: true,
+        allowFullScreen: true,
+        hideControlsTimer: const Duration(seconds: 4),
+        progressIndicatorDelay: const Duration(milliseconds: 150),
         materialProgressColors: ChewieProgressColors(
           playedColor: Colors.red,
           handleColor: Colors.red.shade300,
-          backgroundColor: Colors.grey,
-          bufferedColor: Colors.grey.shade700,
+          backgroundColor: Colors.grey.shade800,
+          bufferedColor: Colors.white70,
+          playedColorAtDragStart: Colors.red.shade300,
         ),
+        placeholder: Container(
+          color: Colors.black,
+          child: const Center(
+            child: CircularProgressIndicator(color: Colors.red),
+          ),
+        ),
+        errorBuilder: (context, errorMessage) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.error_outline, color: Colors.red, size: 48),
+                const SizedBox(height: 12),
+                Text(
+                  errorMessage,
+                  style: const TextStyle(color: Colors.white),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+          );
+        },
       );
 
       if (mounted) {
@@ -258,35 +282,29 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
   }
 
   Widget _buildVideoPlayer() {
-    return SafeArea(
-      top: false, // Don't apply top padding as video should be full screen
-      bottom: false,
-      child: Stack(
-        children: [
-          Chewie(controller: _chewieController!),
-          SafeArea(
-            child: Positioned(
-              top: 16,
-              left: 16,
-              child: GestureDetector(
-                onTap: _handleBackNavigation,
-                child: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.7),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(
-                    Icons.arrow_back,
-                    color: Colors.white,
-                    size: 24,
-                  ),
-                ),
+    return Stack(
+      children: [
+        Chewie(controller: _chewieController!),
+        Positioned(
+          top: 16,
+          left: 16,
+          child: GestureDetector(
+            onTap: _handleBackNavigation,
+            child: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.7),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(
+                Icons.arrow_back,
+                color: Colors.white,
+                size: 24,
               ),
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 

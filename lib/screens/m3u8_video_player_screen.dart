@@ -261,9 +261,42 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         videoPlayerController: _videoPlayerController!,
         autoPlay: true,
         looping: false,
+        showControlsOnInitialize: true,
         allowFullScreen: true,
         allowMuting: true,
         fullScreenByDefault: true,
+        allowPlaybackSpeedChanging: true,
+        hideControlsTimer: const Duration(seconds: 4),
+        progressIndicatorDelay: const Duration(milliseconds: 150),
+        materialProgressColors: ChewieProgressColors(
+          playedColor: Colors.red,
+          handleColor: Colors.red,
+          backgroundColor: Colors.grey.shade800,
+          bufferedColor: Colors.white70,
+          playedColorAtDragStart: Colors.red.shade300,
+        ),
+        placeholder: Container(
+          color: Colors.black,
+          child: const Center(
+            child: CircularProgressIndicator(color: Colors.red),
+          ),
+        ),
+        errorBuilder: (context, errorMessage) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.error_outline, color: Colors.red, size: 48),
+                const SizedBox(height: 12),
+                Text(
+                  errorMessage,
+                  style: const TextStyle(color: Colors.white),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+          );
+        },
       );
 
       _useNativePlayer = true;
@@ -772,15 +805,18 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         videoPlayerController: _videoPlayerController!,
         autoPlay: true,
         looping: false,
-        aspectRatio: _videoPlayerController!.value.aspectRatio,
+        showControlsOnInitialize: true,
         allowFullScreen: true,
         allowMuting: true,
-        showControls: true,
+        allowPlaybackSpeedChanging: true,
+        hideControlsTimer: const Duration(seconds: 4),
+        progressIndicatorDelay: const Duration(milliseconds: 150),
         materialProgressColors: ChewieProgressColors(
           playedColor: Colors.red,
           handleColor: Colors.red,
-          backgroundColor: Colors.grey,
-          bufferedColor: Colors.white,
+          backgroundColor: Colors.grey.shade800,
+          bufferedColor: Colors.white70,
+          playedColorAtDragStart: Colors.red.shade300,
         ),
         placeholder: Container(
           color: Colors.black,
@@ -922,32 +958,37 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-      appBar: AppBar(
-        backgroundColor: Colors.black,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: Text(
-          _streamData?['title'] ?? widget.title,
-          style: const TextStyle(color: Colors.white),
-        ),
-        actions: [
-          if (_streamData != null)
-            Padding(
-              padding: const EdgeInsets.only(right: 16),
-              child: Center(
-                child: Text(
-                  _useNativePlayer
-                      ? 'Native Player'
-                      : (_streamData!['source'] ?? 'Embedded'),
-                  style: const TextStyle(color: Colors.white, fontSize: 12),
-                ),
+      appBar: _useNativePlayer
+          ? null
+          : AppBar(
+              backgroundColor: Colors.black,
+              elevation: 0,
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back, color: Colors.white),
+                onPressed: () => Navigator.pop(context),
               ),
+              title: Text(
+                _streamData?['title'] ?? widget.title,
+                style: const TextStyle(color: Colors.white),
+              ),
+              actions: [
+                if (_streamData != null)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 16),
+                    child: Center(
+                      child: Text(
+                        _useNativePlayer
+                            ? 'Native Player'
+                            : (_streamData!['source'] ?? 'Embedded'),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
             ),
-        ],
-      ),
       body: _error != null
           ? Center(
               child: Column(
