@@ -99,7 +99,7 @@ class DBHelper {
     }
     if (oldVersion < 6) {
       await db.execute('''
-        CREATE TABLE provider_preferences (
+        CREATE TABLE IF NOT EXISTS provider_preferences (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           providerId INTEGER UNIQUE,
           providerName TEXT,
@@ -109,6 +109,16 @@ class DBHelper {
       ''');
     }
     if (oldVersion < 7) {
+      // Ensure the table exists (may have been skipped if DB was already at v6+)
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS provider_preferences (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          providerId INTEGER UNIQUE,
+          providerName TEXT,
+          isPreferred INTEGER DEFAULT 0,
+          addedDate TEXT
+        )
+      ''');
       // Fix mismatched provider IDs: Apple TV (192→350), AMC+ (591→526)
       await db.rawUpdate('''
         UPDATE provider_preferences
@@ -327,8 +337,24 @@ class DBHelper {
   }
 
   // Provider Preferences methods
+
+  /// Ensure the provider_preferences table exists, creating it if necessary.
+  static Future<void> _ensureProviderPreferencesTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS provider_preferences (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        providerId INTEGER UNIQUE,
+        providerName TEXT,
+        isPreferred INTEGER DEFAULT 0,
+        addedDate TEXT
+      )
+    ''');
+  }
+
   static Future<void> initializeProviderPreferences() async {
     final db = await database;
+    await _ensureProviderPreferencesTable(db);
+
     final providers = [
       {'id': 8, 'name': 'Netflix'},
       {'id': 9, 'name': 'Prime Video'},
@@ -364,6 +390,8 @@ class DBHelper {
     bool isPreferred,
   ) async {
     final db = await database;
+    await _ensureProviderPreferencesTable(db);
+
     final count = await db.update(
       'provider_preferences',
       {'isPreferred': isPreferred ? 1 : 0},
@@ -381,11 +409,13 @@ class DBHelper {
 
   static Future<List<Map<String, dynamic>>> getProviderPreferences() async {
     final db = await database;
+    await _ensureProviderPreferencesTable(db);
     return await db.query('provider_preferences', orderBy: 'providerName ASC');
   }
 
   static Future<List<int>> getPreferredProviderIds() async {
     final db = await database;
+    await _ensureProviderPreferencesTable(db);
     final result = await db.query(
       'provider_preferences',
       where: 'isPreferred = 1',
@@ -396,6 +426,7 @@ class DBHelper {
 
   static Future<bool> isProviderPreferred(int providerId) async {
     final db = await database;
+    await _ensureProviderPreferencesTable(db);
     final result = await db.query(
       'provider_preferences',
       where: 'providerId = ? AND isPreferred = 1',
@@ -406,6 +437,7 @@ class DBHelper {
 
   static Future<List<Map<String, dynamic>>> getPreferredProviders() async {
     final db = await database;
+    await _ensureProviderPreferencesTable(db);
     final result = await db.query(
       'provider_preferences',
       where: 'isPreferred = 1',
