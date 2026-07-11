@@ -31,6 +31,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   bool _useNativePlayer = false;
   String? _error;
   String? _currentSource;
+  String _statusMessage = 'Initializing...';
 
   bool _extractingVidLink = false;
   String? _vidLinkEmbedUrl;
@@ -46,15 +47,32 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     _loadStream();
   }
 
+  void _showStatus(String message) {
+    debugPrint('M3U8Player: $message');
+    if (mounted) {
+      setState(() => _statusMessage = message);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          duration: const Duration(seconds: 2),
+          backgroundColor: Colors.blue.shade800,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
   Future<void> _loadStream() async {
     if (!mounted) return;
 
     setState(() {
       _error = null;
+      _statusMessage = 'Starting stream search...';
     });
 
     try {
-      // Step 1: Try direct API extraction
+      // Step 1: Try VidFlix API
+      _showStatus('Trying VidFlix API...');
       Map<String, dynamic>? result;
 
       if (widget.isMovie) {
@@ -82,16 +100,17 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
             const <String, String>{};
         final source = result['source'] as String? ?? 'Unknown';
 
-        debugPrint('M3U8VideoPlayer: Playing from $source: $url');
+        _showStatus('Found stream from $source! Initializing player...');
         await _initializePlayer(url, headers: headers, source: source);
         return;
       }
 
-      // Step 2: Try VidLink extraction (hidden WebView)
-      debugPrint('M3U8VideoPlayer: Direct API failed, trying VidLink...');
+      // Step 2: Try VidLink extraction
+      _showStatus('Direct APIs failed. Trying VidLink extraction...');
       if (_startVidLinkExtraction()) return;
 
       // Step 3: All methods failed
+      _showStatus('All sources failed');
       if (mounted) {
         setState(() {
           _error = 'No working streaming sources found.\n\n'
@@ -102,7 +121,8 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       }
     } catch (e) {
       debugPrint('M3U8VideoPlayer: Error loading stream: $e');
-      // Try VidLink extraction as fallback
+      _showStatus('Error: $e');
+
       if (_startVidLinkExtraction()) return;
 
       if (mounted) {
@@ -127,6 +147,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
 
     if (url.isEmpty) return false;
 
+    _showStatus('Loading VidLink embed: $url');
     _vidLinkEmbedUrl = url;
     if (mounted) setState(() => _extractingVidLink = true);
     return true;
@@ -134,18 +155,21 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
 
   void _onVidLinkExtracted(String playlist, Map<String, String> headers) {
     if (!mounted) return;
+    _showStatus('VidLink stream extracted! Initializing player...');
     setState(() => _extractingVidLink = false);
     _initializePlayer(playlist, headers: headers, source: 'VidLink');
   }
 
   void _onVidLinkError(Object error) {
     debugPrint('M3U8VideoPlayer: VidLink extraction failed: $error');
+    _showStatus('VidLink extraction failed: $error');
     if (!mounted) return;
     setState(() {
       _extractingVidLink = false;
       _error = 'Failed to extract stream.\n\n'
           '• The source might be temporarily unavailable\n'
-          '• Try again later';
+          '• Try again later\n\n'
+          'Error: $error';
     });
   }
 
@@ -155,6 +179,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     String source = 'Unknown',
   }) async {
     try {
+      _showStatus('Initializing video player...');
       await _videoPlayerController?.dispose();
       _chewieController?.dispose();
 
@@ -163,6 +188,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         httpHeaders: headers,
       );
 
+      _showStatus('Loading video from: ${m3u8Url.substring(0, m3u8Url.length > 80 ? 80 : m3u8Url.length)}...');
       await _videoPlayerController!.initialize();
 
       _chewieController = ChewieController(
@@ -206,6 +232,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         },
       );
 
+      _showStatus('Playing from $source');
       if (mounted) {
         setState(() {
           _useNativePlayer = true;
@@ -214,6 +241,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       }
     } catch (e) {
       debugPrint('M3U8VideoPlayer: Error initializing player: $e');
+      _showStatus('Player error: $e');
       if (mounted) {
         setState(() {
           _error = 'Failed to initialize video player: $e';
@@ -271,29 +299,6 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
               ),
             ),
           ),
-        if (_extractingVidLink)
-          const Positioned(
-            top: 16,
-            left: 16,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(
-                    color: Colors.red,
-                    strokeWidth: 2,
-                  ),
-                ),
-                SizedBox(width: 8),
-                Text(
-                  'Extracting stream...',
-                  style: TextStyle(color: Colors.white70, fontSize: 12),
-                ),
-              ],
-            ),
-          ),
         if (_extractingVidLink && _vidLinkEmbedUrl != null)
           VidLinkExtractor(
             key: const ValueKey('vidlink-extractor'),
@@ -317,10 +322,18 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
             style: const TextStyle(color: Colors.white, fontSize: 16),
             textAlign: TextAlign.center,
           ),
-          const SizedBox(height: 8),
-          const Text(
-            'Trying multiple sources...',
-            style: TextStyle(color: Colors.grey, fontSize: 12),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              _statusMessage,
+              style: const TextStyle(color: Colors.white70, fontSize: 13),
+              textAlign: TextAlign.center,
+            ),
           ),
         ],
       ),
@@ -348,6 +361,12 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
             Text(
               _error ?? 'Unknown error',
               style: const TextStyle(color: Colors.grey, fontSize: 13),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Last status: $_statusMessage',
+              style: const TextStyle(color: Colors.grey, fontSize: 11),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 24),
