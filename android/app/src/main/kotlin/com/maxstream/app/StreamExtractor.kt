@@ -7,11 +7,13 @@ import okhttp3.*
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 import java.util.regex.Pattern
+import javax.crypto.Cipher
+import javax.crypto.spec.IvParameterSpec
+import javax.crypto.spec.SecretKeySpec
 
 /**
  * Native Kotlin stream extractor using OkHttp.
- * Handles Cloudflare challenges better than Flutter's Dio.
- * Extracts streams from PrimeSrc → Voe/Streamtape → direct m3u8/mp4 URLs.
+ * Calls providers directly (VixSrc, Vidrock) + PrimeSrc as fallback.
  */
 class StreamExtractor {
     private val TAG = "StreamExtractor"
@@ -24,208 +26,345 @@ class StreamExtractor {
         .followSslRedirects(true)
         .build()
 
-    /**
-     * Main entry point: resolve a TMDB ID to a playable stream URL.
-     * Returns a map with "url", "source", "headers" keys, or null on failure.
-     */
     suspend fun resolveStream(
         tmdbId: String,
         isMovie: Boolean,
         season: Int = 1,
         episode: Int = 1
     ): Map<String, String>? = withContext(Dispatchers.IO) {
-        try {
-            Log.i(TAG, "Resolving stream for TMDB: $tmdbId")
+        // Try each provider in order
+        val providers: List<suspend () -> Map<String, String>?> = listOf(
+            { extractVixSrc(tmdbId, isMovie, season, episode) },
+            { extractVidrock(tmdbId, isMovie, season, episode) },
+            { extractPrimeSrc(tmdbId, isMovie, season, episode) },
+        )
 
-            // Step 1: Get PrimeSrc server list
-            val servers = getPrimeSrcServers(tmdbId, isMovie, season, episode)
-            if (servers.isEmpty()) {
-                Log.w(TAG, "No PrimeSrc servers found")
-                return@withContext null
-            }
-            Log.i(TAG, "Found ${servers.size} servers")
-
-            // Step 2: Try each server
-            for ((name, key) in servers) {
-                Log.i(TAG, "Trying server: $name (key: $key)")
-                try {
-                    val link = resolvePrimeSrcLink(key) ?: continue
-                    Log.i(TAG, "Got link: $link")
-
-                    val result = extractFromLink(name, link)
-                    if (result != null) {
-                        Log.i(TAG, "SUCCESS from $name: ${result["url"]}")
-                        return@withContext result
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Server $name failed: ${e.message}")
+        for ((i, provider) in providers.withIndex()) {
+            try {
+                Log.i(TAG, "Trying provider ${i + 1}/${providers.size}")
+                val result = provider()
+                if (result != null) {
+                    Log.i(TAG, "SUCCESS: ${result["source"]}: ${result["url"]}")
+                    return@withContext result
                 }
+            } catch (e: Exception) {
+                Log.e(TAG, "Provider ${i + 1} failed: ${e.message}")
             }
-
-            Log.w(TAG, "All servers failed")
-            null
-        } catch (e: Exception) {
-            Log.e(TAG, "Resolution failed: ${e.message}")
-            null
         }
+
+        Log.w(TAG, "All providers failed")
+        null
     }
 
-    // ── PrimeSrc ──────────────────────────────────────────────────────────
+    // ── VixSrc Extractor (direct API, no Cloudflare) ──────────────────────
 
-    private fun getPrimeSrcServers(
-        tmdbId: String,
-        isMovie: Boolean,
-        season: Int,
-        episode: Int
-    ): List<Pair<String, String>> {
-        val url = if (isMovie) {
+    private fun extractVixSrc(tmdbId: String, isMovie: Boolean, season: Int, episode: Int): Map<String, String>? {
+        Log.i(TAG, "VixSrc: resolving TMDB $tmdbId")
+
+        val apiPath = if (isMovie) {
+            "api/movie/$tmdbId?lang=en"
+        } else {
+            "api/tv/$tmdbId/$season/$episode?lang=en"
+        }
+
+        // Step 1: Call VixSrc API
+        val apiRequest = Request.Builder()
+            .url("https://vixsrc.to/$apiPath")
+            .header("User-Agent", UA)
+            .header("Referer", "https://vixsrc.to")
+            .header("X-Requested-With", "XMLHttpRequest")
+            .header("Accept", "application/json, text/plain, */*")
+            .build()
+
+        val apiResponse = client.newCall(apiRequest).execute()
+        val apiBody = apiResponse.body?.string() ?: return null
+        Log.i(TAG, "VixSrc API response: ${apiBody.take(200)}")
+
+        val apiJson = try { JSONObject(apiBody) } catch (e: Exception) { return null }
+        val embedPath = apiJson.optString("src", "").trimStart('/')
+        if (embedPath.isEmpty()) {
+            Log.e(TAG, "VixSrc: no src in API response")
+            return null
+        }
+        Log.i(TAG, "VixSrc embed path: $embedPath")
+
+        // Step 2: Fetch embed page
+        val embedRequest = Request.Builder()
+            .url("https://vixsrc.to/$embedPath")
+            .header("User-Agent", UA)
+            .header("Referer", "https://vixsrc.to")
+            .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+            .build()
+
+        val embedResponse = client.newCall(embedRequest).execute()
+        val html = embedResponse.body?.string() ?: return null
+
+        // Step 3: Parse script for video ID, token, expires
+        val videoId = extractBetween(html, "id: '", "'") ?: run {
+            Log.e(TAG, "VixSrc: no video ID found"); return null
+        }
+        val token = extractBetween(html, "'token': '", "'") ?: run {
+            Log.e(TAG, "VixSrc: no token found"); return null
+        }
+        val expires = extractBetween(html, "'expires': '", "'") ?: run {
+            Log.e(TAG, "VixSrc: no expires found"); return null
+        }
+        val hasB = html.contains("b=1")
+        val canFHD = html.contains("window.canPlayFHD = true")
+
+        Log.i(TAG, "VixSrc: videoId=$videoId, token=$token, expires=$expires")
+
+        // Step 4: Build m3u8 URL
+        val params = mutableListOf("token=$token", "expires=$expires", "lang=en")
+        if (hasB) params.add("b=1")
+        if (canFHD) params.add("h=1")
+        val qs = params.joinToString("&")
+        val m3u8Url = "https://vixsrc.to/playlist/$videoId?$qs"
+
+        Log.i(TAG, "VixSrc stream: $m3u8Url")
+        return mapOf(
+            "url" to m3u8Url,
+            "source" to "VixSrc",
+            "type" to "direct_m3u8",
+            "referer" to "https://vixsrc.to/$embedPath"
+        )
+    }
+
+    // ── Vidrock Extractor (AES-CBC encrypted API) ────────────────────────
+
+    private val VIDROCK_PASSPHRASE = "x7k9mPqT2rWvY8zA5bC3nF6hJ2lK4mN9"
+
+    private fun extractVidrock(tmdbId: String, isMovie: Boolean, season: Int, episode: Int): Map<String, String>? {
+        Log.i(TAG, "Vidrock: resolving TMDB $tmdbId")
+
+        val dataToEncrypt = if (isMovie) tmdbId else "${tmdbId}_${season}_${episode}"
+        val encoded = aesEncrypt(dataToEncrypt, VIDROCK_PASSPHRASE)
+
+        val apiPath = if (isMovie) "api/movie/$encoded" else "api/tv/$encoded"
+
+        val request = Request.Builder()
+            .url("https://vidrock.net/$apiPath")
+            .header("User-Agent", UA)
+            .header("Referer", "https://vidrock.net/")
+            .header("Origin", "https://vidrock.net")
+            .build()
+
+        val response = client.newCall(request).execute()
+        val body = response.body?.string() ?: return null
+        Log.i(TAG, "Vidrock response: ${body.take(200)}")
+
+        val json = try { JSONObject(body) } catch (e: Exception) { return null }
+
+        // Find first server with a valid m3u8 URL
+        val keys = json.keys()
+        while (keys.hasNext()) {
+            val serverName = keys.next()
+            val serverData = json.optJSONObject(serverName) ?: continue
+            val url = serverData.optString("url", "")
+            if (url.isNotEmpty() && url.contains(".m3u8")) {
+                Log.i(TAG, "Vidrock stream from $serverName: $url")
+                return mapOf(
+                    "url" to url,
+                    "source" to "Vidrock",
+                    "type" to "direct_m3u8",
+                    "referer" to "https://vidrock.net/",
+                    "origin" to "https://vidrock.net"
+                )
+            }
+        }
+
+        Log.e(TAG, "Vidrock: no valid stream found")
+        return null
+    }
+
+    private fun aesEncrypt(data: String, passphrase: String): String {
+        val key = passphrase.toByteArray(Charsets.UTF_8)
+        val iv = key.copyOfRange(0, 16)
+        val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
+        cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), IvParameterSpec(iv))
+        val encrypted = cipher.doFinal(data.toByteArray(Charsets.UTF_8))
+        return Base64.encodeToString(encrypted, Base64.URL_SAFE or Base64.NO_WRAP)
+    }
+
+    // ── PrimeSrc (fallback, may fail due to Cloudflare) ──────────────────
+
+    private fun extractPrimeSrc(tmdbId: String, isMovie: Boolean, season: Int, episode: Int): Map<String, String>? {
+        Log.i(TAG, "PrimeSrc: resolving TMDB $tmdbId")
+
+        // Step 1: Get server list
+        val serversUrl = if (isMovie) {
             "https://primesrc.me/api/v1/s?tmdb=$tmdbId&type=movie"
         } else {
             "https://primesrc.me/api/v1/s?tmdb=$tmdbId&season=$season&episode=$episode&type=tv"
         }
 
-        val request = Request.Builder()
-            .url(url)
+        val serversRequest = Request.Builder()
+            .url(serversUrl)
             .header("User-Agent", UA)
             .header("Referer", "https://primesrc.me/")
             .build()
 
-        val response = client.newCall(request).execute()
-        val body = response.body?.string() ?: return emptyList()
+        val serversResponse = client.newCall(serversRequest).execute()
+        val serversBody = serversResponse.body?.string() ?: return null
 
-        return try {
-            val json = JSONObject(body)
-            val servers = json.getJSONArray("servers")
-            val result = mutableListOf<Pair<String, String>>()
-            for (i in 0 until servers.length()) {
-                val server = servers.getJSONObject(i)
-                val name = server.optString("name", "")
-                val key = server.optString("key", "")
-                if (key.isNotEmpty()) {
-                    result.add(Pair(name, key))
+        val serversJson = try { JSONObject(serversBody) } catch (e: Exception) { return null }
+        val servers = serversJson.optJSONArray("servers") ?: return null
+
+        // Step 2: Try each server
+        for (i in 0 until servers.length()) {
+            val server = servers.optJSONObject(i) ?: continue
+            val name = server.optString("name", "")
+            val key = server.optString("key", "")
+            if (key.isEmpty()) continue
+
+            Log.i(TAG, "PrimeSrc: trying $name (key: $key)")
+            try {
+                val linkRequest = Request.Builder()
+                    .url("https://primesrc.me/api/v1/l?key=$key")
+                    .header("User-Agent", UA)
+                    .header("Referer", "https://primesrc.me/")
+                    .header("Accept", "application/json")
+                    .build()
+
+                val linkResponse = client.newCall(linkRequest).execute()
+                val linkBody = linkResponse.body?.string() ?: continue
+
+                val linkJson = try { JSONObject(linkBody) } catch (e: Exception) {
+                    Log.e(TAG, "PrimeSrc: link response is not JSON")
+                    continue
                 }
+                val link = linkJson.optString("link", "")
+                if (link.isEmpty()) continue
+
+                Log.i(TAG, "PrimeSrc: got link: $link")
+                return extractFromProviderUrl(name, link)
+            } catch (e: Exception) {
+                Log.e(TAG, "PrimeSrc: server $name failed: ${e.message}")
             }
-            result
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to parse servers: ${e.message}")
-            emptyList()
         }
+
+        return null
     }
 
-    private fun resolvePrimeSrcLink(key: String): String? {
-        val request = Request.Builder()
-            .url("https://primesrc.me/api/v1/l?key=$key")
-            .header("User-Agent", UA)
-            .header("Referer", "https://primesrc.me/")
-            .header("Accept", "application/json")
-            .build()
+    // ── Generic extractor by provider URL ─────────────────────────────────
 
-        val response = client.newCall(request).execute()
-        val body = response.body?.string() ?: return null
-
-        return try {
-            val json = JSONObject(body)
-            json.optString("link", null)
-        } catch (e: Exception) {
-            // Response might be HTML (Cloudflare challenge)
-            Log.e(TAG, "Link response is not JSON: ${body.take(100)}")
-            null
-        }
-    }
-
-    // ── Extractor dispatch ────────────────────────────────────────────────
-
-    private fun extractFromLink(serverName: String, link: String): Map<String, String>? {
+    private fun extractFromProviderUrl(serverName: String, link: String): Map<String, String>? {
         return when {
             serverName.contains("Voe", ignoreCase = true) -> extractVoe(link)
-            serverName.contains("Streamtape", ignoreCase = true) ||
-            serverName.contains("Streamta", ignoreCase = true) -> extractStreamtape(link)
-            else -> extractGeneric(serverName, link)
+            serverName.contains("Streamtape", ignoreCase = true) -> extractStreamtape(link)
+            else -> extractGenericPage(serverName, link)
         }
     }
 
-    // ── Voe Extractor ─────────────────────────────────────────────────────
+    // ── Voe ───────────────────────────────────────────────────────────────
 
     private fun extractVoe(link: String): Map<String, String>? {
-        Log.i(TAG, "Voe extracting: $link")
-
+        Log.i(TAG, "Voe: extracting $link")
         val request = Request.Builder()
             .url(link)
             .header("User-Agent", UA)
             .header("Referer", link)
-            .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
             .build()
 
         val response = client.newCall(request).execute()
         val html = response.body?.string() ?: return null
         val finalUrl = response.request.url.toString()
 
-        // Find <script type="application/json"> content
-        val scriptPattern = Pattern.compile(
-            """<script\s+type="application/json">(.*?)</script>""",
-            Pattern.DOTALL
-        )
-        val scriptMatcher = scriptPattern.matcher(html)
-        var encodedData = ""
-        if (scriptMatcher.find()) {
-            encodedData = scriptMatcher.group(1)?.trim() ?: ""
-        }
+        val scriptPattern = Pattern.compile("""<script\s+type="application/json">(.*?)</script>""", Pattern.DOTALL)
+        val matcher = scriptPattern.matcher(html)
+        if (!matcher.find()) { Log.e(TAG, "Voe: no script found"); return null }
 
-        if (encodedData.isNullOrEmpty()) {
-            Log.e(TAG, "Voe: no encoded data found")
-            return null
-        }
-
-        // Decrypt
-        val decrypted = decryptVoe(encodedData)
-        if (decrypted.length() == 0) {
-            Log.e(TAG, "Voe: decryption failed")
-            return null
-        }
-
+        val encoded = matcher.group(1)?.trim() ?: return null
+        val decrypted = decryptVoe(encoded)
         val m3u8 = decrypted.optString("source", "")
-        if (m3u8.isEmpty()) {
-            Log.e(TAG, "Voe: no source in decrypted data")
-            return null
-        }
+        if (m3u8.isEmpty()) { Log.e(TAG, "Voe: no source"); return null }
 
-        Log.i(TAG, "Voe stream: $m3u8")
-        return mapOf(
-            "url" to m3u8,
-            "source" to "Voe",
-            "type" to "direct_m3u8",
-            "referer" to finalUrl
-        )
+        return mapOf("url" to m3u8, "source" to "Voe", "type" to "direct_m3u8", "referer" to finalUrl)
     }
 
     private fun decryptVoe(input: String): JSONObject {
-        return try {
+        try {
             var s = rot13(input)
-            // Replace Voe patterns
-            s = s.replace("@$", "_")
-            s = s.replace("^^", "_")
-            s = s.replace("~@", "_")
-            s = s.replace("%?", "_")
-            s = s.replace("*~", "_")
-            s = s.replace("!!", "_")
-            s = s.replace("#&", "_")
+            s = s.replace("@$", "_").replace("^^", "_").replace("~@", "_")
+               .replace("%?", "_").replace("*~", "_").replace("!!", "_").replace("#&", "_")
             s = s.replace("_", "")
-            // Base64 decode
-            val decoded = Base64.decode(s, Base64.NO_WRAP)
-            s = String(decoded, Charsets.UTF_8)
-            // Char shift -3
+            s = String(Base64.decode(s, Base64.NO_WRAP), Charsets.UTF_8)
             s = charShift(s, -3)
-            // Reverse
             s = s.reversed()
-            // Base64 decode again
-            val decoded2 = Base64.decode(s, Base64.NO_WRAP)
-            s = String(decoded2, Charsets.UTF_8)
-            // Parse JSON
-            JSONObject(s)
+            s = String(Base64.decode(s, Base64.NO_WRAP), Charsets.UTF_8)
+            return JSONObject(s)
         } catch (e: Exception) {
             Log.e(TAG, "Voe decrypt error: ${e.message}")
-            JSONObject()
+            return JSONObject()
         }
+    }
+
+    // ── Streamtape ────────────────────────────────────────────────────────
+
+    private fun extractStreamtape(link: String): Map<String, String>? {
+        Log.i(TAG, "Streamtape: extracting $link")
+        val request = Request.Builder().url(link).header("User-Agent", UA).build()
+        val response = client.newCall(request).execute()
+        val html = response.body?.string() ?: return null
+
+        val pattern = Pattern.compile(
+            """document\.getElementById\('botlink'\)\.innerHTML\s*=\s*'([^']+)'\s*\+\s*\('([^']+)'\)\.substring\((\d+)\)"""
+        )
+        val matcher = pattern.matcher(html)
+        if (!matcher.find()) { Log.e(TAG, "Streamtape: botlink not found"); return null }
+
+        val paramString = matcher.group(2) ?: return null
+        val idx = (matcher.group(3) ?: "0").toInt()
+        val clean = paramString.substring(idx)
+
+        val id = findParam(clean, "id") ?: return null
+        val expires = findParam(clean, "expires") ?: return null
+        val ip = findParam(clean, "ip") ?: return null
+        val token = findParam(clean, "token") ?: return null
+
+        val videoUrl = "https://streamtape.com/get_video?id=$id&expires=$expires&ip=$ip&token=$token&stream=1"
+        val videoRequest = Request.Builder().url(videoUrl).header("User-Agent", UA).build()
+        val videoResponse = client.newCall(videoRequest).execute()
+        val finalUrl = videoResponse.request.url.toString()
+
+        if (finalUrl != videoUrl) {
+            return mapOf("url" to finalUrl, "source" to "Streamtape", "type" to "direct_video", "referer" to "https://streamtape.com/")
+        }
+        return null
+    }
+
+    // ── Generic page scraper ──────────────────────────────────────────────
+
+    private fun extractGenericPage(serverName: String, link: String): Map<String, String>? {
+        val request = Request.Builder().url(link).header("User-Agent", UA).header("Referer", link).build()
+        val response = client.newCall(request).execute()
+        val html = response.body?.string() ?: return null
+
+        val m3u8 = Pattern.compile("https?://[^\\s\"'<>]+\\.m3u8[^\\s\"'<>]*", Pattern.CASE_INSENSITIVE).matcher(html)
+        if (m3u8.find()) {
+            return mapOf("url" to m3u8.group(0)!!, "source" to serverName, "type" to "direct_m3u8", "referer" to link)
+        }
+        val mp4 = Pattern.compile("https?://[^\\s\"'<>]+\\.mp4[^\\s\"'<>]*", Pattern.CASE_INSENSITIVE).matcher(html)
+        if (mp4.find()) {
+            return mapOf("url" to mp4.group(0)!!, "source" to serverName, "type" to "direct_video", "referer" to link)
+        }
+        return null
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────
+
+    private fun extractBetween(source: String, before: String, after: String): String? {
+        val i = source.indexOf(before)
+        if (i == -1) return null
+        val start = i + before.length
+        val j = source.indexOf(after, start)
+        if (j == -1) return null
+        return source.substring(start, j).trim()
+    }
+
+    private fun findParam(source: String, name: String): String? {
+        val m = Pattern.compile("$name=([^&]+)").matcher(source)
+        return if (m.find()) m.group(1) else null
     }
 
     private fun rot13(input: String): String {
@@ -240,133 +379,6 @@ class StreamExtractor {
     }
 
     private fun charShift(input: String, shift: Int): String {
-        return String(CharArray(input.length) { i ->
-            (input[i].code - shift).toChar()
-        })
-    }
-
-    // ── Streamtape Extractor ──────────────────────────────────────────────
-
-    private fun extractStreamtape(link: String): Map<String, String>? {
-        Log.i(TAG, "Streamtape extracting: $link")
-
-        val request = Request.Builder()
-            .url(link)
-            .header("User-Agent", UA)
-            .build()
-
-        val response = client.newCall(request).execute()
-        val html = response.body?.string() ?: return null
-
-        // Parse botlink JS
-        val botlinkPattern = Pattern.compile(
-            """document\.getElementById\('botlink'\)\.innerHTML\s*=\s*'([^']+)'\s*\+\s*\('([^']+)'\)\.substring\((\d+)\)"""
-        )
-        val matcher = botlinkPattern.matcher(html)
-        if (!matcher.find()) {
-            Log.e(TAG, "Streamtape: botlink JS not found")
-            return null
-        }
-
-        val paramString = matcher.group(2) ?: return null
-        val substringIndex = (matcher.group(3) ?: "0").toInt()
-        val cleanParams = paramString.substring(substringIndex)
-
-        // Extract parameters
-        val id = extractParam(cleanParams, "id") ?: return null
-        val expires = extractParam(cleanParams, "expires") ?: return null
-        val ip = extractParam(cleanParams, "ip") ?: return null
-        val token = extractParam(cleanParams, "token") ?: return null
-
-        val videoUrl = "https://streamtape.com/get_video?id=$id&expires=$expires&ip=$ip&token=$token&stream=1"
-        Log.i(TAG, "Streamtape video URL: $videoUrl")
-
-        // Follow redirect
-        val videoRequest = Request.Builder()
-            .url(videoUrl)
-            .header("User-Agent", UA)
-            .build()
-
-        val videoResponse = client.newCall(videoRequest).execute()
-        val finalUrl = videoResponse.request.url.toString()
-
-        // If we got a redirect, the final URL is the stream
-        if (finalUrl != videoUrl) {
-            Log.i(TAG, "Streamtape stream: $finalUrl")
-            return mapOf(
-                "url" to finalUrl,
-                "source" to "Streamtape",
-                "type" to "direct_video",
-                "referer" to "https://streamtape.com/"
-            )
-        }
-
-        // Try to extract from response body
-        val body = videoResponse.body?.string() ?: return null
-        val streamPattern = Pattern.compile("""(https?://[^"'\s]+\.mp4[^"'\s]*)""")
-        val streamMatcher = streamPattern.matcher(body)
-        if (streamMatcher.find()) {
-            val streamUrl = streamMatcher.group(1) ?: return null
-            Log.i(TAG, "Streamtape stream from body: $streamUrl")
-            return mapOf(
-                "url" to streamUrl,
-                "source" to "Streamtape",
-                "type" to "direct_video",
-                "referer" to "https://streamtape.com/"
-            )
-        }
-
-        return null
-    }
-
-    private fun extractParam(source: String, paramName: String): String? {
-        val pattern = Pattern.compile("$paramName=([^&]+)")
-        val matcher = pattern.matcher(source)
-        return if (matcher.find()) matcher.group(1) else null
-    }
-
-    // ── Generic Extractor ─────────────────────────────────────────────────
-
-    private fun extractGeneric(serverName: String, link: String): Map<String, String>? {
-        Log.i(TAG, "Generic extracting $serverName: $link")
-
-        val request = Request.Builder()
-            .url(link)
-            .header("User-Agent", UA)
-            .header("Referer", link)
-            .build()
-
-        val response = client.newCall(request).execute()
-        val html = response.body?.string() ?: return null
-
-        // Search for m3u8 URLs
-        val m3u8Pattern = Pattern.compile("""https?://[^\s"'<>]+\.m3u8[^\s"'<>]*""", Pattern.CASE_INSENSITIVE)
-        val m3u8Matcher = m3u8Pattern.matcher(html)
-        if (m3u8Matcher.find()) {
-            val url = m3u8Matcher.group(0) ?: return null
-            Log.i(TAG, "Generic found m3u8: $url")
-            return mapOf(
-                "url" to url,
-                "source" to serverName,
-                "type" to "direct_m3u8",
-                "referer" to link
-            )
-        }
-
-        // Search for mp4 URLs
-        val mp4Pattern = Pattern.compile("""https?://[^\s"'<>]+\.mp4[^\s"'<>]*""", Pattern.CASE_INSENSITIVE)
-        val mp4Matcher = mp4Pattern.matcher(html)
-        if (mp4Matcher.find()) {
-            val url = mp4Matcher.group(0) ?: return null
-            Log.i(TAG, "Generic found mp4: $url")
-            return mapOf(
-                "url" to url,
-                "source" to serverName,
-                "type" to "direct_video",
-                "referer" to link
-            )
-        }
-
-        return null
+        return String(CharArray(input.length) { i -> (input[i].code - shift).toChar() })
     }
 }
