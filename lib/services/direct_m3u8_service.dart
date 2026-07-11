@@ -18,6 +18,7 @@ class DirectM3u8Service {
     final result = await NativeStreamExtractor.resolveStream(
       tmdbId: id,
       isMovie: true,
+      title: title,
     );
 
     return result;
@@ -38,6 +39,7 @@ class DirectM3u8Service {
       isMovie: false,
       season: season,
       episode: episode,
+      title: title,
     );
 
     return result;

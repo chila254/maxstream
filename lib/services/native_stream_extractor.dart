@@ -13,6 +13,7 @@ class NativeStreamExtractor {
     required bool isMovie,
     int season = 1,
     int episode = 1,
+    String title = '',
   }) async {
     try {
       debugPrint('NativeExtractor: Resolving TMDB $tmdbId (movie=$isMovie)');
@@ -22,6 +23,7 @@ class NativeStreamExtractor {
         'isMovie': isMovie,
         'season': season,
         'episode': episode,
+        'title': title,
       });
 
       if (result == null) return null;

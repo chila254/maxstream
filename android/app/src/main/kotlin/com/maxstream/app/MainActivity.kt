@@ -21,11 +21,12 @@ class MainActivity : FlutterActivity() {
                         val isMovie = call.argument<Boolean>("isMovie") ?: true
                         val season = call.argument<Int>("season") ?: 1
                         val episode = call.argument<Int>("episode") ?: 1
+                        val title = call.argument<String>("title") ?: ""
 
                         scope.launch {
                             try {
                                 val stream = withContext(Dispatchers.IO) {
-                                    extractor.resolveStream(tmdbId, isMovie, season, episode)
+                                    extractor.resolveStream(tmdbId, isMovie, season, episode, title)
                                 }
                                 if (stream != null) {
                                     result.success(stream)
