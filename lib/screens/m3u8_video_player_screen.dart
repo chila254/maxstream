@@ -71,8 +71,8 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     });
 
     try {
-      // Step 1: Try VidFlix API
-      _showStatus('Trying VidFlix API...');
+      // Step 1: Try PrimeSrc servers (Voe, Streamtape, etc.)
+      _showStatus('Fetching servers from PrimeSrc...');
       Map<String, dynamic>? result;
 
       if (widget.isMovie) {
