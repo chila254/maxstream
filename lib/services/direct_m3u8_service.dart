@@ -2,6 +2,8 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
 /// Resolves movie and episode playback sources from TMDB metadata.
+/// Uses multiple API sources with automatic fallback, similar to how
+/// streamflix resolves streams via its Provider/Extractor pipeline.
 class DirectM3u8Service {
   static const String _tag = 'DirectM3u8Service';
 
@@ -33,44 +35,14 @@ class DirectM3u8Service {
 
   static const Map<String, String> _browserHeaders = {
     'User-Agent':
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36',
     'Accept': '*/*',
     'Accept-Language': 'en-US,en;q=0.9',
   };
 
-  /// Browser-based fallback sources. These are loaded by the WebView player when
-  /// a direct HLS/MP4 URL cannot be resolved ahead of time.
-  static const List<Map<String, String>> _embedSources = [
-    {
-      'name': 'VidLink',
-      'movieUrl': 'https://vidlink.pro/movie/{id}',
-      'tvUrl': 'https://vidlink.pro/tv/{id}/{season}/{episode}',
-    },
-    {
-      'name': 'VidsrcRu',
-      'movieUrl': 'https://vidsrc.ru/movie/{id}',
-      'tvUrl': 'https://vidsrc.ru/tv/{id}/{season}/{episode}',
-    },
-    {
-      'name': 'VidsrcNet',
-      'movieUrl': 'https://vidsrc-embed.ru/embed/movie?tmdb={id}',
-      'tvUrl':
-          'https://vidsrc-embed.ru/embed/tv?tmdb={id}&season={season}&episode={episode}',
-    },
-    {
-      'name': '2Embed',
-      'movieUrl': 'https://www.2embed.cc/embed/{id}',
-      'tvUrl': 'https://www.2embed.cc/embedtv/{id}&s={season}&e={episode}',
-    },
-    {
-      'name': 'Remotestream',
-      'movieUrl': 'https://remotestream.click/embed/movie?id={id}',
-      'tvUrl':
-          'https://remotestream.click/embed/tv?id={id}&s={season}&e={episode}',
-    },
-  ];
+  // ── Public API ──────────────────────────────────────────────────────────
 
-  /// Fetch a direct HLS/MP4 stream for a movie when an API exposes one.
+  /// Fetch a direct HLS/MP4 stream for a movie.
   static Future<Map<String, dynamic>?> fetchMovieStreamUrl(
     String title,
     int? year,
@@ -89,12 +61,14 @@ class DirectM3u8Service {
       () => _fetchPrimeSrcLinks(
         serversUrl: 'https://primesrc.me/api/v1/s?tmdb=$id&type=movie',
       ),
+      () => _fetchVidrockApi(tmdbId: id, type: 'movie'),
+      () => _fetchRemotestreamApi(tmdbId: id, type: 'movie'),
     ];
 
     return _firstWorking(attempts);
   }
 
-  /// Fetch a direct HLS/MP4 stream for a TV episode when an API exposes one.
+  /// Fetch a direct HLS/MP4 stream for a TV episode.
   static Future<Map<String, dynamic>?> fetchSeriesStreamUrl(
     String title,
     int season,
@@ -117,25 +91,26 @@ class DirectM3u8Service {
         serversUrl:
             'https://primesrc.me/api/v1/s?tmdb=$id&season=$season&episode=$episode&type=tv',
       ),
+      () => _fetchVidrockApi(
+        tmdbId: id,
+        type: 'tv',
+        season: season,
+        episode: episode,
+      ),
+      () => _fetchRemotestreamApi(
+        tmdbId: id,
+        type: 'tv',
+        season: season,
+        episode: episode,
+      ),
     ];
 
     return _firstWorking(attempts);
   }
 
-  static Future<Map<String, dynamic>?> _firstWorking(
-    List<Future<Map<String, dynamic>?> Function()> attempts,
-  ) async {
-    for (final attempt in attempts) {
-      try {
-        final result = await attempt();
-        if (result != null) return result;
-      } catch (e) {
-        debugPrint('$_tag: Resolver attempt failed: $e');
-      }
-    }
-    return null;
-  }
+  // ── Source resolvers (each returns a playable URL or null) ──────────────
 
+  /// VidFlix API — returns a JSON object with an embedded m3u8/mp4 URL.
   static Future<Map<String, dynamic>?> _fetchVidflixApi({
     required String apiUrl,
     required String referer,
@@ -156,6 +131,7 @@ class DirectM3u8Service {
     );
   }
 
+  /// PrimeSrc API — fetches server list, then resolves each server key.
   static Future<Map<String, dynamic>?> _fetchPrimeSrcLinks({
     required String serversUrl,
   }) async {
@@ -187,6 +163,146 @@ class DirectM3u8Service {
       }
     }
 
+    return null;
+  }
+
+  /// Vidrock API — scrapes the embed page for an m3u8 URL.
+  static Future<Map<String, dynamic>?> _fetchVidrockApi({
+    required String tmdbId,
+    required String type,
+    int season = 1,
+    int episode = 1,
+  }) async {
+    final path = type == 'movie'
+        ? 'https://vidrock.net/movie/$tmdbId'
+        : 'https://vidrock.net/tv/$tmdbId/$season/$episode';
+
+    final dio = _getDioClient(
+      receiveTimeout: const Duration(seconds: 12),
+      customHeaders: {
+        ..._browserHeaders,
+        'Referer': 'https://vidrock.net/',
+      },
+    );
+
+    try {
+      final response = await dio.get<String>(path);
+      if (!_isSuccess(response.statusCode) || response.data == null) return null;
+
+      // Look for m3u8 URL in page source
+      final m3u8Match = RegExp(
+        r'https?:\/\/[^\s"\'<>]+\.m3u8[^\s"\'<>]*',
+      ).firstMatch(response.data!);
+
+      if (m3u8Match != null) {
+        final url = _normalizeUrl(m3u8Match.group(0));
+        if (url != null) {
+          return _buildResult(
+            url,
+            source: 'Vidrock',
+            headers: {..._browserHeaders, 'Referer': 'https://vidrock.net/'},
+          );
+        }
+      }
+
+      // Try to find an iframe src pointing to an embed
+      final iframeMatch = RegExp(
+        r'''src=["']([^"']*(?:embed|stream)[^"']*)["']''',
+      ).firstMatch(response.data!);
+
+      if (iframeMatch != null) {
+        final embedUrl = iframeMatch.group(1)!;
+        final resolved = embedUrl.startsWith('http')
+            ? embedUrl
+            : 'https://vidrock.net$embedUrl';
+        final embedResponse = await dio.get<String>(resolved);
+        if (_isSuccess(embedResponse.statusCode) && embedResponse.data != null) {
+          final embedM3u8 = RegExp(
+            r'https?:\/\/[^\s"\'<>]+\.m3u8[^\s"\'<>]*',
+          ).firstMatch(embedResponse.data!);
+          if (embedM3u8 != null) {
+            final url = _normalizeUrl(embedM3u8.group(0));
+            if (url != null) {
+              return _buildResult(
+                url,
+                source: 'Vidrock',
+                headers: {
+                  ..._browserHeaders,
+                  'Referer': resolved,
+                },
+              );
+            }
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('$_tag: Vidrock API failed: $e');
+    }
+
+    return null;
+  }
+
+  /// Remotestream API — fetches embed page for direct stream URL.
+  static Future<Map<String, dynamic>?> _fetchRemotestreamApi({
+    required String tmdbId,
+    required String type,
+    int season = 1,
+    int episode = 1,
+  }) async {
+    final path = type == 'movie'
+        ? 'https://remotestream.click/embed/movie?id=$tmdbId'
+        : 'https://remotestream.click/embed/tv?id=$tmdbId&s=$season&e=$episode';
+
+    final dio = _getDioClient(
+      receiveTimeout: const Duration(seconds: 12),
+      customHeaders: {
+        ..._browserHeaders,
+        'Referer': 'https://remotestream.click/',
+      },
+    );
+
+    try {
+      final response = await dio.get<String>(path);
+      if (!_isSuccess(response.statusCode) || response.data == null) return null;
+
+      // Look for m3u8 URL in the page or in script tags
+      final m3u8Match = RegExp(
+        r'https?:\/\/[^\s"\'<>]+\.m3u8[^\s"\'<>]*',
+      ).firstMatch(response.data!);
+
+      if (m3u8Match != null) {
+        final url = _normalizeUrl(m3u8Match.group(0));
+        if (url != null) {
+          return _buildResult(
+            url,
+            source: 'Remotestream',
+            headers: {
+              ..._browserHeaders,
+              'Referer': 'https://remotestream.click/',
+            },
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('$_tag: Remotestream API failed: $e');
+    }
+
+    return null;
+  }
+
+  // ── Helpers ─────────────────────────────────────────────────────────────
+
+  static Future<Map<String, dynamic>?> _firstWorking(
+    List<Future<Map<String, dynamic>?> Function()> attempts,
+  ) async {
+    for (final attempt in attempts) {
+      try {
+        final result = await attempt();
+        if (result != null) return result;
+      } catch (e) {
+        debugPrint('$_tag: Resolver attempt failed: $e');
+      }
+    }
     return null;
   }
 
@@ -321,36 +437,5 @@ class DirectM3u8Service {
 
   static bool _isSuccess(int? statusCode) {
     return statusCode != null && statusCode >= 200 && statusCode < 400;
-  }
-
-  /// Get browser fallback sources for movies/TV shows.
-  static List<Map<String, String>> getEmbedSources() {
-    return List<Map<String, String>>.from(_embedSources);
-  }
-
-  /// Generate an embed URL for a movie.
-  static String generateMovieEmbedUrl(String tmdbId, String sourceName) {
-    final source = _embedSources.firstWhere(
-      (source) => source['name'] == sourceName,
-      orElse: () => _embedSources.first,
-    );
-    return source['movieUrl']!.replaceAll('{id}', tmdbId);
-  }
-
-  /// Generate an embed URL for a TV episode.
-  static String generateTvEmbedUrl(
-    String tmdbId,
-    int season,
-    int episode,
-    String sourceName,
-  ) {
-    final source = _embedSources.firstWhere(
-      (source) => source['name'] == sourceName,
-      orElse: () => _embedSources.first,
-    );
-    return source['tvUrl']!
-        .replaceAll('{id}', tmdbId)
-        .replaceAll('{season}', season.toString())
-        .replaceAll('{episode}', episode.toString());
   }
 }
