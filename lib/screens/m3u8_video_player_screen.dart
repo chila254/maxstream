@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
 import 'package:chewie/chewie.dart';
 import '../services/direct_m3u8_service.dart';
+import '../services/vidlink_extractor.dart';
 
 class M3U8VideoPlayerScreen extends StatefulWidget {
   final String title;
@@ -27,9 +28,12 @@ class M3U8VideoPlayerScreen extends StatefulWidget {
 class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   VideoPlayerController? _videoPlayerController;
   ChewieController? _chewieController;
-
+  bool _useNativePlayer = false;
   String? _error;
   String? _currentSource;
+
+  bool _extractingVidLink = false;
+  String? _vidLinkEmbedUrl;
 
   @override
   void initState() {
@@ -50,6 +54,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     });
 
     try {
+      // Step 1: Try direct API extraction
       Map<String, dynamic>? result;
 
       if (widget.isMovie) {
@@ -79,7 +84,15 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
 
         debugPrint('M3U8VideoPlayer: Playing from $source: $url');
         await _initializePlayer(url, headers: headers, source: source);
-      } else {
+        return;
+      }
+
+      // Step 2: Try VidLink extraction (hidden WebView)
+      debugPrint('M3U8VideoPlayer: Direct API failed, trying VidLink...');
+      if (_startVidLinkExtraction()) return;
+
+      // Step 3: All methods failed
+      if (mounted) {
         setState(() {
           _error = 'No working streaming sources found.\n\n'
               '• Check your internet connection\n'
@@ -89,12 +102,51 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       }
     } catch (e) {
       debugPrint('M3U8VideoPlayer: Error loading stream: $e');
+      // Try VidLink extraction as fallback
+      if (_startVidLinkExtraction()) return;
+
       if (mounted) {
         setState(() {
           _error = 'Failed to load stream: $e';
         });
       }
     }
+  }
+
+  bool _startVidLinkExtraction() {
+    if (_extractingVidLink) return true;
+
+    final url = widget.isMovie
+        ? DirectM3u8Service.generateMovieEmbedUrl(widget.tmdbId, 'VidLink')
+        : DirectM3u8Service.generateTvEmbedUrl(
+            widget.tmdbId,
+            widget.season,
+            widget.episode,
+            'VidLink',
+          );
+
+    if (url.isEmpty) return false;
+
+    _vidLinkEmbedUrl = url;
+    if (mounted) setState(() => _extractingVidLink = true);
+    return true;
+  }
+
+  void _onVidLinkExtracted(String playlist, Map<String, String> headers) {
+    if (!mounted) return;
+    setState(() => _extractingVidLink = false);
+    _initializePlayer(playlist, headers: headers, source: 'VidLink');
+  }
+
+  void _onVidLinkError(Object error) {
+    debugPrint('M3U8VideoPlayer: VidLink extraction failed: $error');
+    if (!mounted) return;
+    setState(() {
+      _extractingVidLink = false;
+      _error = 'Failed to extract stream.\n\n'
+          '• The source might be temporarily unavailable\n'
+          '• Try again later';
+    });
   }
 
   Future<void> _initializePlayer(
@@ -156,6 +208,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
 
       if (mounted) {
         setState(() {
+          _useNativePlayer = true;
           _currentSource = source;
         });
       }
@@ -192,7 +245,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       backgroundColor: Colors.black,
       body: _error != null
           ? _buildError()
-          : _chewieController != null
+          : _useNativePlayer && _chewieController != null
               ? _buildPlayer()
               : _buildLoading(),
     );
@@ -217,6 +270,36 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
                 style: const TextStyle(color: Colors.white70, fontSize: 12),
               ),
             ),
+          ),
+        if (_extractingVidLink)
+          const Positioned(
+            top: 16,
+            left: 16,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    color: Colors.red,
+                    strokeWidth: 2,
+                  ),
+                ),
+                SizedBox(width: 8),
+                Text(
+                  'Extracting stream...',
+                  style: TextStyle(color: Colors.white70, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+        if (_extractingVidLink && _vidLinkEmbedUrl != null)
+          VidLinkExtractor(
+            key: const ValueKey('vidlink-extractor'),
+            embedUrl: _vidLinkEmbedUrl!,
+            onExtracted: _onVidLinkExtracted,
+            onError: _onVidLinkError,
           ),
       ],
     );
