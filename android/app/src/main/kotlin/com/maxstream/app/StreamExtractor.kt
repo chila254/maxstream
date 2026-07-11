@@ -5,6 +5,9 @@ import android.util.Log
 import kotlinx.coroutines.*
 import okhttp3.*
 import okhttp3.dnsoverhttps.DnsOverHttps
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.json.JSONObject
 import java.net.InetAddress
 import java.net.URL
@@ -35,7 +38,7 @@ class StreamExtractor {
         try {
             DnsOverHttps.Builder()
                 .client(dohClient)
-                .url(HttpUrl.get("https://dns.google/dns-query"))
+                .url("https://dns.google/dns-query".toHttpUrl())
                 .build()
         } catch (e: Exception) {
             Log.e(TAG, "DoH failed, using system DNS: ${e.message}")
@@ -374,8 +377,7 @@ class StreamExtractor {
     }
 
     private fun httpPost(url: String, body: String): String? {
-        val mediaType = MediaType.parse("application/json; charset=utf-8")
-        val reqBody = RequestBody.create(mediaType, body.toByteArray(Charsets.UTF_8))
+        val reqBody = body.toRequestBody("application/json".toMediaType())
         val request = Request.Builder().url(url).post(reqBody).header("User-Agent", UA).build()
         val response = client.newCall(request).execute()
         return response.body?.string()
