@@ -191,13 +191,13 @@ class DirectM3u8Service {
 
       // Look for m3u8 URL in page source
       final m3u8Match = RegExp(
-        r'https?:\/\/[^\s"\'<>]+\.m3u8[^\s"\'<>]*',
+        'https?://[^\\s"\'<>]+\\.m3u8[^\\s"\'<>]*',
       ).firstMatch(response.data!);
 
       if (m3u8Match != null) {
         final url = _normalizeUrl(m3u8Match.group(0));
         if (url != null) {
-          return _buildResult(
+          return await _buildResult(
             url,
             source: 'Vidrock',
             headers: {..._browserHeaders, 'Referer': 'https://vidrock.net/'},
@@ -218,12 +218,12 @@ class DirectM3u8Service {
         final embedResponse = await dio.get<String>(resolved);
         if (_isSuccess(embedResponse.statusCode) && embedResponse.data != null) {
           final embedM3u8 = RegExp(
-            r'https?:\/\/[^\s"\'<>]+\.m3u8[^\s"\'<>]*',
+            'https?://[^\\s"\'<>]+\\.m3u8[^\\s"\'<>]*',
           ).firstMatch(embedResponse.data!);
           if (embedM3u8 != null) {
             final url = _normalizeUrl(embedM3u8.group(0));
             if (url != null) {
-              return _buildResult(
+              return await _buildResult(
                 url,
                 source: 'Vidrock',
                 headers: {
@@ -267,13 +267,13 @@ class DirectM3u8Service {
 
       // Look for m3u8 URL in the page or in script tags
       final m3u8Match = RegExp(
-        r'https?:\/\/[^\s"\'<>]+\.m3u8[^\s"\'<>]*',
+        'https?://[^\\s"\'<>]+\\.m3u8[^\\s"\'<>]*',
       ).firstMatch(response.data!);
 
       if (m3u8Match != null) {
         final url = _normalizeUrl(m3u8Match.group(0));
         if (url != null) {
-          return _buildResult(
+          return await _buildResult(
             url,
             source: 'Remotestream',
             headers: {

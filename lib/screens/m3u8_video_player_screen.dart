@@ -28,7 +28,6 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   VideoPlayerController? _videoPlayerController;
   ChewieController? _chewieController;
 
-  bool _isLoading = true;
   String? _error;
   String? _currentSource;
 
@@ -47,7 +46,6 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     if (!mounted) return;
 
     setState(() {
-      _isLoading = true;
       _error = null;
     });
 
@@ -87,7 +85,6 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
               '• Check your internet connection\n'
               '• Try again later\n'
               '• Content might be unavailable';
-          _isLoading = false;
         });
       }
     } catch (e) {
@@ -95,7 +92,6 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       if (mounted) {
         setState(() {
           _error = 'Failed to load stream: $e';
-          _isLoading = false;
         });
       }
     }
@@ -160,7 +156,6 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
 
       if (mounted) {
         setState(() {
-          _isLoading = false;
           _currentSource = source;
         });
       }
@@ -169,7 +164,6 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       if (mounted) {
         setState(() {
           _error = 'Failed to initialize video player: $e';
-          _isLoading = false;
         });
       }
     }
