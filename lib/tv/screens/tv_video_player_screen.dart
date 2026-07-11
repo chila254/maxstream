@@ -167,7 +167,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
           handleColor: Colors.red.shade300,
           backgroundColor: Colors.grey.shade800,
           bufferedColor: Colors.white70,
-          playedColorAtDragStart: Colors.red.shade300,
+
         ),
         placeholder: Container(
           color: Colors.black,

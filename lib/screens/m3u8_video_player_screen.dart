@@ -273,7 +273,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
           handleColor: Colors.red,
           backgroundColor: Colors.grey.shade800,
           bufferedColor: Colors.white70,
-          playedColorAtDragStart: Colors.red.shade300,
+
         ),
         placeholder: Container(
           color: Colors.black,
@@ -816,7 +816,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
           handleColor: Colors.red,
           backgroundColor: Colors.grey.shade800,
           bufferedColor: Colors.white70,
-          playedColorAtDragStart: Colors.red.shade300,
+
         ),
         placeholder: Container(
           color: Colors.black,
