@@ -163,7 +163,7 @@ class StreamExtractor {
         // Find <script type="application/json"> content
         val scriptPattern = Pattern.compile(
             """<script\s+type="application/json">(.*?)</script>""",
-            Pattern.DOT_MATCHES_ALL
+            Pattern.DOTALL
         )
         val scriptMatcher = scriptPattern.matcher(html)
         var encodedData = ""
@@ -171,14 +171,14 @@ class StreamExtractor {
             encodedData = scriptMatcher.group(1)?.trim() ?: ""
         }
 
-        if (encodedData.isEmpty()) {
+        if (encodedData.isNullOrEmpty()) {
             Log.e(TAG, "Voe: no encoded data found")
             return null
         }
 
         // Decrypt
         val decrypted = decryptVoe(encodedData)
-        if (decrypted.isEmpty()) {
+        if (decrypted.length() == 0) {
             Log.e(TAG, "Voe: decryption failed")
             return null
         }
