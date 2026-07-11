@@ -1,62 +1,49 @@
 package com.maxstream.app
 
-import android.os.Build
-import android.webkit.WebSettings
-import android.webkit.WebView
-import android.webkit.WebViewClient
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import kotlinx.coroutines.*
 
 class MainActivity : FlutterActivity() {
-    private val CHANNEL = "com.maxstream.app/webview"
-    companion object {
-        // Static WebView reference for stream extraction
-        var streamWebViewClient: StreamWebViewClient? = null
-    }
+    private val EXTRACTOR_CHANNEL = "com.maxstream.app/extractor"
+    private val extractor = StreamExtractor()
+    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
-        // Configure WebView for stream extraction
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, EXTRACTOR_CHANNEL)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
-                    "initWebView" -> {
-                        configureWebViewSettings()
-                        result.success(true)
-                    }
-                    "getWebViewClient" -> {
-                        if (streamWebViewClient == null) {
-                            streamWebViewClient = StreamWebViewClient()
+                    "resolveStream" -> {
+                        val tmdbId = call.argument<String>("tmdbId") ?: ""
+                        val isMovie = call.argument<Boolean>("isMovie") ?: true
+                        val season = call.argument<Int>("season") ?: 1
+                        val episode = call.argument<Int>("episode") ?: 1
+
+                        scope.launch {
+                            try {
+                                val stream = withContext(Dispatchers.IO) {
+                                    extractor.resolveStream(tmdbId, isMovie, season, episode)
+                                }
+                                if (stream != null) {
+                                    result.success(stream)
+                                } else {
+                                    result.error("NO_STREAM", "No stream found", null)
+                                }
+                            } catch (e: Exception) {
+                                result.error("EXTRACT_ERROR", e.message, null)
+                            }
                         }
-                        result.success(true)
                     }
                     else -> result.notImplemented()
                 }
             }
     }
 
-    private fun configureWebViewSettings() {
-        // Enable WebView debugging in debug mode
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-            WebView.setWebContentsDebuggingEnabled(false)
-        }
-
-        // Configure data directory for stream extraction
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            try {
-                WebView.setDataDirectorySuffix("stream_resolver")
-            } catch (e: Exception) {
-                // Ignore if not supported
-            }
-        }
-
-        // Set default WebViewClient that bypasses ORB and handles cleartext
-        if (streamWebViewClient == null) {
-            streamWebViewClient = StreamWebViewClient()
-        }
+    override fun onDestroy() {
+        scope.cancel()
+        super.onDestroy()
     }
 }
-
-

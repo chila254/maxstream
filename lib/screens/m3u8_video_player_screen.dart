@@ -3,8 +3,6 @@ import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
 import 'package:chewie/chewie.dart';
 import '../services/direct_m3u8_service.dart';
-import '../services/vidlink_extractor.dart';
-import '../services/prime_src_link_extractor.dart';
 
 class M3U8VideoPlayerScreen extends StatefulWidget {
   final String title;
@@ -33,16 +31,6 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   String? _error;
   String? _currentSource;
   String _statusMessage = 'Initializing...';
-
-  bool _extractingVidLink = false;
-  String? _vidLinkEmbedUrl;
-
-  // PrimeSrc WebView extraction state
-  bool _extractingPrimeSrc = false;
-  String? _primeSrcServerName;
-  String? _primeSrcApiKey;
-  List<Map<String, String>> _primeSrcServers = [];
-  int _primeSrcServerIndex = 0;
 
   @override
   void initState() {
@@ -75,11 +63,10 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
 
     setState(() {
       _error = null;
-      _statusMessage = 'Starting stream search...';
+      _statusMessage = 'Fetching servers...';
     });
 
     try {
-      // Step 1: Try PrimeSrc servers (Voe, Streamtape, etc.)
       _showStatus('Fetching servers from PrimeSrc...');
       Map<String, dynamic>? result;
 
@@ -102,40 +89,23 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
 
       if (result != null && result['url'] != null) {
         final url = result['url'] as String;
-        final headers = (result['headers'] as Map?)?.map(
-              (key, value) => MapEntry(key.toString(), value.toString()),
-            ) ??
-            const <String, String>{};
         final source = result['source'] as String? ?? 'Unknown';
+        final headers = <String, String>{};
+        if (result['referer'] != null) {
+          headers['Referer'] = result['referer'].toString();
+        }
+        if (result['headers'] != null && result['headers'] is Map) {
+          (result['headers'] as Map).forEach((k, v) {
+            headers[k.toString()] = v.toString();
+          });
+        }
 
-        _showStatus('Found stream from $source! Initializing player...');
+        _showStatus('Stream found from $source! Initializing player...');
         await _initializePlayer(url, headers: headers, source: source);
         return;
       }
 
-      // Step 2: Try PrimeSrc with WebView link resolution
-      _showStatus('HTTP failed. Resolving links via WebView...');
-      final servers = await DirectM3u8Service.fetchPrimeSrcServers(
-        tmdbId: widget.tmdbId,
-        type: widget.isMovie ? 'movie' : 'tv',
-        season: widget.season,
-        episode: widget.episode,
-      );
-
-      if (servers.isNotEmpty && mounted) {
-        _showStatus('Found ${servers.length} servers. Resolving via WebView...');
-        _primeSrcServers = servers;
-        _primeSrcServerIndex = 0;
-        _tryNextPrimeSrcServer();
-        return;
-      }
-
-      // Step 3: VidLink extraction
-      _showStatus('No PrimeSrc servers. Trying VidLink...');
-      if (_startVidLinkExtraction()) return;
-
-      // Step 3: All methods failed
-      _showStatus('All sources failed');
+      _showStatus('No stream found');
       if (mounted) {
         setState(() {
           _error = 'No working streaming sources found.\n\n'
@@ -147,109 +117,12 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     } catch (e) {
       debugPrint('M3U8VideoPlayer: Error loading stream: $e');
       _showStatus('Error: $e');
-
-      if (_startVidLinkExtraction()) return;
-
       if (mounted) {
         setState(() {
           _error = 'Failed to load stream: $e';
         });
       }
     }
-  }
-
-  bool _startVidLinkExtraction() {
-    if (_extractingVidLink) return true;
-
-    final url = widget.isMovie
-        ? DirectM3u8Service.generateMovieEmbedUrl(widget.tmdbId, 'VidLink')
-        : DirectM3u8Service.generateTvEmbedUrl(
-            widget.tmdbId,
-            widget.season,
-            widget.episode,
-            'VidLink',
-          );
-
-    if (url.isEmpty) return false;
-
-    _showStatus('Loading VidLink embed: $url');
-    _vidLinkEmbedUrl = url;
-    if (mounted) setState(() => _extractingVidLink = true);
-    return true;
-  }
-
-  void _tryNextPrimeSrcServer() {
-    if (_primeSrcServerIndex >= _primeSrcServers.length) {
-      // All PrimeSrc servers tried, fall back to VidLink
-      _showStatus('All PrimeSrc servers failed. Trying VidLink...');
-      _startVidLinkExtraction();
-      return;
-    }
-
-    final server = _primeSrcServers[_primeSrcServerIndex];
-    _showStatus('Resolving ${server['name']} via WebView...');
-    if (mounted) {
-      setState(() {
-        _extractingPrimeSrc = true;
-        _primeSrcServerName = server['name'];
-        _primeSrcApiKey = server['key'];
-      });
-    }
-  }
-
-  void _onPrimeSrcLinkResolved(String link) {
-    if (!mounted) return;
-    _showStatus('Got ${_primeSrcServerName} link: $link');
-    setState(() => _extractingPrimeSrc = false);
-
-    // Now extract stream from the resolved link using HTTP
-    DirectM3u8Service.extractFromProviderUrl(_primeSrcServerName!, link)
-        .then((result) {
-      if (!mounted) return;
-      if (result != null && result['url'] != null) {
-        final url = result['url'] as String;
-        final headers = (result['headers'] as Map?)?.map(
-              (key, value) => MapEntry(key.toString(), value.toString()),
-            ) ??
-            const <String, String>{};
-        _showStatus('Stream found from $_primeSrcServerName! Initializing...');
-        _initializePlayer(url, headers: headers, source: _primeSrcServerName!);
-      } else {
-        // Try next server
-        _primeSrcServerIndex++;
-        _tryNextPrimeSrcServer();
-      }
-    });
-  }
-
-  void _onPrimeSrcLinkError(Object error) {
-    debugPrint('M3U8VideoPlayer: PrimeSrc link failed: $error');
-    _showStatus('$_primeSrcServerName link failed: $error');
-    if (!mounted) return;
-    setState(() => _extractingPrimeSrc = false);
-    // Try next server
-    _primeSrcServerIndex++;
-    _tryNextPrimeSrcServer();
-  }
-
-  void _onVidLinkExtracted(String playlist, Map<String, String> headers) {
-    if (!mounted) return;
-    _showStatus('VidLink stream extracted! Initializing player...');
-    setState(() => _extractingVidLink = false);
-    _initializePlayer(playlist, headers: headers, source: 'VidLink');
-  }
-
-  void _onVidLinkError(Object error) {
-    debugPrint('M3U8VideoPlayer: VidLink extraction failed: $error');
-    _showStatus('VidLink extraction failed: $error');
-    if (!mounted) return;
-    setState(() {
-      _extractingVidLink = false;
-      _error = 'Failed to extract stream.\n\n'
-          '• The source might be temporarily unavailable\n'
-          '• Try again later\n\n'
-          'Error: $error';
-    });
   }
 
   Future<void> _initializePlayer(
@@ -267,7 +140,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         httpHeaders: headers,
       );
 
-      _showStatus('Loading video from: ${m3u8Url.substring(0, m3u8Url.length > 80 ? 80 : m3u8Url.length)}...');
+      _showStatus('Loading video...');
       await _videoPlayerController!.initialize();
 
       _chewieController = ChewieController(
@@ -350,34 +223,11 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-      body: Stack(
-        children: [
-          // Main content: error, player, or loading
-          _error != null
-              ? _buildError()
-              : _useNativePlayer && _chewieController != null
-                  ? _buildPlayer()
-                  : _buildLoading(),
-
-          // Always-active VidLinkExtractor (hidden WebView)
-          if (_extractingVidLink && _vidLinkEmbedUrl != null)
-            VidLinkExtractor(
-              key: const ValueKey('vidlink-extractor'),
-              embedUrl: _vidLinkEmbedUrl!,
-              onExtracted: _onVidLinkExtracted,
-              onError: _onVidLinkError,
-            ),
-
-          // PrimeSrc link resolver (hidden WebView)
-          if (_extractingPrimeSrc && _primeSrcApiKey != null)
-            PrimeSrcLinkExtractor(
-              key: ValueKey('primesrc-$_primeSrcApiKey'),
-              apiKey: _primeSrcApiKey!,
-              onResolved: _onPrimeSrcLinkResolved,
-              onError: _onPrimeSrcLinkError,
-            ),
-        ],
-      ),
+      body: _error != null
+          ? _buildError()
+          : _useNativePlayer && _chewieController != null
+              ? _buildPlayer()
+              : _buildLoading(),
     );
   }
 
