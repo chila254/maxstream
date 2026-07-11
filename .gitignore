@@ -57,3 +57,5 @@ google-services.json
 keystore.properties
 **/android/**/keystore.properties
 local.properties
+
+.mimocode
