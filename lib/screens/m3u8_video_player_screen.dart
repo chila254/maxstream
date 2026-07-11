@@ -101,7 +101,14 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         }
 
         _showStatus('Stream found from $source! Initializing player...');
-        await _initializePlayer(url, headers: headers, source: source);
+        await _initializePlayer(
+          url,
+          headers: headers,
+          source: source,
+          isHls:
+              result['type'] == 'direct_m3u8' ||
+              url.toLowerCase().contains('.m3u8'),
+        );
         return;
       }
 
@@ -130,6 +137,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     String m3u8Url, {
     Map<String, String> headers = const {},
     String source = 'Unknown',
+    bool isHls = true,
   }) async {
     try {
       _showStatus('Initializing video player...');
@@ -139,6 +147,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       _videoPlayerController = VideoPlayerController.networkUrl(
         Uri.parse(m3u8Url),
         httpHeaders: headers,
+        formatHint: isHls ? VideoFormat.hls : null,
       );
 
       _showStatus('Loading video...');

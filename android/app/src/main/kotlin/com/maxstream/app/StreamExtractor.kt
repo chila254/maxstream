@@ -209,7 +209,10 @@ class StreamExtractor {
             Log.d(tag, "Dispatching ${server.name} to ${extractor.name}")
 
             when (val result = extractor.extract(server)) {
-                is ExtractionResult.Final -> return result.stream
+                is ExtractionResult.Final -> {
+                    validateStream(result.stream)
+                    return result.stream
+                }
                 is ExtractionResult.Redirect -> server = result.server
             }
         }
@@ -663,6 +666,66 @@ class StreamExtractor {
         noRedirectClient.newCall(request).execute().use { response ->
             return response.header("Location")?.let { resolveUrl(url, it) }
                 ?: response.request.url.toString()
+        }
+    }
+
+    private fun validateStream(stream: StreamResult) {
+        if (stream.type == "direct_m3u8" || stream.url.contains(".m3u8", true)) {
+            validateHls(stream.url, stream.headers)
+        } else {
+            validateMediaRequest(stream.url, stream.headers)
+        }
+    }
+
+    private fun validateHls(url: String, headers: Map<String, String>) {
+        var playlistUrl = url
+        repeat(2) {
+            val playlist = getValidationResponse(playlistUrl, headers)
+            require(playlist.body.startsWith("#EXTM3U")) {
+                "HLS endpoint did not return a playlist (${playlist.contentType})"
+            }
+
+            val firstUri = playlist.body.lineSequence()
+                .map(String::trim)
+                .firstOrNull { it.isNotEmpty() && !it.startsWith('#') }
+                ?: throw IllegalStateException("HLS playlist contains no media URI")
+            val resolved = resolveUrl(playlistUrl, firstUri)
+            val isMasterPlaylist = playlist.body.lineSequence().any {
+                it.startsWith("#EXT-X-STREAM-INF", true)
+            }
+            if (isMasterPlaylist) {
+                playlistUrl = resolved
+            } else {
+                validateMediaRequest(resolved, headers)
+                return
+            }
+        }
+        throw IllegalStateException("Nested HLS master playlists are not supported")
+    }
+
+    private data class ValidationResponse(val body: String, val contentType: String)
+
+    private fun getValidationResponse(url: String, headers: Map<String, String>): ValidationResponse {
+        val request = Request.Builder().url(url).apply {
+            header("User-Agent", userAgent)
+            headers.forEach { (name, value) -> header(name, value) }
+        }.build()
+        client.newCall(request).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            require(response.isSuccessful) { "HTTP ${response.code} while validating $url" }
+            return ValidationResponse(body, response.header("Content-Type").orEmpty())
+        }
+    }
+
+    private fun validateMediaRequest(url: String, headers: Map<String, String>) {
+        val request = Request.Builder().url(url).apply {
+            header("User-Agent", userAgent)
+            header("Range", "bytes=0-1023")
+            headers.forEach { (name, value) -> header(name, value) }
+        }.build()
+        client.newCall(request).execute().use { response ->
+            require(response.isSuccessful) { "HTTP ${response.code} while validating media data" }
+            require((response.body?.contentLength() ?: 0L) != 0L) { "Media response was empty" }
         }
     }
 
