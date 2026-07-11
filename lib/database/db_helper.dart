@@ -16,7 +16,7 @@ class DBHelper {
     final path = join(await getDatabasesPath(), 'watchlist.db');
     return openDatabase(
       path,
-      version: 6,
+      version: 7,
       onCreate: _createDb,
       onUpgrade: _upgradeDb,
     );
@@ -106,6 +106,19 @@ class DBHelper {
           isPreferred INTEGER DEFAULT 0,
           addedDate TEXT
         )
+      ''');
+    }
+    if (oldVersion < 7) {
+      // Fix mismatched provider IDs: Apple TV (192→350), AMC+ (591→526)
+      await db.rawUpdate('''
+        UPDATE provider_preferences
+        SET providerId = 350, providerName = 'Apple TV'
+        WHERE providerId = 192
+      ''');
+      await db.rawUpdate('''
+        UPDATE provider_preferences
+        SET providerId = 526, providerName = 'AMC+'
+        WHERE providerId = 591
       ''');
     }
   }
@@ -321,11 +334,11 @@ class DBHelper {
       {'id': 9, 'name': 'Prime Video'},
       {'id': 337, 'name': 'Disney+'},
       {'id': 15, 'name': 'Hulu'},
-      {'id': 192, 'name': 'Apple TV+'},
+      {'id': 350, 'name': 'Apple TV'},
       {'id': 1899, 'name': 'HBO Max'},
       {'id': 386, 'name': 'Peacock'},
       {'id': 582, 'name': 'Paramount+'},
-      {'id': 591, 'name': 'AMC+'},
+      {'id': 526, 'name': 'AMC+'},
     ];
 
     for (var provider in providers) {
@@ -351,12 +364,19 @@ class DBHelper {
     bool isPreferred,
   ) async {
     final db = await database;
-    await db.update(
+    final count = await db.update(
       'provider_preferences',
       {'isPreferred': isPreferred ? 1 : 0},
       where: 'providerId = ?',
       whereArgs: [providerId],
     );
+    if (count == 0) {
+      await db.insert('provider_preferences', {
+        'providerId': providerId,
+        'isPreferred': isPreferred ? 1 : 0,
+        'addedDate': DateTime.now().toIso8601String(),
+      });
+    }
   }
 
   static Future<List<Map<String, dynamic>>> getProviderPreferences() async {

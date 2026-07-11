@@ -58,8 +58,8 @@ class _CnMoviesByProviderScreenState extends State<CnMoviesByProviderScreen> {
       icon: Icons.live_tv,
     ),
     StreamingProvider(
-      id: 192,
-      name: 'Apple TV+',
+      id: 350,
+      name: 'Apple TV',
       color: const Color(0xFF1F1F1F),
       icon: Icons.apple,
     ),
@@ -82,7 +82,7 @@ class _CnMoviesByProviderScreenState extends State<CnMoviesByProviderScreen> {
       icon: Icons.live_tv_sharp,
     ),
     StreamingProvider(
-      id: 591,
+      id: 526,
       name: 'AMC+',
       color: const Color(0xFF1A1A1A),
       icon: Icons.theaters,
