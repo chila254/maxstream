@@ -271,11 +271,26 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-      body: _error != null
-          ? _buildError()
-          : _useNativePlayer && _chewieController != null
-              ? _buildPlayer()
-              : _buildLoading(),
+      body: Stack(
+        children: [
+          // Main content: error, player, or loading
+          _error != null
+              ? _buildError()
+              : _useNativePlayer && _chewieController != null
+                  ? _buildPlayer()
+                  : _buildLoading(),
+
+          // Always-active VidLinkExtractor (hidden WebView)
+          // Must be outside the content tree so it works during loading too
+          if (_extractingVidLink && _vidLinkEmbedUrl != null)
+            VidLinkExtractor(
+              key: const ValueKey('vidlink-extractor'),
+              embedUrl: _vidLinkEmbedUrl!,
+              onExtracted: _onVidLinkExtracted,
+              onError: _onVidLinkError,
+            ),
+        ],
+      ),
     );
   }
 
@@ -298,13 +313,6 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
                 style: const TextStyle(color: Colors.white70, fontSize: 12),
               ),
             ),
-          ),
-        if (_extractingVidLink && _vidLinkEmbedUrl != null)
-          VidLinkExtractor(
-            key: const ValueKey('vidlink-extractor'),
-            embedUrl: _vidLinkEmbedUrl!,
-            onExtracted: _onVidLinkExtracted,
-            onError: _onVidLinkError,
           ),
       ],
     );
