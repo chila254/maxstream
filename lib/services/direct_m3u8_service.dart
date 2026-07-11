@@ -21,7 +21,21 @@ class DirectM3u8Service {
     final id = tmdbId?.trim();
     if (id == null || id.isEmpty) return null;
     debugPrint('$_tag: Resolving movie $title (TMDB: $id)');
-    return _resolveFromPrimeSrc(tmdbId: id, type: 'movie');
+
+    // Step 1: Get server list (HTTP works)
+    final servers = await fetchPrimeSrcServers(tmdbId: id, type: 'movie');
+    if (servers.isEmpty) return null;
+
+    // Step 2: Try HTTP link resolution first (might work from mobile)
+    for (final server in servers) {
+      final link = await resolvePrimeSrcLink(server['key']!);
+      if (link != null) {
+        final result = await extractFromProviderUrl(server['name']!, link);
+        if (result != null) return result;
+      }
+    }
+
+    return null;
   }
 
   static Future<Map<String, dynamic>?> fetchSeriesStreamUrl(
@@ -33,12 +47,24 @@ class DirectM3u8Service {
     final id = tmdbId?.trim();
     if (id == null || id.isEmpty) return null;
     debugPrint('$_tag: Resolving $title S${season}E$episode (TMDB: $id)');
-    return _resolveFromPrimeSrc(
+
+    final servers = await fetchPrimeSrcServers(
       tmdbId: id,
       type: 'tv',
       season: season,
       episode: episode,
     );
+    if (servers.isEmpty) return null;
+
+    for (final server in servers) {
+      final link = await resolvePrimeSrcLink(server['key']!);
+      if (link != null) {
+        final result = await extractFromProviderUrl(server['name']!, link);
+        if (result != null) return result;
+      }
+    }
+
+    return null;
   }
 
   /// Embed URLs for VidLinkExtractor fallback.
@@ -68,16 +94,16 @@ class DirectM3u8Service {
         .replaceAll('{episode}', episode.toString());
   }
 
-  // ── PrimeSrc → Server List → Link Resolution → Extractor ────────────────
+  // ── PrimeSrc → Server List (HTTP works, link needs WebView) ──────────────
 
-  static Future<Map<String, dynamic>?> _resolveFromPrimeSrc({
+  /// Fetch server list from PrimeSrc. Returns list of {name, key} maps.
+  static Future<List<Map<String, String>>> fetchPrimeSrcServers({
     required String tmdbId,
     required String type,
     int season = 1,
     int episode = 1,
   }) async {
     try {
-      // Step 1: Get server list from PrimeSrc
       final serversUrl = type == 'movie'
           ? 'https://primesrc.me/api/v1/s?tmdb=$tmdbId&type=movie'
           : 'https://primesrc.me/api/v1/s?tmdb=$tmdbId&season=$season&episode=$episode&type=tv';
@@ -88,73 +114,54 @@ class DirectM3u8Service {
 
       if (serversResp.statusCode != 200 || serversResp.data == null) {
         debugPrint('$_tag: PrimeSrc servers returned ${serversResp.statusCode}');
-        return null;
+        return [];
       }
 
       final serversData = serversResp.data;
-      if (serversData is! Map) {
-        debugPrint('$_tag: PrimeSrc servers response is not a Map');
-        return null;
-      }
+      if (serversData is! Map) return [];
 
       final servers = serversData['servers'];
-      if (servers is! List || servers.isEmpty) {
-        debugPrint('$_tag: PrimeSrc no servers found');
-        return null;
+      if (servers is! List) return [];
+
+      return servers
+          .whereType<Map>()
+          .map((s) => {
+                'name': s['name']?.toString() ?? '',
+                'key': s['key']?.toString() ?? '',
+              })
+          .where((s) => s['key']!.isNotEmpty)
+          .toList();
+    } catch (e) {
+      debugPrint('$_tag: PrimeSrc server fetch failed: $e');
+      return [];
+    }
+  }
+
+  /// Resolve a PrimeSrc server key to an actual provider URL via HTTP.
+  /// Returns the link if successful, null if Cloudflare blocked.
+  static Future<String?> resolvePrimeSrcLink(String key) async {
+    try {
+      final dio = _makeDio(headers: {
+        'Referer': 'https://primesrc.me/',
+        'Accept': 'application/json',
+      });
+      final resp = await dio.get<dynamic>(
+        'https://primesrc.me/api/v1/l?key=$key',
+      );
+
+      if (resp.statusCode == 200 && resp.data is Map) {
+        final link = resp.data['link']?.toString();
+        if (link != null && link.isNotEmpty) return link;
       }
-
-      debugPrint('$_tag: PrimeSrc found ${servers.length} servers');
-
-      // Step 2: Try each server - get link, then extract
-      for (final server in servers) {
-        if (server is! Map) continue;
-        final serverName = server['name']?.toString() ?? '';
-        final serverKey = server['key']?.toString() ?? '';
-        if (serverKey.isEmpty) continue;
-
-        debugPrint('$_tag: Trying server: $serverName (key: $serverKey)');
-
-        try {
-          final linkResp = await dio.get<dynamic>(
-            'https://primesrc.me/api/v1/l?key=$serverKey',
-          );
-
-          if (linkResp.statusCode != 200 || linkResp.data == null) {
-            debugPrint('$_tag:   Link endpoint returned ${linkResp.statusCode}');
-            continue;
-          }
-
-          final linkData = linkResp.data;
-          final link = linkData is Map ? linkData['link']?.toString() : null;
-          if (link == null || link.isEmpty) {
-            debugPrint('$_tag:   No link in response');
-            continue;
-          }
-
-          debugPrint('$_tag:   Got link: $link');
-
-          // Step 3: Extract based on server name / link URL
-          final result = await _extractByServerName(serverName, link);
-          if (result != null) {
-            debugPrint('$_tag:   SUCCESS from $serverName');
-            return result;
-          }
-        } catch (e) {
-          debugPrint('$_tag:   Server $serverName failed: $e');
-        }
-      }
-
-      debugPrint('$_tag: All PrimeSrc servers failed');
       return null;
     } catch (e) {
-      debugPrint('$_tag: PrimeSrc resolution failed: $e');
+      debugPrint('$_tag: PrimeSrc link resolve failed: $e');
       return null;
     }
   }
 
-  // ── Dispatcher: pick extractor by server name ───────────────────────────
-
-  static Future<Map<String, dynamic>?> _extractByServerName(
+  /// Extract stream from a resolved provider URL.
+  static Future<Map<String, dynamic>?> extractFromProviderUrl(
     String serverName,
     String link,
   ) async {
@@ -164,7 +171,6 @@ class DirectM3u8Service {
     } else if (lower.contains('streamtape') || lower.contains('streamta')) {
       return _extractStreamtape(link);
     } else {
-      // Generic: try to fetch the page and find an m3u8 URL
       return _extractGeneric(link, source: serverName);
     }
   }
