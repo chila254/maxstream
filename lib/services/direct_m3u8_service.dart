@@ -1,8 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'native_stream_extractor.dart';
 
-/// Stream extraction service. Delegates to native Kotlin extractor (OkHttp)
-/// which handles PrimeSrc → Voe/Streamtape → direct m3u8/mp4 resolution.
+/// Stream extraction service. Delegates server discovery and host extraction
+/// to the native Android resolver.
 class DirectM3u8Service {
   static const String _tag = 'DirectM3u8Service';
 
@@ -58,15 +58,23 @@ class DirectM3u8Service {
       List.from(_embedSources);
 
   static String generateMovieEmbedUrl(String tmdbId, String sourceName) {
-    final s = _embedSources.firstWhere((s) => s['name'] == sourceName,
-        orElse: () => _embedSources.first);
+    final s = _embedSources.firstWhere(
+      (s) => s['name'] == sourceName,
+      orElse: () => _embedSources.first,
+    );
     return s['movieUrl']!.replaceAll('{id}', tmdbId);
   }
 
   static String generateTvEmbedUrl(
-      String tmdbId, int season, int episode, String sourceName) {
-    final s = _embedSources.firstWhere((s) => s['name'] == sourceName,
-        orElse: () => _embedSources.first);
+    String tmdbId,
+    int season,
+    int episode,
+    String sourceName,
+  ) {
+    final s = _embedSources.firstWhere(
+      (s) => s['name'] == sourceName,
+      orElse: () => _embedSources.first,
+    );
     return s['tvUrl']!
         .replaceAll('{id}', tmdbId)
         .replaceAll('{season}', season.toString())

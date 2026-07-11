@@ -2,16 +2,26 @@ package com.maxstream.app
 
 import android.util.Base64
 import android.util.Log
-import kotlinx.coroutines.*
-import okhttp3.*
-import okhttp3.dnsoverhttps.DnsOverHttps
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.RequestBody.Companion.toRequestBody
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withContext
+import okhttp3.Cookie
+import okhttp3.CookieJar
+import okhttp3.Dns
+import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.dnsoverhttps.DnsOverHttps
 import org.json.JSONObject
-import java.net.InetAddress
-import java.net.URL
+import java.net.URI
+import java.net.URLEncoder
 import java.security.MessageDigest
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import java.util.regex.Pattern
 import javax.crypto.Cipher
@@ -19,408 +29,725 @@ import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
-/**
- * Complete stream extractor ported from streamflix.
- * Providers: VixSrc, Vidrock, Vidzee, Videasy, VidsrcNet, StreamWish/TwoEmbed,
- * Voe, Streamtape, PrimeSrc + DNS-over-HTTPS.
- */
+/** Resolves TMDB metadata through server providers and host-specific extractors. */
 class StreamExtractor {
-    private val TAG = "StreamExtractor"
-    private val UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    private val tag = "StreamExtractor"
+    private val userAgent =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+            "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
-    // DNS-over-HTTPS resolver
-    private val dohClient = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(10, TimeUnit.SECONDS)
+    data class MediaRequest(
+        val tmdbId: String,
+        val isMovie: Boolean,
+        val season: Int,
+        val episode: Int,
+        val title: String,
+    )
+
+    data class StreamServer(
+        val name: String,
+        val url: String,
+        val headers: Map<String, String> = emptyMap(),
+    )
+
+    data class StreamResult(
+        val url: String,
+        val source: String,
+        val type: String,
+        val headers: Map<String, String> = emptyMap(),
+    ) {
+        fun toMap(): Map<String, Any> = mapOf(
+            "url" to url,
+            "source" to source,
+            "type" to type,
+            "headers" to headers,
+            "referer" to (headers["Referer"] ?: ""),
+        )
+    }
+
+    private sealed interface ExtractionResult {
+        data class Final(val stream: StreamResult) : ExtractionResult
+        data class Redirect(val server: StreamServer) : ExtractionResult
+    }
+
+    private interface ServerProvider {
+        val name: String
+        suspend fun getServers(request: MediaRequest): List<StreamServer>
+    }
+
+    private interface HostExtractor {
+        val name: String
+        fun supports(server: StreamServer): Boolean
+        suspend fun extract(server: StreamServer): ExtractionResult
+    }
+
+    private class MemoryCookieJar : CookieJar {
+        private val cookies = ConcurrentHashMap<String, List<Cookie>>()
+
+        override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
+            this.cookies[url.host] = cookies
+        }
+
+        override fun loadForRequest(url: HttpUrl): List<Cookie> {
+            return cookies[url.host].orEmpty().filter { it.matches(url) }
+        }
+    }
+
+    private val bootstrapClient = OkHttpClient.Builder()
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(8, TimeUnit.SECONDS)
         .build()
 
     private val dns: Dns by lazy {
         try {
             DnsOverHttps.Builder()
-                .client(dohClient)
+                .client(bootstrapClient)
                 .url("https://dns.google/dns-query".toHttpUrl())
                 .build()
-        } catch (e: Exception) {
-            Log.e(TAG, "DoH failed, using system DNS: ${e.message}")
+        } catch (error: Exception) {
+            Log.w(tag, "DNS-over-HTTPS unavailable; using system DNS", error)
             Dns.SYSTEM
         }
     }
 
     private val client = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
+        .connectTimeout(12, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .followRedirects(true)
         .followSslRedirects(true)
+        .cookieJar(MemoryCookieJar())
         .dns(dns)
         .build()
 
-    private val clientNoRedirect = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
+    private val noRedirectClient = client.newBuilder()
         .followRedirects(false)
         .followSslRedirects(false)
-        .dns(dns)
         .build()
+
+    private val serverProviders: List<ServerProvider> by lazy {
+        listOf(
+            StaticTmdbProvider(),
+            VidrockServerProvider(),
+            VidzeeServerProvider(),
+            PrimeSrcServerProvider(),
+        )
+    }
+
+    private val extractorRegistry: List<HostExtractor> by lazy {
+        listOf(
+            VidflixExtractor(),
+            RpmExtractor(),
+            VixSrcExtractor(),
+            VidrockExtractor(),
+            VidzeeExtractor(),
+            VideasyExtractor(),
+            PrimeSrcExtractor(),
+            VoeExtractor(),
+            StreamtapeExtractor(),
+            TwoEmbedExtractor(),
+            GenericMediaExtractor(),
+        )
+    }
 
     suspend fun resolveStream(
         tmdbId: String,
         isMovie: Boolean,
         season: Int = 1,
         episode: Int = 1,
-        title: String = ""
-    ): Map<String, String>? = withContext(Dispatchers.IO) {
-        Log.i(TAG, "=== Resolving TMDB $tmdbId (movie=$isMovie) ===")
+        title: String = "",
+    ): Map<String, Any>? = withContext(Dispatchers.IO) {
+        require(tmdbId.isNotBlank()) { "TMDB ID is required" }
 
-        // Build server list like TmdbProvider.getServers() for English
-        val extractors: List<suspend () -> Map<String, String>?> = listOf(
-            { extractVixSrc(tmdbId, isMovie, season, episode) },
-            { extractVidrock(tmdbId, isMovie, season, episode) },
-            { extractVidzee(tmdbId, isMovie, season, episode) },
-            { extractVideasy(tmdbId, isMovie, season, episode, title) },
-            { extractPrimeSrc(tmdbId, isMovie, season, episode) },
-        )
+        val media = MediaRequest(tmdbId, isMovie, season, episode, title)
+        Log.i(tag, "Resolving TMDB $tmdbId (movie=$isMovie, S$season E$episode)")
 
-        for ((i, extractor) in extractors.withIndex()) {
+        val servers = buildServerList(media)
+        Log.i(tag, "Built ${servers.size} servers: ${servers.joinToString { it.name }}")
+
+        for (server in servers) {
             try {
-                Log.i(TAG, "Trying provider ${i + 1}/${extractors.size}")
-                val result = extractor()
-                if (result != null && result["url"]?.isNotEmpty() == true) {
-                    Log.i(TAG, "=== SUCCESS: ${result["source"]}: ${result["url"]} ===")
-                    return@withContext result
+                val stream = extractServer(server)
+                if (stream != null && stream.url.isNotBlank()) {
+                    Log.i(tag, "Resolved ${server.name} to ${stream.source}")
+                    return@withContext stream.toMap()
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "Provider ${i + 1} failed: ${e.message}")
+            } catch (error: Exception) {
+                Log.e(tag, "Server ${server.name} failed at ${server.url}", error)
             }
         }
 
-        Log.w(TAG, "=== All providers failed ===")
+        Log.w(tag, "No playable stream found for TMDB $tmdbId")
         null
     }
 
-    // ══════════════════════════════════════════════════════════════════════
-    // VixSrc
-    // ══════════════════════════════════════════════════════════════════════
-
-    private fun extractVixSrc(tmdbId: String, isMovie: Boolean, season: Int, episode: Int): Map<String, String>? {
-        val apiPath = if (isMovie) "api/movie/$tmdbId?lang=en" else "api/tv/$tmdbId/$season/$episode?lang=en"
-        val apiBody = httpGet("https://vixsrc.to/$apiPath", mapOf("Referer" to "https://vixsrc.to", "X-Requested-With" to "XMLHttpRequest")) ?: return null
-        val apiJson = try { JSONObject(apiBody) } catch (e: Exception) { return null }
-        val embedPath = apiJson.optString("src", "").trimStart('/')
-        if (embedPath.isEmpty()) return null
-
-        val html = httpGet("https://vixsrc.to/$embedPath", mapOf("Referer" to "https://vixsrc.to")) ?: return null
-
-        val videoId = extractBetween(html, "id: '", "'") ?: return null
-        val token = extractBetween(html, "'token': '", "'") ?: return null
-        val expires = extractBetween(html, "'expires': '", "'") ?: return null
-        val hasB = html.contains("b=1")
-        val canFHD = html.contains("window.canPlayFHD = true")
-
-        val params = mutableListOf("token=$token", "expires=$expires", "lang=en")
-        if (hasB) params.add("b=1")
-        if (canFHD) params.add("h=1")
-
-        val m3u8Url = "https://vixsrc.to/playlist/$videoId?${params.joinToString("&")}"
-        Log.i(TAG, "VixSrc: $m3u8Url")
-        return mapOf("url" to m3u8Url, "source" to "VixSrc", "type" to "direct_m3u8", "referer" to "https://vixsrc.to/$embedPath")
+    private suspend fun buildServerList(media: MediaRequest): List<StreamServer> = coroutineScope {
+        serverProviders.map { provider ->
+            async(Dispatchers.IO) {
+                try {
+                    provider.getServers(media).also {
+                        Log.d(tag, "${provider.name} supplied ${it.size} servers")
+                    }
+                } catch (error: Exception) {
+                    Log.e(tag, "Server provider ${provider.name} failed", error)
+                    emptyList()
+                }
+            }
+        }.awaitAll().flatten().distinctBy { it.url }
     }
 
-    // ══════════════════════════════════════════════════════════════════════
-    // Vidrock (AES-CBC encrypted API)
-    // ══════════════════════════════════════════════════════════════════════
+    private suspend fun extractServer(initialServer: StreamServer): StreamResult? {
+        var server = initialServer
+        val visited = mutableSetOf<String>()
 
-    private val VIDROCK_KEY = "x7k9mPqT2rWvY8zA5bC3nF6hJ2lK4mN9"
+        repeat(5) {
+            if (!visited.add(server.url)) {
+                throw IllegalStateException("Extractor redirect loop for ${server.url}")
+            }
 
-    private fun extractVidrock(tmdbId: String, isMovie: Boolean, season: Int, episode: Int): Map<String, String>? {
-        val data = if (isMovie) tmdbId else "${tmdbId}_${season}_${episode}"
-        val encoded = aesCbcEncrypt(data, VIDROCK_KEY)
-        val path = if (isMovie) "api/movie/$encoded" else "api/tv/$encoded"
-        val body = httpGet("https://vidrock.net/$path", mapOf("Referer" to "https://vidrock.net/", "Origin" to "https://vidrock.net")) ?: return null
-        val json = try { JSONObject(body) } catch (e: Exception) { return null }
+            val extractor = extractorRegistry.firstOrNull { it.supports(server) }
+                ?: throw IllegalArgumentException("No extractor for ${server.name}: ${server.url}")
+            Log.d(tag, "Dispatching ${server.name} to ${extractor.name}")
 
-        val keys = json.keys()
-        while (keys.hasNext()) {
-            val name = keys.next()
-            val sd = json.optJSONObject(name) ?: continue
-            val url = sd.optString("url", "")
-            if (url.isNotEmpty() && url.contains(".m3u8")) {
-                Log.i(TAG, "Vidrock: $name -> $url")
-                return mapOf("url" to url, "source" to "Vidrock ($name)", "type" to "direct_m3u8", "referer" to "https://vidrock.net/")
+            when (val result = extractor.extract(server)) {
+                is ExtractionResult.Final -> return result.stream
+                is ExtractionResult.Redirect -> server = result.server
             }
         }
-        return null
+
+        throw IllegalStateException("Too many extractor redirects for ${initialServer.name}")
     }
 
-    // ══════════════════════════════════════════════════════════════════════
-    // Vidzee (AES-GCM key + AES-CBC link decryption)
-    // ══════════════════════════════════════════════════════════════════════
+    private inner class StaticTmdbProvider : ServerProvider {
+        override val name = "TMDB"
 
-    private val VIDZEE_PASS = "4f2a9c7d1e8b3a6f0d5c2e9a7b1f4d8c"
-    private val VIDZEE_PLAYER = "https://player.vidzee.wtf"
-    private val VIDZEE_CORE = "https://core.vidzee.wtf"
-    private val VIDZEE_SERVERS = listOf("Nflix" to 0, "Duke" to 1, "Glory" to 2, "Nazy" to 3, "Atlas" to 4, "Drag" to 5, "Achilles" to 6, "Viet" to 7, "Velocità" to 8, "Hindi" to 9, "Bengali" to 10, "Tamil" to 11, "Telugu" to 12, "Malayalam" to 13)
+        override suspend fun getServers(request: MediaRequest): List<StreamServer> {
+            val id = request.tmdbId
+            val servers = mutableListOf<StreamServer>()
 
-    private fun extractVidzee(tmdbId: String, isMovie: Boolean, season: Int, episode: Int): Map<String, String>? {
-        val masterKey = getVidzeeMasterKey() ?: return null
+            // This source currently provides a reliable direct host redirect.
+            servers += StreamServer(
+                "Vidflix",
+                if (request.isMovie) {
+                    "https://vidflix.club/api/movie/$id"
+                } else {
+                    "https://vidflix.club/api/tv/$id/${request.season}/${request.episode}"
+                },
+            )
 
-        for ((name, idx) in VIDZEE_SERVERS) {
-            try {
-                val baseUrl = if (isMovie) "$VIDZEE_PLAYER/api/server?id=$tmdbId&sr=$idx"
-                    else "$VIDZEE_PLAYER/api/server?id=$tmdbId&ss=$season&ep=$episode&sr=$idx"
-                val body = httpGet(baseUrl, mapOf("Referer" to "$VIDZEE_PLAYER/", "Origin" to VIDZEE_PLAYER)) ?: continue
-                val json = try { JSONObject(body) } catch (e: Exception) { continue }
-                val urlArr = json.optJSONArray("url") ?: continue
-                if (urlArr.length() == 0) continue
+            servers += StreamServer(
+                "VixSrc",
+                if (request.isMovie) {
+                    "https://vixsrc.to/api/movie/$id?lang=en"
+                } else {
+                    "https://vixsrc.to/api/tv/$id/${request.season}/${request.episode}?lang=en"
+                },
+            )
 
-                val link = urlArr.getJSONObject(0).optString("link", "")
-                if (link.isEmpty()) continue
+            servers += StreamServer(
+                "2Embed",
+                if (request.isMovie) {
+                    "https://www.2embed.cc/embed/$id"
+                } else {
+                    "https://www.2embed.cc/embedtv/$id&s=${request.season}&e=${request.episode}"
+                },
+            )
 
-                val decrypted = decryptVidzeeLink(link, masterKey) ?: continue
-                Log.i(TAG, "Vidzee ($name): $decrypted")
-                val mime = if (idx == 1) "direct_video" else "direct_m3u8"
-                return mapOf("url" to decrypted, "source" to "Vidzee ($name)", "type" to mime, "referer" to VIDZEE_PLAYER)
-            } catch (e: Exception) {
-                Log.e(TAG, "Vidzee $name failed: ${e.message}")
+            val encodedTitle = URLEncoder.encode(request.title, Charsets.UTF_8.name())
+            val videasyEndpoints = listOf("mb-flix", "cdn", "downloader2", "1movies", "m4uhd", "hdmovie")
+            for (endpoint in videasyEndpoints) {
+                val url = if (request.isMovie) {
+                    "https://api.videasy.net/$endpoint/sources-with-title?title=$encodedTitle&mediaType=movie&tmdbId=$id"
+                } else {
+                    "https://api.videasy.net/$endpoint/sources-with-title?title=$encodedTitle&mediaType=tv&tmdbId=$id&episodeId=${request.episode}&seasonId=${request.season}"
+                }
+                servers += StreamServer("Videasy $endpoint", url)
+            }
+
+            return servers
+        }
+    }
+
+    private inner class VidrockServerProvider : ServerProvider {
+        override val name = "Vidrock"
+        private val passphrase = "x7k9mPqT2rWvY8zA5bC3nF6hJ2lK4mN9"
+
+        override suspend fun getServers(request: MediaRequest): List<StreamServer> {
+            val plain = if (request.isMovie) request.tmdbId
+                else "${request.tmdbId}_${request.season}_${request.episode}"
+            val encoded = aesCbcEncrypt(plain, passphrase)
+            val apiUrl = "https://vidrock.net/api/${if (request.isMovie) "movie" else "tv"}/$encoded"
+            val json = getJson(apiUrl, refererHeaders("https://vidrock.net/"))
+
+            return json.keys().asSequence().mapNotNull { serverName ->
+                val value = json.optJSONObject(serverName) ?: return@mapNotNull null
+                if (value.optString("url").isBlank()) return@mapNotNull null
+                StreamServer("$serverName (Vidrock)", "$apiUrl#$serverName")
+            }.toList()
+        }
+    }
+
+    private inner class VidzeeServerProvider : ServerProvider {
+        override val name = "Vidzee"
+
+        override suspend fun getServers(request: MediaRequest): List<StreamServer> {
+            val names = listOf(
+                "Nflix", "Duke", "Glory", "Nazy", "Atlas", "Drag", "Achilles",
+                "Viet", "Velocita", "Hindi", "Bengali", "Tamil", "Telugu", "Malayalam",
+            )
+            return names.mapIndexed { index, serverName ->
+                val url = if (request.isMovie) {
+                    "https://player.vidzee.wtf/api/server?id=${request.tmdbId}&sr=$index"
+                } else {
+                    "https://player.vidzee.wtf/api/server?id=${request.tmdbId}&ss=${request.season}&ep=${request.episode}&sr=$index"
+                }
+                StreamServer("$serverName (Vidzee)", url)
             }
         }
-        return null
     }
 
-    private fun getVidzeeMasterKey(): String? {
-        return try {
-            val body = httpGet("$VIDZEE_CORE/api-key", mapOf("Referer" to "$VIDZEE_PLAYER/")) ?: return null
-            val data = Base64.decode(body.trim(), Base64.DEFAULT)
+    private inner class PrimeSrcServerProvider : ServerProvider {
+        override val name = "PrimeSrc"
+
+        override suspend fun getServers(request: MediaRequest): List<StreamServer> {
+            val url = if (request.isMovie) {
+                "https://primesrc.me/api/v1/s?tmdb=${request.tmdbId}&type=movie"
+            } else {
+                "https://primesrc.me/api/v1/s?tmdb=${request.tmdbId}&season=${request.season}&episode=${request.episode}&type=tv"
+            }
+            val json = getJson(url, refererHeaders("https://primesrc.me/"))
+            val servers = json.optJSONArray("servers") ?: return emptyList()
+
+            return (0 until servers.length()).mapNotNull { index ->
+                val item = servers.optJSONObject(index) ?: return@mapNotNull null
+                val key = item.optString("key")
+                if (key.isBlank()) return@mapNotNull null
+                val serverName = item.optString("name", "PrimeSrc")
+                StreamServer(
+                    "$serverName (PrimeSrc)",
+                    "https://primesrc.me/api/v1/l?key=$key",
+                    refererHeaders("https://primesrc.me/"),
+                )
+            }
+        }
+    }
+
+    private inner class VidflixExtractor : HostExtractor {
+        override val name = "Vidflix"
+        override fun supports(server: StreamServer) = host(server.url).endsWith("vidflix.club")
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            val referer = server.url.replace("/api/", "/")
+            val response = getJson(server.url, refererHeaders(referer))
+            val videoUrl = response.optString("video_url")
+            require(videoUrl.isNotBlank()) { "Vidflix returned no video_url" }
+            return ExtractionResult.Redirect(StreamServer("RPM video", videoUrl))
+        }
+    }
+
+    private inner class RpmExtractor : HostExtractor {
+        override val name = "RPM"
+        private val key = "kiemtienmua911ca".toByteArray()
+        private val iv = "1234567890oiuytr".toByteArray()
+
+        override fun supports(server: StreamServer): Boolean {
+            val domain = host(server.url)
+            return server.name.contains("rpm", true) ||
+                domain.contains("rpm") ||
+                domain in setOf("flixcdn.cyou", "primevid.click", "loadm.cam")
+        }
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            val uri = URI(server.url)
+            val id = uri.rawFragment?.substringBefore('&').orEmpty()
+            require(id.isNotBlank()) { "RPM link has no media ID" }
+            val origin = "${uri.scheme}://${uri.host}"
+            val apiUrl = "$origin/api/v1/video?id=${encode(id)}&w=1920&h=1080&r="
+            val encrypted = httpGet(apiUrl, refererHeaders(origin)).trim()
+            val json = JSONObject(decryptHexPayload(encrypted, key, iv))
+
+            val hls = json.optString("hls").takeIf { it.isNotBlank() }
+            val hlsTiktok = json.optString("hlsVideoTiktok").takeIf { it.isNotBlank() }
+            val cloudflare = json.optString("cf").takeIf { it.isNotBlank() }
+            val finalUrl = when {
+                hls != null -> absoluteMediaUrl(origin, hls)
+                hlsTiktok != null -> {
+                    val version = runCatching {
+                        JSONObject(json.optString("streamingConfig"))
+                            .optJSONObject("adjust")
+                            ?.optJSONObject("Tiktok")
+                            ?.optJSONObject("params")
+                            ?.optString("v")
+                            .orEmpty()
+                    }.getOrDefault("")
+                    absoluteMediaUrl(origin, hlsTiktok) +
+                        if (version.isBlank()) "" else "?v=${encode(version)}"
+                }
+                cloudflare != null -> addCloudflareToken(json, cloudflare)
+                else -> throw IllegalStateException("RPM response contains no playable source")
+            }
+
+            return ExtractionResult.Final(
+                StreamResult(finalUrl, name, mediaType(finalUrl), refererHeaders(origin)),
+            )
+        }
+    }
+
+    private inner class VixSrcExtractor : HostExtractor {
+        override val name = "VixSrc"
+        override fun supports(server: StreamServer) = host(server.url).endsWith("vixsrc.to")
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            val api = getJson(
+                server.url,
+                refererHeaders("https://vixsrc.to") + mapOf("X-Requested-With" to "XMLHttpRequest"),
+            )
+            val embedPath = api.optString("src").trimStart('/')
+            require(embedPath.isNotBlank()) { "VixSrc returned no embed path" }
+            val embedUrl = "https://vixsrc.to/$embedPath"
+            val html = httpGet(embedUrl, refererHeaders("https://vixsrc.to"))
+
+            val videoSection = html.substringAfter("window.video = {", "")
+            val playlistSection = html.substringAfter("window.masterPlaylist", "")
+            val videoId = between(videoSection, "id: '", "'")
+            val token = between(playlistSection, "'token': '", "'")
+            val expires = between(playlistSection, "'expires': '", "'")
+            require(videoId != null && token != null && expires != null) {
+                "VixSrc player parameters were not found"
+            }
+
+            val query = mutableListOf("token=${encode(token)}", "expires=${encode(expires)}", "lang=en")
+            if (html.contains("b=1")) query += "b=1"
+            if (html.contains("window.canPlayFHD = true")) query += "h=1"
+            val streamUrl = "https://vixsrc.to/playlist/$videoId?${query.joinToString("&")}"
+            return ExtractionResult.Final(
+                StreamResult(streamUrl, name, "direct_m3u8", refererHeaders(embedUrl)),
+            )
+        }
+    }
+
+    private inner class VidrockExtractor : HostExtractor {
+        override val name = "Vidrock"
+        override fun supports(server: StreamServer) = host(server.url).endsWith("vidrock.net")
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            val apiUrl = server.url.substringBefore('#')
+            val selectedName = server.url.substringAfter('#', "")
+            val json = getJson(apiUrl, refererHeaders("https://vidrock.net/"))
+            val item = json.optJSONObject(selectedName)
+                ?: json.keys().asSequence().mapNotNull { json.optJSONObject(it) }
+                    .firstOrNull { it.optString("url").isNotBlank() }
+                ?: throw IllegalStateException("Vidrock returned no sources")
+            var url = item.optString("url")
+
+            if (selectedName.equals("Atlas", true)) {
+                val qualities = getJsonArray(url, refererHeaders("https://vidrock.net/"))
+                val highest = (0 until qualities.length())
+                    .mapNotNull { qualities.optJSONObject(it) }
+                    .maxByOrNull { it.optInt("resolution") }
+                if (highest != null) url = highest.optString("url", url)
+            }
+
+            require(url.isNotBlank()) { "Vidrock source is empty" }
+            val headers = refererHeaders("https://vidrock.net/") + mapOf("Origin" to "https://vidrock.net")
+            return ExtractionResult.Final(StreamResult(url, "$name $selectedName", mediaType(url), headers))
+        }
+    }
+
+    private inner class VidzeeExtractor : HostExtractor {
+        override val name = "Vidzee"
+        private val player = "https://player.vidzee.wtf"
+        private val staticPass = "4f2a9c7d1e8b3a6f0d5c2e9a7b1f4d8c"
+
+        override fun supports(server: StreamServer) = host(server.url).endsWith("vidzee.wtf")
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            val masterKey = getVidzeeMasterKey()
+            val response = getJson(
+                server.url,
+                refererHeaders("$player/") + mapOf("Origin" to player),
+            )
+            val encrypted = response.optJSONArray("url")?.optJSONObject(0)?.optString("link").orEmpty()
+            require(encrypted.isNotBlank()) { "Vidzee returned no encrypted link" }
+            val url = decryptVidzeeLink(encrypted, masterKey)
+            val headers = refererHeaders(player) + mapOf("Origin" to player)
+            return ExtractionResult.Final(StreamResult(url, server.name, mediaType(url), headers))
+        }
+
+        private fun getVidzeeMasterKey(): String {
+            val encoded = httpGet("https://core.vidzee.wtf/api-key", refererHeaders("$player/"))
+            val data = Base64.decode(encoded.trim(), Base64.DEFAULT)
+            require(data.size > 28) { "Invalid Vidzee key payload" }
             val iv = data.copyOfRange(0, 12)
-            val tag = data.copyOfRange(12, 28)
+            val authTag = data.copyOfRange(12, 28)
             val ciphertext = data.copyOfRange(28, data.size)
-            val key = MessageDigest.getInstance("SHA-256").digest(VIDZEE_PASS.toByteArray())
+            val key = MessageDigest.getInstance("SHA-256").digest(staticPass.toByteArray())
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
             cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, iv))
-            String(cipher.doFinal(ciphertext + tag), Charsets.UTF_8)
-        } catch (e: Exception) { null }
-    }
+            return String(cipher.doFinal(ciphertext + authTag), Charsets.UTF_8)
+        }
 
-    private fun decryptVidzeeLink(encLink: String, masterKey: String): String? {
-        return try {
-            val decoded = String(Base64.decode(encLink, Base64.DEFAULT), Charsets.UTF_8)
-            val parts = decoded.split(":")
+        private fun decryptVidzeeLink(encoded: String, masterKey: String): String {
+            val decoded = String(Base64.decode(encoded, Base64.DEFAULT), Charsets.UTF_8)
+            val parts = decoded.split(':', limit = 2)
+            require(parts.size == 2) { "Invalid Vidzee link payload" }
             val iv = Base64.decode(parts[0], Base64.DEFAULT)
-            val ct = Base64.decode(parts[1], Base64.DEFAULT)
-            val keyBytes = masterKey.toByteArray()
-            val paddedKey = ByteArray(32) { i -> if (i < keyBytes.size) keyBytes[i] else 0 }
+            val ciphertext = Base64.decode(parts[1], Base64.DEFAULT)
+            val sourceKey = masterKey.toByteArray()
+            val key = ByteArray(32) { index -> sourceKey.getOrElse(index) { 0 } }
             val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
-            cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(paddedKey, "AES"), IvParameterSpec(iv))
-            String(cipher.doFinal(ct), Charsets.UTF_8)
-        } catch (e: Exception) { null }
-    }
-
-    // ══════════════════════════════════════════════════════════════════════
-    // Videasy (encrypted API + external decryption)
-    // ══════════════════════════════════════════════════════════════════════
-
-    private val VIDEASY_SERVERS = listOf("mb-flix" to "Neon", "cdn" to "Yoru", "downloader2" to "Cypher", "1movies" to "Sage", "m4uhd" to "Breach", "hdmovie" to "Vyse")
-
-    private fun extractVideasy(tmdbId: String, isMovie: Boolean, season: Int, episode: Int, title: String): Map<String, String>? {
-        for ((endpoint, name) in VIDEASY_SERVERS) {
-            try {
-                val url = if (isMovie) "https://api.videasy.net/$endpoint/sources-with-title?title=${java.net.URLEncoder.encode(title, "UTF-8")}&mediaType=movie&tmdbId=$tmdbId"
-                    else "https://api.videasy.net/$endpoint/sources-with-title?title=${java.net.URLEncoder.encode(title, "UTF-8")}&mediaType=tv&tmdbId=$tmdbId&episodeId=$episode&seasonId=$season"
-                val encData = httpGet(url, emptyMap()) ?: continue
-
-                // Decrypt via external API
-                val json = JSONObject().apply { put("text", encData); put("id", tmdbId) }
-                val decBody = httpPost("https://enc-dec.app/api/dec-videasy", json.toString()) ?: continue
-                val decJson = JSONObject(decBody)
-                val result = decJson.optString("result", "")
-                if (result.isEmpty()) continue
-                val resultJson = JSONObject(result)
-                val sources = resultJson.optJSONArray("sources") ?: continue
-                if (sources.length() == 0) continue
-
-                val streamUrl = sources.getJSONObject(0).optString("url", "")
-                if (streamUrl.isNotEmpty()) {
-                    Log.i(TAG, "Videasy ($name): $streamUrl")
-                    return mapOf("url" to streamUrl, "source" to "Videasy ($name)", "type" to "direct_m3u8", "referer" to "https://player.videasy.net/")
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Videasy $name failed: ${e.message}")
-            }
+            cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), IvParameterSpec(iv))
+            return String(cipher.doFinal(ciphertext), Charsets.UTF_8)
         }
-        return null
     }
 
-    // ══════════════════════════════════════════════════════════════════════
-    // PrimeSrc (fallback)
-    // ══════════════════════════════════════════════════════════════════════
+    private inner class VideasyExtractor : HostExtractor {
+        override val name = "Videasy"
+        override fun supports(server: StreamServer) = host(server.url).endsWith("videasy.net")
 
-    private fun extractPrimeSrc(tmdbId: String, isMovie: Boolean, season: Int, episode: Int): Map<String, String>? {
-        val serversUrl = if (isMovie) "https://primesrc.me/api/v1/s?tmdb=$tmdbId&type=movie"
-            else "https://primesrc.me/api/v1/s?tmdb=$tmdbId&season=$season&episode=$episode&type=tv"
-        val body = httpGet(serversUrl, mapOf("Referer" to "https://primesrc.me/")) ?: return null
-        val json = try { JSONObject(body) } catch (e: Exception) { return null }
-        val servers = json.optJSONArray("servers") ?: return null
-
-        for (i in 0 until servers.length()) {
-            val s = servers.optJSONObject(i) ?: continue
-            val name = s.optString("name", "")
-            val key = s.optString("key", "")
-            if (key.isEmpty()) continue
-
-            try {
-                val linkBody = httpGet("https://primesrc.me/api/v1/l?key=$key", mapOf("Referer" to "https://primesrc.me/", "Accept" to "application/json")) ?: continue
-                val linkJson = try { JSONObject(linkBody) } catch (e: Exception) { continue }
-                val link = linkJson.optString("link", "")
-                if (link.isEmpty()) continue
-
-                return when {
-                    name.contains("Voe", true) -> extractVoe(link)
-                    name.contains("Streamtape", true) -> extractStreamtape(link)
-                    else -> extractGenericPage(name, link)
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "PrimeSrc $name failed: ${e.message}")
-            }
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            val encrypted = httpGet(server.url)
+            val tmdbId = server.url.substringAfter("tmdbId=", "").substringBefore('&')
+            val requestJson = JSONObject().put("text", encrypted).put("id", tmdbId)
+            val decrypted = postJson("https://enc-dec.app/api/dec-videasy", requestJson.toString())
+            val result = JSONObject(decrypted).optString("result")
+            val source = JSONObject(result).optJSONArray("sources")?.optJSONObject(0)?.optString("url").orEmpty()
+            require(source.isNotBlank()) { "Videasy returned no source" }
+            return ExtractionResult.Final(
+                StreamResult(source, server.name, mediaType(source), refererHeaders("https://player.videasy.net/")),
+            )
         }
-        return null
     }
 
-    // ══════════════════════════════════════════════════════════════════════
-    // Voe (ROT13 + Base64 decryption)
-    // ══════════════════════════════════════════════════════════════════════
+    private inner class PrimeSrcExtractor : HostExtractor {
+        override val name = "PrimeSrc"
+        override fun supports(server: StreamServer) = host(server.url).endsWith("primesrc.me")
 
-    private fun extractVoe(link: String): Map<String, String>? {
-        val html = httpGet(link, mapOf("Referer" to link)) ?: return null
-        val finalUrl = getLastUrl(link)
-
-        val pattern = Pattern.compile("""<script\s+type="application/json">(.*?)</script>""", Pattern.DOTALL)
-        val matcher = pattern.matcher(html)
-        if (!matcher.find()) return null
-
-        val encoded = matcher.group(1)?.trim() ?: return null
-        val decrypted = decryptVoe(encoded)
-        val m3u8 = decrypted.optString("source", "")
-        if (m3u8.isEmpty()) return null
-
-        Log.i(TAG, "Voe: $m3u8")
-        return mapOf("url" to m3u8, "source" to "Voe", "type" to "direct_m3u8", "referer" to finalUrl)
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            val headers = server.headers + mapOf(
+                "Accept" to "application/json, text/plain, */*",
+                "Origin" to "https://primesrc.me",
+                "X-Requested-With" to "XMLHttpRequest",
+            )
+            val link = getJson(server.url, headers).optString("link")
+            require(link.isNotBlank()) { "PrimeSrc returned no host link" }
+            return ExtractionResult.Redirect(StreamServer(server.name.substringBefore(" ("), link))
+        }
     }
 
-    private fun decryptVoe(input: String): JSONObject {
-        return try {
-            var s = rot13(input)
-            s = s.replace("@$", "_").replace("^^", "_").replace("~@", "_")
-               .replace("%?", "_").replace("*~", "_").replace("!!", "_").replace("#&", "_")
-            s = s.replace("_", "")
-            s = String(Base64.decode(s, Base64.NO_WRAP), Charsets.UTF_8)
-            s = charShift(s, -3).reversed()
-            s = String(Base64.decode(s, Base64.NO_WRAP), Charsets.UTF_8)
-            JSONObject(s)
-        } catch (e: Exception) { JSONObject() }
-    }
-
-    // ══════════════════════════════════════════════════════════════════════
-    // Streamtape (botlink JS parsing)
-    // ══════════════════════════════════════════════════════════════════════
-
-    private fun extractStreamtape(link: String): Map<String, String>? {
-        val html = httpGet(link, emptyMap()) ?: return null
-
-        val pattern = Pattern.compile(
-            """document\.getElementById\('botlink'\)\.innerHTML\s*=\s*'([^']+)'\s*\+\s*\('([^']+)'\)\.substring\((\d+)\)"""
+    private inner class VoeExtractor : HostExtractor {
+        override val name = "VOE"
+        private val aliases = setOf(
+            "voe.sx", "jilliandescribecompany.com", "mikaylaarealike.com",
+            "christopheruntilpoint.com", "walterprettytheir.com", "crystaltreatmenteast.com",
+            "lauradaydo.com", "lancewhosedifficult.com", "dianaavoidthey.com",
+            "jefferycontrolmodel.com", "charlestoughrace.com", "richardquestionbuilding.com",
+            "jessicayeahcatch.com", "juliewomanwish.com",
         )
-        val matcher = pattern.matcher(html)
-        if (!matcher.find()) return null
 
-        val paramString = matcher.group(2) ?: return null
-        val idx = (matcher.group(3) ?: "0").toInt()
-        val clean = paramString.substring(idx)
+        override fun supports(server: StreamServer) = host(server.url) in aliases || server.name.contains("voe", true)
 
-        val id = findParam(clean, "id") ?: return null
-        val expires = findParam(clean, "expires") ?: return null
-        val ip = findParam(clean, "ip") ?: return null
-        val token = findParam(clean, "token") ?: return null
-
-        val videoUrl = "https://streamtape.com/get_video?id=$id&expires=$expires&ip=$ip&token=$token&stream=1"
-        val finalUrl = followRedirect(videoUrl) ?: return null
-
-        Log.i(TAG, "Streamtape: $finalUrl")
-        return mapOf("url" to finalUrl, "source" to "Streamtape", "type" to "direct_video", "referer" to "https://streamtape.com/")
-    }
-
-    // ══════════════════════════════════════════════════════════════════════
-    // Generic m3u8/mp4 page scraper
-    // ══════════════════════════════════════════════════════════════════════
-
-    private fun extractGenericPage(name: String, link: String): Map<String, String>? {
-        val html = httpGet(link, mapOf("Referer" to link)) ?: return null
-
-        val m3u8 = Pattern.compile("https?://[^\\s\"'<>]+\\.m3u8[^\\s\"'<>]*", Pattern.CASE_INSENSITIVE).matcher(html)
-        if (m3u8.find()) {
-            return mapOf("url" to m3u8.group(0)!!, "source" to name, "type" to "direct_m3u8", "referer" to link)
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            val html = httpGet(server.url, refererHeaders(server.url))
+            val encoded = Pattern.compile(
+                """<script\s+type=["']application/json["']>(.*?)</script>""",
+                Pattern.DOTALL or Pattern.CASE_INSENSITIVE,
+            ).matcher(html).let { if (it.find()) it.group(1)?.trim() else null }
+                ?: throw IllegalStateException("VOE payload not found")
+            val json = decryptVoe(encoded)
+            val url = json.optString("source")
+            require(url.isNotBlank()) { "VOE returned no source" }
+            return ExtractionResult.Final(StreamResult(url, name, mediaType(url), refererHeaders(server.url)))
         }
-        val mp4 = Pattern.compile("https?://[^\\s\"'<>]+\\.mp4[^\\s\"'<>]*", Pattern.CASE_INSENSITIVE).matcher(html)
-        if (mp4.find()) {
-            return mapOf("url" to mp4.group(0)!!, "source" to name, "type" to "direct_video", "referer" to link)
+    }
+
+    private inner class StreamtapeExtractor : HostExtractor {
+        override val name = "Streamtape"
+        override fun supports(server: StreamServer): Boolean {
+            val domain = host(server.url)
+            return domain.endsWith("streamtape.com") || domain.endsWith("streamta.site") ||
+                server.name.contains("streamtape", true)
         }
-        return null
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            val html = httpGet(server.url)
+            val matcher = Pattern.compile(
+                """document\.getElementById\('botlink'\)\.innerHTML\s*=\s*'([^']+)'\s*\+\s*\('([^']+)'\)\.substring\((\d+)\)""",
+            ).matcher(html)
+            require(matcher.find()) { "Streamtape botlink not found" }
+            val prefix = matcher.group(1).orEmpty()
+            val value = matcher.group(2).orEmpty()
+            val start = matcher.group(3).orEmpty().toInt()
+            val videoUrl = if (prefix.startsWith("http")) prefix + value.substring(start)
+                else "https://streamtape.com${prefix + value.substring(start)}"
+            val finalUrl = followRedirect(videoUrl)
+            return ExtractionResult.Final(
+                StreamResult(finalUrl, name, "direct_video", refererHeaders("https://streamtape.com/")),
+            )
+        }
     }
 
-    // ══════════════════════════════════════════════════════════════════════
-    // HTTP Helpers
-    // ══════════════════════════════════════════════════════════════════════
+    private inner class TwoEmbedExtractor : HostExtractor {
+        override val name = "2Embed"
+        override fun supports(server: StreamServer) = host(server.url).contains("2embed")
 
-    private fun httpGet(url: String, headers: Map<String, String>): String? {
-        val builder = Request.Builder().url(url).header("User-Agent", UA)
-        headers.forEach { (k, v) -> builder.header(k, v) }
-        val response = client.newCall(builder.build()).execute()
-        return response.body?.string()
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            val html = httpGet(server.url)
+            val iframe = Regex("""<iframe[^>]+(?:data-src|src)=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+                .find(html)?.groupValues?.get(1)
+                ?: throw IllegalStateException("2Embed iframe not found")
+            val absolute = resolveUrl(server.url, iframe)
+            return ExtractionResult.Redirect(StreamServer("2Embed host", absolute, refererHeaders(server.url)))
+        }
     }
 
-    private fun httpPost(url: String, body: String): String? {
-        val reqBody = body.toRequestBody("application/json".toMediaType())
-        val request = Request.Builder().url(url).post(reqBody).header("User-Agent", UA).build()
-        val response = client.newCall(request).execute()
-        return response.body?.string()
+    private inner class GenericMediaExtractor : HostExtractor {
+        override val name = "Generic media"
+        override fun supports(server: StreamServer) = true
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            if (isMediaUrl(server.url)) {
+                return ExtractionResult.Final(
+                    StreamResult(server.url, server.name, mediaType(server.url), server.headers),
+                )
+            }
+
+            val html = httpGet(server.url, server.headers + refererHeaders(server.url))
+            val match = Regex(
+                """https?://[^\s"'<>]+\.(?:m3u8|mp4)(?:[^\s"'<>]*)?""",
+                RegexOption.IGNORE_CASE,
+            ).find(html)?.value ?: throw IllegalStateException("No media URL found in page")
+            val url = match.replace("\\/", "/").replace("&amp;", "&")
+            return ExtractionResult.Final(
+                StreamResult(url, server.name, mediaType(url), server.headers + refererHeaders(server.url)),
+            )
+        }
     }
 
-    private fun followRedirect(url: String): String? {
-        val request = Request.Builder().url(url).header("User-Agent", UA).build()
-        val response = clientNoRedirect.newCall(request).execute()
-        return response.header("Location") ?: response.request.url.toString()
+    private fun httpGet(url: String, headers: Map<String, String> = emptyMap()): String {
+        val request = Request.Builder().url(url).apply {
+            header("User-Agent", userAgent)
+            header("Accept", "*/*")
+            headers.forEach { (name, value) -> header(name, value) }
+        }.build()
+
+        client.newCall(request).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                throw IllegalStateException("HTTP ${response.code} for $url: ${body.take(160)}")
+            }
+            return body
+        }
     }
 
-    private fun getLastUrl(url: String): String = url
+    private fun postJson(url: String, json: String): String {
+        val request = Request.Builder()
+            .url(url)
+            .header("User-Agent", userAgent)
+            .post(json.toRequestBody("application/json".toMediaType()))
+            .build()
+        client.newCall(request).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) throw IllegalStateException("HTTP ${response.code} for $url")
+            return body
+        }
+    }
 
-    // ══════════════════════════════════════════════════════════════════════
-    // Crypto Helpers
-    // ══════════════════════════════════════════════════════════════════════
+    private fun getJson(url: String, headers: Map<String, String> = emptyMap()) =
+        JSONObject(httpGet(url, headers))
 
-    private fun aesCbcEncrypt(data: String, passphrase: String): String {
+    private fun getJsonArray(url: String, headers: Map<String, String> = emptyMap()) =
+        org.json.JSONArray(httpGet(url, headers))
+
+    private fun followRedirect(url: String): String {
+        val request = Request.Builder().url(url).header("User-Agent", userAgent).build()
+        noRedirectClient.newCall(request).execute().use { response ->
+            return response.header("Location")?.let { resolveUrl(url, it) }
+                ?: response.request.url.toString()
+        }
+    }
+
+    private fun refererHeaders(referer: String) = mapOf(
+        "Referer" to referer,
+        "User-Agent" to userAgent,
+    )
+
+    private fun host(url: String): String = try {
+        URI(url.substringBefore('#')).host?.lowercase().orEmpty()
+    } catch (_: Exception) {
+        ""
+    }
+
+    private fun resolveUrl(base: String, value: String): String = URI(base).resolve(value).toString()
+    private fun absoluteMediaUrl(origin: String, value: String) =
+        if (value.startsWith("http")) value else "$origin${if (value.startsWith('/')) "" else "/"}$value"
+
+    private fun addCloudflareToken(json: JSONObject, url: String): String {
+        val configured = runCatching {
+            val cloudflare = JSONObject(json.optString("streamingConfig"))
+                .optJSONObject("adjust")
+                ?.optJSONObject("Cloudflare")
+            if (cloudflare?.optBoolean("disabled", true) != false) return@runCatching null
+            val parameters = cloudflare.optJSONObject("params")
+            parameters?.optString("t") to parameters?.optString("e")
+        }.getOrNull()
+        val fallback = json.optString("cfExpire").split("::").let {
+            if (it.size >= 2) it[0] to it[1] else null
+        }
+        val token = configured?.takeIf { !it.first.isNullOrBlank() && !it.second.isNullOrBlank() }
+            ?: fallback
+        return if (token == null) url else {
+            val separator = if (url.contains('?')) '&' else '?'
+            "$url${separator}t=${encode(token.first.orEmpty())}&e=${encode(token.second.orEmpty())}"
+        }
+    }
+
+    private fun encode(value: String) = URLEncoder.encode(value, Charsets.UTF_8.name())
+    private fun isMediaUrl(url: String) = url.contains(".m3u8", true) || url.contains(".mp4", true)
+    private fun mediaType(url: String) = if (url.contains(".m3u8", true)) "direct_m3u8" else "direct_video"
+
+    private fun aesCbcEncrypt(value: String, passphrase: String): String {
         val key = passphrase.toByteArray()
-        val iv = key.copyOfRange(0, 16)
         val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
-        cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), IvParameterSpec(iv))
-        return Base64.encodeToString(cipher.doFinal(data.toByteArray()), Base64.URL_SAFE or Base64.NO_WRAP)
+        cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), IvParameterSpec(key.copyOfRange(0, 16)))
+        return Base64.encodeToString(
+            cipher.doFinal(value.toByteArray()),
+            Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING,
+        )
     }
 
-    private fun extractBetween(source: String, before: String, after: String): String? {
-        val i = source.indexOf(before)
-        if (i == -1) return null
-        val start = i + before.length
-        val j = source.indexOf(after, start)
-        if (j == -1) return null
-        return source.substring(start, j).trim()
+    private fun decryptHexPayload(value: String, key: ByteArray, iv: ByteArray): String {
+        val cleaned = value.lowercase().replace(Regex("[^0-9a-f]"), "")
+        require(cleaned.length % 2 == 0) { "Encrypted hex payload has odd length" }
+        val bytes = ByteArray(cleaned.length / 2) { index ->
+            cleaned.substring(index * 2, index * 2 + 2).toInt(16).toByte()
+        }
+        val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
+        cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), IvParameterSpec(iv))
+        return String(cipher.doFinal(bytes), Charsets.UTF_8)
     }
 
-    private fun findParam(source: String, name: String): String? {
-        val m = Pattern.compile("$name=([^&]+)").matcher(source)
-        return if (m.find()) m.group(1) else null
+    private fun between(value: String, before: String, after: String): String? {
+        val start = value.indexOf(before)
+        if (start < 0) return null
+        val contentStart = start + before.length
+        val end = value.indexOf(after, contentStart)
+        return if (end < 0) null else value.substring(contentStart, end).trim()
     }
 
-    private fun rot13(input: String): String = String(CharArray(input.length) { i ->
-        val c = input[i]
-        when { c in 'A'..'Z' -> ((c - 'A' + 13) % 26 + 'A'.code).toChar(); c in 'a'..'z' -> ((c - 'a' + 13) % 26 + 'a'.code).toChar(); else -> c }
-    })
+    private fun decryptVoe(value: String): JSONObject {
+        var data = rot13(value)
+        listOf("@$", "^^", "~@", "%?", "*~", "!!", "#&").forEach { data = data.replace(it, "_") }
+        data = String(Base64.decode(data.replace("_", ""), Base64.NO_WRAP), Charsets.UTF_8)
+        data = data.map { (it.code + 3).toChar() }.joinToString("").reversed()
+        data = String(Base64.decode(data, Base64.NO_WRAP), Charsets.UTF_8)
+        return JSONObject(data)
+    }
 
-    private fun charShift(input: String, shift: Int): String = String(CharArray(input.length) { i -> (input[i].code - shift).toChar() })
+    private fun rot13(value: String) = value.map { character ->
+        when (character) {
+            in 'A'..'Z' -> ((character - 'A' + 13) % 26 + 'A'.code).toChar()
+            in 'a'..'z' -> ((character - 'a' + 13) % 26 + 'a'.code).toChar()
+            else -> character
+        }
+    }.joinToString("")
 }

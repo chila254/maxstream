@@ -67,7 +67,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     });
 
     try {
-      _showStatus('Fetching servers from PrimeSrc...');
+      _showStatus('Fetching available servers...');
       Map<String, dynamic>? result;
 
       if (widget.isMovie) {
@@ -108,7 +108,8 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       _showStatus('No stream found');
       if (mounted) {
         setState(() {
-          _error = 'No working streaming sources found.\n\n'
+          _error =
+              'No working streaming sources found.\n\n'
               '• Check your internet connection\n'
               '• Try again later\n'
               '• Content might be unavailable';
@@ -226,8 +227,8 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       body: _error != null
           ? _buildError()
           : _useNativePlayer && _chewieController != null
-              ? _buildPlayer()
-              : _buildLoading(),
+          ? _buildPlayer()
+          : _buildLoading(),
     );
   }
 
