@@ -4,8 +4,13 @@ import '../services/watch_history_service.dart';
 
 class ContinueWatchingSection extends StatefulWidget {
   final List<Map<String, dynamic>> continueWatching;
+  final Future<void> Function()? onChanged;
 
-  const ContinueWatchingSection({super.key, required this.continueWatching});
+  const ContinueWatchingSection({
+    super.key,
+    required this.continueWatching,
+    this.onChanged,
+  });
 
   @override
   State<ContinueWatchingSection> createState() =>
@@ -20,6 +25,14 @@ class _ContinueWatchingSectionState extends State<ContinueWatchingSection> {
     super.initState();
     _resumableMap = {};
     _loadResumableStates();
+  }
+
+  @override
+  void didUpdateWidget(covariant ContinueWatchingSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.continueWatching != widget.continueWatching) {
+      _loadResumableStates();
+    }
   }
 
   Future<void> _loadResumableStates() async {
@@ -221,8 +234,11 @@ class _ContinueWatchingSectionState extends State<ContinueWatchingSection> {
     );
   }
 
-  void _playContent(BuildContext context, Map<String, dynamic> item) {
-    Navigator.push(
+  Future<void> _playContent(
+    BuildContext context,
+    Map<String, dynamic> item,
+  ) async {
+    await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => M3U8VideoPlayerScreen(
@@ -234,5 +250,6 @@ class _ContinueWatchingSectionState extends State<ContinueWatchingSection> {
         ),
       ),
     );
+    await widget.onChanged?.call();
   }
 }

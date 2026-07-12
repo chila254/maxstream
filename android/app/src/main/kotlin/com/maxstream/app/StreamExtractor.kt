@@ -55,6 +55,7 @@ class StreamExtractor {
         val source: String,
         val type: String,
         val headers: Map<String, String> = emptyMap(),
+        val qualities: List<QualityOption> = emptyList(),
     ) {
         fun toMap(): Map<String, Any> = mapOf(
             "url" to url,
@@ -62,6 +63,19 @@ class StreamExtractor {
             "type" to type,
             "headers" to headers,
             "referer" to (headers["Referer"] ?: ""),
+            "qualities" to qualities.map(QualityOption::toMap),
+        )
+    }
+
+    data class QualityOption(
+        val label: String,
+        val url: String,
+        val height: Int,
+    ) {
+        fun toMap(): Map<String, Any> = mapOf(
+            "label" to label,
+            "url" to url,
+            "height" to height,
         )
     }
 
@@ -138,6 +152,7 @@ class StreamExtractor {
             VidflixExtractor(),
             RpmExtractor(),
             VixSrcExtractor(),
+            VidsrcNetExtractor(),
             VidrockExtractor(),
             VidzeeExtractor(),
             VideasyExtractor(),
@@ -210,8 +225,7 @@ class StreamExtractor {
 
             when (val result = extractor.extract(server)) {
                 is ExtractionResult.Final -> {
-                    validateStream(result.stream)
-                    return result.stream
+                    return validateStream(result.stream)
                 }
                 is ExtractionResult.Redirect -> server = result.server
             }
@@ -243,6 +257,15 @@ class StreamExtractor {
                     "https://vixsrc.to/api/movie/$id?lang=en"
                 } else {
                     "https://vixsrc.to/api/tv/$id/${request.season}/${request.episode}?lang=en"
+                },
+            )
+
+            servers += StreamServer(
+                "Vidsrc",
+                if (request.isMovie) {
+                    "https://vidsrc-embed.ru/embed/movie?tmdb=$id"
+                } else {
+                    "https://vidsrc-embed.ru/embed/tv?tmdb=$id&season=${request.season}&episode=${request.episode}"
                 },
             )
 
@@ -425,6 +448,121 @@ class StreamExtractor {
             return ExtractionResult.Final(
                 StreamResult(streamUrl, name, "direct_m3u8", refererHeaders(embedUrl)),
             )
+        }
+    }
+
+    private inner class VidsrcNetExtractor : HostExtractor {
+        override val name = "Vidsrc"
+        override fun supports(server: StreamServer): Boolean {
+            val domain = host(server.url)
+            return domain.endsWith("vidsrc-embed.ru") || domain.endsWith("vsembed.ru")
+        }
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            val embedPage = httpGet(server.url)
+            val iframePath = Regex(
+                """<iframe[^>]+id=["']player_iframe["'][^>]+src=["']([^"']+)["']""",
+                RegexOption.IGNORE_CASE,
+            ).find(embedPage)?.groupValues?.get(1)
+                ?: Regex(
+                    """<iframe[^>]+src=["']([^"']+)["'][^>]+id=["']player_iframe["']""",
+                    RegexOption.IGNORE_CASE,
+                ).find(embedPage)?.groupValues?.get(1)
+                ?: throw IllegalStateException("Vidsrc player iframe not found")
+            val iframeUrl = when {
+                iframePath.startsWith("//") -> "https:$iframePath"
+                iframePath.startsWith("http") -> iframePath
+                else -> resolveUrl(server.url, iframePath)
+            }
+
+            val iframePage = httpGet(iframeUrl, refererHeaders(server.url))
+            val playerPath = Regex("""src:\s*['"](/prorcp/[^'"]+)['"]""")
+                .find(iframePage)?.groupValues?.get(1)
+                ?: throw IllegalStateException("Vidsrc player source not found")
+            val playerUrl = iframeUrl.substringBefore("/rcp") + playerPath
+            val playerPage = httpGet(playerUrl, refererHeaders(iframeUrl))
+
+            val playerId = Regex("""Playerjs.*?file:\s*([a-zA-Z0-9]+?)\s*,""", RegexOption.DOT_MATCHES_ALL)
+                .find(playerPage)?.groupValues?.get(1).orEmpty()
+            val decrypted = if (playerId.isNotBlank()) {
+                val encrypted = Regex(
+                    """<div id=["']$playerId["'][^>]*>\s*(.*?)\s*</div>""",
+                    setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE),
+                ).find(playerPage)?.groupValues?.get(1)
+                    ?: throw IllegalStateException("Vidsrc encrypted source not found")
+                decryptVidsrc(playerId, encrypted)
+            } else {
+                Regex(
+                    """Playerjs.*?file:\s*["']([^"']+)["']\s*,""",
+                    RegexOption.DOT_MATCHES_ALL,
+                ).find(playerPage)?.groupValues?.get(1)
+            }
+
+            val streamUrl = decrypted?.substringBefore(" or ")
+                ?.replace(Regex("""\{[a-z]\d+\}"""), "quibblezoomfable.com")
+                ?.replace("&amp;", "&")
+                ?.takeIf { it.isNotBlank() }
+                ?: throw IllegalStateException("Vidsrc returned no stream")
+            return ExtractionResult.Final(
+                StreamResult(streamUrl, name, mediaType(streamUrl), refererHeaders(iframeUrl)),
+            )
+        }
+
+        private fun decryptVidsrc(id: String, encrypted: String): String = when (id) {
+            "NdonQLf1Tzyx7bMG" -> encrypted.chunked(3).reversed().joinToString("")
+            "sXnL9MQIry" -> {
+                val key = "pWB9V)[*4I`nJpp?ozyB~dbr9yt!_n4u"
+                val decoded = encrypted.chunked(2).joinToString("") { it.toInt(16).toChar().toString() }
+                val shifted = decoded.mapIndexed { index, character ->
+                    ((character.code xor key[index % key.length].code) - 3).toChar()
+                }.joinToString("")
+                String(Base64.decode(shifted, Base64.DEFAULT), Charsets.UTF_8)
+            }
+            "IhWrImMIGL" -> {
+                val rotated = rot13(encrypted.reversed()).reversed()
+                String(Base64.decode(rotated, Base64.DEFAULT), Charsets.UTF_8)
+            }
+            "xTyBxQyGTA" -> String(
+                Base64.decode(encrypted.reversed().filterIndexed { index, _ -> index % 2 == 0 }, Base64.DEFAULT),
+                Charsets.UTF_8,
+            )
+            "ux8qjPHC66" -> {
+                val key = "X9a(O;FMV2-7VO5x;Ao\u0005:dN1NoFs?j,"
+                encrypted.reversed().chunked(2).mapIndexed { index, value ->
+                    (value.toInt(16) xor key[index % key.length].code).toChar()
+                }.joinToString("")
+            }
+            "eSfH1IRMyL" -> encrypted.reversed()
+                .map { (it.code - 1).toChar() }
+                .joinToString("")
+                .chunked(2)
+                .joinToString("") { it.toInt(16).toChar().toString() }
+            "KJHidj7det" -> {
+                val trimmed = encrypted.substring(10, encrypted.length - 16)
+                val key = "3SAY~#%Y(V%>5d/Yg\"\$G[Lh1rK4a;7ok"
+                val decoded = String(Base64.decode(trimmed, Base64.DEFAULT), Charsets.UTF_8)
+                decoded.mapIndexed { index, character ->
+                    (character.code xor key[index % key.length].code).toChar()
+                }.joinToString("")
+            }
+            "o2VSUnjnZl" -> encrypted.map { character ->
+                when (character) {
+                    in 'a'..'z' -> if (character - 3 < 'a') character + 23 else character - 3
+                    in 'A'..'Z' -> if (character - 3 < 'A') character + 23 else character - 3
+                    else -> character
+                }
+            }.joinToString("")
+            "Oi3v1dAlaM", "TsA2KGDGux", "JoAHUMCLXV" -> {
+                val shift = when (id) {
+                    "Oi3v1dAlaM" -> 5
+                    "TsA2KGDGux" -> 7
+                    else -> 3
+                }
+                val normalized = encrypted.reversed().replace('-', '+').replace('_', '/')
+                String(Base64.decode(normalized, Base64.DEFAULT), Charsets.UTF_8)
+                    .map { (it.code - shift).toChar() }.joinToString("")
+            }
+            else -> throw IllegalStateException("Unsupported Vidsrc encryption: $id")
         }
     }
 
@@ -669,41 +807,88 @@ class StreamExtractor {
         }
     }
 
-    private fun validateStream(stream: StreamResult) {
-        if (stream.type == "direct_m3u8" || stream.url.contains(".m3u8", true)) {
-            validateHls(stream.url, stream.headers)
-        } else {
+    private fun validateStream(stream: StreamResult): StreamResult {
+        if (stream.type != "direct_m3u8" && !stream.url.contains(".m3u8", true)) {
             validateMediaRequest(stream.url, stream.headers)
+            return stream
+        }
+
+        val validation = validateHls(stream.url, stream.headers)
+        return stream.copy(url = validation.playbackUrl, qualities = validation.qualities)
+    }
+
+    private data class HlsValidation(
+        val playbackUrl: String,
+        val qualities: List<QualityOption>,
+    )
+
+    private data class HlsVariant(val url: String, val height: Int)
+
+    private fun validateHls(url: String, headers: Map<String, String>): HlsValidation {
+        val master = getValidationResponse(url, headers)
+        require(master.body.startsWith("#EXTM3U")) {
+            "HLS endpoint did not return a playlist (${master.contentType})"
+        }
+
+        val variants = parseHlsVariants(master.url, master.body)
+        if (variants.isEmpty()) {
+            validateMediaPlaylist(master.url, master.body, headers)
+            return HlsValidation(master.url, emptyList())
+        }
+
+        val playableVariants = variants.mapNotNull { variant ->
+            try {
+                val playlist = getValidationResponse(variant.url, headers)
+                validateMediaPlaylist(playlist.url, playlist.body, headers)
+                variant.copy(url = playlist.url)
+            } catch (error: Exception) {
+                Log.w(tag, "Discarding ${variant.height}p HLS variant: ${error.message}")
+                null
+            }
+        }.distinctBy { it.height }.sortedByDescending { it.height }
+
+        require(playableVariants.isNotEmpty()) { "No playable HLS quality variants" }
+        val allVariantsPlayable = playableVariants.size == variants.distinctBy { it.height }.size
+        val playbackUrl = if (allVariantsPlayable) master.url else playableVariants.first().url
+        val qualities = buildList {
+            if (allVariantsPlayable && playableVariants.size > 1) {
+                add(QualityOption("Auto", master.url, 0))
+            }
+            addAll(playableVariants.map { QualityOption("${it.height}p", it.url, it.height) })
+        }
+        return HlsValidation(playbackUrl, qualities)
+    }
+
+    private fun validateMediaPlaylist(
+        playlistUrl: String,
+        body: String,
+        headers: Map<String, String>,
+    ) {
+        require(body.startsWith("#EXTM3U")) { "HLS quality did not return a playlist" }
+        val mediaUri = body.lineSequence()
+            .map(String::trim)
+            .firstOrNull { it.isNotEmpty() && !it.startsWith('#') }
+            ?: throw IllegalStateException("HLS quality contains no media URI")
+        validateMediaRequest(resolveUrl(playlistUrl, mediaUri), headers)
+    }
+
+    private fun parseHlsVariants(masterUrl: String, body: String): List<HlsVariant> {
+        val lines = body.lineSequence().map(String::trim).toList()
+        return lines.mapIndexedNotNull { index, line ->
+            if (!line.startsWith("#EXT-X-STREAM-INF", true)) return@mapIndexedNotNull null
+            val height = Regex("""RESOLUTION=\d+x(\d+)""", RegexOption.IGNORE_CASE)
+                .find(line)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: return@mapIndexedNotNull null
+            val uri = lines.drop(index + 1).firstOrNull { it.isNotEmpty() && !it.startsWith('#') }
+                ?: return@mapIndexedNotNull null
+            HlsVariant(resolveUrl(masterUrl, uri), height)
         }
     }
 
-    private fun validateHls(url: String, headers: Map<String, String>) {
-        var playlistUrl = url
-        repeat(2) {
-            val playlist = getValidationResponse(playlistUrl, headers)
-            require(playlist.body.startsWith("#EXTM3U")) {
-                "HLS endpoint did not return a playlist (${playlist.contentType})"
-            }
-
-            val firstUri = playlist.body.lineSequence()
-                .map(String::trim)
-                .firstOrNull { it.isNotEmpty() && !it.startsWith('#') }
-                ?: throw IllegalStateException("HLS playlist contains no media URI")
-            val resolved = resolveUrl(playlistUrl, firstUri)
-            val isMasterPlaylist = playlist.body.lineSequence().any {
-                it.startsWith("#EXT-X-STREAM-INF", true)
-            }
-            if (isMasterPlaylist) {
-                playlistUrl = resolved
-            } else {
-                validateMediaRequest(resolved, headers)
-                return
-            }
-        }
-        throw IllegalStateException("Nested HLS master playlists are not supported")
-    }
-
-    private data class ValidationResponse(val body: String, val contentType: String)
+    private data class ValidationResponse(
+        val url: String,
+        val body: String,
+        val contentType: String,
+    )
 
     private fun getValidationResponse(url: String, headers: Map<String, String>): ValidationResponse {
         val request = Request.Builder().url(url).apply {
@@ -713,7 +898,11 @@ class StreamExtractor {
         client.newCall(request).execute().use { response ->
             val body = response.body?.string().orEmpty()
             require(response.isSuccessful) { "HTTP ${response.code} while validating $url" }
-            return ValidationResponse(body, response.header("Content-Type").orEmpty())
+            return ValidationResponse(
+                response.request.url.toString(),
+                body,
+                response.header("Content-Type").orEmpty(),
+            )
         }
     }
 

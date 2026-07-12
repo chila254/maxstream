@@ -6,7 +6,12 @@ class WatchHistoryService {
   static const int _maxHistoryItems = 50;
 
   /// Get the watch history key for a specific item
-  static String getWatchHistoryKey(String tmdbId, bool isMovie, int season, int episode) {
+  static String getWatchHistoryKey(
+    String tmdbId,
+    bool isMovie,
+    int season,
+    int episode,
+  ) {
     if (isMovie) {
       return 'watch_history_movie_$tmdbId';
     } else {
@@ -15,16 +20,21 @@ class WatchHistoryService {
   }
 
   /// Load watch position for a specific item
-  static Future<Duration> loadWatchPosition(String tmdbId, bool isMovie, int season, int episode) async {
+  static Future<Duration> loadWatchPosition(
+    String tmdbId,
+    bool isMovie,
+    int season,
+    int episode,
+  ) async {
     final prefs = await SharedPreferences.getInstance();
     final key = getWatchHistoryKey(tmdbId, isMovie, season, episode);
     final historyJson = prefs.getString(key);
-    
+
     if (historyJson != null) {
       final history = json.decode(historyJson);
       return Duration(seconds: history['position'] ?? 0);
     }
-    
+
     return Duration.zero;
   }
 
@@ -40,15 +50,15 @@ class WatchHistoryService {
   }) async {
     final prefs = await SharedPreferences.getInstance();
     final key = getWatchHistoryKey(tmdbId, isMovie, season, episode);
-    
+
     // Calculate watch percentage
-    final watchPercentage = duration.inSeconds > 0 
-      ? (position.inSeconds / duration.inSeconds * 100).clamp(0, 100)
-      : 0.0;
-    
+    final watchPercentage = duration.inSeconds > 0
+        ? (position.inSeconds / duration.inSeconds * 100).clamp(0, 100)
+        : 0.0;
+
     // Mark as watched if >90% complete
     final isWatched = watchPercentage >= 90;
-    
+
     // Only save if watched more than 30 seconds
     if (position.inSeconds <= 30) {
       return;
@@ -66,10 +76,10 @@ class WatchHistoryService {
       'isWatched': isWatched,
       'timestamp': DateTime.now().millisecondsSinceEpoch,
     };
-    
+
     // Save individual item history
     await prefs.setString(key, json.encode(history));
-    
+
     // Save to global history list
     await _saveToGlobalHistory(history);
   }
@@ -78,24 +88,27 @@ class WatchHistoryService {
   static Future<void> _saveToGlobalHistory(Map<String, dynamic> history) async {
     final prefs = await SharedPreferences.getInstance();
     final historyListJson = prefs.getString(_historyListKey) ?? '[]';
-    final historyList = List<Map<String, dynamic>>.from(json.decode(historyListJson));
-    
-    // Remove existing entry for this content
-    historyList.removeWhere((item) => 
-      item['tmdbId'] == history['tmdbId'] && 
-      item['isMovie'] == history['isMovie'] &&
-      item['season'] == history['season'] &&
-      item['episode'] == history['episode']
+    final historyList = List<Map<String, dynamic>>.from(
+      json.decode(historyListJson),
     );
-    
+
+    // Remove existing entry for this content
+    historyList.removeWhere(
+      (item) =>
+          item['tmdbId'] == history['tmdbId'] &&
+          item['isMovie'] == history['isMovie'] &&
+          item['season'] == history['season'] &&
+          item['episode'] == history['episode'],
+    );
+
     // Add new entry at the beginning
     historyList.insert(0, history);
-    
+
     // Keep only last N entries
     if (historyList.length > _maxHistoryItems) {
       historyList.removeRange(_maxHistoryItems, historyList.length);
     }
-    
+
     await prefs.setString(_historyListKey, json.encode(historyList));
   }
 
@@ -106,32 +119,55 @@ class WatchHistoryService {
     return List<Map<String, dynamic>>.from(json.decode(historyListJson));
   }
 
+  /// Get only unfinished items that can be resumed from the home screen.
+  static Future<List<Map<String, dynamic>>> getContinueWatching() async {
+    final history = await getWatchHistory();
+    return history.where((item) {
+      final position = (item['position'] as num?)?.toInt() ?? 0;
+      final duration = (item['duration'] as num?)?.toInt() ?? 0;
+      if (position <= 30 || duration <= 0) return false;
+      return position / duration < 0.9 && item['isWatched'] != true;
+    }).toList()..sort(
+      (a, b) => ((b['timestamp'] as num?)?.toInt() ?? 0).compareTo(
+        (a['timestamp'] as num?)?.toInt() ?? 0,
+      ),
+    );
+  }
+
   /// Remove specific item from history
-  static Future<void> removeFromHistory(String tmdbId, bool isMovie, int season, int episode) async {
+  static Future<void> removeFromHistory(
+    String tmdbId,
+    bool isMovie,
+    int season,
+    int episode,
+  ) async {
     final prefs = await SharedPreferences.getInstance();
-    
+
     // Remove from individual history
     final key = getWatchHistoryKey(tmdbId, isMovie, season, episode);
     await prefs.remove(key);
-    
+
     // Remove from global history list
     final historyListJson = prefs.getString(_historyListKey) ?? '[]';
-    final historyList = List<Map<String, dynamic>>.from(json.decode(historyListJson));
-    
-    historyList.removeWhere((item) => 
-      item['tmdbId'] == tmdbId && 
-      item['isMovie'] == isMovie &&
-      item['season'] == season &&
-      item['episode'] == episode
+    final historyList = List<Map<String, dynamic>>.from(
+      json.decode(historyListJson),
     );
-    
+
+    historyList.removeWhere(
+      (item) =>
+          item['tmdbId'] == tmdbId &&
+          item['isMovie'] == isMovie &&
+          item['season'] == season &&
+          item['episode'] == episode,
+    );
+
     await prefs.setString(_historyListKey, json.encode(historyList));
   }
 
   /// Clear all watch history
   static Future<void> clearAllHistory() async {
     final prefs = await SharedPreferences.getInstance();
-    
+
     // Get all history items to remove individual entries
     final historyList = await getWatchHistory();
     for (final item in historyList) {
@@ -143,59 +179,89 @@ class WatchHistoryService {
       );
       await prefs.remove(key);
     }
-    
+
     // Clear global history list
     await prefs.remove(_historyListKey);
   }
 
   /// Check if item has watch progress
-  static Future<bool> hasWatchProgress(String tmdbId, bool isMovie, int season, int episode) async {
+  static Future<bool> hasWatchProgress(
+    String tmdbId,
+    bool isMovie,
+    int season,
+    int episode,
+  ) async {
     final position = await loadWatchPosition(tmdbId, isMovie, season, episode);
     return position.inSeconds > 30;
   }
 
   /// Get watch progress percentage
-  static Future<double> getWatchProgressPercentage(String tmdbId, bool isMovie, int season, int episode) async {
+  static Future<double> getWatchProgressPercentage(
+    String tmdbId,
+    bool isMovie,
+    int season,
+    int episode,
+  ) async {
     final prefs = await SharedPreferences.getInstance();
     final key = getWatchHistoryKey(tmdbId, isMovie, season, episode);
     final historyJson = prefs.getString(key);
-    
+
     if (historyJson != null) {
       final history = json.decode(historyJson);
       final position = history['position'] ?? 0;
       final duration = history['duration'] ?? 1;
       return position / duration;
     }
-    
+
     return 0.0;
   }
 
   /// Check if episode/movie is watched (>90% complete)
-  static Future<bool> isWatched(String tmdbId, bool isMovie, int season, int episode) async {
+  static Future<bool> isWatched(
+    String tmdbId,
+    bool isMovie,
+    int season,
+    int episode,
+  ) async {
     final prefs = await SharedPreferences.getInstance();
     final key = getWatchHistoryKey(tmdbId, isMovie, season, episode);
     final historyJson = prefs.getString(key);
-    
+
     if (historyJson != null) {
       final history = json.decode(historyJson);
       return history['isWatched'] ?? false;
     }
-    
+
     return false;
   }
 
   /// Check if resumable (>10% watched and not complete)
-  static Future<bool> isResumable(String tmdbId, bool isMovie, int season, int episode) async {
-    final watchPercentage = await getWatchProgressPercentage(tmdbId, isMovie, season, episode);
+  static Future<bool> isResumable(
+    String tmdbId,
+    bool isMovie,
+    int season,
+    int episode,
+  ) async {
+    final watchPercentage = await getWatchProgressPercentage(
+      tmdbId,
+      isMovie,
+      season,
+      episode,
+    );
     return watchPercentage > 0.1 && watchPercentage < 0.9;
   }
 
   /// Mark episode as watched
-  static Future<void> markAsWatched(String tmdbId, bool isMovie, int season, int episode) async {
+  static Future<void> markAsWatched(
+    String tmdbId,
+    bool isMovie,
+    int season,
+    int episode,
+  ) async {
     final prefs = await SharedPreferences.getInstance();
     final key = getWatchHistoryKey(tmdbId, isMovie, season, episode);
     final historyJson = prefs.getString(key);
-    
+
     Map<String, dynamic> history;
     if (historyJson != null) {
       history = json.decode(historyJson);
@@ -209,11 +275,11 @@ class WatchHistoryService {
         'duration': 0,
       };
     }
-    
+
     history['isWatched'] = true;
     history['watchPercentage'] = 100.0;
     history['timestamp'] = DateTime.now().millisecondsSinceEpoch;
-    
+
     await prefs.setString(key, json.encode(history));
     await _saveToGlobalHistory(history);
   }

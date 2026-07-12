@@ -41,7 +41,7 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
         TmdbApiService.fetchTrendingMovies(),
         TmdbApiService.fetchPopularMovies(),
         TmdbApiService.fetchTopRatedMovies(),
-        WatchHistoryService.getWatchHistory(),
+        WatchHistoryService.getContinueWatching(),
       ]);
 
       setState(() {
@@ -73,6 +73,7 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
                   SliverToBoxAdapter(
                     child: ContinueWatchingSection(
                       continueWatching: continueWatching,
+                      onChanged: _loadContinueWatching,
                     ),
                   ),
                   SliverToBoxAdapter(child: _buildProvidersSection()),
@@ -84,6 +85,12 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
               ),
       ),
     );
+  }
+
+  Future<void> _loadContinueWatching() async {
+    final history = await WatchHistoryService.getContinueWatching();
+    if (!mounted) return;
+    setState(() => continueWatching = history.take(10).toList());
   }
 
   Widget _buildLoadingShimmer() {
