@@ -208,7 +208,9 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
     if (searchResults.isEmpty && _searchController.text.isNotEmpty) {
       return _buildNoResults();
     }
-    return _buildMovieGrid(searchResults);
+    return SingleChildScrollView(
+      child: _buildMovieGrid(searchResults),
+    );
   }
 
   Widget _buildTVResults() {
@@ -216,7 +218,9 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
     if (searchResults.isEmpty && _searchController.text.isNotEmpty) {
       return _buildNoResults();
     }
-    return _buildMovieGrid(searchResults);
+    return SingleChildScrollView(
+      child: _buildMovieGrid(searchResults),
+    );
   }
 
   Widget _buildActorResults() {
@@ -224,7 +228,9 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
     if (actorResults.isEmpty && _searchController.text.isNotEmpty) {
       return _buildNoResults();
     }
-    return _buildActorGrid(actorResults);
+    return SingleChildScrollView(
+      child: _buildActorGrid(actorResults),
+    );
   }
 
   Widget _buildSectionHeader(String title) {

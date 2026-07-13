@@ -19,10 +19,13 @@ class ProfileService {
 
       // Upload to Firebase Storage with user ID as path
       final storageRef = _storage.ref().child('profile_pictures/${user.uid}.jpg');
-      final uploadTask = await storageRef.putFile(file);
-      
-      // Get download URL
-      final downloadUrl = await uploadTask.ref.getDownloadURL();
+      final uploadTask = storageRef.putFile(file);
+
+      // Wait for upload to complete
+      final snapshot = await uploadTask;
+
+      // Get download URL from the completed upload snapshot
+      final downloadUrl = await snapshot.ref.getDownloadURL();
 
       // Save URL to Firestore
       await _firestore.collection('users').doc(user.uid).set(

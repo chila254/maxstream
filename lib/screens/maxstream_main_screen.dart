@@ -104,15 +104,14 @@ class _MaxStreamMainScreenState extends State<MaxStreamMainScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return WillPopScope(
-      onWillPop: () async {
-        if (_currentIndex != 0) {
+    return PopScope(
+      canPop: _currentIndex == 0,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop && _currentIndex != 0) {
           setState(() {
             _currentIndex = 0;
           });
-          return false; // Don't pop the screen
         }
-        return true; // Allow popping the screen
       },
       child: Scaffold(
         body: AnimatedSwitcher(
