@@ -154,9 +154,6 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
         if (_useCustomProfilePicture && _selectedProfilePicture != null) {
           await ProfileService.uploadProfilePicture(_selectedProfilePicture!);
           await _userService.updateProfilePicture(_selectedProfilePicture!);
-        } else {
-          await ProfileService.deleteProfilePicture();
-          await _userService.clearProfilePicture();
         }
 
         if (mounted) {

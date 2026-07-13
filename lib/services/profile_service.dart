@@ -67,8 +67,12 @@ class ProfileService {
       final user = _auth.currentUser;
       if (user == null) throw Exception('User not authenticated');
 
-      // Delete from Storage
-      await _storage.ref().child('profile_pictures/${user.uid}.jpg').delete();
+      // Delete from Storage (ignore if file doesn't exist)
+      try {
+        await _storage.ref().child('profile_pictures/${user.uid}.jpg').delete();
+      } catch (e) {
+        // Ignore not-found errors — file may never have been uploaded
+      }
 
       // Remove from Firestore
       await _firestore.collection('users').doc(user.uid).set(

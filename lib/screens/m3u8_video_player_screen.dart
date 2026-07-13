@@ -704,6 +704,13 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
             : 'Switching to $selectedQuality...',
       );
       await controller.initialize();
+
+      // Pre-buffer: wait for enough data before playing to avoid mid-playback pauses
+      if (shouldPlay && isHls) {
+        _showStatus('Buffering...');
+        await Future.delayed(const Duration(seconds: 2));
+      }
+
       if (position > Duration.zero) await controller.seekTo(position);
       if (shouldPlay) await controller.play();
 
@@ -719,6 +726,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         allowedScreenSleep: false,
         hideControlsTimer: const Duration(seconds: 4),
         progressIndicatorDelay: const Duration(milliseconds: 150),
+        bufferingDuration: const Duration(seconds: 2),
         controlsSafeAreaMinimum: const EdgeInsets.fromLTRB(8, 8, 8, 18),
         customControls: _StablePlayerControls(
           controller: controller,
