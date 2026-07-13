@@ -7,6 +7,18 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:open_file/open_file.dart';
 import 'notification_service.dart';
 
+class UpdateInfo {
+  final String downloadUrl;
+  final String version;
+  final String changelog;
+
+  const UpdateInfo({
+    required this.downloadUrl,
+    required this.version,
+    this.changelog = '',
+  });
+}
+
 class DownloadProgressDialog extends StatefulWidget {
   const DownloadProgressDialog({super.key});
 
@@ -57,8 +69,8 @@ class UpdateService {
   static _DownloadProgressDialogState? _progressDialogState;
   static bool _hasNotifiedCurrentVersion = false;
 
-  /// Check GitHub for a newer release. Returns the download URL if an update exists.
-  static Future<String?> checkForUpdate() async {
+  /// Check GitHub for a newer release. Returns UpdateInfo if an update exists.
+  static Future<UpdateInfo?> checkForUpdate() async {
     try {
       final packageInfo = await PackageInfo.fromPlatform();
       final currentVersion = packageInfo.version;
@@ -70,6 +82,7 @@ class UpdateService {
 
       final tagName = response.data['tag_name'] as String? ?? '';
       final latestVersion = tagName.replaceFirst('v', '');
+      final changelog = response.data['body'] as String? ?? '';
 
       if (latestVersion.isEmpty) return null;
       if (!_isVersionNewer(currentVersion, latestVersion)) return null;
@@ -79,7 +92,11 @@ class UpdateService {
       for (final asset in assets) {
         final name = asset['name'] as String? ?? '';
         if (name.toLowerCase().contains('maxstream') && name.endsWith('.apk')) {
-          return asset['browser_download_url'] as String?;
+          return UpdateInfo(
+            downloadUrl: asset['browser_download_url'] as String,
+            version: latestVersion,
+            changelog: changelog,
+          );
         }
       }
 
@@ -91,29 +108,21 @@ class UpdateService {
   }
 
   /// Check for updates and show a local notification if one is found.
-  /// Call this on app startup and periodically.
   static Future<void> checkAndNotify() async {
     if (_hasNotifiedCurrentVersion) return;
 
-    final downloadUrl = await checkForUpdate();
-    if (downloadUrl == null) return;
+    final info = await checkForUpdate();
+    if (info == null) return;
 
     final packageInfo = await PackageInfo.fromPlatform();
     final currentVersion = packageInfo.version;
-
-    final response = await Dio().get(
-      latestReleaseUrl,
-      options: Options(headers: {'Accept': 'application/vnd.github+json'}),
-    );
-    final latestVersion =
-        (response.data['tag_name'] as String? ?? '').replaceFirst('v', '');
 
     final notificationService = NotificationService();
     await notificationService.showNotification(
       id: 9999,
       title: 'Update Available',
-      body: 'MaxStream $latestVersion is available (current: $currentVersion). Tap to download.',
-      payload: 'update:$downloadUrl',
+      body: 'MaxStream ${info.version} is available (current: $currentVersion). Tap to download.',
+      payload: 'update:${info.downloadUrl}',
     );
 
     _hasNotifiedCurrentVersion = true;

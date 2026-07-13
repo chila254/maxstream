@@ -65,10 +65,10 @@ class _MaxStreamMainScreenState extends State<MaxStreamMainScreen> {
     // Check and show notification — user taps notification to download
     await UpdateService.checkAndNotify();
 
-    // Also check inline and show dialog
-    final downloadUrl = await UpdateService.checkForUpdate();
-    if (downloadUrl != null && mounted) {
-      _showUpdateDialog(downloadUrl);
+    // Also check inline and show dialog with changelog
+    final info = await UpdateService.checkForUpdate();
+    if (info != null && mounted) {
+      _showUpdateDialog(info);
     }
     _updateChecked = true;
   }
@@ -92,14 +92,44 @@ class _MaxStreamMainScreenState extends State<MaxStreamMainScreen> {
     }
   }
 
-  void _showUpdateDialog(String downloadUrl) {
+  void _showUpdateDialog(UpdateInfo info) {
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
-        title: const Text('Update Available'),
-        content: const Text(
-          'A new version of MaxStream is available. Would you like to download and install it now?',
+        title: Text('Update to v${info.version}'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'A new version is available. Would you like to download it?',
+                style: TextStyle(fontSize: 14),
+              ),
+              if (info.changelog.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                const Text(
+                  'What\'s New:',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 200),
+                  child: SingleChildScrollView(
+                    child: Text(
+                      info.changelog,
+                      style: const TextStyle(fontSize: 13),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
         ),
         actions: [
           TextButton(
@@ -109,7 +139,7 @@ class _MaxStreamMainScreenState extends State<MaxStreamMainScreen> {
           ElevatedButton(
             onPressed: () {
               Navigator.of(context).pop();
-              UpdateService.downloadAndInstallUpdate(context, downloadUrl);
+              UpdateService.downloadAndInstallUpdate(context, info.downloadUrl);
             },
             child: const Text('Update Now'),
           ),
