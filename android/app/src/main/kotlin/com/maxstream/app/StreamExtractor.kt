@@ -181,6 +181,9 @@ class StreamExtractor(private val context: Context) {
             RpmExtractor(),
             VixSrcExtractor(),
             VidsrcNetExtractor(),
+            VidsrcRuExtractor(),
+            VidsrcToExtractor(),
+            MoviesapiExtractor(),
             VidrockExtractor(),
             VidzeeExtractor(),
             VideasyExtractor(),
@@ -325,6 +328,31 @@ class StreamExtractor(private val context: Context) {
                     "https://www.2embed.cc/embed/$id"
                 } else {
                     "https://www.2embed.cc/embedtv/$id&s=${request.season}&e=${request.episode}"
+                },
+            )
+
+            servers += StreamServer(
+                "VidsrcRu",
+                if (request.isMovie) {
+                    "https://vidsrc.ru/movie/$id"
+                } else {
+                    "https://vidsrc.ru/tv/$id/${request.season}/${request.episode}"
+                },
+            )
+
+            if (request.isMovie) {
+                servers += StreamServer(
+                    "Moviesapi",
+                    "https://moviesapi.club/movie/$id",
+                )
+            }
+
+            servers += StreamServer(
+                "VidsrcTo",
+                if (request.isMovie) {
+                    "https://vidsrc.to/embed/movie/$id"
+                } else {
+                    "https://vidsrc.to/embed/tv/$id/${request.season}/${request.episode}"
                 },
             )
 
@@ -1006,6 +1034,128 @@ class StreamExtractor(private val context: Context) {
             return ExtractionResult.Final(
                 StreamResult(mediaUrl, name, mediaType(mediaUrl), refererHeaders("https://frembed.click/")),
             )
+        }
+    }
+
+    private inner class VidsrcRuExtractor : HostExtractor {
+        override val name = "VidsrcRu"
+        override fun supports(server: StreamServer) = host(server.url).endsWith("vidsrc.ru")
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            return withContext(Dispatchers.Main) {
+                withTimeout(30_000) {
+                    suspendCancellableCoroutine { continuation ->
+                        val webView = WebView(context)
+                        webView.settings.javaScriptEnabled = true
+                        webView.settings.domStorageEnabled = true
+
+                        webView.webViewClient = object : WebViewClient() {
+                            override fun shouldInterceptRequest(
+                                view: WebView?,
+                                request: WebResourceRequest?,
+                            ): WebResourceResponse? {
+                                val url = request?.url?.toString() ?: ""
+                                if (url.contains("/file2/") && url.endsWith(".m3u8")) {
+                                    if (continuation.isActive) {
+                                        continuation.resume(
+                                            ExtractionResult.Final(
+                                                StreamResult(url, name, "direct_m3u8", refererHeaders(server.url)),
+                                            ),
+                                        )
+                                    }
+                                }
+                                return super.shouldInterceptRequest(view, request)
+                            }
+                        }
+                        webView.loadUrl(server.url)
+                        continuation.invokeOnCancellation {
+                            webView.post {
+                                webView.stopLoading()
+                                webView.destroy()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private inner class MoviesapiExtractor : HostExtractor {
+        override val name = "Moviesapi"
+        override fun supports(server: StreamServer) = host(server.url).endsWith("moviesapi.club")
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            val html = httpGet(server.url, refererHeaders("https://pressplay.top/"))
+            val iframeSrc = Regex(
+                """<iframe[^>]+src=["']([^"']+)["']""",
+                RegexOption.IGNORE_CASE,
+            ).find(html)?.groupValues?.get(1)
+                ?: throw IllegalStateException("Moviesapi iframe not found")
+            val absoluteUrl = if (iframeSrc.startsWith("http")) iframeSrc
+                else resolveUrl(server.url, iframeSrc)
+            return GenericMediaExtractor().extract(
+                StreamServer(name, absoluteUrl, server.headers),
+            )
+        }
+    }
+
+    private inner class VidsrcToExtractor : HostExtractor {
+        override val name = "VidsrcTo"
+        override fun supports(server: StreamServer) = host(server.url).endsWith("vidsrc.to")
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            val html = httpGet(server.url)
+            val mediaId = Regex("""data-id=["']([^"']+)["']""")
+                .find(html)?.groupValues?.get(1)
+                ?: throw IllegalStateException("VidsrcTo media ID not found")
+
+            val keysUrl = "https://raw.githubusercontent.com/Ciarands/vidsrc-keys/main/keys.json"
+            val keysJson = getJson(keysUrl)
+            val decryptKey = keysJson.getJSONArray("decrypt").getString(0)
+
+            val sourcesUrl = "https://vidsrc.to/ajax/embed/episode/$mediaId/sources"
+            val sourcesJson = getJson(sourcesUrl)
+            val sources = sourcesJson.optJSONArray("result") ?: return@withContext throw IllegalStateException("VidsrcTo no sources")
+
+            for (i in 0 until sources.length()) {
+                val source = sources.optJSONObject(i) ?: continue
+                val sourceId = source.optString("id")
+                if (sourceId.isBlank()) continue
+
+                val embedUrl = "https://vidsrc.to/ajax/embed/source/$sourceId"
+                val embedJson = getJson(embedUrl)
+                val encUrl = embedJson.optJSONObject("result")?.optString("url").orEmpty()
+                if (encUrl.isBlank()) continue
+
+                val decryptedUrl = decryptRc4(decryptKey, encUrl)
+                if (decryptedUrl.isNotBlank() && decryptedUrl != encUrl) {
+                    return ExtractionResult.Redirect(
+                        StreamServer(name, decryptedUrl, server.headers),
+                    )
+                }
+            }
+            throw IllegalStateException("VidsrcTo returned no playable source")
+        }
+
+        private fun decryptRc4(key: String, encUrl: String): String {
+            val keyBytes = key.toByteArray(Charsets.UTF_8)
+            val s = IntArray(256) { it }
+            var j = 0
+            for (i in 0 until 256) {
+                j = (j + s[i] + keyBytes[i % keyBytes.size].toInt()) and 0xff
+                s[i] = s[j].also { s[j] = s[i] }
+            }
+            var data = Base64.decode(encUrl, Base64.URL_SAFE)
+            val result = ByteArray(data.size)
+            var ci = 0; var ck = 0
+            for (index in data.indices) {
+                ci = (ci + 1) and 0xff
+                ck = (ck + s[ci]) and 0xff
+                s[ci] = s[ck].also { s[ck] = s[ci] }
+                val t = (s[ci] + s[ck]) and 0xff
+                result[index] = (data[index].toInt() xor s[t]).toByte()
+            }
+            return java.net.URLDecoder.decode(String(result, Charsets.UTF_8), "utf-8")
         }
     }
 
