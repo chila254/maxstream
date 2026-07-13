@@ -5,6 +5,8 @@ import android.content.Context
 import android.util.Base64
 import android.util.Log
 import android.webkit.JavascriptInterface
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import kotlinx.coroutines.Dispatchers
@@ -1115,7 +1117,8 @@ class StreamExtractor(private val context: Context) {
 
             val sourcesUrl = "https://vidsrc.to/ajax/embed/episode/$mediaId/sources"
             val sourcesJson = getJson(sourcesUrl)
-            val sources = sourcesJson.optJSONArray("result") ?: return@withContext throw IllegalStateException("VidsrcTo no sources")
+            val sources = sourcesJson.optJSONArray("result")
+                ?: throw IllegalStateException("VidsrcTo no sources")
 
             for (i in 0 until sources.length()) {
                 val source = sources.optJSONObject(i) ?: continue
