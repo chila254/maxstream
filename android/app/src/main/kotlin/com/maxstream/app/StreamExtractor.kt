@@ -185,7 +185,6 @@ class StreamExtractor(private val context: Context) {
             VidsrcNetExtractor(),
             VidsrcRuExtractor(),
             VidsrcToExtractor(),
-            MoviesapiExtractor(),
             VidrockExtractor(),
             VidzeeExtractor(),
             VideasyExtractor(),
@@ -341,13 +340,6 @@ class StreamExtractor(private val context: Context) {
                     "https://vidsrc.ru/tv/$id/${request.season}/${request.episode}"
                 },
             )
-
-            if (request.isMovie) {
-                servers += StreamServer(
-                    "Moviesapi",
-                    "https://moviesapi.club/movie/$id",
-                )
-            }
 
             servers += StreamServer(
                 "VidsrcTo",
@@ -1079,25 +1071,6 @@ class StreamExtractor(private val context: Context) {
                     }
                 }
             }
-        }
-    }
-
-    private inner class MoviesapiExtractor : HostExtractor {
-        override val name = "Moviesapi"
-        override fun supports(server: StreamServer) = host(server.url).endsWith("moviesapi.club")
-
-        override suspend fun extract(server: StreamServer): ExtractionResult {
-            val html = httpGet(server.url, refererHeaders("https://pressplay.top/"))
-            val iframeSrc = Regex(
-                """<iframe[^>]+src=["']([^"']+)["']""",
-                RegexOption.IGNORE_CASE,
-            ).find(html)?.groupValues?.get(1)
-                ?: throw IllegalStateException("Moviesapi iframe not found")
-            val absoluteUrl = if (iframeSrc.startsWith("http")) iframeSrc
-                else resolveUrl(server.url, iframeSrc)
-            return GenericMediaExtractor().extract(
-                StreamServer(name, absoluteUrl, server.headers),
-            )
         }
     }
 

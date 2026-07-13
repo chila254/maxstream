@@ -66,6 +66,8 @@ class _StablePlayerControls extends StatefulWidget {
     required this.onSubtitles,
     required this.subtitleLabel,
     required this.showSubtitles,
+    required this.onAspectRatio,
+    required this.aspectRatioLabel,
   });
 
   final VideoPlayerController controller;
@@ -76,6 +78,8 @@ class _StablePlayerControls extends StatefulWidget {
   final VoidCallback onSubtitles;
   final ValueNotifier<String> subtitleLabel;
   final bool showSubtitles;
+  final VoidCallback onAspectRatio;
+  final String aspectRatioLabel;
 
   @override
   State<_StablePlayerControls> createState() => _StablePlayerControlsState();
@@ -296,15 +300,12 @@ class _StablePlayerControlsState extends State<_StablePlayerControls> {
                                   style: const TextStyle(color: Colors.white),
                                 ),
                               ),
-                            IconButton(
-                              tooltip: 'Fullscreen',
-                              onPressed: () =>
-                                  SystemChrome.setEnabledSystemUIMode(
-                                    SystemUiMode.immersiveSticky,
-                                  ),
-                              icon: const Icon(
-                                Icons.fullscreen,
-                                color: Colors.white,
+                            TextButton.icon(
+                              onPressed: widget.onAspectRatio,
+                              icon: const Icon(Icons.aspect_ratio, color: Colors.white),
+                              label: Text(
+                                widget.aspectRatioLabel,
+                                style: const TextStyle(color: Colors.white),
                               ),
                             ),
                           ],
@@ -357,6 +358,8 @@ class _StablePlayerControlsState extends State<_StablePlayerControls> {
   }
 }
 
+enum _AspectRatioMode { fit, stretch, zoom }
+
 class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   VideoPlayerController? _videoPlayerController;
   ChewieController? _chewieController;
@@ -384,6 +387,8 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   bool _loadingNextEpisode = false;
   bool _showNextEpisode = false;
   int _nextEpisodeCountdown = 30;
+  _AspectRatioMode _aspectRatioMode = _AspectRatioMode.fit;
+  bool _videoInitialized = false;
 
   @override
   void initState() {
@@ -696,7 +701,8 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       httpHeaders: headers,
       formatHint: isHls ? VideoFormat.hls : null,
       videoPlayerOptions: VideoPlayerOptions(
-        backBufferDurationMs: 30000,
+        backBufferDurationMs: 60000,
+        allowBackgroundPlayback: false,
       ),
     );
 
@@ -721,7 +727,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         allowPlaybackSpeedChanging: true,
         allowedScreenSleep: false,
         hideControlsTimer: const Duration(seconds: 4),
-        progressIndicatorDelay: const Duration(milliseconds: 150),
+        progressIndicatorDelay: const Duration(milliseconds: 100),
         controlsSafeAreaMinimum: const EdgeInsets.fromLTRB(8, 8, 8, 18),
         customControls: _StablePlayerControls(
           controller: controller,
@@ -732,6 +738,8 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
           onSubtitles: _showSubtitlePicker,
           subtitleLabel: _selectedSubtitle,
           showSubtitles: _subtitleTracks.isNotEmpty,
+          onAspectRatio: _cycleAspectRatio,
+          aspectRatioLabel: _aspectRatioLabel,
         ),
         additionalOptions: qualities.length > 1
             ? (_) => [
@@ -756,15 +764,27 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              CircularProgressIndicator(color: Colors.red),
+              CircularProgressIndicator(color: Colors.red, strokeWidth: 3),
               SizedBox(height: 12),
-              Text('Buffering...', style: TextStyle(color: Colors.white)),
+              Text('Buffering...', style: TextStyle(color: Colors.white70)),
             ],
           ),
         ),
-        placeholder: const ColoredBox(
+        placeholder: Container(
           color: Colors.black,
-          child: Center(child: CircularProgressIndicator(color: Colors.red)),
+          child: const Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(color: Colors.red, strokeWidth: 3),
+                SizedBox(height: 16),
+                Text(
+                  'Loading video...',
+                  style: TextStyle(color: Colors.white70, fontSize: 14),
+                ),
+              ],
+            ),
+          ),
         ),
         errorBuilder: (context, errorMessage) {
           return Center(
@@ -801,6 +821,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         _selectedQuality = selectedQuality;
         _isBuffering = controller.value.isBuffering;
         _isSwitchingQuality = false;
+        _videoInitialized = true;
       });
 
       previousVideo?.removeListener(_handlePlaybackChanged);
@@ -904,6 +925,28 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     await _saveProgress();
     if (mounted) Navigator.of(context).pop(true);
   }
+
+  void _cycleAspectRatio() {
+    setState(() {
+      _aspectRatioMode = switch (_aspectRatioMode) {
+        _AspectRatioMode.fit => _AspectRatioMode.stretch,
+        _AspectRatioMode.stretch => _AspectRatioMode.zoom,
+        _AspectRatioMode.zoom => _AspectRatioMode.fit,
+      };
+    });
+  }
+
+  String get _aspectRatioLabel => switch (_aspectRatioMode) {
+    _AspectRatioMode.fit => 'Fit',
+    _AspectRatioMode.stretch => 'Stretch',
+    _AspectRatioMode.zoom => 'Zoom',
+  };
+
+  BoxFit get _videoBoxFit => switch (_aspectRatioMode) {
+    _AspectRatioMode.fit => BoxFit.contain,
+    _AspectRatioMode.stretch => BoxFit.fill,
+    _AspectRatioMode.zoom => BoxFit.cover,
+  };
 
   Future<void> _showQualityPicker() async {
     if (!mounted || _qualities.length < 2) return;
@@ -1043,8 +1086,13 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       });
     } catch (error) {
       if (!mounted) return;
+      final msg = error.toString().contains('404')
+          ? 'Subtitle not found on server (404). Try another subtitle track.'
+          : error.toString().contains('401')
+              ? 'Subtitle requires authentication. Try another track.'
+              : 'Could not load subtitles: $error';
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not load subtitles: $error')),
+        SnackBar(content: Text(msg), duration: const Duration(seconds: 3)),
       );
     }
   }
@@ -1057,18 +1105,63 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     if (uri.host.isEmpty) {
       throw Exception('Invalid subtitle URL: ${track.url}');
     }
-    final response = await http
-        .get(uri, headers: headers)
-        .timeout(const Duration(seconds: 10));
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception('HTTP ${response.statusCode}');
+
+    // Try the direct URL first
+    final urlsToTry = <String>[track.url];
+
+    // For RPM-style subtitles, try alternative URL patterns
+    if (track.url.contains('.vtt') && !track.url.startsWith('http')) {
+      // Already handled by URL construction
+    } else if (track.url.contains('.vtt') || track.url.contains('.srt')) {
+      // Try without fragment
+      final urlNoFragment = track.url.split('#')[0];
+      if (urlNoFragment != track.url) urlsToTry.add(urlNoFragment);
     }
-    return _parseSubtitleFile(response.body);
+
+    // For opensubtitles URLs, try with different headers
+    if (track.url.contains('opensubtitles')) {
+      urlsToTry.add(track.url);
+    }
+
+    Exception? lastError;
+    for (final url in urlsToTry) {
+      try {
+        final parsedUri = Uri.parse(url);
+        final response = await http
+            .get(parsedUri, headers: {
+              ...headers,
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            })
+            .timeout(const Duration(seconds: 10));
+        if (response.statusCode >= 200 && response.statusCode < 300) {
+          final body = response.body;
+          if (body.trim().isNotEmpty) {
+            return _parseSubtitleFile(body);
+          }
+        }
+        lastError = Exception('HTTP ${response.statusCode}');
+      } catch (e) {
+        lastError = e is Exception ? e : Exception(e.toString());
+      }
+    }
+    throw lastError ?? Exception('Failed to load subtitles');
   }
 
   List<Subtitle> _parseSubtitleFile(String input) {
     final normalized = input.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
-    final lines = normalized.split('\n');
+    
+    // Detect format: WEBVTT or SRT
+    final isVtt = normalized.trimLeft().toUpperCase().startsWith('WEBVTT');
+    
+    if (isVtt) {
+      return _parseVtt(normalized);
+    } else {
+      return _parseSrt(normalized);
+    }
+  }
+
+  List<Subtitle> _parseVtt(String input) {
+    final lines = input.split('\n');
     final subtitles = <Subtitle>[];
     int i = 0;
 
@@ -1083,7 +1176,9 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       // Skip empty lines and NOTE blocks
       if (line.isEmpty || line.toUpperCase().startsWith('NOTE')) {
         if (line.toUpperCase().startsWith('NOTE')) {
-          while (i < lines.length && lines[i].trim().isNotEmpty) i++;
+          while (i < lines.length && lines[i].trim().isNotEmpty) {
+            i++;
+          }
         }
         i++;
         continue;
@@ -1132,6 +1227,64 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     return subtitles;
   }
 
+  List<Subtitle> _parseSrt(String input) {
+    final blocks = input.split(RegExp(r'\n\s*\n'));
+    final subtitles = <Subtitle>[];
+
+    for (final block in blocks) {
+      final lines = block.trim().split('\n');
+      if (lines.length < 2) continue;
+
+      // Find the timing line
+      int timingIndex = -1;
+      for (int j = 0; j < lines.length; j++) {
+        if (lines[j].contains('-->')) {
+          timingIndex = j;
+          break;
+        }
+      }
+      if (timingIndex < 0) continue;
+
+      final timing = lines[timingIndex].split('-->');
+      if (timing.length != 2) continue;
+
+      final start = _parseSrtTime(timing[0]);
+      final end = _parseSrtTime(timing[1].split(' ').first);
+      if (start == null || end == null) continue;
+
+      // Text is everything after the timing line
+      final textLines = lines.sublist(timingIndex + 1);
+      final text = textLines
+          .join('\n')
+          .replaceAll(RegExp(r'<[^>]+>'), '')
+          .replaceAll('&amp;', '&')
+          .replaceAll('&lt;', '<')
+          .replaceAll('&gt;', '>')
+          .trim();
+      if (text.isEmpty) continue;
+
+      subtitles.add(
+        Subtitle(index: subtitles.length, start: start, end: end, text: text),
+      );
+    }
+    return subtitles;
+  }
+
+  Duration? _parseSrtTime(String value) {
+    final cleaned = value.trim().replaceAll(',', '.');
+    final parts = cleaned.split(':');
+    if (parts.length < 2 || parts.length > 3) return null;
+    final seconds = double.tryParse(parts.last);
+    final minutes = int.tryParse(parts[parts.length - 2]);
+    final hours = parts.length == 3 ? int.tryParse(parts.first) : 0;
+    if (seconds == null || minutes == null || hours == null) return null;
+    return Duration(
+      hours: hours,
+      minutes: minutes,
+      milliseconds: (seconds * 1000).round(),
+    );
+  }
+
   Duration? _parseSubtitleTime(String value) {
     final parts = value.trim().replaceAll(',', '.').split(':');
     if (parts.length < 2 || parts.length > 3) return null;
@@ -1156,7 +1309,10 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
 
     final position = current.value.position;
     final shouldPlay = current.value.isPlaying || current.value.isBuffering;
-    setState(() => _isSwitchingQuality = true);
+    setState(() {
+      _isSwitchingQuality = true;
+      _videoInitialized = false;
+    });
     try {
       await _replacePlayer(
         quality.url,
@@ -1218,9 +1374,40 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   }
 
   Widget _buildPlayer() {
+    final videoWidget = _aspectRatioMode == _AspectRatioMode.fit
+        ? Chewie(controller: _chewieController!)
+        : FittedBox(
+            fit: _videoBoxFit,
+            clipBehavior: Clip.hardEdge,
+            child: SizedBox(
+              width: _videoPlayerController?.value.size.width ?? 1920,
+              height: _videoPlayerController?.value.size.height ?? 1080,
+              child: Chewie(controller: _chewieController!),
+            ),
+          );
+
     return Stack(
       children: [
-        Chewie(controller: _chewieController!),
+        videoWidget,
+        if (!_videoInitialized)
+          const Positioned.fill(
+            child: ColoredBox(
+              color: Colors.black,
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircularProgressIndicator(color: Colors.red, strokeWidth: 3),
+                    SizedBox(height: 16),
+                    Text(
+                      'Preparing video...',
+                      style: TextStyle(color: Colors.white70, fontSize: 14),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
         if (_videoPlayerController != null)
           Positioned(
             left: 24,
