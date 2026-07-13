@@ -1,6 +1,6 @@
 # MaxStream
 
-A Flutter streaming app with movies, TV series, advanced video playback, and ad-blocking.
+A Flutter streaming app for movies and TV series with native Kotlin stream extraction, multi-provider fallback, and smooth HLS playback.
 
 <div align="center">
   <img src="assets/images/maxstream_logo.png" alt="MaxStream Logo" width="128" height="128" />
@@ -8,46 +8,138 @@ A Flutter streaming app with movies, TV series, advanced video playback, and ad-
 
 ## Features
 
-- **Firebase Auth**: Email/password and Google Sign-In
-- **Video Player**: InAppWebView player with comprehensive ad-blocking
-- **Content Catalog**: Browse movies and TV series with TMDB integration
-- **Search**: Fast full-library search
-- **Watch History**: Resume playback from last position
-- **Watchlist**: Save favorite content
-- **Dark/Light Theme**: Persistent theme preferences
-- **Multi-Provider Streaming**: VidSrc, FlixHQ, HDToday with automatic fallback
-- **Push Notifications**: Firebase Cloud Messaging
-- **Settings**: Granular playback and app preferences
+- **Native Stream Extraction** — Kotlin-powered extraction using OkHttp with DNS-over-HTTPS, parallel server discovery, and HLS validation
+- **Multi-Provider Fallback** — 20+ stream sources tried automatically: VidLink, VixSrc, Vidrock, Vidzee, Videasy, PrimeSrc, Frembed, RPM, VidsrcNet, VidsrcRu, VidsrcTo, Moviesapi, 2Embed, Vidflix, VOE, Streamtape, and more
+- **Smooth HLS Playback** — Parallel variant validation, ExoPlayer with 30s back buffer, adaptive quality switching
+- **Subtitle Support** — Grouped by source server (VidLink, RPM, Vidsrc, HLS), SRT/VTT parsing, inline display
+- **Quality Selection** — Manual quality picker with auto-switching support
+- **Episode Autoplay** — Auto-advances to next episode with 30s countdown
+- **Watch History** — Resume playback from last position, saved every 15 seconds
+- **Watchlist** — Save favorite content for later
+- **Firebase Auth** — Email/password and Google Sign-In
+- **TMDB Integration** — Movie/series metadata, posters, backdrops, episode info
+- **TV Mode** — Dedicated Android TV interface with D-pad navigation
+- **Auto-Update** — Checks GitHub Releases for new versions, shows changelog, downloads and installs APK
+- **Push Notifications** — Content availability alerts via Firebase
+
+## Architecture
+
+### Stream Extraction Pipeline
+
+```
+User selects content
+    ↓
+DirectM3u8Service.fetchMovieStreamUrl() / fetchSeriesStreamUrl()
+    ↓
+NativeStreamExtractor.resolveStream()  [Platform Channel]
+    ↓
+StreamExtractor.resolveStream()  [Kotlin, OkHttp]
+    ↓
+┌─────────────────────────────────────────┐
+│  Server Providers (parallel discovery)  │
+│  StaticTmdbProvider, VidrockProvider,   │
+│  VidzeeProvider, PrimeSrcProvider,      │
+│  FrembedProvider                        │
+└─────────────────────────────────────────┘
+    ↓  (20+ servers per movie)
+┌─────────────────────────────────────────┐
+│  Host Extractors (per-URL matching)     │
+│  VidLink (WebView), RPM (AES-CBC),     │
+│  VixSrc (signed URLs), VidsrcNet       │
+│  (10 decryption algos), Vidrock,       │
+│  Vidzee (AES-GCM), VOE, GenericMedia   │
+└─────────────────────────────────────────┘
+    ↓
+Parallel HLS Validation (coroutineScope + async)
+    ↓
+video_player + Chewie (ExoPlayer on Android)
+    ↓
+Video plays with subtitles, quality switching, episode autoplay
+```
+
+### How Stream Extraction Works
+
+1. **Server Discovery** — Multiple `ServerProvider`s run in parallel, each generating server URLs from TMDB IDs
+2. **Extractor Dispatch** — Each server URL is matched to a `HostExtractor` by domain
+3. **Stream Resolution** — Extractors resolve embed pages, decrypt payloads, follow redirects
+4. **Redirect Chaining** — Up to 5 redirect hops with cycle detection
+5. **HLS Validation** — Master playlist parsed, variants validated in parallel, subtitles extracted
+6. **Playback** — URL handed to ExoPlayer with headers, back buffer configured
+
+### Key Extractors
+
+| Extractor | Technique |
+|-----------|-----------|
+| **VidLink** | WebView JS injection intercepts `/api/b/` fetch responses |
+| **RPM** | AES-CBC decryption of hex payload, 5 route candidates (HLS, TikTok, Cloudflare) |
+| **VixSrc** | Signed URL construction with token expiry, 410 retry |
+| **VidsrcNet** | 3-level iframe chain, 10 per-ID decryption algorithms (XOR, Base64, ROT13) |
+| **Vidrock** | AES-encrypted TMDB ID, tries all servers from API response |
+| **Vidzee** | AES-GCM master key from remote API, AES-CBC link decryption |
+| **VidsrcRu** | WebView network interception of `/file2/*.m3u8` URLs |
+| **VidsrcTo** | RC4 decryption with GitHub-hosted keys, multi-source fallback |
+| **Frembed** | API-based server list with HTTP redirect resolution |
+| **GenericMedia** | Catch-all regex scan for `.m3u8`/`.mp4` URLs in page HTML |
 
 ## Tech Stack
 
-- **Frontend**: Flutter 3.8.0+
-- **State Management**: Provider
-- **Video**: InAppWebView with HTML5 player + ad-blocking
-- **Backend**: Firebase (Auth, Cloud Messaging)
-- **API**: TMDB API
-- **Database**: SQLite (local), Shared Preferences
-- **UI**: Material Design 3, Glassmorphism, Lottie animations
+- **Framework**: Flutter 3.8.0+ (Dart)
+- **Native**: Kotlin (Android) — stream extraction, HLS validation
+- **Video**: video_player + Chewie (ExoPlayer on Android)
+- **HTTP**: OkHttp with DNS-over-HTTPS (Google DNS)
+- **Auth**: Firebase Auth (Email/Password, Google Sign-In)
+- **Database**: Firebase Firestore + SQLite (local)
+- **API**: TMDB API (movie/series metadata)
+- **State**: Provider
+- **UI**: Material Design, Glassmorphism, Shimmer, Lottie
 
 ## Project Structure
 
 ```
 lib/
-├── screens/              # UI screens (player, home, search, etc.)
-├── services/             # Business logic (auth, stream extraction, TMDB)
-├── models/              # Data models
-├── widgets/             # Reusable UI components
-├── database/            # SQLite helpers
-├── utils/               # Helper functions
-└── config/              # App configuration
+├── main.dart / main_phone.dart     # App entry points
+├── screens/                         # UI screens
+│   ├── m3u8_video_player_screen.dart  # Main video player with subtitles, quality, autoplay
+│   ├── maxstream_main_screen.dart     # Bottom nav (Home, Search, Series, Watchlist, More)
+│   ├── maxstream_home_screen.dart     # Home with hero banners, sliders
+│   ├── maxstream_search_screen.dart   # Search with All/Movies/TV/Actors tabs
+│   ├── maxstream_details_screen.dart  # Movie/series detail pages
+│   ├── maxstream_series_list_screen.dart
+│   ├── maxstream_watchlist_screen.dart
+│   ├── profile_settings_screen.dart   # Profile, name, picture, password
+│   └── streaming_provider_settings_screen.dart
+├── services/
+│   ├── native_stream_extractor.dart   # Platform channel bridge to Kotlin
+│   ├── direct_m3u8_service.dart       # Stream URL resolution service
+│   ├── tmdb_api_service.dart          # TMDB API client
+│   ├── profile_service.dart           # Firebase profile picture upload
+│   ├── watch_history_service.dart     # SQLite watch history
+│   ├── update_service.dart            # GitHub Releases auto-updater
+│   ├── notification_service.dart      # Local notifications
+│   ├── auth_service.dart              # Firebase authentication
+│   └── user_service.dart              # User profile management
+├── tv/                               # Android TV interface
+│   ├── screens/                       # TV-optimized screens
+│   ├── widgets/                       # TV focus, navigation, keyboard
+│   ├── services/                      # TV scraper service
+│   └── providers/                     # TV state management
+├── widgets/                          # Reusable UI components
+├── models/                           # Data models (Movie, Series)
+├── database/                         # SQLite helpers
+├── config/                           # API configuration
+└── utils/                            # Utilities, responsive helpers
+
+android/app/src/main/kotlin/com/maxstream/app/
+├── MainActivity.kt                   # Platform channel handler
+└── StreamExtractor.kt                # ~1500 lines: 4 server providers, 17 host extractors, HLS validation
 ```
 
 ## Getting Started
 
 ### Prerequisites
+
 - Flutter SDK >=3.8.0
-- Dart SDK (latest)
-- Firebase project
+- Firebase project with Auth enabled
 - TMDB API key
 
 ### Installation
@@ -56,97 +148,53 @@ lib/
 git clone https://github.com/chila254/maxstream.git
 cd maxstream
 flutter pub get
-flutter pub run flutter_launcher_icons:main
-flutter pub run flutter_native_splash:create
 flutter run
 ```
 
 ### Configuration
 
-1. **Firebase Setup**
-   - Create project at [Firebase Console](https://console.firebase.google.com)
-   - Enable Auth (Email/Password, Google Sign-In)
-   - Download `google-services.json` → `android/app/`
-   - Download `GoogleService-Info.plist` → `ios/Runner/`
+1. **Firebase** — Create project, enable Auth, download `google-services.json` to `android/app/`
+2. **TMDB** — Get API key from [themoviedb.org](https://www.themoviedb.org/settings/api), add to `lib/config/api_config.dart`
 
-2. **TMDB API**
-   - Get API key from [TMDB](https://www.themoviedb.org/settings/api)
-   - Add to app configuration
+## Auto-Update System
 
-## Video Player
+The app checks GitHub Releases on startup for newer versions:
 
-### Ad-Blocking
-The embedded InAppWebView player blocks 40+ ad networks:
-- Google AdSense, DoubleClick
-- Facebook/Meta, Amazon, Twitter/X
-- Criteo, AppNexus, OpenX, and more
+1. Hits `https://api.github.com/repos/chila254/maxstream/releases/latest`
+2. Compares release tag (e.g. `v1.0.1`) with installed version
+3. Shows local notification + in-app dialog with changelog from release body
+4. Downloads `MaxStream.apk` from the release asset
+5. Prompts Android package installer
 
-Blocking mechanisms:
-- Script injection to remove ad domains
-- Iframe filtering
-- DOM cleanup for ad containers
-- Continuous monitoring for dynamic ads
+To release an update:
+1. Build APK: `flutter build apk --release`
+2. Create GitHub release with tag `v1.0.1`, title `v1.0.1`
+3. Attach `MaxStream.apk` as a release asset
+4. Write changelog in the release body
 
 ## Build
 
 ```bash
-# Android
+# Android APK
 flutter build apk --release
+
+# Android App Bundle
 flutter build appbundle --release
-
-# iOS
-flutter build ios --release
-
-# Web
-flutter build web --release
 ```
 
 ## Version
-- **Current**: 1.0.1 (Build 2)
+
+- **Current**: 1.1.0+3
 - **Min SDK**: 3.8.0
-
-## Stream Extraction Pipeline
-
-```
-User selects content
-    ↓
-CombinedStreamService.extractStream()
-    ↓
-Provider Discovery (VidSrc, FlixHQ, etc.)
-    ↓
-WebView Stream Resolution
-    ↓
-InAppWebView with HTML5 Player + Ad-Blocking
-    ↓
-Video plays ad-free
-```
-
-## Dependencies
-
-**Key Packages**:
-- `flutter_inappwebview`: Video player with ad-blocking
-- `provider`: State management
-- `firebase_core`, `firebase_auth`: Authentication
-- `dio`: HTTP requests
-- `sqflite`: Local database
-- `lottie`, `shimmer`, `glassmorphism`: UI effects
-
-See `pubspec.yaml` for full list.
 
 ## Contributing
 
-Pull requests welcome.
+Pull requests welcome. For major changes, open an issue first.
 
 ## License
 
-MIT License - see LICENSE file for details.
-
-## Links
-
-- [Flutter](https://flutter.dev)
-- [Firebase](https://firebase.google.com)
-- [TMDB API](https://www.themoviedb.org/settings/api)
+MIT License — see [LICENSE](LICENSE) for details.
 
 ## Author
 
-**Chila254** - [github.com/chila254/maxstream](https://github.com/chila254/maxstream)
+**Chila254** — [github.com/chila254/maxstream](https://github.com/chila254/maxstream)
