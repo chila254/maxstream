@@ -180,6 +180,7 @@ class StreamExtractor(private val context: Context) {
         listOf(
             VidflixExtractor(),
             VidLinkExtractor(),
+            MaxstreamVideoExtractor(),
             RpmExtractor(),
             VixSrcExtractor(),
             VidsrcNetExtractor(),
@@ -360,6 +361,15 @@ class StreamExtractor(private val context: Context) {
                 }
                 servers += StreamServer("Videasy $endpoint", url)
             }
+
+            servers += StreamServer(
+                "MaxstreamVideo",
+                if (request.isMovie) {
+                    "https://maxstream.video/movie/$id"
+                } else {
+                    "https://maxstream.video/tv/$id/${request.season}/${request.episode}"
+                },
+            )
 
             return servers
         }
@@ -572,6 +582,138 @@ class StreamExtractor(private val context: Context) {
                                 view.evaluateJavascript(script, null)
                             }
                         }
+                        webView.loadUrl(server.url)
+                        continuation.invokeOnCancellation {
+                            webView.post {
+                                webView.stopLoading()
+                                webView.destroy()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @SuppressLint("SetJavaScriptEnabled")
+    private inner class MaxstreamVideoExtractor : HostExtractor {
+        override val name = "MaxstreamVideo"
+        override fun supports(server: StreamServer) = host(server.url).endsWith("maxstream.video")
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            return withContext(Dispatchers.Main) {
+                withTimeout(30_000) {
+                    suspendCancellableCoroutine { continuation ->
+                        val webView = WebView(context)
+                        webView.settings.javaScriptEnabled = true
+                        webView.settings.domStorageEnabled = true
+                        webView.settings.mediaPlaybackRequiresUserGesture = false
+
+                        fun finish(result: Result<StreamResult>) {
+                            if (!continuation.isActive) return
+                            result.fold(
+                                onSuccess = { continuation.resume(ExtractionResult.Final(it)) },
+                                onFailure = { continuation.resumeWithException(it) },
+                            )
+                            webView.post { webView.destroy() }
+                        }
+
+                        webView.addJavascriptInterface(object {
+                            @JavascriptInterface
+                            fun onStreamFound(payload: String) {
+                                runCatching {
+                                    val json = JSONObject(payload)
+                                    val streamUrl = json.optString("url").ifBlank {
+                                        json.optString("src")
+                                    }
+                                    require(streamUrl.isNotBlank()) { "No stream URL found" }
+                                    val headers = refererHeaders("https://maxstream.video/")
+                                    StreamResult(streamUrl, name, mediaType(streamUrl), headers)
+                                }.let(::finish)
+                            }
+
+                            @JavascriptInterface
+                            fun onSourceFound(url: String) {
+                                if (url.isNotBlank()) {
+                                    val headers = refererHeaders("https://maxstream.video/")
+                                    finish(Result.success(StreamResult(url, name, mediaType(url), headers)))
+                                }
+                            }
+                        }, "NativeBridge")
+
+                        webView.webViewClient = object : WebViewClient() {
+                            override fun onPageFinished(view: WebView, url: String) {
+                                val script = """
+                                    (() => {
+                                      if (window.__maxstreamHook) return;
+                                      window.__maxstreamHook = true;
+                                      const send = data => window.NativeBridge.onStreamFound(JSON.stringify(data));
+                                      const sendUrl = url => window.NativeBridge.onSourceFound(url);
+
+                                      // Intercept fetch
+                                      const originalFetch = window.fetch.bind(window);
+                                      window.fetch = async (...args) => {
+                                        const response = await originalFetch(...args);
+                                        const u = response.url;
+                                        if (u.includes('.m3u8') || u.includes('.mp4') || u.includes('/stream/') || u.includes('/play/')) {
+                                          sendUrl(u);
+                                        }
+                                        return response;
+                                      };
+
+                                      // Intercept XMLHttpRequest
+                                      const origOpen = XMLHttpRequest.prototype.open;
+                                      XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+                                        this.addEventListener('load', function() {
+                                          if (url.includes('.m3u8') || url.includes('.mp4') || url.includes('/stream/') || url.includes('/play/')) {
+                                            sendUrl(url);
+                                          }
+                                        });
+                                        return origOpen.apply(this, [method, url, ...rest]);
+                                      };
+
+                                      // Check for sources in window/player
+                                      const checkSources = () => {
+                                        if (window.player && window.player.sources) {
+                                          send({ url: window.player.sources });
+                                        }
+                                        if (window.video && window.video.src) {
+                                          sendUrl(window.video.src);
+                                        }
+                                        // Look for sources in scripts
+                                        document.querySelectorAll('script').forEach(s => {
+                                          const text = s.textContent || '';
+                                          const match = text.match(/sources\s*:\s*\[\s*\{\s*[sS]rc\s*:\s*['"]([^'"]+)/);
+                                          if (match) sendUrl(match[1]);
+                                          const match2 = text.match(/file\s*:\s*['"]([^'"]+\.m3u8[^'"]*)/);
+                                          if (match2) sendUrl(match2[1]);
+                                        });
+                                      };
+                                      setTimeout(checkSources, 2000);
+                                      setTimeout(checkSources, 5000);
+                                    })();
+                                """.trimIndent()
+                                view.evaluateJavascript(script, null)
+                            }
+
+                            override fun shouldInterceptRequest(
+                                view: WebView?,
+                                request: WebResourceRequest?,
+                            ): WebResourceResponse? {
+                                val url = request?.url?.toString() ?: ""
+                                if (url.contains(".m3u8") || url.contains(".mp4")) {
+                                    if (continuation.isActive) {
+                                        continuation.resume(
+                                            ExtractionResult.Final(
+                                                StreamResult(url, name, mediaType(url), refererHeaders("https://maxstream.video/")),
+                                            ),
+                                        )
+                                    }
+                                }
+                                return super.shouldInterceptRequest(view, request)
+                            }
+                        }
+
                         webView.loadUrl(server.url)
                         continuation.invokeOnCancellation {
                             webView.post {
