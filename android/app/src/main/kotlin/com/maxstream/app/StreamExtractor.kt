@@ -83,11 +83,13 @@ class StreamExtractor(private val context: Context) {
         val label: String,
         val url: String,
         val isDefault: Boolean = false,
+        val source: String = "",
     ) {
         fun toMap(): Map<String, Any> = mapOf(
             "label" to label,
             "url" to url,
             "default" to isDefault,
+            "source" to source,
         )
     }
 
@@ -462,6 +464,7 @@ class StreamExtractor(private val context: Context) {
                         item.optString("label", "Subtitle"),
                         subtitleUrl,
                         item.optBoolean("default", false),
+                        source = "Vidflix",
                     )
                 }
             }.orEmpty()
@@ -509,6 +512,7 @@ class StreamExtractor(private val context: Context) {
                                             SubtitleOption(
                                                 item.optString("language", "Subtitle"),
                                                 captionUrl,
+                                                source = "VidLink",
                                             )
                                         }
                                     }.orEmpty()
@@ -603,6 +607,7 @@ class StreamExtractor(private val context: Context) {
                         label,
                         absoluteMediaUrl(origin, url.substringBefore('#')),
                         defaultSubtitle.isNotBlank() && label.contains(defaultSubtitle, true),
+                        source = "RPM",
                     )
                 }.toList()
             }.orEmpty()
@@ -748,7 +753,7 @@ class StreamExtractor(private val context: Context) {
                     val language = item.substringAfter("[").substringBefore("]")
                     val subPath = item.substringAfter("]")
                     if (!subPath.startsWith("/")) return@mapNotNull null
-                    SubtitleOption(language, "$subtitleOrigin$subPath")
+                    SubtitleOption(language, "$subtitleOrigin$subPath", source = "Vidsrc")
                 }
             } else emptyList()
 
@@ -1235,6 +1240,7 @@ class StreamExtractor(private val context: Context) {
                 label,
                 resolveUrl(masterUrl, uri),
                 attribute(line, "DEFAULT").equals("YES", true),
+                source = "HLS",
             )
         }.distinctBy { it.url }.toList()
     }

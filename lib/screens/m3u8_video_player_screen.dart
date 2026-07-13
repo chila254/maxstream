@@ -47,11 +47,13 @@ class _SubtitleTrack {
     required this.label,
     required this.url,
     required this.isDefault,
+    this.source = '',
   });
 
   final String label;
   final String url;
   final bool isDefault;
+  final String source;
 }
 
 class _StablePlayerControls extends StatefulWidget {
@@ -488,7 +490,9 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         if (!mounted) return;
         _subtitleTracks = subtitleTracks;
         _activeSubtitles = initialSubtitles;
-        _selectedSubtitle = initialSubtitle?.label ?? 'Off';
+        _selectedSubtitle = initialSubtitle != null
+            ? '${initialSubtitle.source}/${initialSubtitle.label}'
+            : 'Off';
 
         _showStatus('Stream found from $source! Initializing player...');
         await _initializePlayer(
@@ -665,6 +669,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
             label: subtitle['label']?.toString() ?? 'Subtitle',
             url: subtitle['url']?.toString() ?? '',
             isDefault: subtitle['default'] == true,
+            source: subtitle['source']?.toString() ?? '',
           ),
         )
         .where((subtitle) => subtitle.url.isNotEmpty)
@@ -719,7 +724,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
           qualityLabel: selectedQuality,
           showQuality: qualities.length > 1,
           onSubtitles: _showSubtitlePicker,
-          subtitleLabel: _selectedSubtitle,
+          subtitleLabel: _selectedSubtitle == 'Off' ? 'Off' : _selectedSubtitle.split('/').last,
           showSubtitles: _subtitleTracks.isNotEmpty,
         ),
         additionalOptions: qualities.length > 1
@@ -966,33 +971,68 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
                 });
               },
             ),
-            ..._subtitleTracks.map(
-              (track) => RadioListTile<String>(
-                value: track.label,
-                groupValue: _selectedSubtitle,
-                activeColor: Colors.red,
-                title: Text(
-                  track.label,
-                  style: const TextStyle(color: Colors.white),
-                ),
-                onChanged: (_) {
-                  Navigator.of(sheetContext).pop();
-                  _selectSubtitle(track);
-                },
-              ),
-            ),
+            ..._buildGroupedSubtitleTiles(),
           ],
         ),
       ),
     );
   }
 
+  List<Widget> _buildGroupedSubtitleTiles() {
+    final grouped = <String, List<_SubtitleTrack>>{};
+    for (final track in _subtitleTracks) {
+      final source = track.source.isEmpty ? 'Other' : track.source;
+      grouped.putIfAbsent(source, () => []).add(track);
+    }
+    final widgets = <Widget>[];
+    for (final entry in grouped.entries) {
+      widgets.add(
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+          child: Text(
+            entry.key,
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.6),
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1,
+            ),
+          ),
+        ),
+      );
+      for (final track in entry.value) {
+        widgets.add(
+          RadioListTile<String>(
+            value: '${track.source}/${track.label}',
+            groupValue: _selectedSubtitle,
+            activeColor: Colors.red,
+            title: Text(
+              track.label,
+              style: const TextStyle(color: Colors.white),
+            ),
+            onChanged: (_) {
+              Navigator.of(context).pop();
+              _selectSubtitle(track);
+            },
+          ),
+        );
+      }
+    }
+    return widgets;
+  }
+
   Future<void> _selectSubtitle(_SubtitleTrack track) async {
     try {
       final subtitles = await _fetchSubtitles(track, _streamHeaders);
       if (!mounted) return;
+      if (subtitles.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Subtitle file was empty or could not be parsed')),
+        );
+        return;
+      }
       setState(() {
-        _selectedSubtitle = track.label;
+        _selectedSubtitle = '${track.source}/${track.label}';
         _activeSubtitles = subtitles;
       });
     } catch (error) {
