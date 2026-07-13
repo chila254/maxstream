@@ -74,7 +74,7 @@ class _StablePlayerControls extends StatefulWidget {
   final String qualityLabel;
   final bool showQuality;
   final VoidCallback onSubtitles;
-  final String subtitleLabel;
+  final ValueNotifier<String> subtitleLabel;
   final bool showSubtitles;
 
   @override
@@ -273,15 +273,18 @@ class _StablePlayerControlsState extends State<_StablePlayerControls> {
                             ),
                             const Spacer(),
                             if (widget.showSubtitles)
-                              TextButton.icon(
-                                onPressed: widget.onSubtitles,
-                                icon: const Icon(
-                                  Icons.subtitles,
-                                  color: Colors.white,
-                                ),
-                                label: Text(
-                                  widget.subtitleLabel,
-                                  style: const TextStyle(color: Colors.white),
+                              ValueListenableBuilder<String>(
+                                valueListenable: widget.subtitleLabel,
+                                builder: (context, label, _) => TextButton.icon(
+                                  onPressed: widget.onSubtitles,
+                                  icon: const Icon(
+                                    Icons.subtitles,
+                                    color: Colors.white,
+                                  ),
+                                  label: Text(
+                                    label,
+                                    style: const TextStyle(color: Colors.white),
+                                  ),
                                 ),
                               ),
                             if (widget.showQuality)
@@ -366,8 +369,8 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   Map<String, String> _streamHeaders = const {};
   List<_StreamQuality> _qualities = const [];
   List<_SubtitleTrack> _subtitleTracks = const [];
-  List<Subtitle> _activeSubtitles = const [];
-  String _selectedSubtitle = 'Off';
+  final ValueNotifier<List<Subtitle>> _activeSubtitles = ValueNotifier<List<Subtitle>>(const []);
+  final ValueNotifier<String> _selectedSubtitle = ValueNotifier<String>('Off');
   String _statusMessage = 'Initializing...';
   Timer? _progressTimer;
   bool _isLeaving = false;
@@ -489,8 +492,8 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
             : Duration.zero;
         if (!mounted) return;
         _subtitleTracks = subtitleTracks;
-        _activeSubtitles = initialSubtitles;
-        _selectedSubtitle = initialSubtitle != null
+        _activeSubtitles.value = initialSubtitles;
+        _selectedSubtitle.value = initialSubtitle != null
             ? '${initialSubtitle.source}/${initialSubtitle.label}'
             : 'Off';
 
@@ -724,7 +727,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
           qualityLabel: selectedQuality,
           showQuality: qualities.length > 1,
           onSubtitles: _showSubtitlePicker,
-          subtitleLabel: _selectedSubtitle == 'Off' ? 'Off' : _selectedSubtitle.split('/').last,
+          subtitleLabel: _selectedSubtitle,
           showSubtitles: _subtitleTracks.isNotEmpty,
         ),
         additionalOptions: qualities.length > 1
@@ -960,14 +963,14 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
             ),
             RadioListTile<String>(
               value: 'Off',
-              groupValue: _selectedSubtitle,
+              groupValue: _selectedSubtitle.value,
               activeColor: Colors.red,
               title: const Text('Off', style: TextStyle(color: Colors.white)),
               onChanged: (_) {
                 Navigator.of(sheetContext).pop();
                 setState(() {
-                  _selectedSubtitle = 'Off';
-                  _activeSubtitles = const [];
+                  _selectedSubtitle.value = 'Off';
+                  _activeSubtitles.value = const [];
                 });
               },
             ),
@@ -1004,7 +1007,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         widgets.add(
           RadioListTile<String>(
             value: '${track.source}/${track.label}',
-            groupValue: _selectedSubtitle,
+            groupValue: _selectedSubtitle.value,
             activeColor: Colors.red,
             title: Text(
               track.label,
@@ -1032,8 +1035,8 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         return;
       }
       setState(() {
-        _selectedSubtitle = '${track.source}/${track.label}';
-        _activeSubtitles = subtitles;
+        _selectedSubtitle.value = '${track.source}/${track.label}';
+        _activeSubtitles.value = subtitles;
       });
     } catch (error) {
       if (!mounted) return;
@@ -1062,25 +1065,63 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
 
   List<Subtitle> _parseSubtitleFile(String input) {
     final normalized = input.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
-    final blocks = normalized.split(RegExp(r'\n\s*\n'));
+    final lines = normalized.split('\n');
     final subtitles = <Subtitle>[];
-    for (final block in blocks) {
-      final lines = block.split('\n').map((line) => line.trim()).toList();
-      final timingIndex = lines.indexWhere((line) => line.contains('-->'));
-      if (timingIndex < 0) continue;
-      final timing = lines[timingIndex].split('-->');
-      if (timing.length != 2) continue;
+    int i = 0;
+
+    // Skip WEBVTT header
+    if (lines.isNotEmpty && lines[0].trim().toUpperCase().startsWith('WEBVTT')) {
+      i = 1;
+    }
+
+    while (i < lines.length) {
+      final line = lines[i].trim();
+
+      // Skip empty lines and NOTE blocks
+      if (line.isEmpty || line.toUpperCase().startsWith('NOTE')) {
+        if (line.toUpperCase().startsWith('NOTE')) {
+          while (i < lines.length && lines[i].trim().isNotEmpty) i++;
+        }
+        i++;
+        continue;
+      }
+
+      // Skip cue identifiers (lines that don't contain -->)
+      if (!line.contains('-->')) {
+        i++;
+        continue;
+      }
+
+      // Parse timing line
+      final timing = line.split('-->');
+      if (timing.length != 2) {
+        i++;
+        continue;
+      }
       final start = _parseSubtitleTime(timing[0]);
       final end = _parseSubtitleTime(timing[1].split(' ').first);
-      if (start == null || end == null) continue;
-      final text = lines
-          .skip(timingIndex + 1)
+      if (start == null || end == null) {
+        i++;
+        continue;
+      }
+
+      // Collect text lines until next empty line
+      i++;
+      final textLines = <String>[];
+      while (i < lines.length && lines[i].trim().isNotEmpty) {
+        textLines.add(lines[i].trim());
+        i++;
+      }
+
+      final text = textLines
           .join('\n')
           .replaceAll(RegExp(r'<[^>]+>'), '')
           .replaceAll('&amp;', '&')
           .replaceAll('&lt;', '<')
-          .replaceAll('&gt;', '>');
+          .replaceAll('&gt;', '>')
+          .replaceAll(RegExp(r'\{[^}]+\}'), '');
       if (text.isEmpty) continue;
+
       subtitles.add(
         Subtitle(index: subtitles.length, start: start, end: end, text: text),
       );
@@ -1135,6 +1176,8 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
 
   @override
   void dispose() {
+    _selectedSubtitle.dispose();
+    _activeSubtitles.dispose();
     _progressTimer?.cancel();
     unawaited(_saveProgress());
     _videoPlayerController?.removeListener(_handlePlaybackChanged);
@@ -1175,42 +1218,48 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     return Stack(
       children: [
         Chewie(controller: _chewieController!),
-        if (_activeSubtitles.isNotEmpty && _videoPlayerController != null)
+        if (_videoPlayerController != null)
           Positioned(
             left: 24,
             right: 24,
             bottom: 92,
             child: IgnorePointer(
-              child: ValueListenableBuilder<VideoPlayerValue>(
-                valueListenable: _videoPlayerController!,
-                builder: (context, value, _) {
-                  final cues = _activeSubtitles.where(
-                    (cue) =>
-                        value.position >= cue.start &&
-                        value.position <= cue.end,
-                  );
-                  if (cues.isEmpty) return const SizedBox.shrink();
-                  return Center(
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.black87,
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(
-                        cues.map((cue) => cue.text.toString()).join('\n'),
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.w600,
+              child: ValueListenableBuilder<List<Subtitle>>(
+                valueListenable: _activeSubtitles,
+                builder: (context, subtitles, _) {
+                  if (subtitles.isEmpty) return const SizedBox.shrink();
+                  return ValueListenableBuilder<VideoPlayerValue>(
+                    valueListenable: _videoPlayerController!,
+                    builder: (context, value, _) {
+                      final cues = subtitles.where(
+                        (cue) =>
+                            value.position >= cue.start &&
+                            value.position <= cue.end,
+                      );
+                      if (cues.isEmpty) return const SizedBox.shrink();
+                      return Center(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.black87,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            cues.map((cue) => cue.text.toString()).join('\n'),
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
-                  );
+                      );
+                    },
+                  ),
                 },
               ),
             ),
