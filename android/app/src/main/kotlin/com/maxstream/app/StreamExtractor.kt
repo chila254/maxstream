@@ -168,6 +168,7 @@ class StreamExtractor(private val context: Context) {
             VidrockServerProvider(),
             VidzeeServerProvider(),
             PrimeSrcServerProvider(),
+            FrembedServerProvider(),
         )
     }
 
@@ -182,6 +183,7 @@ class StreamExtractor(private val context: Context) {
             VidzeeExtractor(),
             VideasyExtractor(),
             PrimeSrcExtractor(),
+            FrembedExtractor(),
             VoeExtractor(),
             StreamtapeExtractor(),
             TwoEmbedExtractor(),
@@ -241,14 +243,25 @@ class StreamExtractor(private val context: Context) {
 
         repeat(5) {
             if (!visited.add(server.url)) {
-                throw IllegalStateException("Extractor redirect loop for ${server.url}")
+                Log.w(tag, "Extractor redirect loop for ${server.url}")
+                return null
             }
 
             val extractor = extractorRegistry.firstOrNull { it.supports(server) }
-                ?: throw IllegalArgumentException("No extractor for ${server.name}: ${server.url}")
+            if (extractor == null) {
+                Log.w(tag, "No extractor for ${server.name}: ${server.url}")
+                return null
+            }
             Log.d(tag, "Dispatching ${server.name} to ${extractor.name}")
 
-            when (val result = extractor.extract(server)) {
+            val result = try {
+                extractor.extract(server)
+            } catch (error: Exception) {
+                Log.e(tag, "Extractor ${extractor.name} failed: ${error.message}")
+                return null
+            }
+
+            when (result) {
                 is ExtractionResult.Final -> {
                     return validateStream(result.stream)
                 }
@@ -256,7 +269,8 @@ class StreamExtractor(private val context: Context) {
             }
         }
 
-        throw IllegalStateException("Too many extractor redirects for ${initialServer.name}")
+        Log.w(tag, "Too many extractor redirects for ${initialServer.name}")
+        return null
     }
 
     private inner class StaticTmdbProvider : ServerProvider {
@@ -387,6 +401,43 @@ class StreamExtractor(private val context: Context) {
                     "https://primesrc.me/api/v1/l?key=$key",
                     refererHeaders("https://primesrc.me/"),
                 )
+            }
+        }
+    }
+
+    private inner class FrembedServerProvider : ServerProvider {
+        override val name = "Frembed"
+        private val baseUrl = "https://frembed.click"
+
+        override suspend fun getServers(request: MediaRequest): List<StreamServer> {
+            val url = if (request.isMovie) {
+                "$baseUrl/api/films?id=${request.tmdbId}&idType=tmdb"
+            } else {
+                "$baseUrl/api/series?id=${request.tmdbId}&sa=${request.season}&epi=${request.episode}&idType=tmdb"
+            }
+            return try {
+                val json = getJson(url, refererHeaders("$baseUrl/"))
+                val linkFields = listOf(
+                    "link1", "link2", "link3", "link4", "link5", "link6", "link7",
+                    "link1vostfr", "link2vostfr", "link3vostfr", "link4vostfr",
+                    "link5vostfr", "link6vostfr", "link7vostfr",
+                )
+                linkFields.mapNotNull { field ->
+                    val path = json.optString(field).ifBlank { return@mapNotNull null }
+                    val fullUrl = if (path.startsWith("/")) "$baseUrl$path" else path
+                    val lang = when {
+                        field.contains("vostfr") -> "VOSTFR"
+                        else -> "Default"
+                    }
+                    StreamServer(
+                        "Frembed $lang",
+                        fullUrl,
+                        refererHeaders("$baseUrl/"),
+                    )
+                }
+            } catch (e: Exception) {
+                Log.w(tag, "Frembed provider failed: ${e.message}")
+                emptyList()
             }
         }
     }
@@ -593,14 +644,25 @@ class StreamExtractor(private val context: Context) {
         override fun supports(server: StreamServer) = host(server.url).endsWith("vixsrc.to")
 
         override suspend fun extract(server: StreamServer): ExtractionResult {
-            val api = getJson(
-                server.url,
-                refererHeaders("https://vixsrc.to") + mapOf("X-Requested-With" to "XMLHttpRequest"),
-            )
-            val embedPath = api.optString("src").trimStart('/')
+            val headers = refererHeaders("https://vixsrc.to") + mapOf("X-Requested-With" to "XMLHttpRequest")
+            var api = getJson(server.url, headers)
+            var embedPath = api.optString("src").trimStart('/')
             require(embedPath.isNotBlank()) { "VixSrc returned no embed path" }
-            val embedUrl = "https://vixsrc.to/$embedPath"
-            val html = httpGet(embedUrl, refererHeaders("https://vixsrc.to"))
+            var embedUrl = "https://vixsrc.to/$embedPath"
+
+            var html = try {
+                httpGet(embedUrl, refererHeaders("https://vixsrc.to"))
+            } catch (e: Exception) {
+                val isGone = e.message?.contains("410") == true || e.message?.contains("Gone") == true
+                if (isGone) {
+                    Log.d(tag, "VixSrc embed returned 410, retrying API for fresh path")
+                    api = getJson(server.url, headers)
+                    embedPath = api.optString("src").trimStart('/')
+                    require(embedPath.isNotBlank()) { "VixSrc retry returned no embed path" }
+                    embedUrl = "https://vixsrc.to/$embedPath"
+                    httpGet(embedUrl, refererHeaders("https://vixsrc.to"))
+                } else throw e
+            }
 
             val videoSection = html.substringAfter("window.video = {", "")
             val playlistSection = html.substringAfter("window.masterPlaylist", "")
@@ -673,8 +735,25 @@ class StreamExtractor(private val context: Context) {
                 ?.replace("&amp;", "&")
                 ?.takeIf { it.isNotBlank() }
                 ?: throw IllegalStateException("Vidsrc returned no stream")
+
+            val subtitleRegex = Regex(
+                """default_subtitles\s*=\s*["']([^"']+)["']""",
+                RegexOption.DOT_MATCHES_ALL,
+            )
+            val subtitlesRaw = subtitleRegex.find(playerPage)?.groupValues?.get(1).orEmpty()
+            val subtitleBase = URI(iframeUrl)
+            val subtitleOrigin = "${subtitleBase.scheme}://${subtitleBase.host}"
+            val subtitles = if (subtitlesRaw.isNotBlank()) {
+                subtitlesRaw.split(",").mapNotNull { item ->
+                    val language = item.substringAfter("[").substringBefore("]")
+                    val subPath = item.substringAfter("]")
+                    if (!subPath.startsWith("/")) return@mapNotNull null
+                    SubtitleOption(language, "$subtitleOrigin$subPath")
+                }
+            } else emptyList()
+
             return ExtractionResult.Final(
-                StreamResult(streamUrl, name, mediaType(streamUrl), refererHeaders(iframeUrl)),
+                StreamResult(streamUrl, name, mediaType(streamUrl), refererHeaders(iframeUrl), subtitles = subtitles),
             )
         }
 
@@ -744,23 +823,57 @@ class StreamExtractor(private val context: Context) {
             val apiUrl = server.url.substringBefore('#')
             val selectedName = server.url.substringAfter('#', "")
             val json = getJson(apiUrl, refererHeaders("https://vidrock.net/"))
-            val item = json.optJSONObject(selectedName)
-                ?: json.keys().asSequence().mapNotNull { json.optJSONObject(it) }
-                    .firstOrNull { it.optString("url").isNotBlank() }
-                ?: throw IllegalStateException("Vidrock returned no sources")
-            var url = item.optString("url")
+            val headers = refererHeaders("https://vidrock.net/") + mapOf("Origin" to "https://vidrock.net")
 
-            if (selectedName.equals("Atlas", true)) {
-                val qualities = getJsonArray(url, refererHeaders("https://vidrock.net/"))
+            val candidates = if (selectedName.isNotBlank()) {
+                val item = json.optJSONObject(selectedName)
+                if (item != null) listOf(item) else emptyList()
+            } else {
+                json.keys().asSequence()
+                    .mapNotNull { name -> json.optJSONObject(name)?.let { name to it } }
+                    .filter { it.second.optString("url").isNotBlank() }
+                    .map { it.second }
+                    .toList()
+            }
+
+            for (item in candidates) {
+                var url = item.optString("url")
+                if (url.isBlank()) continue
+
+                val serverName = item.toString().substringBefore("://").ifBlank { server.name }
+                if (selectedName.isBlank()) {
+                    for (key in json.keys()) {
+                        if (json.optJSONObject(key) === item) {
+                            val candidateName = "$name $key"
+                            try {
+                                val stream = resolveVidrockUrl(url, candidateName, headers)
+                                if (stream != null) return ExtractionResult.Final(stream)
+                            } catch (_: Exception) { }
+                            break
+                        }
+                    }
+                } else {
+                    try {
+                        val stream = resolveVidrockUrl(url, "$name $selectedName", headers)
+                        if (stream != null) return ExtractionResult.Final(stream)
+                    } catch (_: Exception) { }
+                }
+            }
+
+            throw IllegalStateException("Vidrock returned no playable source")
+        }
+
+        private suspend fun resolveVidrockUrl(url: String, label: String, headers: Map<String, String>): StreamResult? {
+            var resolvedUrl = url
+            if (label.contains("Atlas", ignoreCase = true)) {
+                val qualities = getJsonArray(resolvedUrl, headers)
                 val highest = (0 until qualities.length())
                     .mapNotNull { qualities.optJSONObject(it) }
                     .maxByOrNull { it.optInt("resolution") }
-                if (highest != null) url = highest.optString("url", url)
+                if (highest != null) resolvedUrl = highest.optString("url", resolvedUrl)
             }
-
-            require(url.isNotBlank()) { "Vidrock source is empty" }
-            val headers = refererHeaders("https://vidrock.net/") + mapOf("Origin" to "https://vidrock.net")
-            return ExtractionResult.Final(StreamResult(url, "$name $selectedName", mediaType(url), headers))
+            if (resolvedUrl.isBlank()) return null
+            return StreamResult(resolvedUrl, label, mediaType(resolvedUrl), headers)
         }
     }
 
@@ -816,6 +929,15 @@ class StreamExtractor(private val context: Context) {
         override fun supports(server: StreamServer) = host(server.url).endsWith("videasy.net")
 
         override suspend fun extract(server: StreamServer): ExtractionResult {
+            return try {
+                extractFromVideasy(server)
+            } catch (e: Exception) {
+                Log.w(tag, "Videasy extraction failed for ${server.name}: ${e.message}")
+                throw e
+            }
+        }
+
+        private suspend fun extractFromVideasy(server: StreamServer): ExtractionResult {
             val encrypted = httpGet(server.url)
             val tmdbId = server.url.substringAfter("tmdbId=", "").substringBefore('&')
             val requestJson = JSONObject().put("text", encrypted).put("id", tmdbId)
@@ -842,6 +964,43 @@ class StreamExtractor(private val context: Context) {
             val link = getJson(server.url, headers).optString("link")
             require(link.isNotBlank()) { "PrimeSrc returned no host link" }
             return ExtractionResult.Redirect(StreamServer(server.name.substringBefore(" ("), link))
+        }
+    }
+
+    private inner class FrembedExtractor : HostExtractor {
+        override val name = "Frembed"
+        override fun supports(server: StreamServer) = host(server.url).endsWith("frembed.click")
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            val response = noRedirectClient.newCall(
+                Request.Builder().url(server.url)
+                    .header("User-Agent", userAgent)
+                    .header("Referer", "https://frembed.click/")
+                    .build()
+            ).execute()
+
+            val location = response.header("Location").orEmpty()
+            response.close()
+
+            if (location.isNotBlank()) {
+                val resolved = if (location.startsWith("//")) "https:$location" else location
+                Log.d(tag, "Frembed redirect: ${server.url} -> $resolved")
+                return ExtractionResult.Redirect(
+                    StreamServer(server.name, resolved, refererHeaders("https://frembed.click/")),
+                )
+            }
+
+            val pageHtml = httpGet(server.url, refererHeaders("https://frembed.click/"))
+            val mediaUrl = Regex(
+                """https?://[^\s"'<>]+\.(?:m3u8|mp4)(?:[^\s"'<>]*)?""",
+                RegexOption.IGNORE_CASE,
+            ).find(pageHtml)?.value
+                ?.replace("\\/", "/")?.replace("&amp;", "&")
+                ?: throw IllegalStateException("Frembed returned no media URL")
+
+            return ExtractionResult.Final(
+                StreamResult(mediaUrl, name, mediaType(mediaUrl), refererHeaders("https://frembed.click/")),
+            )
         }
     }
 
