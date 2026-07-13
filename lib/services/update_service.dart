@@ -1,9 +1,11 @@
+import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:open_file/open_file.dart';
+import 'notification_service.dart';
 
 class DownloadProgressDialog extends StatefulWidget {
   const DownloadProgressDialog({super.key});
@@ -19,12 +21,6 @@ class _DownloadProgressDialogState extends State<DownloadProgressDialog> {
   void initState() {
     super.initState();
     UpdateService._progressDialogState = this;
-  }
-
-  @override
-  void dispose() {
-    // Don't set to null here as it might be accessed after dispose
-    super.dispose();
   }
 
   void updateProgress(double progress) {
@@ -53,57 +49,112 @@ class _DownloadProgressDialogState extends State<DownloadProgressDialog> {
 }
 
 class UpdateService {
-  static const String updateUrl = 'https://your-server.com/api/latest-version'; // Replace with your server URL
-  static const String apkDownloadUrl = 'https://your-server.com/apk/maxstream-latest.apk'; // Replace with your APK URL
+  static const String githubOwner = 'chila254';
+  static const String githubRepo = 'maxstream';
+  static const String latestReleaseUrl =
+      'https://api.github.com/repos/$githubOwner/$githubRepo/releases/latest';
 
-  static late _DownloadProgressDialogState _progressDialogState;
+  static _DownloadProgressDialogState? _progressDialogState;
+  static bool _hasNotifiedCurrentVersion = false;
 
-  static Future<bool> checkForUpdate() async {
+  /// Check GitHub for a newer release. Returns the download URL if an update exists.
+  static Future<String?> checkForUpdate() async {
     try {
       final packageInfo = await PackageInfo.fromPlatform();
       final currentVersion = packageInfo.version;
 
-      final response = await Dio().get(updateUrl);
-      final latestVersion = response.data['version'] as String;
+      final response = await Dio().get(
+        latestReleaseUrl,
+        options: Options(headers: {'Accept': 'application/vnd.github+json'}),
+      );
 
-      return _isVersionNewer(currentVersion, latestVersion);
+      final tagName = response.data['tag_name'] as String? ?? '';
+      final latestVersion = tagName.replaceFirst('v', '');
+
+      if (latestVersion.isEmpty) return null;
+      if (!_isVersionNewer(currentVersion, latestVersion)) return null;
+
+      // Find the MaxStream.apk asset
+      final assets = response.data['assets'] as List<dynamic>? ?? [];
+      for (final asset in assets) {
+        final name = asset['name'] as String? ?? '';
+        if (name.toLowerCase().contains('maxstream') && name.endsWith('.apk')) {
+          return asset['browser_download_url'] as String?;
+        }
+      }
+
+      return null;
     } catch (e) {
       print('Error checking for update: $e');
-      return false;
+      return null;
     }
   }
 
-  static Future<void> downloadAndInstallUpdate(BuildContext context) async {
+  /// Check for updates and show a local notification if one is found.
+  /// Call this on app startup and periodically.
+  static Future<void> checkAndNotify() async {
+    if (_hasNotifiedCurrentVersion) return;
+
+    final downloadUrl = await checkForUpdate();
+    if (downloadUrl == null) return;
+
+    final packageInfo = await PackageInfo.fromPlatform();
+    final currentVersion = packageInfo.version;
+
+    final response = await Dio().get(
+      latestReleaseUrl,
+      options: Options(headers: {'Accept': 'application/vnd.github+json'}),
+    );
+    final latestVersion =
+        (response.data['tag_name'] as String? ?? '').replaceFirst('v', '');
+
+    final notificationService = NotificationService();
+    await notificationService.showNotification(
+      id: 9999,
+      title: 'Update Available',
+      body: 'MaxStream $latestVersion is available (current: $currentVersion). Tap to download.',
+      payload: 'update:$downloadUrl',
+    );
+
+    _hasNotifiedCurrentVersion = true;
+  }
+
+  /// Download and install the APK from the given GitHub URL.
+  static Future<void> downloadAndInstallUpdate(
+    BuildContext context,
+    String downloadUrl,
+  ) async {
     try {
-      // Request storage permission
       final status = await Permission.storage.request();
       if (!status.isGranted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Storage permission is required to download updates')),
-        );
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Storage permission is required to download updates'),
+            ),
+          );
+        }
         return;
       }
 
-      // Get download directory
       final directory = await getExternalStorageDirectory();
-      final filePath = '${directory!.path}/maxstream_update.apk';
+      final filePath = '${directory!.path}/MaxStream.apk';
 
-      // Show download progress dialog
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => DownloadProgressDialog(),
-      );
+      if (context.mounted) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (_) => const DownloadProgressDialog(),
+        );
+      }
 
-      // Download APK
       await Dio().download(
-        apkDownloadUrl,
+        downloadUrl,
         filePath,
         onReceiveProgress: (received, total) {
           if (total != -1) {
             final progress = received / total;
-            // Update progress in dialog
-            UpdateService._progressDialogState.updateProgress(progress);
+            _progressDialogState?.updateProgress(progress);
           }
         },
       );
@@ -111,26 +162,27 @@ class UpdateService {
       if (context.mounted) {
         Navigator.of(context).pop(); // Close progress dialog
 
-        // Show installation dialog
         showDialog(
           context: context,
           barrierDismissible: false,
           builder: (context) => AlertDialog(
             title: const Text('Download Complete'),
-            content: const Text('The update has been downloaded. Installing now...'),
+            content: const Text('The update has been downloaded. Install now?'),
             actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Later'),
+              ),
               ElevatedButton(
                 onPressed: () async {
                   Navigator.of(context).pop();
-
-                  // Install APK
                   final result = await OpenFile.open(filePath);
-                  if (result.type != ResultType.done) {
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Failed to install update. Please check your downloads folder.')),
-                      );
-                    }
+                  if (result.type != ResultType.done && context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Failed to install. Check your downloads folder.'),
+                      ),
+                    );
                   }
                 },
                 child: const Text('Install'),
@@ -150,14 +202,18 @@ class UpdateService {
   }
 
   static bool _isVersionNewer(String current, String latest) {
-    final currentParts = current.split('.').map(int.parse).toList();
-    final latestParts = latest.split('.').map(int.parse).toList();
+    try {
+      final currentParts = current.split('.').map(int.parse).toList();
+      final latestParts = latest.split('.').map(int.parse).toList();
 
-    for (int i = 0; i < currentParts.length && i < latestParts.length; i++) {
-      if (latestParts[i] > currentParts[i]) return true;
-      if (latestParts[i] < currentParts[i]) return false;
+      for (int i = 0; i < currentParts.length && i < latestParts.length; i++) {
+        if (latestParts[i] > currentParts[i]) return true;
+        if (latestParts[i] < currentParts[i]) return false;
+      }
+
+      return latestParts.length > currentParts.length;
+    } catch (e) {
+      return false;
     }
-
-    return latestParts.length > currentParts.length;
   }
 }

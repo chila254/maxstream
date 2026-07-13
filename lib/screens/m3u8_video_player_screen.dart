@@ -726,7 +726,6 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         allowedScreenSleep: false,
         hideControlsTimer: const Duration(seconds: 4),
         progressIndicatorDelay: const Duration(milliseconds: 150),
-        bufferingDuration: const Duration(seconds: 2),
         controlsSafeAreaMinimum: const EdgeInsets.fromLTRB(8, 8, 8, 18),
         customControls: _StablePlayerControls(
           controller: controller,

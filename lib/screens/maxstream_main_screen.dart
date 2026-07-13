@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'maxstream_home_screen.dart';
 import 'maxstream_search_screen.dart';
 import 'maxstream_series_list_screen.dart';
 import 'maxstream_watchlist_screen.dart';
 import 'maxstream_more_screen.dart';
 import '../services/update_service.dart';
+import '../services/notification_service.dart';
 import '../services/notification_permission_service.dart';
 import '../services/content_notification_service.dart';
 
@@ -29,12 +31,30 @@ class _MaxStreamMainScreenState extends State<MaxStreamMainScreen> {
   void initState() {
     super.initState();
     _initializeServices();
+    _setupNotificationTap();
+  }
+
+  void _setupNotificationTap() {
+    final plugin = FlutterLocalNotificationsPlugin();
+    plugin.initialize(
+      const InitializationSettings(
+        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+      ),
+      onDidReceiveNotificationResponse: (details) {
+        final payload = details.payload;
+        if (payload != null && payload.startsWith('update:')) {
+          final downloadUrl = payload.substring('update:'.length);
+          if (mounted) {
+            UpdateService.downloadAndInstallUpdate(context, downloadUrl);
+          }
+        }
+      },
+    );
   }
 
   Future<void> _initializeServices() async {
     _checkForUpdates();
     _checkNotificationPermission();
-    // Initialize notification service and schedule periodic checks
     await ContentNotificationService.initialize();
     await ContentNotificationService.schedulePeriodicCheck();
   }
@@ -42,9 +62,13 @@ class _MaxStreamMainScreenState extends State<MaxStreamMainScreen> {
   Future<void> _checkForUpdates() async {
     if (_updateChecked) return;
 
-    final hasUpdate = await UpdateService.checkForUpdate();
-    if (hasUpdate && mounted) {
-      _showUpdateDialog();
+    // Check and show notification — user taps notification to download
+    await UpdateService.checkAndNotify();
+
+    // Also check inline and show dialog
+    final downloadUrl = await UpdateService.checkForUpdate();
+    if (downloadUrl != null && mounted) {
+      _showUpdateDialog(downloadUrl);
     }
     _updateChecked = true;
   }
@@ -68,7 +92,7 @@ class _MaxStreamMainScreenState extends State<MaxStreamMainScreen> {
     }
   }
 
-  void _showUpdateDialog() {
+  void _showUpdateDialog(String downloadUrl) {
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -85,7 +109,7 @@ class _MaxStreamMainScreenState extends State<MaxStreamMainScreen> {
           ElevatedButton(
             onPressed: () {
               Navigator.of(context).pop();
-              UpdateService.downloadAndInstallUpdate(context);
+              UpdateService.downloadAndInstallUpdate(context, downloadUrl);
             },
             child: const Text('Update Now'),
           ),
