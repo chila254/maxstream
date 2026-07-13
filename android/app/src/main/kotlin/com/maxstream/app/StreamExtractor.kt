@@ -403,11 +403,13 @@ class StreamExtractor(private val context: Context) {
             val subtitles = response.optJSONArray("subtitles")?.let { items ->
                 (0 until items.length()).mapNotNull { index ->
                     val item = items.optJSONObject(index) ?: return@mapNotNull null
-                    val url = item.optString("url")
-                    if (url.isBlank()) return@mapNotNull null
+                    val rawUrl = item.optString("url")
+                    if (rawUrl.isBlank()) return@mapNotNull null
+                    val subtitleUrl = if (rawUrl.startsWith("http")) rawUrl
+                        else resolveUrl(server.url, rawUrl)
                     SubtitleOption(
                         item.optString("label", "Subtitle"),
-                        url,
+                        subtitleUrl,
                         item.optBoolean("default", false),
                     )
                 }
@@ -449,11 +451,13 @@ class StreamExtractor(private val context: Context) {
                                     val captions = stream.optJSONArray("captions")?.let { items ->
                                         (0 until items.length()).mapNotNull { index ->
                                             val item = items.optJSONObject(index) ?: return@mapNotNull null
-                                            val url = item.optString("id")
-                                            if (url.isBlank()) return@mapNotNull null
+                                            val rawUrl = item.optString("id")
+                                            if (rawUrl.isBlank()) return@mapNotNull null
+                                            val captionUrl = if (rawUrl.startsWith("http")) rawUrl
+                                                else resolveUrl(server.url, rawUrl)
                                             SubtitleOption(
                                                 item.optString("language", "Subtitle"),
-                                                url,
+                                                captionUrl,
                                             )
                                         }
                                     }.orEmpty()

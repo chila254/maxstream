@@ -1007,7 +1007,13 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     _SubtitleTrack track,
     Map<String, String> headers,
   ) async {
-    final response = await http.get(Uri.parse(track.url), headers: headers);
+    final uri = Uri.parse(track.url);
+    if (uri.host.isEmpty) {
+      throw Exception('Invalid subtitle URL: ${track.url}');
+    }
+    final response = await http
+        .get(uri, headers: headers)
+        .timeout(const Duration(seconds: 10));
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception('HTTP ${response.statusCode}');
     }
