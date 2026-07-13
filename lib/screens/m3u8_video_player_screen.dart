@@ -1259,7 +1259,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
                         ),
                       );
                     },
-                  ),
+                  );
                 },
               ),
             ),
