@@ -6,6 +6,16 @@ import 'package:flutter/foundation.dart';
 class NativeStreamExtractor {
   static const _channel = MethodChannel('com.maxstream.app/extractor');
 
+  static Future<double> getBrightness() async {
+    return await _channel.invokeMethod<double>('getBrightness') ?? 0.5;
+  }
+
+  static Future<void> setBrightness(double value) async {
+    await _channel.invokeMethod<void>('setBrightness', {
+      'value': value.clamp(0.01, 1.0),
+    });
+  }
+
   /// Resolve a TMDB ID to a playable stream URL using native Kotlin extractors.
   /// Returns stream metadata and request headers, or null on failure.
   static Future<Map<String, dynamic>?> resolveStream({

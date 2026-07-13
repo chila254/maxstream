@@ -1,12 +1,19 @@
 package com.maxstream.app
 
+import android.annotation.SuppressLint
+import android.content.Context
 import android.util.Base64
 import android.util.Log
+import android.webkit.JavascriptInterface
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import okhttp3.Cookie
 import okhttp3.CookieJar
 import okhttp3.Dns
@@ -28,9 +35,11 @@ import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 /** Resolves TMDB metadata through server providers and host-specific extractors. */
-class StreamExtractor {
+class StreamExtractor(private val context: Context) {
     private val tag = "StreamExtractor"
     private val userAgent =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
@@ -48,6 +57,7 @@ class StreamExtractor {
         val name: String,
         val url: String,
         val headers: Map<String, String> = emptyMap(),
+        val subtitles: List<SubtitleOption> = emptyList(),
     )
 
     data class StreamResult(
@@ -56,6 +66,7 @@ class StreamExtractor {
         val type: String,
         val headers: Map<String, String> = emptyMap(),
         val qualities: List<QualityOption> = emptyList(),
+        val subtitles: List<SubtitleOption> = emptyList(),
     ) {
         fun toMap(): Map<String, Any> = mapOf(
             "url" to url,
@@ -64,6 +75,19 @@ class StreamExtractor {
             "headers" to headers,
             "referer" to (headers["Referer"] ?: ""),
             "qualities" to qualities.map(QualityOption::toMap),
+            "subtitles" to subtitles.map(SubtitleOption::toMap),
+        )
+    }
+
+    data class SubtitleOption(
+        val label: String,
+        val url: String,
+        val isDefault: Boolean = false,
+    ) {
+        fun toMap(): Map<String, Any> = mapOf(
+            "label" to label,
+            "url" to url,
+            "default" to isDefault,
         )
     }
 
@@ -150,6 +174,7 @@ class StreamExtractor {
     private val extractorRegistry: List<HostExtractor> by lazy {
         listOf(
             VidflixExtractor(),
+            VidLinkExtractor(),
             RpmExtractor(),
             VixSrcExtractor(),
             VidsrcNetExtractor(),
@@ -270,6 +295,15 @@ class StreamExtractor {
             )
 
             servers += StreamServer(
+                "VidLink",
+                if (request.isMovie) {
+                    "https://vidlink.pro/movie/$id"
+                } else {
+                    "https://vidlink.pro/tv/$id/${request.season}/${request.episode}"
+                },
+            )
+
+            servers += StreamServer(
                 "2Embed",
                 if (request.isMovie) {
                     "https://www.2embed.cc/embed/$id"
@@ -366,7 +400,107 @@ class StreamExtractor {
             val response = getJson(server.url, refererHeaders(referer))
             val videoUrl = response.optString("video_url")
             require(videoUrl.isNotBlank()) { "Vidflix returned no video_url" }
-            return ExtractionResult.Redirect(StreamServer("RPM video", videoUrl))
+            val subtitles = response.optJSONArray("subtitles")?.let { items ->
+                (0 until items.length()).mapNotNull { index ->
+                    val item = items.optJSONObject(index) ?: return@mapNotNull null
+                    val url = item.optString("url")
+                    if (url.isBlank()) return@mapNotNull null
+                    SubtitleOption(
+                        item.optString("label", "Subtitle"),
+                        url,
+                        item.optBoolean("default", false),
+                    )
+                }
+            }.orEmpty()
+            return ExtractionResult.Redirect(
+                StreamServer("RPM video", videoUrl, subtitles = subtitles),
+            )
+        }
+    }
+
+    @SuppressLint("SetJavaScriptEnabled")
+    private inner class VidLinkExtractor : HostExtractor {
+        override val name = "VidLink"
+        override fun supports(server: StreamServer) = host(server.url).endsWith("vidlink.pro")
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            return withContext(Dispatchers.Main) {
+                withTimeout(30_000) {
+                    suspendCancellableCoroutine { continuation ->
+                        val webView = WebView(context)
+                        webView.settings.javaScriptEnabled = true
+                        webView.settings.domStorageEnabled = true
+
+                        fun finish(result: Result<StreamResult>) {
+                            if (!continuation.isActive) return
+                            result.fold(
+                                onSuccess = { continuation.resume(ExtractionResult.Final(it)) },
+                                onFailure = { continuation.resumeWithException(it) },
+                            )
+                            webView.post { webView.destroy() }
+                        }
+
+                        webView.addJavascriptInterface(object {
+                            @JavascriptInterface
+                            fun onStreamFound(payload: String) {
+                                runCatching {
+                                    val stream = JSONObject(payload).getJSONObject("stream")
+                                    val playlist = stream.getString("playlist")
+                                    val captions = stream.optJSONArray("captions")?.let { items ->
+                                        (0 until items.length()).mapNotNull { index ->
+                                            val item = items.optJSONObject(index) ?: return@mapNotNull null
+                                            val url = item.optString("id")
+                                            if (url.isBlank()) return@mapNotNull null
+                                            SubtitleOption(
+                                                item.optString("language", "Subtitle"),
+                                                url,
+                                            )
+                                        }
+                                    }.orEmpty()
+                                    StreamResult(
+                                        playlist,
+                                        name,
+                                        "direct_m3u8",
+                                        refererHeaders("https://vidlink.pro/"),
+                                        subtitles = captions,
+                                    )
+                                }.let(::finish)
+                            }
+                        }, "NativeBridge")
+
+                        webView.webViewClient = object : WebViewClient() {
+                            override fun onPageFinished(view: WebView, url: String) {
+                                val script = """
+                                    (() => {
+                                      if (window.__nativeStreamHook) return;
+                                      window.__nativeStreamHook = true;
+                                      const send = data => window.NativeBridge.onStreamFound(JSON.stringify(data));
+                                      const originalFetch = window.fetch.bind(window);
+                                      window.fetch = async (...args) => {
+                                        const response = await originalFetch(...args);
+                                        if (response.url.includes('/api/b/')) {
+                                          response.clone().json().then(send).catch(() => {});
+                                        }
+                                        return response;
+                                      };
+                                      const resource = performance.getEntriesByType('resource')
+                                        .map(entry => entry.name).find(url => url.includes('/api/b/'));
+                                      if (resource) originalFetch(resource).then(r => r.json()).then(send).catch(() => {});
+                                    })();
+                                """.trimIndent()
+                                view.evaluateJavascript(script, null)
+                            }
+                        }
+                        webView.loadUrl(server.url)
+                        continuation.invokeOnCancellation {
+                            webView.post {
+                                webView.stopLoading()
+                                webView.destroy()
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -394,27 +528,59 @@ class StreamExtractor {
             val hls = json.optString("hls").takeIf { it.isNotBlank() }
             val hlsTiktok = json.optString("hlsVideoTiktok").takeIf { it.isNotBlank() }
             val cloudflare = json.optString("cf").takeIf { it.isNotBlank() }
-            val finalUrl = when {
-                hls != null -> absoluteMediaUrl(origin, hls)
-                hlsTiktok != null -> {
-                    val version = runCatching {
-                        JSONObject(json.optString("streamingConfig"))
-                            .optJSONObject("adjust")
-                            ?.optJSONObject("Tiktok")
-                            ?.optJSONObject("params")
-                            ?.optString("v")
-                            .orEmpty()
-                    }.getOrDefault("")
-                    absoluteMediaUrl(origin, hlsTiktok) +
-                        if (version.isBlank()) "" else "?v=${encode(version)}"
-                }
-                cloudflare != null -> addCloudflareToken(json, cloudflare)
-                else -> throw IllegalStateException("RPM response contains no playable source")
-            }
+            val cloudflareNative = json.optString("cfNative").takeIf { it.isNotBlank() }
+            val directSource = json.optString("source").takeIf { it.isNotBlank() }
+            val tiktokVersion = runCatching {
+                JSONObject(json.optString("streamingConfig"))
+                    .optJSONObject("adjust")
+                    ?.optJSONObject("Tiktok")
+                    ?.optJSONObject("params")
+                    ?.optString("v")
+                    .orEmpty()
+            }.getOrDefault("")
 
-            return ExtractionResult.Final(
-                StreamResult(finalUrl, name, mediaType(finalUrl), refererHeaders(origin)),
-            )
+            val defaultSubtitle = json.optJSONObject("defaultSubtitle")
+                ?.optString("defaultSubtitle").orEmpty()
+            val embeddedSubtitles = json.optJSONObject("subtitle")?.let { items ->
+                items.keys().asSequence().mapNotNull { label ->
+                    val url = items.optString(label)
+                    if (url.isBlank()) null else SubtitleOption(
+                        label,
+                        absoluteMediaUrl(origin, url.substringBefore('#')),
+                        defaultSubtitle.isNotBlank() && label.contains(defaultSubtitle, true),
+                    )
+                }.toList()
+            }.orEmpty()
+
+            val candidates = buildList {
+                hls?.let { add(absoluteMediaUrl(origin, it)) }
+                hlsTiktok?.let {
+                    add(
+                        absoluteMediaUrl(origin, it) +
+                            if (tiktokVersion.isBlank()) "" else "?v=${encode(tiktokVersion)}",
+                    )
+                }
+                cloudflareNative?.let(::add)
+                cloudflare?.let { add(addCloudflareToken(json, it)) }
+                directSource?.let(::add)
+            }.distinct()
+            require(candidates.isNotEmpty()) { "RPM response contains no playback routes" }
+
+            for (candidateUrl in candidates) {
+                val candidate = StreamResult(
+                    candidateUrl,
+                    name,
+                    mediaType(candidateUrl),
+                    refererHeaders(origin),
+                    subtitles = (server.subtitles + embeddedSubtitles).distinctBy { it.url },
+                )
+                try {
+                    return ExtractionResult.Final(validateStream(candidate))
+                } catch (error: Exception) {
+                    Log.w(tag, "RPM route failed: ${error.message}")
+                }
+            }
+            throw IllegalStateException("RPM returned no playable route")
         }
     }
 
@@ -814,12 +980,17 @@ class StreamExtractor {
         }
 
         val validation = validateHls(stream.url, stream.headers)
-        return stream.copy(url = validation.playbackUrl, qualities = validation.qualities)
+        return stream.copy(
+            url = validation.playbackUrl,
+            qualities = validation.qualities,
+            subtitles = (stream.subtitles + validation.subtitles).distinctBy { it.url },
+        )
     }
 
     private data class HlsValidation(
         val playbackUrl: String,
         val qualities: List<QualityOption>,
+        val subtitles: List<SubtitleOption>,
     )
 
     private data class HlsVariant(val url: String, val height: Int)
@@ -831,9 +1002,10 @@ class StreamExtractor {
         }
 
         val variants = parseHlsVariants(master.url, master.body)
+        val subtitles = parseHlsSubtitles(master.url, master.body)
         if (variants.isEmpty()) {
             validateMediaPlaylist(master.url, master.body, headers)
-            return HlsValidation(master.url, emptyList())
+            return HlsValidation(master.url, emptyList(), subtitles)
         }
 
         val playableVariants = variants.mapNotNull { variant ->
@@ -856,7 +1028,7 @@ class StreamExtractor {
             }
             addAll(playableVariants.map { QualityOption("${it.height}p", it.url, it.height) })
         }
-        return HlsValidation(playbackUrl, qualities)
+        return HlsValidation(playbackUrl, qualities, subtitles)
     }
 
     private fun validateMediaPlaylist(
@@ -882,6 +1054,26 @@ class StreamExtractor {
                 ?: return@mapIndexedNotNull null
             HlsVariant(resolveUrl(masterUrl, uri), height)
         }
+    }
+
+    private fun parseHlsSubtitles(masterUrl: String, body: String): List<SubtitleOption> {
+        fun attribute(line: String, name: String): String? {
+            val match = Regex("""(?:^|,)$name=(?:"([^"]*)"|([^,]*))""", RegexOption.IGNORE_CASE)
+                .find(line) ?: return null
+            return match.groupValues[1].ifBlank { match.groupValues[2] }.ifBlank { null }
+        }
+
+        return body.lineSequence().mapNotNull { line ->
+            if (!line.startsWith("#EXT-X-MEDIA", true) ||
+                !line.contains("TYPE=SUBTITLES", true)) return@mapNotNull null
+            val uri = attribute(line, "URI") ?: return@mapNotNull null
+            val label = attribute(line, "NAME") ?: attribute(line, "LANGUAGE") ?: "Subtitle"
+            SubtitleOption(
+                label,
+                resolveUrl(masterUrl, uri),
+                attribute(line, "DEFAULT").equals("YES", true),
+            )
+        }.distinctBy { it.url }.toList()
     }
 
     private data class ValidationResponse(

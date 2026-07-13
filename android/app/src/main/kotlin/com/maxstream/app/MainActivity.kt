@@ -1,5 +1,6 @@
 package com.maxstream.app
 
+import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -7,7 +8,7 @@ import kotlinx.coroutines.*
 
 class MainActivity : FlutterActivity() {
     private val EXTRACTOR_CHANNEL = "com.maxstream.app/extractor"
-    private val extractor = StreamExtractor()
+    private val extractor by lazy { StreamExtractor(this) }
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -16,6 +17,28 @@ class MainActivity : FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, EXTRACTOR_CHANNEL)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
+                    "getBrightness" -> {
+                        val windowBrightness = window.attributes.screenBrightness
+                        val brightness = if (windowBrightness >= 0f) {
+                            windowBrightness
+                        } else {
+                            Settings.System.getInt(
+                                contentResolver,
+                                Settings.System.SCREEN_BRIGHTNESS,
+                                128,
+                            ) / 255f
+                        }
+                        result.success(brightness.toDouble())
+                    }
+                    "setBrightness" -> {
+                        val brightness = (call.argument<Double>("value") ?: 0.5)
+                            .coerceIn(0.01, 1.0)
+                            .toFloat()
+                        window.attributes = window.attributes.apply {
+                            screenBrightness = brightness
+                        }
+                        result.success(null)
+                    }
                     "resolveStream" -> {
                         val tmdbId = call.argument<String>("tmdbId") ?: ""
                         val isMovie = call.argument<Boolean>("isMovie") ?: true

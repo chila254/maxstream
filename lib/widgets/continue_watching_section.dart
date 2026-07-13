@@ -113,14 +113,20 @@ class _ContinueWatchingSectionState extends State<ContinueWatchingSection> {
               borderRadius: BorderRadius.circular(8),
               child: Stack(
                 children: [
-                  Container(
+                  SizedBox(
                     width: 140,
                     height: 160,
-                    color: Colors.grey[800],
-                    child: const Icon(
-                      Icons.movie,
-                      color: Colors.grey,
-                      size: 40,
+                    child: Image.network(
+                      item['posterUrl']?.toString() ?? '',
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) => ColoredBox(
+                        color: Colors.grey[800]!,
+                        child: const Icon(
+                          Icons.movie,
+                          color: Colors.grey,
+                          size: 40,
+                        ),
+                      ),
                     ),
                   ),
                   Positioned(

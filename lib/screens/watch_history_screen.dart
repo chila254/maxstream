@@ -191,15 +191,24 @@ class _WatchHistoryScreenState extends State<WatchHistoryScreen> {
           padding: const EdgeInsets.all(12),
           child: Row(
             children: [
-              // Thumbnail placeholder
-              Container(
-                width: 80,
-                height: 120,
-                decoration: BoxDecoration(
-                  color: Colors.grey[800],
-                  borderRadius: BorderRadius.circular(8),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Image.network(
+                  item['posterUrl']?.toString() ?? '',
+                  width: 80,
+                  height: 120,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, _, _) => Container(
+                    width: 80,
+                    height: 120,
+                    color: Colors.grey[800],
+                    child: const Icon(
+                      Icons.movie,
+                      color: Colors.grey,
+                      size: 40,
+                    ),
+                  ),
                 ),
-                child: const Icon(Icons.movie, color: Colors.grey, size: 40),
               ),
               const SizedBox(width: 12),
               // Content info

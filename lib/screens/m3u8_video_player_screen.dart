@@ -2,9 +2,12 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
 import 'package:video_player/video_player.dart';
 import 'package:chewie/chewie.dart';
 import '../services/direct_m3u8_service.dart';
+import '../services/native_stream_extractor.dart';
+import '../services/tmdb_api_service.dart';
 import '../services/watch_history_service.dart';
 
 class M3U8VideoPlayerScreen extends StatefulWidget {
@@ -39,6 +42,18 @@ class _StreamQuality {
   final int height;
 }
 
+class _SubtitleTrack {
+  const _SubtitleTrack({
+    required this.label,
+    required this.url,
+    required this.isDefault,
+  });
+
+  final String label;
+  final String url;
+  final bool isDefault;
+}
+
 class _StablePlayerControls extends StatefulWidget {
   const _StablePlayerControls({
     required this.controller,
@@ -46,6 +61,9 @@ class _StablePlayerControls extends StatefulWidget {
     required this.onQuality,
     required this.qualityLabel,
     required this.showQuality,
+    required this.onSubtitles,
+    required this.subtitleLabel,
+    required this.showSubtitles,
   });
 
   final VideoPlayerController controller;
@@ -53,6 +71,9 @@ class _StablePlayerControls extends StatefulWidget {
   final VoidCallback onQuality;
   final String qualityLabel;
   final bool showQuality;
+  final VoidCallback onSubtitles;
+  final String subtitleLabel;
+  final bool showSubtitles;
 
   @override
   State<_StablePlayerControls> createState() => _StablePlayerControlsState();
@@ -61,6 +82,9 @@ class _StablePlayerControls extends StatefulWidget {
 class _StablePlayerControlsState extends State<_StablePlayerControls> {
   bool _visible = true;
   Timer? _hideTimer;
+  bool _adjustingBrightness = false;
+  double _gestureValue = 0.5;
+  bool _showGestureValue = false;
 
   @override
   void initState() {
@@ -99,6 +123,46 @@ class _StablePlayerControlsState extends State<_StablePlayerControls> {
     _restartHideTimer();
   }
 
+  void _seekBy(Duration offset) {
+    final value = widget.controller.value;
+    var target = value.position + offset;
+    if (target < Duration.zero) target = Duration.zero;
+    if (value.duration > Duration.zero && target > value.duration) {
+      target = value.duration;
+    }
+    widget.controller.seekTo(target);
+    _restartHideTimer();
+  }
+
+  void _startVerticalDrag(DragStartDetails details) {
+    final width = MediaQuery.sizeOf(context).width;
+    _adjustingBrightness = details.localPosition.dx < width / 2;
+    _gestureValue = _adjustingBrightness ? 0.5 : widget.controller.value.volume;
+    if (_adjustingBrightness) {
+      NativeStreamExtractor.getBrightness().then((value) {
+        if (mounted && _adjustingBrightness) _gestureValue = value;
+      });
+    }
+    setState(() => _showGestureValue = true);
+    _hideTimer?.cancel();
+  }
+
+  void _updateVerticalDrag(DragUpdateDetails details) {
+    final delta = -(details.primaryDelta ?? 0) / 220;
+    _gestureValue = (_gestureValue + delta).clamp(0.01, 1.0);
+    if (_adjustingBrightness) {
+      NativeStreamExtractor.setBrightness(_gestureValue);
+    } else {
+      widget.controller.setVolume(_gestureValue);
+    }
+    setState(() => _showGestureValue = true);
+  }
+
+  void _endVerticalDrag(DragEndDetails details) {
+    setState(() => _showGestureValue = false);
+    _restartHideTimer();
+  }
+
   String _format(Duration duration) {
     final hours = duration.inHours;
     final minutes = duration.inMinutes.remainder(60).toString().padLeft(2, '0');
@@ -114,21 +178,43 @@ class _StablePlayerControlsState extends State<_StablePlayerControls> {
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: _toggleControls,
+          onVerticalDragStart: _startVerticalDrag,
+          onVerticalDragUpdate: _updateVerticalDrag,
+          onVerticalDragEnd: _endVerticalDrag,
           child: Stack(
             children: [
               if (_visible)
                 const Positioned.fill(child: ColoredBox(color: Colors.black26)),
               if (_visible)
                 Center(
-                  child: IconButton(
-                    iconSize: 58,
-                    onPressed: _togglePlayback,
-                    icon: Icon(
-                      value.isPlaying
-                          ? Icons.pause_circle_filled
-                          : Icons.play_circle_fill,
-                      color: Colors.white,
-                    ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        tooltip: 'Back 10 seconds',
+                        iconSize: 42,
+                        onPressed: () => _seekBy(const Duration(seconds: -10)),
+                        icon: const Icon(Icons.replay_10, color: Colors.white),
+                      ),
+                      const SizedBox(width: 24),
+                      IconButton(
+                        iconSize: 58,
+                        onPressed: _togglePlayback,
+                        icon: Icon(
+                          value.isPlaying
+                              ? Icons.pause_circle_filled
+                              : Icons.play_circle_fill,
+                          color: Colors.white,
+                        ),
+                      ),
+                      const SizedBox(width: 24),
+                      IconButton(
+                        tooltip: 'Forward 10 seconds',
+                        iconSize: 42,
+                        onPressed: () => _seekBy(const Duration(seconds: 10)),
+                        icon: const Icon(Icons.forward_10, color: Colors.white),
+                      ),
+                    ],
                   ),
                 ),
               if (_visible)
@@ -184,6 +270,18 @@ class _StablePlayerControlsState extends State<_StablePlayerControls> {
                               ),
                             ),
                             const Spacer(),
+                            if (widget.showSubtitles)
+                              TextButton.icon(
+                                onPressed: widget.onSubtitles,
+                                icon: const Icon(
+                                  Icons.subtitles,
+                                  color: Colors.white,
+                                ),
+                                label: Text(
+                                  widget.subtitleLabel,
+                                  style: const TextStyle(color: Colors.white),
+                                ),
+                              ),
                             if (widget.showQuality)
                               TextButton.icon(
                                 onPressed: widget.onQuality,
@@ -210,6 +308,42 @@ class _StablePlayerControlsState extends State<_StablePlayerControls> {
                     ),
                   ),
                 ),
+              if (_showGestureValue)
+                Positioned(
+                  top: 0,
+                  bottom: 0,
+                  left: _adjustingBrightness ? 36 : null,
+                  right: _adjustingBrightness ? null : 36,
+                  child: Center(
+                    child: Container(
+                      width: 64,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 14,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.black54,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            _adjustingBrightness
+                                ? Icons.brightness_6
+                                : Icons.volume_up,
+                            color: Colors.white,
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            '${(_gestureValue * 100).round()}%',
+                            style: const TextStyle(color: Colors.white),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
             ],
           ),
         );
@@ -229,13 +363,30 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   String _selectedQuality = 'Auto';
   Map<String, String> _streamHeaders = const {};
   List<_StreamQuality> _qualities = const [];
+  List<_SubtitleTrack> _subtitleTracks = const [];
+  List<Subtitle> _activeSubtitles = const [];
+  String _selectedSubtitle = 'Off';
   String _statusMessage = 'Initializing...';
   Timer? _progressTimer;
   bool _isLeaving = false;
+  late int _currentSeason;
+  late int _currentEpisode;
+  late String _currentTitle;
+  late String _resolverTitle;
+  String _posterUrl = '';
+  Map<String, dynamic>? _nextEpisode;
+  bool _nextEpisodeCancelled = false;
+  bool _loadingNextEpisode = false;
+  bool _showNextEpisode = false;
+  int _nextEpisodeCountdown = 30;
 
   @override
   void initState() {
     super.initState();
+    _currentSeason = widget.season;
+    _currentEpisode = widget.episode;
+    _currentTitle = widget.title;
+    _resolverTitle = widget.title;
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
@@ -259,7 +410,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     }
   }
 
-  Future<void> _loadStream() async {
+  Future<void> _loadStream({bool resume = true}) async {
     if (!mounted) return;
 
     setState(() {
@@ -269,19 +420,20 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
 
     try {
       _showStatus('Fetching available servers...');
+      await _loadMediaMetadata();
       Map<String, dynamic>? result;
 
       if (widget.isMovie) {
         result = await DirectM3u8Service.fetchMovieStreamUrl(
-          widget.title,
+          _resolverTitle,
           null,
           widget.tmdbId,
         );
       } else {
         result = await DirectM3u8Service.fetchSeriesStreamUrl(
-          widget.title,
-          widget.season,
-          widget.episode,
+          _resolverTitle,
+          _currentSeason,
+          _currentEpisode,
           widget.tmdbId,
         );
       }
@@ -301,6 +453,23 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
           });
         }
         final qualities = _parseQualities(result['qualities']);
+        final subtitleTracks = _parseSubtitleTracks(result['subtitles']);
+        _SubtitleTrack? initialSubtitle;
+        for (final track in subtitleTracks) {
+          if (track.isDefault) {
+            initialSubtitle = track;
+            break;
+          }
+        }
+        var initialSubtitles = const <Subtitle>[];
+        if (initialSubtitle != null) {
+          try {
+            initialSubtitles = await _fetchSubtitles(initialSubtitle, headers);
+          } catch (error) {
+            debugPrint('M3U8Player: Default subtitle failed: $error');
+            initialSubtitle = null;
+          }
+        }
         var selectedQuality = 'Auto';
         for (final quality in qualities) {
           if (quality.url == url) {
@@ -308,13 +477,18 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
             break;
           }
         }
-        final resumePosition = await WatchHistoryService.loadWatchPosition(
-          widget.tmdbId,
-          widget.isMovie,
-          widget.season,
-          widget.episode,
-        );
+        final resumePosition = resume
+            ? await WatchHistoryService.loadWatchPosition(
+                widget.tmdbId,
+                widget.isMovie,
+                _currentSeason,
+                _currentEpisode,
+              )
+            : Duration.zero;
         if (!mounted) return;
+        _subtitleTracks = subtitleTracks;
+        _activeSubtitles = initialSubtitles;
+        _selectedSubtitle = initialSubtitle?.label ?? 'Off';
 
         _showStatus('Stream found from $source! Initializing player...');
         await _initializePlayer(
@@ -350,6 +524,88 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         });
       }
     }
+  }
+
+  Future<void> _loadMediaMetadata() async {
+    final id = int.tryParse(widget.tmdbId);
+    if (id == null) return;
+    final details = widget.isMovie
+        ? await TmdbApiService.getMovieDetails(id)
+        : await TmdbApiService.getSeriesDetails(id);
+    if (details == null) return;
+
+    _posterUrl = TmdbApiService.getPosterUrl(
+      details['poster_path']?.toString(),
+    );
+    if (widget.isMovie) {
+      _currentTitle = details['title']?.toString() ?? widget.title;
+      _resolverTitle = _currentTitle;
+      _nextEpisode = null;
+      return;
+    }
+
+    final seriesTitle = details['name']?.toString() ?? widget.title;
+    _resolverTitle = seriesTitle;
+    _currentTitle = '$seriesTitle - S${_currentSeason}E$_currentEpisode';
+    final episodes = await TmdbApiService.getSeasonEpisodes(id, _currentSeason);
+    final laterEpisodes =
+        episodes
+            .where(
+              (episode) =>
+                  ((episode['episode_number'] as num?)?.toInt() ?? 0) >
+                  _currentEpisode,
+            )
+            .toList()
+          ..sort(
+            (a, b) => ((a['episode_number'] as num?)?.toInt() ?? 0).compareTo(
+              (b['episode_number'] as num?)?.toInt() ?? 0,
+            ),
+          );
+
+    Map<String, dynamic>? next;
+    var nextSeason = _currentSeason;
+    if (laterEpisodes.isNotEmpty) {
+      next = laterEpisodes.first;
+    } else {
+      final seasons =
+          (details['seasons'] as List? ?? const [])
+              .whereType<Map>()
+              .where(
+                (season) =>
+                    ((season['season_number'] as num?)?.toInt() ?? 0) >
+                        _currentSeason &&
+                    ((season['episode_count'] as num?)?.toInt() ?? 0) > 0,
+              )
+              .toList()
+            ..sort(
+              (a, b) => ((a['season_number'] as num?)?.toInt() ?? 0).compareTo(
+                (b['season_number'] as num?)?.toInt() ?? 0,
+              ),
+            );
+      if (seasons.isNotEmpty) {
+        nextSeason = (seasons.first['season_number'] as num).toInt();
+        final nextSeasonEpisodes = await TmdbApiService.getSeasonEpisodes(
+          id,
+          nextSeason,
+        );
+        if (nextSeasonEpisodes.isNotEmpty) next = nextSeasonEpisodes.first;
+      }
+    }
+
+    _nextEpisode = next == null
+        ? null
+        : {
+            'season': nextSeason,
+            'episode': (next['episode_number'] as num).toInt(),
+            'name': next['name']?.toString() ?? 'Next episode',
+            'stillUrl': TmdbApiService.getBackdropUrl(
+              next['still_path']?.toString(),
+            ),
+            'seriesTitle': seriesTitle,
+          };
+    _nextEpisodeCancelled = false;
+    _showNextEpisode = false;
+    _nextEpisodeCountdown = 30;
   }
 
   Future<void> _initializePlayer(
@@ -400,6 +656,21 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         .toList();
   }
 
+  List<_SubtitleTrack> _parseSubtitleTracks(dynamic value) {
+    if (value is! List) return const [];
+    return value
+        .whereType<Map>()
+        .map(
+          (subtitle) => _SubtitleTrack(
+            label: subtitle['label']?.toString() ?? 'Subtitle',
+            url: subtitle['url']?.toString() ?? '',
+            isDefault: subtitle['default'] == true,
+          ),
+        )
+        .where((subtitle) => subtitle.url.isNotEmpty)
+        .toList();
+  }
+
   Future<void> _replacePlayer(
     String url, {
     required Map<String, String> headers,
@@ -447,6 +718,9 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
           onQuality: _showQualityPicker,
           qualityLabel: selectedQuality,
           showQuality: qualities.length > 1,
+          onSubtitles: _showSubtitlePicker,
+          subtitleLabel: _selectedSubtitle,
+          showSubtitles: _subtitleTracks.isNotEmpty,
         ),
         additionalOptions: qualities.length > 1
             ? (_) => [
@@ -531,10 +805,60 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   void _handlePlaybackChanged() {
     final controller = _videoPlayerController;
     if (!mounted || controller == null) return;
-    final isBuffering = controller.value.isBuffering;
-    if (isBuffering != _isBuffering) {
-      setState(() => _isBuffering = isBuffering);
+    final value = controller.value;
+    final isBuffering = value.isBuffering;
+    var shouldRebuild = isBuffering != _isBuffering;
+    _isBuffering = isBuffering;
+
+    if (!widget.isMovie &&
+        _nextEpisode != null &&
+        !_nextEpisodeCancelled &&
+        value.duration > Duration.zero) {
+      final remaining = value.duration - value.position;
+      final countdown = remaining.inSeconds.clamp(0, 30);
+      final showNext = remaining <= const Duration(seconds: 30);
+      if (showNext != _showNextEpisode || countdown != _nextEpisodeCountdown) {
+        _showNextEpisode = showNext;
+        _nextEpisodeCountdown = countdown;
+        shouldRebuild = true;
+      }
+      if (remaining <= const Duration(milliseconds: 500) &&
+          !_loadingNextEpisode) {
+        unawaited(_playNextEpisode());
+      }
     }
+    if (shouldRebuild) setState(() {});
+  }
+
+  Future<void> _playNextEpisode() async {
+    final next = _nextEpisode;
+    if (next == null || _loadingNextEpisode) return;
+    _loadingNextEpisode = true;
+    await _saveProgress();
+    _currentSeason = (next['season'] as num).toInt();
+    _currentEpisode = (next['episode'] as num).toInt();
+    _currentTitle =
+        '${next['seriesTitle']} - S${_currentSeason}E$_currentEpisode: ${next['name']}';
+    if (mounted) {
+      setState(() {
+        _showNextEpisode = false;
+        _isSwitchingQuality = true;
+        _statusMessage = 'Loading next episode...';
+      });
+    }
+    try {
+      await _loadStream(resume: false);
+    } finally {
+      _loadingNextEpisode = false;
+      if (mounted) setState(() => _isSwitchingQuality = false);
+    }
+  }
+
+  void _cancelNextEpisode() {
+    setState(() {
+      _nextEpisodeCancelled = true;
+      _showNextEpisode = false;
+    });
   }
 
   void _startProgressSaving() {
@@ -553,10 +877,11 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     if (position <= Duration.zero || duration <= Duration.zero) return;
     await WatchHistoryService.saveWatchProgress(
       tmdbId: widget.tmdbId,
-      title: widget.title,
+      title: _currentTitle,
       isMovie: widget.isMovie,
-      season: widget.season,
-      episode: widget.episode,
+      season: _currentSeason,
+      episode: _currentEpisode,
+      posterUrl: _posterUrl,
       position: position,
       duration: duration,
     );
@@ -606,6 +931,128 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  Future<void> _showSubtitlePicker() async {
+    if (!mounted || _subtitleTracks.isEmpty) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xff202124),
+      builder: (sheetContext) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            const ListTile(
+              leading: Icon(Icons.subtitles, color: Colors.white),
+              title: Text(
+                'Subtitles',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            RadioListTile<String>(
+              value: 'Off',
+              groupValue: _selectedSubtitle,
+              activeColor: Colors.red,
+              title: const Text('Off', style: TextStyle(color: Colors.white)),
+              onChanged: (_) {
+                Navigator.of(sheetContext).pop();
+                setState(() {
+                  _selectedSubtitle = 'Off';
+                  _activeSubtitles = const [];
+                });
+              },
+            ),
+            ..._subtitleTracks.map(
+              (track) => RadioListTile<String>(
+                value: track.label,
+                groupValue: _selectedSubtitle,
+                activeColor: Colors.red,
+                title: Text(
+                  track.label,
+                  style: const TextStyle(color: Colors.white),
+                ),
+                onChanged: (_) {
+                  Navigator.of(sheetContext).pop();
+                  _selectSubtitle(track);
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _selectSubtitle(_SubtitleTrack track) async {
+    try {
+      final subtitles = await _fetchSubtitles(track, _streamHeaders);
+      if (!mounted) return;
+      setState(() {
+        _selectedSubtitle = track.label;
+        _activeSubtitles = subtitles;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not load subtitles: $error')),
+      );
+    }
+  }
+
+  Future<List<Subtitle>> _fetchSubtitles(
+    _SubtitleTrack track,
+    Map<String, String> headers,
+  ) async {
+    final response = await http.get(Uri.parse(track.url), headers: headers);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception('HTTP ${response.statusCode}');
+    }
+    return _parseSubtitleFile(response.body);
+  }
+
+  List<Subtitle> _parseSubtitleFile(String input) {
+    final normalized = input.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+    final blocks = normalized.split(RegExp(r'\n\s*\n'));
+    final subtitles = <Subtitle>[];
+    for (final block in blocks) {
+      final lines = block.split('\n').map((line) => line.trim()).toList();
+      final timingIndex = lines.indexWhere((line) => line.contains('-->'));
+      if (timingIndex < 0) continue;
+      final timing = lines[timingIndex].split('-->');
+      if (timing.length != 2) continue;
+      final start = _parseSubtitleTime(timing[0]);
+      final end = _parseSubtitleTime(timing[1].split(' ').first);
+      if (start == null || end == null) continue;
+      final text = lines
+          .skip(timingIndex + 1)
+          .join('\n')
+          .replaceAll(RegExp(r'<[^>]+>'), '')
+          .replaceAll('&amp;', '&')
+          .replaceAll('&lt;', '<')
+          .replaceAll('&gt;', '>');
+      if (text.isEmpty) continue;
+      subtitles.add(
+        Subtitle(index: subtitles.length, start: start, end: end, text: text),
+      );
+    }
+    return subtitles;
+  }
+
+  Duration? _parseSubtitleTime(String value) {
+    final parts = value.trim().replaceAll(',', '.').split(':');
+    if (parts.length < 2 || parts.length > 3) return null;
+    final seconds = double.tryParse(parts.last);
+    final minutes = int.tryParse(parts[parts.length - 2]);
+    final hours = parts.length == 3 ? int.tryParse(parts.first) : 0;
+    if (seconds == null || minutes == null || hours == null) return null;
+    return Duration(
+      hours: hours,
+      minutes: minutes,
+      milliseconds: (seconds * 1000).round(),
     );
   }
 
@@ -682,6 +1129,46 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     return Stack(
       children: [
         Chewie(controller: _chewieController!),
+        if (_activeSubtitles.isNotEmpty && _videoPlayerController != null)
+          Positioned(
+            left: 24,
+            right: 24,
+            bottom: 92,
+            child: IgnorePointer(
+              child: ValueListenableBuilder<VideoPlayerValue>(
+                valueListenable: _videoPlayerController!,
+                builder: (context, value, _) {
+                  final cues = _activeSubtitles.where(
+                    (cue) =>
+                        value.position >= cue.start &&
+                        value.position <= cue.end,
+                  );
+                  if (cues.isEmpty) return const SizedBox.shrink();
+                  return Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.black87,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        cues.map((cue) => cue.text.toString()).join('\n'),
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
         if (_isSwitchingQuality)
           const Positioned.fill(
             child: ColoredBox(
@@ -698,6 +1185,84 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
                     ),
                   ],
                 ),
+              ),
+            ),
+          ),
+        if (_showNextEpisode && _nextEpisode != null)
+          Positioned(
+            right: 20,
+            bottom: 100,
+            child: Container(
+              width: 340,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: const Color(0xff202124),
+                borderRadius: BorderRadius.circular(10),
+                boxShadow: const [
+                  BoxShadow(color: Colors.black54, blurRadius: 12),
+                ],
+              ),
+              child: Row(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(6),
+                    child: Image.network(
+                      _nextEpisode!['stillUrl']?.toString() ?? '',
+                      width: 110,
+                      height: 66,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) => const ColoredBox(
+                        color: Colors.black45,
+                        child: SizedBox(
+                          width: 110,
+                          height: 66,
+                          child: Icon(Icons.tv, color: Colors.white54),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'Next episode in $_nextEpisodeCountdown seconds',
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 12,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          'S${_nextEpisode!['season']}E${_nextEpisode!['episode']} · ${_nextEpisode!['name']}',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Row(
+                          children: [
+                            TextButton(
+                              onPressed: _playNextEpisode,
+                              child: const Text('Play now'),
+                            ),
+                            TextButton(
+                              onPressed: _cancelNextEpisode,
+                              child: const Text(
+                                'Cancel',
+                                style: TextStyle(color: Colors.white70),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -785,7 +1350,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 ElevatedButton(
-                  onPressed: _loadStream,
+                  onPressed: () => _loadStream(),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.red,
                     padding: const EdgeInsets.symmetric(

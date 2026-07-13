@@ -47,6 +47,7 @@ class WatchHistoryService {
     required int episode,
     required Duration position,
     required Duration duration,
+    String posterUrl = '',
   }) async {
     final prefs = await SharedPreferences.getInstance();
     final key = getWatchHistoryKey(tmdbId, isMovie, season, episode);
@@ -70,6 +71,7 @@ class WatchHistoryService {
       'isMovie': isMovie,
       'season': season,
       'episode': episode,
+      'posterUrl': posterUrl,
       'position': position.inSeconds,
       'duration': duration.inSeconds,
       'watchPercentage': watchPercentage,
