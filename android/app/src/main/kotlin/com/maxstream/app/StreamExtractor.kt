@@ -1294,7 +1294,7 @@ class StreamExtractor(private val context: Context) {
         }
     }
 
-    private fun validateStream(stream: StreamResult): StreamResult {
+    private suspend fun validateStream(stream: StreamResult): StreamResult {
         if (stream.type != "direct_m3u8" && !stream.url.contains(".m3u8", true)) {
             validateMediaRequest(stream.url, stream.headers)
             return stream
@@ -1316,7 +1316,7 @@ class StreamExtractor(private val context: Context) {
 
     private data class HlsVariant(val url: String, val height: Int)
 
-    private fun validateHls(url: String, headers: Map<String, String>): HlsValidation {
+    private suspend fun validateHls(url: String, headers: Map<String, String>): HlsValidation {
         val master = getValidationResponse(url, headers)
         require(master.body.startsWith("#EXTM3U")) {
             "HLS endpoint did not return a playlist (${master.contentType})"
@@ -1329,15 +1329,22 @@ class StreamExtractor(private val context: Context) {
             return HlsValidation(master.url, emptyList(), subtitles)
         }
 
-        val playableVariants = variants.mapNotNull { variant ->
-            try {
-                val playlist = getValidationResponse(variant.url, headers)
-                validateMediaPlaylist(playlist.url, playlist.body, headers)
-                variant.copy(url = playlist.url)
-            } catch (error: Exception) {
-                Log.w(tag, "Discarding ${variant.height}p HLS variant: ${error.message}")
-                null
-            }
+        // Validate all variants in parallel — skip per-variant segment checks
+        val playableVariants = coroutineScope {
+            variants.map { variant ->
+                async(Dispatchers.IO) {
+                    try {
+                        val playlist = getValidationResponse(variant.url, headers)
+                        require(playlist.body.startsWith("#EXTM3U")) {
+                            "Variant ${variant.height}p is not a valid playlist"
+                        }
+                        variant.copy(url = playlist.url)
+                    } catch (error: Exception) {
+                        Log.w(tag, "Discarding ${variant.height}p HLS variant: ${error.message}")
+                        null
+                    }
+                }
+            }.awaitAll().filterNotNull()
         }.distinctBy { it.height }.sortedByDescending { it.height }
 
         require(playableVariants.isNotEmpty()) { "No playable HLS quality variants" }

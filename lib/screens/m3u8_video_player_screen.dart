@@ -695,6 +695,9 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       Uri.parse(url),
       httpHeaders: headers,
       formatHint: isHls ? VideoFormat.hls : null,
+      videoPlayerOptions: VideoPlayerOptions(
+        backBufferDurationMs: 30000,
+      ),
     );
 
     try {
