@@ -117,23 +117,17 @@ class _StableVideoProgressBar extends StatelessWidget {
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
-                    const ColoredBox(color: Color(0x66FFFFFF)),
+                    // Grey = unbuffered / unwatched
+                    const ColoredBox(color: Color(0xFF616161)),
+                    // White = buffered but not yet watched
                     Align(
                       alignment: Alignment.centerLeft,
                       child: FractionallySizedBox(
                         widthFactor: buffered,
-                        child: Container(
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [
-                                Colors.white.withOpacity(0.5),
-                                Colors.white.withOpacity(0.3),
-                              ],
-                            ),
-                          ),
-                        ),
+                        child: const ColoredBox(color: Colors.white),
                       ),
                     ),
+                    // Red = watched
                     Align(
                       alignment: Alignment.centerLeft,
                       child: FractionallySizedBox(
@@ -141,27 +135,32 @@ class _StableVideoProgressBar extends StatelessWidget {
                         child: const ColoredBox(color: Colors.red),
                       ),
                     ),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: FractionallySizedBox(
-                        widthFactor: played,
-                        child: Align(
-                          alignment: Alignment.centerRight,
+                    // Red seek handle at playhead
+                    if (played > 0)
+                      Positioned(
+                        left: (constraints.maxWidth * played - 7).clamp(
+                          0.0,
+                          constraints.maxWidth - 14,
+                        ),
+                        top: 0,
+                        bottom: 0,
+                        child: Center(
                           child: Container(
-                            width: 12,
-                            height: 12,
-                            margin: const EdgeInsets.only(right: -6),
+                            width: 14,
+                            height: 14,
                             decoration: const BoxDecoration(
                               color: Colors.red,
                               shape: BoxShape.circle,
                               boxShadow: [
-                                BoxShadow(color: Colors.black45, blurRadius: 4),
+                                BoxShadow(
+                                  color: Colors.black45,
+                                  blurRadius: 4,
+                                ),
                               ],
                             ),
                           ),
                         ),
                       ),
-                    ),
                   ],
                 ),
               ),
