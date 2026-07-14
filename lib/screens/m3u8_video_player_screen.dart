@@ -108,21 +108,30 @@ class _StableVideoProgressBar extends StatelessWidget {
         onHorizontalDragUpdate: (details) =>
             _seek(context, details.localPosition.dx),
         child: SizedBox(
-          height: 24,
+          height: 36,
           child: Center(
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(3),
+              borderRadius: BorderRadius.circular(4),
               child: SizedBox(
-                height: 5,
+                height: 6,
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
-                    const ColoredBox(color: Color(0xFF404040)),
+                    const ColoredBox(color: Color(0x66FFFFFF)),
                     Align(
                       alignment: Alignment.centerLeft,
                       child: FractionallySizedBox(
                         widthFactor: buffered,
-                        child: const ColoredBox(color: Color(0xFFBDBDBD)),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [
+                                Colors.white.withOpacity(0.5),
+                                Colors.white.withOpacity(0.3),
+                              ],
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                     Align(
@@ -130,6 +139,27 @@ class _StableVideoProgressBar extends StatelessWidget {
                       child: FractionallySizedBox(
                         widthFactor: played,
                         child: const ColoredBox(color: Colors.red),
+                      ),
+                    ),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: FractionallySizedBox(
+                        widthFactor: played,
+                        child: Align(
+                          alignment: Alignment.centerRight,
+                          child: Container(
+                            width: 12,
+                            height: 12,
+                            margin: const EdgeInsets.only(right: -6),
+                            decoration: const BoxDecoration(
+                              color: Colors.red,
+                              shape: BoxShape.circle,
+                              boxShadow: [
+                                BoxShadow(color: Colors.black45, blurRadius: 4),
+                              ],
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                   ],
@@ -1447,17 +1477,19 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
               ),
             ),
           ),
-        _StablePlayerControls(
-          controller: controller,
-          onBack: _exitPlayer,
-          onQuality: _showQualityPicker,
-          qualityLabel: _selectedQuality,
-          showQuality: _qualities.length > 1,
-          onSubtitles: _showSubtitlePicker,
-          subtitleLabel: _selectedSubtitle,
-          showSubtitles: _subtitleTracks.isNotEmpty,
-          onAspectRatio: _cycleAspectRatio,
-          aspectRatioLabel: _aspectRatioLabel,
+        Positioned.fill(
+          child: _StablePlayerControls(
+            controller: controller,
+            onBack: _exitPlayer,
+            onQuality: _showQualityPicker,
+            qualityLabel: _selectedQuality,
+            showQuality: _qualities.length > 1,
+            onSubtitles: _showSubtitlePicker,
+            subtitleLabel: _selectedSubtitle,
+            showSubtitles: _subtitleTracks.isNotEmpty,
+            onAspectRatio: _cycleAspectRatio,
+            aspectRatioLabel: _aspectRatioLabel,
+          ),
         ),
         if (_videoPlayerController != null)
           Positioned(
