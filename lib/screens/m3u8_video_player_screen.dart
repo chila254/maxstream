@@ -69,109 +69,6 @@ class Subtitle {
   final String text;
 }
 
-class _StableVideoProgressBar extends StatelessWidget {
-  const _StableVideoProgressBar({
-    required this.controller,
-    required this.value,
-  });
-
-  final VideoPlayerController controller;
-  final VideoPlayerValue value;
-
-  void _seek(BuildContext context, double localX) {
-    final width = context.size?.width ?? 0;
-    if (width <= 0 || value.duration <= Duration.zero) return;
-    final fraction = (localX / width).clamp(0.0, 1.0);
-    controller.seekTo(value.duration * fraction);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final durationMs = value.duration.inMilliseconds;
-    final played = durationMs <= 0
-        ? 0.0
-        : (value.position.inMilliseconds / durationMs).clamp(0.0, 1.0);
-    var buffered = played;
-    if (durationMs > 0) {
-      for (final range in value.buffered) {
-        buffered = buffered > range.end.inMilliseconds / durationMs
-            ? buffered
-            : range.end.inMilliseconds / durationMs;
-      }
-      buffered = buffered.clamp(played, 1.0);
-    }
-
-    return LayoutBuilder(
-      builder: (context, constraints) => GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTapDown: (details) => _seek(context, details.localPosition.dx),
-        onHorizontalDragUpdate: (details) =>
-            _seek(context, details.localPosition.dx),
-        child: SizedBox(
-          height: 36,
-          child: Center(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(4),
-              child: SizedBox(
-                height: 6,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    // Grey = unbuffered / unwatched
-                    const ColoredBox(color: Color(0xFF616161)),
-                    // White = buffered but not yet watched
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: FractionallySizedBox(
-                        widthFactor: buffered,
-                        child: const ColoredBox(color: Colors.white),
-                      ),
-                    ),
-                    // Red = watched
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: FractionallySizedBox(
-                        widthFactor: played,
-                        child: const ColoredBox(color: Colors.red),
-                      ),
-                    ),
-                    // Red seek handle at playhead
-                    if (played > 0)
-                      Positioned(
-                        left: (constraints.maxWidth * played - 7).clamp(
-                          0.0,
-                          constraints.maxWidth - 14,
-                        ),
-                        top: 0,
-                        bottom: 0,
-                        child: Center(
-                          child: Container(
-                            width: 14,
-                            height: 14,
-                            decoration: const BoxDecoration(
-                              color: Colors.red,
-                              shape: BoxShape.circle,
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black45,
-                                  blurRadius: 4,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _StablePlayerControls extends StatefulWidget {
   const _StablePlayerControls({
     required this.controller,
@@ -363,9 +260,15 @@ class _StablePlayerControlsState extends State<_StablePlayerControls> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        _StableVideoProgressBar(
-                          controller: widget.controller,
-                          value: value,
+                        VideoProgressIndicator(
+                          widget.controller,
+                          allowScrubbing: true,
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          colors: const VideoProgressColors(
+                            playedColor: Colors.red,
+                            bufferedColor: Colors.white54,
+                            backgroundColor: Colors.white24,
+                          ),
                         ),
                         Row(
                           children: [
