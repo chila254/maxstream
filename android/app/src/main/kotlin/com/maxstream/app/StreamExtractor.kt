@@ -2,6 +2,7 @@ package com.maxstream.app
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.text.Html
 import android.util.Base64
 import android.util.Log
 import android.webkit.JavascriptInterface
@@ -169,6 +170,7 @@ class StreamExtractor(private val context: Context) {
     private val serverProviders: List<ServerProvider> by lazy {
         listOf(
             StaticTmdbProvider(),
+            CommunityServerProvider(),
             VidrockServerProvider(),
             VidzeeServerProvider(),
             PrimeSrcServerProvider(),
@@ -183,6 +185,8 @@ class StreamExtractor(private val context: Context) {
             MaxstreamVideoExtractor(),
             RpmExtractor(),
             VixSrcExtractor(),
+            CommunityExtractor(),
+            VixcloudExtractor(),
             VidsrcNetExtractor(),
             VidsrcRuExtractor(),
             VidsrcToExtractor(),
@@ -372,6 +376,50 @@ class StreamExtractor(private val context: Context) {
             )
 
             return servers
+        }
+    }
+
+    private inner class CommunityServerProvider : ServerProvider {
+        override val name = "Community"
+        private val baseUrl = "https://streamingunity.dog"
+
+        override suspend fun getServers(request: MediaRequest): List<StreamServer> {
+            if (request.title.isBlank()) return emptyList()
+            val headers = communityHeaders("$baseUrl/")
+            val searchUrl = "$baseUrl/en/search?q=${encode(request.title)}&page=1&lang=en"
+            val results = getJson(searchUrl, headers).optJSONArray("data") ?: return emptyList()
+            val wantedType = if (request.isMovie) "movie" else "tv"
+            val title = (0 until results.length()).mapNotNull { results.optJSONObject(it) }
+                .firstOrNull {
+                    it.optString("type").equals(wantedType, true) &&
+                        normalizeTitle(it.optString("name")) == normalizeTitle(request.title)
+                } ?: return emptyList()
+
+            val titleId = title.optString("id")
+            if (titleId.isBlank()) return emptyList()
+            var iframeUrl = "$baseUrl/en/iframe/$titleId?language=en"
+            if (!request.isMovie) {
+                val slug = title.optString("slug")
+                val seasonPage = httpGet(
+                    "$baseUrl/en/titles/$titleId-$slug/season-${request.season}",
+                    headers,
+                )
+                val encodedPage = Regex("""data-page=["'](.*?)["']""", RegexOption.DOT_MATCHES_ALL)
+                    .find(seasonPage)?.groupValues?.get(1)
+                    ?: throw IllegalStateException("Community season metadata was not found")
+                val page = JSONObject(
+                    Html.fromHtml(encodedPage, Html.FROM_HTML_MODE_LEGACY).toString(),
+                )
+                val episodes = page.optJSONObject("props")
+                    ?.optJSONObject("loadedSeason")
+                    ?.optJSONArray("episodes")
+                    ?: return emptyList()
+                val episode = (0 until episodes.length()).mapNotNull { episodes.optJSONObject(it) }
+                    .firstOrNull { it.optInt("number") == request.episode }
+                    ?: return emptyList()
+                iframeUrl += "&episode_id=${encode(episode.optString("id"))}&next_episode=1"
+            }
+            return listOf(StreamServer(name, iframeUrl, headers))
         }
     }
 
@@ -762,20 +810,6 @@ class StreamExtractor(private val context: Context) {
                     .orEmpty()
             }.getOrDefault("")
 
-            val defaultSubtitle = json.optJSONObject("defaultSubtitle")
-                ?.optString("defaultSubtitle").orEmpty()
-            val embeddedSubtitles = json.optJSONObject("subtitle")?.let { items ->
-                items.keys().asSequence().mapNotNull { label ->
-                    val url = items.optString(label)
-                    if (url.isBlank()) null else SubtitleOption(
-                        label,
-                        absoluteMediaUrl(origin, url.substringBefore('#')),
-                        defaultSubtitle.isNotBlank() && label.contains(defaultSubtitle, true),
-                        source = "RPM",
-                    )
-                }.toList()
-            }.orEmpty()
-
             val candidates = buildList {
                 hls?.let { add(absoluteMediaUrl(origin, it)) }
                 hlsTiktok?.let {
@@ -796,7 +830,7 @@ class StreamExtractor(private val context: Context) {
                     name,
                     mediaType(candidateUrl),
                     refererHeaders(origin),
-                    subtitles = (server.subtitles + embeddedSubtitles).distinctBy { it.url },
+                    subtitles = server.subtitles.distinctBy { it.url },
                 )
                 try {
                     return ExtractionResult.Final(validateStream(candidate))
@@ -848,6 +882,56 @@ class StreamExtractor(private val context: Context) {
             val streamUrl = "https://vixsrc.to/playlist/$videoId?${query.joinToString("&")}"
             return ExtractionResult.Final(
                 StreamResult(streamUrl, name, "direct_m3u8", refererHeaders(embedUrl)),
+            )
+        }
+    }
+
+    private inner class CommunityExtractor : HostExtractor {
+        override val name = "Community"
+
+        override fun supports(server: StreamServer) = host(server.url).endsWith("streamingunity.dog")
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            val html = httpGet(server.url, communityHeaders("https://streamingunity.dog/"))
+            val iframe = Regex(
+                """<iframe[^>]+src=["']([^"']+)["']""",
+                RegexOption.IGNORE_CASE,
+            ).find(html)?.groupValues?.get(1)?.replace("&amp;", "&")
+                ?: throw IllegalStateException("Community player iframe was not found")
+            return ExtractionResult.Redirect(
+                StreamServer(name, resolveUrl(server.url, iframe), mapOf("Referer" to server.url)),
+            )
+        }
+    }
+
+    private inner class VixcloudExtractor : HostExtractor {
+        override val name = "Vixcloud"
+
+        override fun supports(server: StreamServer) = host(server.url).endsWith("vixcloud.co")
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            val pageUrl = server.url.replace("&amp;", "&")
+            val page = httpGet(pageUrl, refererHeaders(server.headers["Referer"] ?: "https://vixcloud.co/"))
+            val videoId = Regex("""window\.video\s*=\s*\{.*?id:\s*['"]?([^,'"\s}]+)""", RegexOption.DOT_MATCHES_ALL)
+                .find(page)?.groupValues?.get(1)
+                ?: throw IllegalStateException("Vixcloud video ID was not found")
+            val playlistSection = page.substringAfter("window.masterPlaylist", "")
+            val token = Regex("""['"]?token['"]?\s*:\s*['"]([^'"]+)""")
+                .find(playlistSection)?.groupValues?.get(1)
+                ?: throw IllegalStateException("Vixcloud token was not found")
+            val expires = Regex("""['"]?expires['"]?\s*:\s*['"]([^'"]+)""")
+                .find(playlistSection)?.groupValues?.get(1)
+                ?: throw IllegalStateException("Vixcloud expiry was not found")
+            val origin = URI(pageUrl).let { "${it.scheme}://${it.host}" }
+            val parameters = mutableListOf(
+                "token=${encode(token)}",
+                "expires=${encode(expires)}",
+                "language=en",
+            )
+            if (page.contains("window.canPlayFHD = true")) parameters += "h=1"
+            val streamUrl = "$origin/playlist/$videoId?${parameters.joinToString("&")}"
+            return ExtractionResult.Final(
+                StreamResult(streamUrl, name, "direct_m3u8", refererHeaders("$origin/")),
             )
         }
     }
@@ -1059,11 +1143,20 @@ class StreamExtractor(private val context: Context) {
                 server.url,
                 refererHeaders("$player/") + mapOf("Origin" to player),
             )
-            val encrypted = response.optJSONArray("url")?.optJSONObject(0)?.optString("link").orEmpty()
-            require(encrypted.isNotBlank()) { "Vidzee returned no encrypted link" }
-            val url = decryptVidzeeLink(encrypted, masterKey)
             val headers = refererHeaders(player) + mapOf("Origin" to player)
-            return ExtractionResult.Final(StreamResult(url, server.name, mediaType(url), headers))
+            val links = response.optJSONArray("url") ?: throw IllegalStateException("Vidzee returned no links")
+            for (index in 0 until links.length()) {
+                val encrypted = links.optJSONObject(index)?.optString("link").orEmpty()
+                if (encrypted.isBlank()) continue
+                try {
+                    val url = decryptVidzeeLink(encrypted, masterKey)
+                    val stream = StreamResult(url, server.name, mediaType(url), headers)
+                    return ExtractionResult.Final(validateStream(stream))
+                } catch (error: Exception) {
+                    Log.w(tag, "Vidzee route $index failed: ${error.message}")
+                }
+            }
+            throw IllegalStateException("Vidzee returned no playable link")
         }
 
         private fun getVidzeeMasterKey(): String {
@@ -1112,11 +1205,20 @@ class StreamExtractor(private val context: Context) {
             val requestJson = JSONObject().put("text", encrypted).put("id", tmdbId)
             val decrypted = postJson("https://enc-dec.app/api/dec-videasy", requestJson.toString())
             val result = JSONObject(decrypted).optString("result")
-            val source = JSONObject(result).optJSONArray("sources")?.optJSONObject(0)?.optString("url").orEmpty()
-            require(source.isNotBlank()) { "Videasy returned no source" }
-            return ExtractionResult.Final(
-                StreamResult(source, server.name, mediaType(source), refererHeaders("https://player.videasy.net/")),
-            )
+            val sources = JSONObject(result).optJSONArray("sources")
+                ?: throw IllegalStateException("Videasy returned no sources")
+            val headers = refererHeaders("https://player.videasy.net/")
+            for (index in 0 until sources.length()) {
+                val source = sources.optJSONObject(index)?.optString("url").orEmpty()
+                if (source.isBlank()) continue
+                try {
+                    val stream = StreamResult(source, server.name, mediaType(source), headers)
+                    return ExtractionResult.Final(validateStream(stream))
+                } catch (error: Exception) {
+                    Log.w(tag, "Videasy route $index failed: ${error.message}")
+                }
+            }
+            throw IllegalStateException("Videasy returned no playable source")
         }
     }
 
@@ -1558,6 +1660,14 @@ class StreamExtractor(private val context: Context) {
         "Referer" to referer,
         "User-Agent" to userAgent,
     )
+
+    private fun communityHeaders(referer: String) = refererHeaders(referer) + mapOf(
+        "Accept-Language" to "en-US,en;q=0.9",
+        "Cookie" to "language=en",
+        "X-Requested-With" to "XMLHttpRequest",
+    )
+
+    private fun normalizeTitle(value: String) = value.lowercase().filter(Char::isLetterOrDigit)
 
     private fun host(url: String): String = try {
         URI(url.substringBefore('#')).host?.lowercase().orEmpty()
