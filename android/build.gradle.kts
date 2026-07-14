@@ -20,6 +20,44 @@ subprojects {
     project.evaluationDependsOn(":app")
 }
 
+subprojects {
+    if (name == "video_player_android") {
+        val generatedJava = rootProject.layout.buildDirectory.dir("video_player_android_buffered/java")
+        val prepareBufferedPlayer by tasks.registering(Sync::class) {
+            from(layout.projectDirectory.dir("src/main/java"))
+            into(generatedJava)
+            filesMatching(
+                listOf(
+                    "**/texture/TextureVideoPlayer.java",
+                    "**/platformview/PlatformViewVideoPlayer.java",
+                ),
+            ) {
+                filter { line: String ->
+                    if (line.contains(".setBackBuffer(backBufferInt")) {
+                        """                      .setBufferDurationsMs(
+                          50_000,
+                          300_000,
+                          4_000,
+                          10_000)
+$line"""
+                    } else {
+                        line
+                    }
+                }
+            }
+        }
+
+        afterEvaluate {
+            extensions.configure<com.android.build.api.dsl.LibraryExtension> {
+                sourceSets.getByName("main").java.setSrcDirs(listOf(generatedJava))
+            }
+            tasks.matching { it.name.startsWith("compile") }.configureEach {
+                dependsOn(prepareBufferedPlayer)
+            }
+        }
+    }
+}
+
 tasks.register<Delete>("clean") {
     delete(rootProject.layout.buildDirectory)
 }

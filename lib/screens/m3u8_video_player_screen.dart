@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:video_player/video_player.dart';
-import 'package:chewie/chewie.dart';
 import '../services/direct_m3u8_service.dart';
 import '../services/native_stream_extractor.dart';
 import '../services/tmdb_api_service.dart';
@@ -54,6 +53,94 @@ class _SubtitleTrack {
   final String url;
   final bool isDefault;
   final String source;
+}
+
+class Subtitle {
+  const Subtitle({
+    required this.index,
+    required this.start,
+    required this.end,
+    required this.text,
+  });
+
+  final int index;
+  final Duration start;
+  final Duration end;
+  final String text;
+}
+
+class _StableVideoProgressBar extends StatelessWidget {
+  const _StableVideoProgressBar({
+    required this.controller,
+    required this.value,
+  });
+
+  final VideoPlayerController controller;
+  final VideoPlayerValue value;
+
+  void _seek(BuildContext context, double localX) {
+    final width = context.size?.width ?? 0;
+    if (width <= 0 || value.duration <= Duration.zero) return;
+    final fraction = (localX / width).clamp(0.0, 1.0);
+    controller.seekTo(value.duration * fraction);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final durationMs = value.duration.inMilliseconds;
+    final played = durationMs <= 0
+        ? 0.0
+        : (value.position.inMilliseconds / durationMs).clamp(0.0, 1.0);
+    var buffered = played;
+    if (durationMs > 0) {
+      for (final range in value.buffered) {
+        buffered = buffered > range.end.inMilliseconds / durationMs
+            ? buffered
+            : range.end.inMilliseconds / durationMs;
+      }
+      buffered = buffered.clamp(played, 1.0);
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) => GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapDown: (details) => _seek(context, details.localPosition.dx),
+        onHorizontalDragUpdate: (details) =>
+            _seek(context, details.localPosition.dx),
+        child: SizedBox(
+          height: 24,
+          child: Center(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(3),
+              child: SizedBox(
+                height: 5,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    const ColoredBox(color: Color(0xFF404040)),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: FractionallySizedBox(
+                        widthFactor: buffered,
+                        child: const ColoredBox(color: Color(0xFFBDBDBD)),
+                      ),
+                    ),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: FractionallySizedBox(
+                        widthFactor: played,
+                        child: const ColoredBox(color: Colors.red),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _StablePlayerControls extends StatefulWidget {
@@ -247,15 +334,9 @@ class _StablePlayerControlsState extends State<_StablePlayerControls> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        VideoProgressIndicator(
-                          widget.controller,
-                          allowScrubbing: true,
-                          padding: const EdgeInsets.symmetric(vertical: 10),
-                          colors: const VideoProgressColors(
-                            playedColor: Colors.red,
-                            bufferedColor: Colors.white54,
-                            backgroundColor: Colors.white24,
-                          ),
+                        _StableVideoProgressBar(
+                          controller: widget.controller,
+                          value: value,
                         ),
                         Row(
                           children: [
@@ -365,7 +446,6 @@ enum _AspectRatioMode { fit, stretch, zoom }
 
 class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   VideoPlayerController? _videoPlayerController;
-  ChewieController? _chewieController;
   bool _useNativePlayer = false;
   bool _isBuffering = false;
   bool _isSwitchingQuality = false;
@@ -699,7 +779,6 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     required bool shouldPlay,
   }) async {
     final previousVideo = _videoPlayerController;
-    final previousChewie = _chewieController;
     final controller = VideoPlayerController.networkUrl(
       Uri.parse(url),
       httpHeaders: headers,
@@ -720,96 +799,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       if (position > Duration.zero) await controller.seekTo(position);
       if (shouldPlay) await controller.play();
 
-      final chewie = ChewieController(
-        videoPlayerController: controller,
-        autoPlay: false,
-        looping: false,
-        showControlsOnInitialize: true,
-        allowFullScreen: false,
-        allowMuting: true,
-        fullScreenByDefault: false,
-        allowPlaybackSpeedChanging: true,
-        allowedScreenSleep: false,
-        hideControlsTimer: const Duration(seconds: 4),
-        progressIndicatorDelay: const Duration(milliseconds: 100),
-        controlsSafeAreaMinimum: const EdgeInsets.fromLTRB(8, 8, 8, 18),
-        customControls: _StablePlayerControls(
-          controller: controller,
-          onBack: _exitPlayer,
-          onQuality: _showQualityPicker,
-          qualityLabel: selectedQuality,
-          showQuality: qualities.length > 1,
-          onSubtitles: _showSubtitlePicker,
-          subtitleLabel: _selectedSubtitle,
-          showSubtitles: _subtitleTracks.isNotEmpty,
-          onAspectRatio: _cycleAspectRatio,
-          aspectRatioLabel: _aspectRatioLabel,
-        ),
-        additionalOptions: qualities.length > 1
-            ? (_) => [
-                OptionItem(
-                  onTap: (menuContext) {
-                    Navigator.of(menuContext).pop();
-                    Future<void>.delayed(Duration.zero, _showQualityPicker);
-                  },
-                  iconData: Icons.hd,
-                  title: 'Video quality',
-                  subtitle: selectedQuality,
-                ),
-              ]
-            : null,
-        materialProgressColors: ChewieProgressColors(
-          playedColor: Colors.red,
-          handleColor: Colors.red,
-          backgroundColor: Colors.grey.shade800,
-          bufferedColor: Colors.white70,
-        ),
-        bufferingBuilder: (_) => const Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              CircularProgressIndicator(color: Colors.red, strokeWidth: 3),
-              SizedBox(height: 12),
-              Text('Buffering...', style: TextStyle(color: Colors.white70)),
-            ],
-          ),
-        ),
-        placeholder: Container(
-          color: Colors.black,
-          child: const Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                CircularProgressIndicator(color: Colors.red, strokeWidth: 3),
-                SizedBox(height: 16),
-                Text(
-                  'Loading video...',
-                  style: TextStyle(color: Colors.white70, fontSize: 14),
-                ),
-              ],
-            ),
-          ),
-        ),
-        errorBuilder: (context, errorMessage) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.error_outline, color: Colors.red, size: 48),
-                const SizedBox(height: 12),
-                Text(
-                  errorMessage,
-                  style: const TextStyle(color: Colors.white),
-                  textAlign: TextAlign.center,
-                ),
-              ],
-            ),
-          );
-        },
-      );
-
       if (!mounted) {
-        chewie.dispose();
         await controller.dispose();
         return;
       }
@@ -817,7 +807,6 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       controller.addListener(_handlePlaybackChanged);
       setState(() {
         _videoPlayerController = controller;
-        _chewieController = chewie;
         _useNativePlayer = true;
         _currentSource = source;
         _streamHeaders = headers;
@@ -829,7 +818,6 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       });
 
       previousVideo?.removeListener(_handlePlaybackChanged);
-      previousChewie?.dispose();
       await previousVideo?.dispose();
       _startProgressSaving();
     } catch (_) {
@@ -1345,7 +1333,6 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     _progressTimer?.cancel();
     unawaited(_saveProgress());
     _videoPlayerController?.removeListener(_handlePlaybackChanged);
-    _chewieController?.dispose();
     _videoPlayerController?.dispose();
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
@@ -1371,7 +1358,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         backgroundColor: Colors.black,
         body: _error != null
             ? _buildError()
-            : _useNativePlayer && _chewieController != null
+            : _useNativePlayer && _videoPlayerController != null
             ? _buildPlayer()
             : _buildLoading(),
       ),
