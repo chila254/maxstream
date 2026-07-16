@@ -17,6 +17,8 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import okhttp3.Cookie
 import okhttp3.CookieJar
 import okhttp3.Dns
@@ -231,6 +233,36 @@ class StreamExtractor(private val context: Context) {
 
         Log.w(tag, "No playable stream found for TMDB $tmdbId")
         null
+    }
+
+    suspend fun resolveStreams(
+        tmdbId: String,
+        isMovie: Boolean,
+        season: Int = 1,
+        episode: Int = 1,
+        title: String = "",
+    ): List<Map<String, Any>> = withContext(Dispatchers.IO) {
+        require(tmdbId.isNotBlank()) { "TMDB ID is required" }
+        val media = MediaRequest(tmdbId, isMovie, season, episode, title)
+        val servers = buildServerList(media)
+        val extractionSlots = Semaphore(4)
+        coroutineScope {
+            servers.map { server ->
+                async(Dispatchers.IO) {
+                    extractionSlots.withPermit {
+                        try {
+                            extractServer(server)
+                        } catch (error: Exception) {
+                            Log.w(tag, "Alternative server ${server.name} failed: ${error.message}")
+                            null
+                        }
+                    }
+                }
+            }.awaitAll()
+                .filterNotNull()
+                .distinctBy { it.url }
+                .map(StreamResult::toMap)
+        }
     }
 
     private suspend fun buildServerList(media: MediaRequest): List<StreamServer> = coroutineScope {

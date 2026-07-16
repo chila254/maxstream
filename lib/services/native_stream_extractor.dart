@@ -16,6 +16,21 @@ class NativeStreamExtractor {
     });
   }
 
+  static Map<String, dynamic> _normalizeStream(Map result) {
+    final map = <String, dynamic>{};
+    result.forEach((key, value) {
+      if (key.toString() == 'headers' && value is Map) {
+        map['headers'] = value.map(
+          (header, headerValue) =>
+              MapEntry(header.toString(), headerValue.toString()),
+        );
+      } else {
+        map[key.toString()] = value;
+      }
+    });
+    return map;
+  }
+
   /// Resolve a TMDB ID to a playable stream URL using native Kotlin extractors.
   /// Returns stream metadata and request headers, or null on failure.
   static Future<Map<String, dynamic>?> resolveStream({
@@ -38,17 +53,7 @@ class NativeStreamExtractor {
 
       if (result == null) return null;
 
-      final map = <String, dynamic>{};
-      result.forEach((key, value) {
-        if (key.toString() == 'headers' && value is Map) {
-          map['headers'] = value.map(
-            (header, headerValue) =>
-                MapEntry(header.toString(), headerValue.toString()),
-          );
-        } else {
-          map[key.toString()] = value;
-        }
-      });
+      final map = _normalizeStream(result);
       debugPrint('NativeExtractor: Success - ${map["source"]}: ${map["url"]}');
       return map;
     } on PlatformException catch (e) {
@@ -57,6 +62,37 @@ class NativeStreamExtractor {
     } catch (e) {
       debugPrint('NativeExtractor: Error: $e');
       return null;
+    }
+  }
+
+  /// Resolve every server that currently produces a validated playable stream.
+  static Future<List<Map<String, dynamic>>> resolveStreams({
+    required String tmdbId,
+    required bool isMovie,
+    int season = 1,
+    int episode = 1,
+    String title = '',
+  }) async {
+    try {
+      final result = await _channel.invokeMethod<List>('resolveStreams', {
+        'tmdbId': tmdbId,
+        'isMovie': isMovie,
+        'season': season,
+        'episode': episode,
+        'title': title,
+      });
+      return result
+              ?.whereType<Map>()
+              .map(_normalizeStream)
+              .where((stream) => stream['url']?.toString().isNotEmpty == true)
+              .toList() ??
+          const [];
+    } on PlatformException catch (e) {
+      debugPrint('NativeExtractor: Server discovery failed: ${e.message}');
+      return const [];
+    } catch (e) {
+      debugPrint('NativeExtractor: Server discovery error: $e');
+      return const [];
     }
   }
 }

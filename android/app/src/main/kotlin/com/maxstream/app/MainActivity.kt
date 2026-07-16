@@ -61,6 +61,24 @@ class MainActivity : FlutterActivity() {
                             }
                         }
                     }
+                    "resolveStreams" -> {
+                        val tmdbId = call.argument<String>("tmdbId") ?: ""
+                        val isMovie = call.argument<Boolean>("isMovie") ?: true
+                        val season = call.argument<Int>("season") ?: 1
+                        val episode = call.argument<Int>("episode") ?: 1
+                        val title = call.argument<String>("title") ?: ""
+
+                        scope.launch {
+                            try {
+                                val streams = withContext(Dispatchers.IO) {
+                                    extractor.resolveStreams(tmdbId, isMovie, season, episode, title)
+                                }
+                                result.success(streams)
+                            } catch (e: Exception) {
+                                result.error("EXTRACT_ERROR", e.message, null)
+                            }
+                        }
+                    }
                     else -> result.notImplemented()
                 }
             }

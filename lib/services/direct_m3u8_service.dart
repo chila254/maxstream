@@ -45,6 +45,22 @@ class DirectM3u8Service {
     return result;
   }
 
+  static Future<List<Map<String, dynamic>>> fetchAvailableStreams({
+    required String title,
+    required String tmdbId,
+    required bool isMovie,
+    int season = 1,
+    int episode = 1,
+  }) {
+    return NativeStreamExtractor.resolveStreams(
+      tmdbId: tmdbId,
+      isMovie: isMovie,
+      season: season,
+      episode: episode,
+      title: title,
+    );
+  }
+
   /// Embed URLs for VidLinkExtractor fallback.
   static const List<Map<String, String>> _embedSources = [
     {

@@ -74,9 +74,14 @@ class _StablePlayerControls extends StatefulWidget {
   const _StablePlayerControls({
     required this.controller,
     required this.onBack,
+    required this.mediaTitle,
     required this.onQuality,
     required this.qualityLabel,
     required this.showQuality,
+    required this.onServer,
+    required this.serverLabel,
+    required this.showServer,
+    required this.serversLoading,
     required this.onSubtitles,
     required this.subtitleLabel,
     required this.showSubtitles,
@@ -86,9 +91,14 @@ class _StablePlayerControls extends StatefulWidget {
 
   final VideoPlayerController controller;
   final VoidCallback onBack;
+  final String mediaTitle;
   final VoidCallback onQuality;
   final String qualityLabel;
   final bool showQuality;
+  final VoidCallback onServer;
+  final String serverLabel;
+  final bool showServer;
+  final bool serversLoading;
   final VoidCallback onSubtitles;
   final ValueNotifier<String> subtitleLabel;
   final bool showSubtitles;
@@ -252,11 +262,39 @@ class _StablePlayerControlsState extends State<_StablePlayerControls> {
                   child: Align(
                     alignment: Alignment.topLeft,
                     child: Padding(
-                      padding: const EdgeInsets.all(8),
-                      child: IconButton(
-                        tooltip: 'Back',
-                        onPressed: widget.onBack,
-                        icon: const Icon(Icons.arrow_back, color: Colors.white),
+                      padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            tooltip: 'Back',
+                            onPressed: widget.onBack,
+                            icon: const Icon(Icons.arrow_back, color: Colors.white),
+                          ),
+                          if (widget.mediaTitle.isNotEmpty)
+                            Flexible(
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 6,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.black54,
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  widget.mediaTitle,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
                     ),
                   ),
@@ -310,6 +348,27 @@ class _StablePlayerControlsState extends State<_StablePlayerControls> {
                               ),
                             ),
                             const Spacer(),
+                            if (widget.showServer)
+                              TextButton.icon(
+                                onPressed: widget.onServer,
+                                icon: widget.serversLoading
+                                    ? const SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Colors.white,
+                                        ),
+                                      )
+                                    : const Icon(
+                                        Icons.dns_outlined,
+                                        color: Colors.white,
+                                      ),
+                                label: Text(
+                                  widget.serverLabel,
+                                  style: const TextStyle(color: Colors.white),
+                                ),
+                              ),
                             if (widget.showSubtitles)
                               ValueListenableBuilder<String>(
                                 valueListenable: widget.subtitleLabel,
@@ -402,6 +461,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   bool _useNativePlayer = false;
   bool _isBuffering = false;
   bool _isSwitchingQuality = false;
+  bool _isSwitchingServer = false;
   String? _error;
   String? _currentSource;
   String _selectedQuality = 'Auto';
@@ -431,6 +491,10 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   Duration _lastStablePosition = Duration.zero;
   bool _recoveringPlayback = false;
   int _playbackRetryCount = 0;
+  List<Map<String, dynamic>> _availableServers = const [];
+  bool _serversLoading = false;
+  String? _selectedServerUrl;
+  int _serverDiscoveryGeneration = 0;
 
   @override
   void initState() {
@@ -464,10 +528,14 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
 
   Future<void> _loadStream({bool resume = true}) async {
     if (!mounted) return;
+    final discoveryGeneration = ++_serverDiscoveryGeneration;
 
     setState(() {
       _error = null;
       _statusMessage = 'Fetching servers...';
+      _availableServers = const [];
+      _serversLoading = false;
+      _selectedServerUrl = null;
     });
 
     try {
@@ -507,6 +575,9 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         final qualities = _parseQualities(result['qualities']);
         final subtitleTracks = _parseSubtitleTracks(result['subtitles']);
         _playbackRetryCount = 0;
+        _availableServers = [result];
+        _serversLoading = true;
+        _selectedServerUrl = url;
         _SubtitleTrack? initialSubtitle;
         for (final track in subtitleTracks) {
           if (track.isDefault) {
@@ -557,6 +628,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
               result['type'] == 'direct_m3u8' ||
               url.toLowerCase().contains('.m3u8'),
         );
+        unawaited(_discoverAvailableServers(discoveryGeneration));
         return;
       }
 
@@ -601,8 +673,14 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
 
     final seriesTitle = details['name']?.toString() ?? widget.title;
     _resolverTitle = seriesTitle;
-    _currentTitle = '$seriesTitle - S${_currentSeason}E$_currentEpisode';
     final episodes = await TmdbApiService.getSeasonEpisodes(id, _currentSeason);
+    final currentEpisodeData = episodes
+        .where((e) => ((e['episode_number'] as num?)?.toInt() ?? 0) == _currentEpisode)
+        .firstOrNull;
+    final episodeName = currentEpisodeData?['name']?.toString() ?? '';
+    _currentTitle = episodeName.isNotEmpty
+        ? '$seriesTitle - S${_currentSeason}E$_currentEpisode: $episodeName'
+        : '$seriesTitle - S${_currentSeason}E$_currentEpisode';
     final laterEpisodes =
         episodes
             .where(
@@ -725,6 +803,43 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         )
         .where((subtitle) => subtitle.url.isNotEmpty)
         .toList();
+  }
+
+  Map<String, String> _parseStreamHeaders(Map<String, dynamic> stream) {
+    final headers = <String, String>{};
+    if (stream['referer'] != null) {
+      headers['Referer'] = stream['referer'].toString();
+    }
+    final rawHeaders = stream['headers'];
+    if (rawHeaders is Map) {
+      rawHeaders.forEach((key, value) {
+        headers[key.toString()] = value.toString();
+      });
+    }
+    return headers;
+  }
+
+  Future<void> _discoverAvailableServers(int generation) async {
+    final streams = await DirectM3u8Service.fetchAvailableStreams(
+      title: _resolverTitle,
+      tmdbId: widget.tmdbId,
+      isMovie: widget.isMovie,
+      season: _currentSeason,
+      episode: _currentEpisode,
+    );
+    if (!mounted || generation != _serverDiscoveryGeneration) return;
+    final merged = <Map<String, dynamic>>[
+      ..._availableServers,
+      ...streams,
+    ];
+    final seen = <String>{};
+    setState(() {
+      _availableServers = merged.where((stream) {
+        final url = stream['url']?.toString() ?? '';
+        return url.isNotEmpty && seen.add(url);
+      }).toList();
+      _serversLoading = false;
+    });
   }
 
   Future<void> _replacePlayer(
@@ -938,6 +1053,130 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     _AspectRatioMode.stretch => 'Stretch',
     _AspectRatioMode.zoom => 'Zoom',
   };
+
+  Future<void> _showServerPicker() async {
+    if (!mounted || _availableServers.isEmpty) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xff202124),
+      builder: (sheetContext) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.dns_outlined, color: Colors.white),
+              title: const Text(
+                'Select server',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              subtitle: Text(
+                _serversLoading
+                    ? 'Checking other servers...'
+                    : '${_availableServers.length} working server${_availableServers.length == 1 ? '' : 's'}',
+                style: const TextStyle(color: Colors.white60),
+              ),
+              trailing: _serversLoading
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.red,
+                      ),
+                    )
+                  : null,
+            ),
+            ..._availableServers.asMap().entries.map((entry) {
+              final stream = entry.value;
+              final url = stream['url']?.toString() ?? '';
+              final source = stream['source']?.toString() ?? 'Server';
+              final selected = url == _selectedServerUrl;
+              return ListTile(
+                leading: Icon(
+                  selected ? Icons.check_circle : Icons.play_circle_outline,
+                  color: selected ? Colors.red : Colors.white70,
+                ),
+                title: Text(
+                  source,
+                  style: const TextStyle(color: Colors.white),
+                ),
+                subtitle: Text(
+                  'Server ${entry.key + 1}',
+                  style: const TextStyle(color: Colors.white54),
+                ),
+                enabled: !selected && !_isSwitchingServer,
+                onTap: selected
+                    ? null
+                    : () {
+                        Navigator.of(sheetContext).pop();
+                        _switchServer(stream);
+                      },
+              );
+            }),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _switchServer(Map<String, dynamic> stream) async {
+    if (_isSwitchingServer) return;
+    final url = stream['url']?.toString() ?? '';
+    if (url.isEmpty || url == _selectedServerUrl) return;
+    final current = _videoPlayerController;
+    if (current == null) return;
+
+    final oldTracks = _subtitleTracks;
+    final oldSelectedSubtitle = _selectedSubtitle.value;
+    final oldSubtitles = _activeSubtitles.value;
+    final headers = _parseStreamHeaders(stream);
+    final qualities = _parseQualities(stream['qualities']);
+    var selectedQuality = 'Auto';
+    for (final quality in qualities) {
+      if (quality.url == url) selectedQuality = quality.label;
+    }
+    final position = current.value.position > Duration.zero
+        ? current.value.position
+        : _lastStablePosition;
+    final shouldPlay = current.value.isPlaying || current.value.isBuffering;
+    setState(() {
+      _isSwitchingServer = true;
+      _subtitleTracks = _parseSubtitleTracks(stream['subtitles']);
+      _selectedSubtitle.value = 'Off';
+      _activeSubtitles.value = const [];
+    });
+    try {
+      await _replacePlayer(
+        url,
+        headers: headers,
+        source: stream['source']?.toString() ?? 'Server',
+        qualities: qualities,
+        selectedQuality: selectedQuality,
+        isHls:
+            stream['type'] == 'direct_m3u8' ||
+            url.toLowerCase().contains('.m3u8'),
+        position: position,
+        shouldPlay: shouldPlay,
+      );
+      if (mounted) setState(() => _selectedServerUrl = url);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _subtitleTracks = oldTracks;
+        _selectedSubtitle.value = oldSelectedSubtitle;
+        _activeSubtitles.value = oldSubtitles;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not switch server: $error')),
+      );
+    } finally {
+      _isSwitchingServer = false;
+      if (mounted) setState(() {});
+    }
+  }
 
   Future<void> _showQualityPicker() async {
     if (!mounted || _qualities.length < 2) return;
@@ -1442,7 +1681,10 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
               ),
             ),
           ),
-        if (_videoInitialized && _isBuffering && !_isSwitchingQuality)
+        if (_videoInitialized &&
+            _isBuffering &&
+            !_isSwitchingQuality &&
+            !_isSwitchingServer)
           const Positioned.fill(
             child: IgnorePointer(
               child: ColoredBox(
@@ -1470,9 +1712,14 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
           child: _StablePlayerControls(
             controller: controller,
             onBack: _exitPlayer,
+            mediaTitle: _currentTitle,
             onQuality: _showQualityPicker,
             qualityLabel: _selectedQuality,
             showQuality: _qualities.length > 1,
+            onServer: _showServerPicker,
+            serverLabel: _currentSource ?? 'Server',
+            showServer: _availableServers.isNotEmpty,
+            serversLoading: _serversLoading,
             onSubtitles: _showSubtitlePicker,
             subtitleLabel: _selectedSubtitle,
             showSubtitles: _subtitleTracks.isNotEmpty,
