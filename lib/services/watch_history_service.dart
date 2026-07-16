@@ -48,6 +48,7 @@ class WatchHistoryService {
     required Duration position,
     required Duration duration,
     String posterUrl = '',
+    String? seriesTitle,
   }) async {
     final prefs = await SharedPreferences.getInstance();
     final key = getWatchHistoryKey(tmdbId, isMovie, season, episode);
@@ -68,6 +69,7 @@ class WatchHistoryService {
     final history = {
       'tmdbId': tmdbId,
       'title': title,
+      if (!isMovie && seriesTitle != null) 'seriesTitle': seriesTitle,
       'isMovie': isMovie,
       'season': season,
       'episode': episode,
@@ -121,6 +123,55 @@ class WatchHistoryService {
     return List<Map<String, dynamic>>.from(json.decode(historyListJson));
   }
 
+  /// Group episodes from the same series into one entry represented by the
+  /// most recently watched episode. Movies remain as individual entries.
+  static Future<List<Map<String, dynamic>>> getGroupedWatchHistory() async {
+    final history = await getWatchHistory();
+    final groupedSeries = <String, Map<String, dynamic>>{};
+    final episodeKeys = <String, Set<String>>{};
+    final result = <Map<String, dynamic>>[];
+
+    for (final item in history) {
+      if (item['isMovie'] == true) {
+        result.add(Map<String, dynamic>.from(item));
+        continue;
+      }
+
+      final tmdbId = item['tmdbId']?.toString() ?? '';
+      if (tmdbId.isEmpty) continue;
+      episodeKeys
+          .putIfAbsent(tmdbId, () => <String>{})
+          .add('${item['season'] ?? 1}_${item['episode'] ?? 1}');
+      final existing = groupedSeries[tmdbId];
+      final timestamp = (item['timestamp'] as num?)?.toInt() ?? 0;
+      final existingTimestamp = (existing?['timestamp'] as num?)?.toInt() ?? -1;
+      if (existing == null || timestamp > existingTimestamp) {
+        groupedSeries[tmdbId] = Map<String, dynamic>.from(item);
+      }
+    }
+
+    for (final entry in groupedSeries.entries) {
+      final item = entry.value;
+      final storedTitle = item['seriesTitle']?.toString().trim();
+      final episodeTitle = item['title']?.toString() ?? 'Unknown Series';
+      item['title'] = storedTitle?.isNotEmpty == true
+          ? storedTitle
+          : episodeTitle.replaceFirst(
+              RegExp(r'\s*-\s*S\d+E\d+.*$', caseSensitive: false),
+              '',
+            );
+      item['groupedEpisodeCount'] = episodeKeys[entry.key]?.length ?? 1;
+      result.add(item);
+    }
+
+    result.sort(
+      (a, b) => ((b['timestamp'] as num?)?.toInt() ?? 0).compareTo(
+        (a['timestamp'] as num?)?.toInt() ?? 0,
+      ),
+    );
+    return result;
+  }
+
   /// Get only unfinished items that can be resumed from the home screen.
   static Future<List<Map<String, dynamic>>> getContinueWatching() async {
     final history = await getWatchHistory();
@@ -163,6 +214,32 @@ class WatchHistoryService {
           item['episode'] == episode,
     );
 
+    await prefs.setString(_historyListKey, json.encode(historyList));
+  }
+
+  /// Remove every watched episode belonging to one series.
+  static Future<void> removeSeriesFromHistory(String tmdbId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final historyListJson = prefs.getString(_historyListKey) ?? '[]';
+    final historyList = List<Map<String, dynamic>>.from(
+      json.decode(historyListJson),
+    );
+    final episodes = historyList.where(
+      (item) => item['isMovie'] != true && item['tmdbId']?.toString() == tmdbId,
+    );
+    for (final item in episodes) {
+      await prefs.remove(
+        getWatchHistoryKey(
+          tmdbId,
+          false,
+          (item['season'] as num?)?.toInt() ?? 1,
+          (item['episode'] as num?)?.toInt() ?? 1,
+        ),
+      );
+    }
+    historyList.removeWhere(
+      (item) => item['isMovie'] != true && item['tmdbId']?.toString() == tmdbId,
+    );
     await prefs.setString(_historyListKey, json.encode(historyList));
   }
 

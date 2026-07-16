@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -905,6 +906,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     await WatchHistoryService.saveWatchProgress(
       tmdbId: widget.tmdbId,
       title: _currentTitle,
+      seriesTitle: widget.isMovie ? null : _resolverTitle,
       isMovie: widget.isMovie,
       season: _currentSeason,
       episode: _currentEpisode,
@@ -1118,20 +1120,29 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     for (final url in urlsToTry) {
       try {
         final parsedUri = Uri.parse(url);
+        final inheritedHeaders = track.source == 'Vidflix'
+            ? const <String, String>{}
+            : headers;
         final response = await http
             .get(
               parsedUri,
               headers: {
-                ...headers,
+                ...inheritedHeaders,
                 'User-Agent':
                     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                'Accept': 'text/vtt, application/x-subrip, text/plain, */*',
               },
             )
             .timeout(const Duration(seconds: 10));
         if (response.statusCode >= 200 && response.statusCode < 300) {
-          final body = response.body;
+          final body = utf8.decode(response.bodyBytes, allowMalformed: true);
           if (body.trim().isNotEmpty) {
-            return _parseSubtitleFile(body);
+            final subtitles = _parseSubtitleFile(body);
+            if (subtitles.isNotEmpty) return subtitles;
+            lastError = const FormatException(
+              'The subtitle file contained no valid timed cues',
+            );
+            continue;
           }
         }
         lastError = Exception('HTTP ${response.statusCode}');
@@ -1143,7 +1154,10 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   }
 
   List<Subtitle> _parseSubtitleFile(String input) {
-    final normalized = input.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+    final normalized = input
+        .replaceFirst('\uFEFF', '')
+        .replaceAll('\r\n', '\n')
+        .replaceAll('\r', '\n');
 
     // Detect format: WEBVTT or SRT
     final isVtt = normalized.trimLeft().toUpperCase().startsWith('WEBVTT');
@@ -1193,7 +1207,8 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         continue;
       }
       final start = _parseSubtitleTime(timing[0]);
-      final end = _parseSubtitleTime(timing[1].split(' ').first);
+      final endValue = timing[1].trim().split(RegExp(r'\s+')).first;
+      final end = _parseSubtitleTime(endValue);
       if (start == null || end == null) {
         i++;
         continue;
@@ -1245,7 +1260,8 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       if (timing.length != 2) continue;
 
       final start = _parseSrtTime(timing[0]);
-      final end = _parseSrtTime(timing[1].split(' ').first);
+      final endValue = timing[1].trim().split(RegExp(r'\s+')).first;
+      final end = _parseSrtTime(endValue);
       if (start == null || end == null) continue;
 
       // Text is everything after the timing line

@@ -21,8 +21,9 @@ class _WatchHistoryScreenState extends State<WatchHistoryScreen> {
   }
 
   Future<void> _loadWatchHistory() async {
-    final historyList = await WatchHistoryService.getWatchHistory();
+    final historyList = await WatchHistoryService.getGroupedWatchHistory();
 
+    if (!mounted) return;
     setState(() {
       _watchHistory = historyList;
       _isLoading = false;
@@ -49,12 +50,16 @@ class _WatchHistoryScreenState extends State<WatchHistoryScreen> {
     );
 
     try {
-      await WatchHistoryService.removeFromHistory(
-        item['tmdbId'],
-        item['isMovie'],
-        item['season'] ?? 1,
-        item['episode'] ?? 1,
-      );
+      if (item['isMovie'] == true) {
+        await WatchHistoryService.removeFromHistory(
+          item['tmdbId'],
+          true,
+          item['season'] ?? 1,
+          item['episode'] ?? 1,
+        );
+      } else {
+        await WatchHistoryService.removeSeriesFromHistory(item['tmdbId']);
+      }
 
       setState(() {
         _watchHistory.removeAt(index);
@@ -229,7 +234,8 @@ class _WatchHistoryScreenState extends State<WatchHistoryScreen> {
                     const SizedBox(height: 4),
                     if (!item['isMovie'])
                       Text(
-                        'S${item['season']}E${item['episode']}',
+                        'Latest: S${item['season']}E${item['episode']}'
+                        '${(item['groupedEpisodeCount'] as num?)?.toInt() == 1 ? '' : ' · ${item['groupedEpisodeCount']} episodes'}',
                         style: const TextStyle(
                           color: Colors.grey,
                           fontSize: 14,
