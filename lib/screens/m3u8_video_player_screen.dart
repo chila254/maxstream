@@ -977,18 +977,22 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     final next = _nextEpisode;
     if (next == null || _loadingNextEpisode) return;
     _loadingNextEpisode = true;
+    // Clear next-episode state immediately so the old controller's
+    // _handlePlaybackChanged doesn't re-show the popup for the next-next episode.
+    if (mounted) {
+      setState(() {
+        _showNextEpisode = false;
+        _nextEpisode = null;
+        _nextEpisodeCancelled = true;
+        _isSwitchingQuality = true;
+        _statusMessage = 'Loading next episode...';
+      });
+    }
     await _saveProgress();
     _currentSeason = (next['season'] as num).toInt();
     _currentEpisode = (next['episode'] as num).toInt();
     _currentTitle =
         '${next['seriesTitle']} - S${_currentSeason}E$_currentEpisode: ${next['name']}';
-    if (mounted) {
-      setState(() {
-        _showNextEpisode = false;
-        _isSwitchingQuality = true;
-        _statusMessage = 'Loading next episode...';
-      });
-    }
     try {
       await _loadStream(resume: false);
     } finally {
