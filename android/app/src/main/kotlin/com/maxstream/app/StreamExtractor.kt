@@ -915,7 +915,7 @@ class StreamExtractor(private val context: Context) {
             if (html.contains("window.canPlayFHD = true")) query += "h=1"
             val streamUrl = "https://vixsrc.to/playlist/$videoId?${query.joinToString("&")}"
             return ExtractionResult.Final(
-                StreamResult(streamUrl, name, "direct_m3u8", refererHeaders("https://vixsrc.to")),
+                StreamResult(streamUrl, name, "direct_m3u8", refererHeaders("https://vixsrc.to") + mapOf("Origin" to "https://vixsrc.to")),
             )
         }
     }

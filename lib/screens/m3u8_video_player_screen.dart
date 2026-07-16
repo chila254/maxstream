@@ -739,6 +739,9 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     _nextEpisodeCancelled = false;
     _showNextEpisode = false;
     _nextEpisodeCountdown = 30;
+    // Don't reset _nextEpisodeCancelled here — it stays true during loading
+    // to prevent the old controller's listener from showing the popup.
+    // It gets reset in _initializePlayer after the new player is ready.
   }
 
   Future<void> _initializePlayer(
@@ -982,8 +985,6 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     if (mounted) {
       setState(() {
         _showNextEpisode = false;
-        _nextEpisode = null;
-        _nextEpisodeCancelled = true;
         _isSwitchingQuality = true;
         _statusMessage = 'Loading next episode...';
       });
@@ -1402,11 +1403,13 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         .replaceAll('\r\n', '\n')
         .replaceAll('\r', '\n');
 
-    // Detect format: WEBVTT or SRT
-    final isVtt = normalized.trimLeft().toUpperCase().startsWith('WEBVTT');
+    final upper = normalized.trimLeft().toUpperCase();
 
-    if (isVtt) {
+    // Detect format
+    if (upper.startsWith('WEBVTT')) {
       return _parseVtt(normalized);
+    } else if (upper.contains('[SCRIPT INFO]') || upper.contains('[V4')) {
+      return _parseAss(normalized);
     } else {
       return _parseSrt(normalized);
     }
@@ -1551,6 +1554,76 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       hours: hours,
       minutes: minutes,
       milliseconds: (seconds * 1000).round(),
+    );
+  }
+
+  List<Subtitle> _parseAss(String input) {
+    final subtitles = <Subtitle>[];
+    final lines = input.split('\n');
+    bool inEvents = false;
+    bool foundFormat = false;
+    int textIndex = -1;
+    int startIdx = -1;
+    int endIdx = -1;
+
+    for (final rawLine in lines) {
+      final line = rawLine.trim();
+
+      if (line.toUpperCase() == '[EVENTS]') {
+        inEvents = true;
+        continue;
+      }
+      if (line.startsWith('[') && inEvents) break;
+
+      if (inEvents) {
+        if (line.toUpperCase().startsWith('FORMAT:')) {
+          foundFormat = true;
+          final fields = line.substring(7).split(',').map((f) => f.trim().toLowerCase()).toList();
+          startIdx = fields.indexOf('start');
+          endIdx = fields.indexOf('end');
+          textIndex = fields.indexOf('text');
+          continue;
+        }
+
+        if (!foundFormat || textIndex < 0) continue;
+        if (!line.toUpperCase().startsWith('DIALOGUE:') && !line.toUpperCase().startsWith('COMMENT:')) continue;
+        if (line.toUpperCase().startsWith('COMMENT:')) continue;
+
+        final afterColon = line.substring(line.indexOf(':') + 1);
+        final parts = afterColon.split(',');
+        if (parts.length <= textIndex) continue;
+
+        final start = _parseAssTime(startIdx >= 0 && startIdx < parts.length ? parts[startIdx] : '');
+        final end = _parseAssTime(endIdx >= 0 && endIdx < parts.length ? parts[endIdx] : '');
+        if (start == null || end == null) continue;
+
+        final text = parts.sublist(textIndex).join(',')
+            .replaceAll(RegExp(r'\{[^}]*\}'), '')
+            .replaceAll('\\N', '\n')
+            .replaceAll('\\n', '\n')
+            .replaceAll(RegExp(r'<[^>]+>'), '')
+            .trim();
+        if (text.isEmpty) continue;
+
+        subtitles.add(Subtitle(index: subtitles.length, start: start, end: end, text: text));
+      }
+    }
+    return subtitles;
+  }
+
+  Duration? _parseAssTime(String value) {
+    final cleaned = value.trim();
+    final match = RegExp(r'(\d+):(\d+):(\d+)\.(\d+)').firstMatch(cleaned);
+    if (match == null) return null;
+    final hours = int.tryParse(match.group(1) ?? '') ?? 0;
+    final minutes = int.tryParse(match.group(2) ?? '') ?? 0;
+    final seconds = int.tryParse(match.group(3) ?? '') ?? 0;
+    final cs = int.tryParse(match.group(4) ?? '') ?? 0;
+    return Duration(
+      hours: hours,
+      minutes: minutes,
+      seconds: seconds,
+      milliseconds: cs * 10,
     );
   }
 
