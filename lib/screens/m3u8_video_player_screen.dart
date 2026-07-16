@@ -104,6 +104,8 @@ class _StablePlayerControlsState extends State<_StablePlayerControls> {
   bool _adjustingBrightness = false;
   double _gestureValue = 0.5;
   bool _showGestureValue = false;
+  Duration _lastPosition = Duration.zero;
+  Duration _lastDuration = Duration.zero;
 
   @override
   void initState() {
@@ -194,6 +196,14 @@ class _StablePlayerControlsState extends State<_StablePlayerControls> {
     return ValueListenableBuilder<VideoPlayerValue>(
       valueListenable: widget.controller,
       builder: (context, value, _) {
+        if (value.duration > Duration.zero) _lastDuration = value.duration;
+        if (value.position > Duration.zero) _lastPosition = value.position;
+        final displayedDuration = value.duration > Duration.zero
+            ? value.duration
+            : _lastDuration;
+        final displayedPosition = value.position > Duration.zero
+            ? value.position
+            : _lastPosition;
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: _toggleControls,
@@ -260,20 +270,30 @@ class _StablePlayerControlsState extends State<_StablePlayerControls> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        VideoProgressIndicator(
-                          widget.controller,
-                          allowScrubbing: true,
-                          padding: const EdgeInsets.symmetric(vertical: 10),
-                          colors: const VideoProgressColors(
-                            playedColor: Colors.red,
-                            bufferedColor: Colors.white54,
-                            backgroundColor: Colors.white24,
+                        if (value.isInitialized &&
+                            value.duration > Duration.zero)
+                          VideoProgressIndicator(
+                            widget.controller,
+                            allowScrubbing: true,
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            colors: const VideoProgressColors(
+                              playedColor: Colors.red,
+                              bufferedColor: Colors.white54,
+                              backgroundColor: Colors.white24,
+                            ),
+                          )
+                        else
+                          const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 10),
+                            child: SizedBox(
+                              height: 4,
+                              child: ColoredBox(color: Colors.white24),
+                            ),
                           ),
-                        ),
                         Row(
                           children: [
                             Text(
-                              '${_format(value.position)} / ${_format(value.duration)}',
+                              '${_format(displayedPosition)} / ${_format(displayedDuration)}',
                               style: const TextStyle(color: Colors.white),
                             ),
                             IconButton(
@@ -405,6 +425,11 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   int _nextEpisodeCountdown = 30;
   _AspectRatioMode _aspectRatioMode = _AspectRatioMode.fit;
   bool _videoInitialized = false;
+  String? _currentStreamUrl;
+  bool _currentStreamIsHls = true;
+  Duration _lastStablePosition = Duration.zero;
+  bool _recoveringPlayback = false;
+  int _playbackRetryCount = 0;
 
   @override
   void initState() {
@@ -480,6 +505,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         }
         final qualities = _parseQualities(result['qualities']);
         final subtitleTracks = _parseSubtitleTracks(result['subtitles']);
+        _playbackRetryCount = 0;
         _SubtitleTrack? initialSubtitle;
         for (final track in subtitleTracks) {
           if (track.isDefault) {
@@ -747,6 +773,8 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         _isBuffering = controller.value.isBuffering;
         _isSwitchingQuality = false;
         _videoInitialized = true;
+        _currentStreamUrl = url;
+        _currentStreamIsHls = isHls;
       });
 
       previousVideo?.removeListener(_handlePlaybackChanged);
@@ -762,6 +790,10 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     final controller = _videoPlayerController;
     if (!mounted || controller == null) return;
     final value = controller.value;
+    if (value.position > Duration.zero) _lastStablePosition = value.position;
+    if (value.hasError && !_recoveringPlayback && _playbackRetryCount < 2) {
+      unawaited(_recoverPlayback());
+    }
     final isBuffering = value.isBuffering;
     var shouldRebuild = isBuffering != _isBuffering;
     _isBuffering = isBuffering;
@@ -784,6 +816,45 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       }
     }
     if (shouldRebuild) setState(() {});
+  }
+
+  Future<void> _recoverPlayback() async {
+    final url = _currentStreamUrl;
+    if (url == null || _recoveringPlayback || _playbackRetryCount >= 2) return;
+    _recoveringPlayback = true;
+    _playbackRetryCount++;
+    if (mounted) {
+      setState(() {
+        _isBuffering = true;
+        _statusMessage = 'Recovering playback...';
+      });
+    }
+    await Future<void>.delayed(Duration(seconds: _playbackRetryCount * 2));
+    try {
+      await _replacePlayer(
+        url,
+        headers: _streamHeaders,
+        source: _currentSource ?? 'Unknown',
+        qualities: _qualities,
+        selectedQuality: _selectedQuality,
+        isHls: _currentStreamIsHls,
+        position: _lastStablePosition,
+        shouldPlay: true,
+      );
+    } catch (error) {
+      debugPrint('M3U8Player: Playback recovery failed: $error');
+      if (mounted && _playbackRetryCount >= 2) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'The current server stopped responding. Please try again.',
+            ),
+          ),
+        );
+      }
+    } finally {
+      _recoveringPlayback = false;
+    }
   }
 
   Future<void> _playNextEpisode() async {

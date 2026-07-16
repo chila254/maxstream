@@ -537,7 +537,9 @@ class StreamExtractor(private val context: Context) {
                 (0 until items.length()).mapNotNull { index ->
                     val item = items.optJSONObject(index) ?: return@mapNotNull null
                     val rawUrl = item.optString("url")
-                    if (rawUrl.isBlank()) return@mapNotNull null
+                    if (rawUrl.isBlank() || host(rawUrl).endsWith("opensubtitles.org")) {
+                        return@mapNotNull null
+                    }
                     val subtitleUrl = if (rawUrl.startsWith("http")) rawUrl
                         else resolveUrl(server.url, rawUrl)
                     SubtitleOption(

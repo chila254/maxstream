@@ -39,6 +39,7 @@ subprojects {
                           300_000,
                           4_000,
                           10_000)
+                      .setPrioritizeTimeOverSizeThresholds(true)
 $line"""
                     } else {
                         line
