@@ -628,6 +628,15 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
               result['type'] == 'direct_m3u8' ||
               url.toLowerCase().contains('.m3u8'),
         );
+        // Now that the new player is ready, allow the next-episode countdown
+        // to function again. The cancel flag was held true during the episode
+        // transition to prevent the old controller's listener from showing
+        // the overlay with stale data.
+        if (mounted) {
+          setState(() {
+            _nextEpisodeCancelled = false;
+          });
+        }
         unawaited(_discoverAvailableServers(discoveryGeneration));
         return;
       }
@@ -736,12 +745,11 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
             ),
             'seriesTitle': seriesTitle,
           };
-    _nextEpisodeCancelled = false;
     _showNextEpisode = false;
     _nextEpisodeCountdown = 30;
-    // Don't reset _nextEpisodeCancelled here — it stays true during loading
-    // to prevent the old controller's listener from showing the popup.
-    // It gets reset in _initializePlayer after the new player is ready.
+    // _nextEpisodeCancelled stays true during loading to prevent the old
+    // controller's listener from showing the popup with stale data.
+    // It gets reset in _loadStream after the new player is initialized.
   }
 
   Future<void> _initializePlayer(
@@ -984,6 +992,8 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     // _handlePlaybackChanged doesn't re-show the popup for the next-next episode.
     if (mounted) {
       setState(() {
+        _nextEpisode = null;
+        _nextEpisodeCancelled = true;
         _showNextEpisode = false;
         _isSwitchingQuality = true;
         _statusMessage = 'Loading next episode...';
@@ -1410,8 +1420,16 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       return _parseVtt(normalized);
     } else if (upper.contains('[SCRIPT INFO]') || upper.contains('[V4')) {
       return _parseAss(normalized);
+    } else if (upper.contains('<TT') || upper.contains('<P ') || upper.contains('<P>')) {
+      return _parseTtml(normalized);
     } else {
-      return _parseSrt(normalized);
+      final srt = _parseSrt(normalized);
+      if (srt.isNotEmpty) return srt;
+      // Last resort: try TTML for any XML-like content
+      if (normalized.contains('<') && normalized.contains('begin=')) {
+        return _parseTtml(normalized);
+      }
+      return srt;
     }
   }
 
@@ -1460,10 +1478,12 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         continue;
       }
 
-      // Collect text lines until next empty line
+      // Collect text lines until next empty line or next cue timing
       i++;
       final textLines = <String>[];
       while (i < lines.length && lines[i].trim().isNotEmpty) {
+        // Stop if we hit another timing line (handles VTT without blank lines between cues)
+        if (lines[i].trim().contains('-->')) break;
         textLines.add(lines[i].trim());
         i++;
       }
@@ -1625,6 +1645,63 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       seconds: seconds,
       milliseconds: cs * 10,
     );
+  }
+
+  List<Subtitle> _parseTtml(String input) {
+    final subtitles = <Subtitle>[];
+    // Match <p> or <div><p> elements with begin/end attributes
+    final cuePattern = RegExp(
+      r'<(?:p|P)\s[^>]*?begin="([^"]+)"[^>]*?end="([^"]+)"[^>]*?>([\s\S]*?)</(?:p|P)>',
+      caseSensitive: false,
+    );
+    for (final match in cuePattern.allMatches(input)) {
+      final start = _parseTtmlTime(match.group(1) ?? '');
+      final end = _parseTtmlTime(match.group(2) ?? '');
+      if (start == null || end == null) continue;
+      final text = match
+          .group(3)!
+          .replaceAll(RegExp(r'<[^>]+>'), '')
+          .replaceAll('&amp;', '&')
+          .replaceAll('&lt;', '<')
+          .replaceAll('&gt;', '>')
+          .replaceAll('&#xA;', '\n')
+          .replaceAll('\n', ' ')
+          .trim();
+      if (text.isEmpty) continue;
+      subtitles.add(Subtitle(index: subtitles.length, start: start, end: end, text: text));
+    }
+    return subtitles;
+  }
+
+  Duration? _parseTtmlTime(String value) {
+    final cleaned = value.trim();
+    // TTML formats: HH:MM:SS.mmm, HH:MM:SS:mm (frames), HH:MM:SS, or decimal seconds
+    final hmsMatch = RegExp(r'(\d+):(\d+):(\d+)(?:\.(\d+))?').firstMatch(cleaned);
+    if (hmsMatch != null) {
+      final hours = int.tryParse(hmsMatch.group(1) ?? '') ?? 0;
+      final minutes = int.tryParse(hmsMatch.group(2) ?? '') ?? 0;
+      final seconds = int.tryParse(hmsMatch.group(3) ?? '') ?? 0;
+      final frac = hmsMatch.group(4) ?? '0';
+      // Normalize fractional part to milliseconds
+      int ms = 0;
+      if (frac.isNotEmpty) {
+        final padded = frac.padRight(3, '0').substring(0, 3);
+        ms = int.tryParse(padded) ?? 0;
+      }
+      return Duration(
+        hours: hours,
+        minutes: minutes,
+        seconds: seconds,
+        milliseconds: ms,
+      );
+    }
+    // Plain seconds: "123.456"
+    final secMatch = RegExp(r'^(\d+(?:\.\d+)?)s?$').firstMatch(cleaned);
+    if (secMatch != null) {
+      final seconds = double.tryParse(secMatch.group(1) ?? '') ?? 0;
+      return Duration(milliseconds: (seconds * 1000).round());
+    }
+    return null;
   }
 
   Future<void> _switchQuality(_StreamQuality quality) async {

@@ -914,8 +914,15 @@ class StreamExtractor(private val context: Context) {
             if (html.contains("b=1")) query += "b=1"
             if (html.contains("window.canPlayFHD = true")) query += "h=1"
             val streamUrl = "https://vixsrc.to/playlist/$videoId?${query.joinToString("&")}"
+            // ExoPlayer uses a different HTTP stack than OkHttp and won't have the cookies
+            // that were set during API/embed page fetching. Forward them explicitly.
+            val vixCookies = client.cookieJar.loadForRequest("https://vixsrc.to".toHttpUrl())
+            val cookieHeader = vixCookies.joinToString("; ") { "${it.name}=${it.value}" }
+            val responseHeaders = refererHeaders("https://vixsrc.to") +
+                mapOf("Origin" to "https://vixsrc.to") +
+                (if (cookieHeader.isNotBlank()) mapOf("Cookie" to cookieHeader) else emptyMap())
             return ExtractionResult.Final(
-                StreamResult(streamUrl, name, "direct_m3u8", refererHeaders("https://vixsrc.to") + mapOf("Origin" to "https://vixsrc.to")),
+                StreamResult(streamUrl, name, "direct_m3u8", responseHeaders),
             )
         }
     }
