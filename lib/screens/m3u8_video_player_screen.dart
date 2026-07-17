@@ -269,7 +269,10 @@ class _StablePlayerControlsState extends State<_StablePlayerControls> {
                           IconButton(
                             tooltip: 'Back',
                             onPressed: widget.onBack,
-                            icon: const Icon(Icons.arrow_back, color: Colors.white),
+                            icon: const Icon(
+                              Icons.arrow_back,
+                              color: Colors.white,
+                            ),
                           ),
                           if (widget.mediaTitle.isNotEmpty)
                             Flexible(
@@ -684,7 +687,10 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     _resolverTitle = seriesTitle;
     final episodes = await TmdbApiService.getSeasonEpisodes(id, _currentSeason);
     final currentEpisodeData = episodes
-        .where((e) => ((e['episode_number'] as num?)?.toInt() ?? 0) == _currentEpisode)
+        .where(
+          (e) =>
+              ((e['episode_number'] as num?)?.toInt() ?? 0) == _currentEpisode,
+        )
         .firstOrNull;
     final episodeName = currentEpisodeData?['name']?.toString() ?? '';
     _currentTitle = episodeName.isNotEmpty
@@ -839,10 +845,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       episode: _currentEpisode,
     );
     if (!mounted || generation != _serverDiscoveryGeneration) return;
-    final merged = <Map<String, dynamic>>[
-      ..._availableServers,
-      ...streams,
-    ];
+    final merged = <Map<String, dynamic>>[..._availableServers, ...streams];
     final seen = <String>{};
     setState(() {
       _availableServers = merged.where((stream) {
@@ -1418,9 +1421,14 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     // Detect format
     if (upper.startsWith('WEBVTT')) {
       return _parseVtt(normalized);
+    } else if (upper.startsWith('{') || upper.startsWith('[')) {
+      final jsonSubtitles = _parseJsonSubtitles(normalized);
+      if (jsonSubtitles.isNotEmpty) return jsonSubtitles;
     } else if (upper.contains('[SCRIPT INFO]') || upper.contains('[V4')) {
       return _parseAss(normalized);
-    } else if (upper.contains('<TT') || upper.contains('<P ') || upper.contains('<P>')) {
+    } else if (upper.contains('<TT') ||
+        upper.contains('<P ') ||
+        upper.contains('<P>')) {
       return _parseTtml(normalized);
     } else {
       final srt = _parseSrt(normalized);
@@ -1431,6 +1439,65 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       }
       return srt;
     }
+    return const [];
+  }
+
+  List<Subtitle> _parseJsonSubtitles(String input) {
+    try {
+      final decoded = jsonDecode(input);
+      final dynamic rawCues = decoded is List
+          ? decoded
+          : decoded is Map
+          ? decoded['cues'] ?? decoded['subtitles'] ?? decoded['data']
+          : null;
+      if (rawCues is! List) return const [];
+
+      final subtitles = <Subtitle>[];
+      for (final rawCue in rawCues.whereType<Map>()) {
+        final start = _parseJsonCueTime(
+          rawCue['startTime'] ?? rawCue['start'] ?? rawCue['from'],
+        );
+        final end = _parseJsonCueTime(
+          rawCue['endTime'] ?? rawCue['end'] ?? rawCue['to'],
+        );
+        final rawText =
+            rawCue['text'] ?? rawCue['payload'] ?? rawCue['caption'];
+        final text = rawText is List
+            ? rawText.join('\n')
+            : rawText?.toString() ?? '';
+        final cleanedText = text
+            .replaceAll(RegExp(r'<[^>]+>'), '')
+            .replaceAll('&amp;', '&')
+            .replaceAll('&lt;', '<')
+            .replaceAll('&gt;', '>')
+            .trim();
+        if (start == null || end == null || cleanedText.isEmpty) continue;
+        subtitles.add(
+          Subtitle(
+            index: subtitles.length,
+            start: start,
+            end: end,
+            text: cleanedText,
+          ),
+        );
+      }
+      return subtitles;
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Duration? _parseJsonCueTime(dynamic value) {
+    if (value is num) {
+      return Duration(milliseconds: (value.toDouble() * 1000).round());
+    }
+    if (value is! String) return null;
+    final timestamp = _parseSubtitleTime(value);
+    if (timestamp != null) return timestamp;
+    final seconds = double.tryParse(value);
+    return seconds == null
+        ? null
+        : Duration(milliseconds: (seconds * 1000).round());
   }
 
   List<Subtitle> _parseVtt(String input) {
@@ -1598,7 +1665,11 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       if (inEvents) {
         if (line.toUpperCase().startsWith('FORMAT:')) {
           foundFormat = true;
-          final fields = line.substring(7).split(',').map((f) => f.trim().toLowerCase()).toList();
+          final fields = line
+              .substring(7)
+              .split(',')
+              .map((f) => f.trim().toLowerCase())
+              .toList();
           startIdx = fields.indexOf('start');
           endIdx = fields.indexOf('end');
           textIndex = fields.indexOf('text');
@@ -1606,18 +1677,27 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         }
 
         if (!foundFormat || textIndex < 0) continue;
-        if (!line.toUpperCase().startsWith('DIALOGUE:') && !line.toUpperCase().startsWith('COMMENT:')) continue;
+        if (!line.toUpperCase().startsWith('DIALOGUE:') &&
+            !line.toUpperCase().startsWith('COMMENT:')) {
+          continue;
+        }
         if (line.toUpperCase().startsWith('COMMENT:')) continue;
 
         final afterColon = line.substring(line.indexOf(':') + 1);
         final parts = afterColon.split(',');
         if (parts.length <= textIndex) continue;
 
-        final start = _parseAssTime(startIdx >= 0 && startIdx < parts.length ? parts[startIdx] : '');
-        final end = _parseAssTime(endIdx >= 0 && endIdx < parts.length ? parts[endIdx] : '');
+        final start = _parseAssTime(
+          startIdx >= 0 && startIdx < parts.length ? parts[startIdx] : '',
+        );
+        final end = _parseAssTime(
+          endIdx >= 0 && endIdx < parts.length ? parts[endIdx] : '',
+        );
         if (start == null || end == null) continue;
 
-        final text = parts.sublist(textIndex).join(',')
+        final text = parts
+            .sublist(textIndex)
+            .join(',')
             .replaceAll(RegExp(r'\{[^}]*\}'), '')
             .replaceAll('\\N', '\n')
             .replaceAll('\\n', '\n')
@@ -1625,7 +1705,9 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
             .trim();
         if (text.isEmpty) continue;
 
-        subtitles.add(Subtitle(index: subtitles.length, start: start, end: end, text: text));
+        subtitles.add(
+          Subtitle(index: subtitles.length, start: start, end: end, text: text),
+        );
       }
     }
     return subtitles;
@@ -1668,7 +1750,9 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
           .replaceAll('\n', ' ')
           .trim();
       if (text.isEmpty) continue;
-      subtitles.add(Subtitle(index: subtitles.length, start: start, end: end, text: text));
+      subtitles.add(
+        Subtitle(index: subtitles.length, start: start, end: end, text: text),
+      );
     }
     return subtitles;
   }
@@ -1676,7 +1760,9 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   Duration? _parseTtmlTime(String value) {
     final cleaned = value.trim();
     // TTML formats: HH:MM:SS.mmm, HH:MM:SS:mm (frames), HH:MM:SS, or decimal seconds
-    final hmsMatch = RegExp(r'(\d+):(\d+):(\d+)(?:\.(\d+))?').firstMatch(cleaned);
+    final hmsMatch = RegExp(
+      r'(\d+):(\d+):(\d+)(?:\.(\d+))?',
+    ).firstMatch(cleaned);
     if (hmsMatch != null) {
       final hours = int.tryParse(hmsMatch.group(1) ?? '') ?? 0;
       final minutes = int.tryParse(hmsMatch.group(2) ?? '') ?? 0;

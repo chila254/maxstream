@@ -921,6 +921,7 @@ class StreamExtractor(private val context: Context) {
             val responseHeaders = refererHeaders("https://vixsrc.to") +
                 mapOf("Origin" to "https://vixsrc.to") +
                 (if (cookieHeader.isNotBlank()) mapOf("Cookie" to cookieHeader) else emptyMap())
+            validateFirstHlsSegment(streamUrl, responseHeaders)
             return ExtractionResult.Final(
                 StreamResult(streamUrl, name, "direct_m3u8", responseHeaders),
             )
@@ -1628,6 +1629,18 @@ class StreamExtractor(private val context: Context) {
             .firstOrNull { it.isNotEmpty() && !it.startsWith('#') }
             ?: throw IllegalStateException("HLS quality contains no media URI")
         validateMediaRequest(resolveUrl(playlistUrl, mediaUri), headers)
+    }
+
+    private fun validateFirstHlsSegment(url: String, headers: Map<String, String>) {
+        val master = getValidationResponse(url, headers)
+        require(master.body.startsWith("#EXTM3U")) { "HLS endpoint did not return a playlist" }
+        val firstVariant = parseHlsVariants(master.url, master.body).firstOrNull()
+        if (firstVariant == null) {
+            validateMediaPlaylist(master.url, master.body, headers)
+            return
+        }
+        val media = getValidationResponse(firstVariant.url, headers)
+        validateMediaPlaylist(media.url, media.body, headers)
     }
 
     private fun parseHlsVariants(masterUrl: String, body: String): List<HlsVariant> {
