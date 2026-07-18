@@ -16,7 +16,7 @@ class DBHelper {
     final path = join(await getDatabasesPath(), 'watchlist.db');
     return openDatabase(
       path,
-      version: 7,
+      version: 8,
       onCreate: _createDb,
       onUpgrade: _upgradeDb,
     );
@@ -57,6 +57,8 @@ class DBHelper {
         UNIQUE(seriesId, seasonNumber, episodeNumber)
       )
     ''');
+
+    await _createMediaDownloadsTable(db);
   }
 
   static Future<void> _upgradeDb(
@@ -131,6 +133,74 @@ class DBHelper {
         WHERE providerId = 591
       ''');
     }
+    if (oldVersion < 8) {
+      await _createMediaDownloadsTable(db);
+    }
+  }
+
+  static Future<void> _createMediaDownloadsTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS media_downloads (
+        downloadKey TEXT PRIMARY KEY,
+        mediaId TEXT NOT NULL,
+        mediaType TEXT NOT NULL,
+        seriesId TEXT,
+        seasonNumber INTEGER,
+        episodeNumber INTEGER,
+        title TEXT NOT NULL,
+        thumbnail TEXT NOT NULL,
+        localPath TEXT NOT NULL,
+        downloadDate TEXT NOT NULL
+      )
+    ''');
+  }
+
+  static Future<void> insertMediaDownload({
+    required String downloadKey,
+    required String mediaId,
+    required String mediaType,
+    required String title,
+    required String thumbnail,
+    required String localPath,
+    String? seriesId,
+    int? seasonNumber,
+    int? episodeNumber,
+    DateTime? downloadDate,
+  }) async {
+    final db = await database;
+    await db.insert('media_downloads', {
+      'downloadKey': downloadKey,
+      'mediaId': mediaId,
+      'mediaType': mediaType,
+      'seriesId': seriesId,
+      'seasonNumber': seasonNumber,
+      'episodeNumber': episodeNumber,
+      'title': title,
+      'thumbnail': thumbnail,
+      'localPath': localPath,
+      'downloadDate': (downloadDate ?? DateTime.now()).toIso8601String(),
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  static Future<List<Map<String, dynamic>>> getMediaDownloads({
+    String? mediaType,
+  }) async {
+    final db = await database;
+    return db.query(
+      'media_downloads',
+      where: mediaType == null ? null : 'mediaType = ?',
+      whereArgs: mediaType == null ? null : [mediaType],
+      orderBy: 'downloadDate DESC',
+    );
+  }
+
+  static Future<void> deleteMediaDownload(String downloadKey) async {
+    final db = await database;
+    await db.delete(
+      'media_downloads',
+      where: 'downloadKey = ?',
+      whereArgs: [downloadKey],
+    );
   }
 
   static Future<void> addToWatchlist(Movie movie) async {

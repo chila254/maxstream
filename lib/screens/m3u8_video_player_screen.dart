@@ -1,11 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:video_player/video_player.dart';
+import '../database/db_helper.dart';
 import '../services/direct_m3u8_service.dart';
+import '../services/media_download_service.dart';
 import '../services/native_stream_extractor.dart';
 import '../services/tmdb_api_service.dart';
 import '../services/watch_history_service.dart';
@@ -16,6 +19,7 @@ class M3U8VideoPlayerScreen extends StatefulWidget {
   final bool isMovie;
   final int season;
   final int episode;
+  final String? offlinePath;
 
   const M3U8VideoPlayerScreen({
     super.key,
@@ -24,6 +28,7 @@ class M3U8VideoPlayerScreen extends StatefulWidget {
     required this.isMovie,
     this.season = 1,
     this.episode = 1,
+    this.offlinePath,
   });
 
   @override
@@ -87,6 +92,9 @@ class _StablePlayerControls extends StatefulWidget {
     required this.showSubtitles,
     required this.onAspectRatio,
     required this.aspectRatioLabel,
+    required this.onDownload,
+    required this.showDownload,
+    required this.downloadProgress,
   });
 
   final VideoPlayerController controller;
@@ -104,6 +112,9 @@ class _StablePlayerControls extends StatefulWidget {
   final bool showSubtitles;
   final VoidCallback onAspectRatio;
   final String aspectRatioLabel;
+  final VoidCallback onDownload;
+  final bool showDownload;
+  final double? downloadProgress;
 
   @override
   State<_StablePlayerControls> createState() => _StablePlayerControlsState();
@@ -351,6 +362,30 @@ class _StablePlayerControlsState extends State<_StablePlayerControls> {
                               ),
                             ),
                             const Spacer(),
+                            if (widget.showDownload)
+                              IconButton(
+                                tooltip: widget.downloadProgress == null
+                                    ? 'Download for offline viewing'
+                                    : 'Downloading',
+                                onPressed: widget.downloadProgress == null
+                                    ? widget.onDownload
+                                    : null,
+                                icon: widget.downloadProgress == null
+                                    ? const Icon(
+                                        Icons.download_for_offline_outlined,
+                                        color: Colors.white,
+                                      )
+                                    : SizedBox(
+                                        width: 22,
+                                        height: 22,
+                                        child: CircularProgressIndicator(
+                                          value: widget.downloadProgress,
+                                          strokeWidth: 2.5,
+                                          color: Colors.red,
+                                          backgroundColor: Colors.white24,
+                                        ),
+                                      ),
+                              ),
                             if (widget.showServer)
                               TextButton.icon(
                                 onPressed: widget.onServer,
@@ -494,6 +529,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   Duration _lastStablePosition = Duration.zero;
   bool _recoveringPlayback = false;
   int _playbackRetryCount = 0;
+  double? _downloadProgress;
   List<Map<String, dynamic>> _availableServers = const [];
   bool _serversLoading = false;
   String? _selectedServerUrl;
@@ -531,6 +567,11 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
 
   Future<void> _loadStream({bool resume = true}) async {
     if (!mounted) return;
+    final offlinePath = widget.offlinePath;
+    if (offlinePath != null && offlinePath.isNotEmpty) {
+      await _loadOfflineStream(offlinePath, resume: resume);
+      return;
+    }
     final discoveryGeneration = ++_serverDiscoveryGeneration;
 
     setState(() {
@@ -662,6 +703,108 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
           _error = 'Failed to load stream: $e';
         });
       }
+    }
+  }
+
+  Future<void> _loadOfflineStream(String path, {required bool resume}) async {
+    setState(() {
+      _error = null;
+      _statusMessage = 'Opening download...';
+      _availableServers = const [];
+      _serversLoading = false;
+    });
+    final file = File(path);
+    if (!await file.exists()) {
+      setState(() => _error = 'This downloaded video file no longer exists.');
+      return;
+    }
+    final controller = VideoPlayerController.file(
+      file,
+      videoPlayerOptions: VideoPlayerOptions(
+        backBufferDurationMs: 60000,
+        allowBackgroundPlayback: false,
+      ),
+    );
+    try {
+      await controller.initialize();
+      final position = resume
+          ? await WatchHistoryService.loadWatchPosition(
+              widget.tmdbId,
+              widget.isMovie,
+              _currentSeason,
+              _currentEpisode,
+            )
+          : Duration.zero;
+      if (position > Duration.zero && position < controller.value.duration) {
+        await controller.seekTo(position);
+      }
+      await controller.play();
+      if (!mounted) {
+        await controller.dispose();
+        return;
+      }
+      controller.addListener(_handlePlaybackChanged);
+      setState(() {
+        _videoPlayerController = controller;
+        _useNativePlayer = true;
+        _videoInitialized = true;
+        _currentSource = 'Downloaded';
+        _currentStreamUrl = null;
+        _currentStreamIsHls = path.toLowerCase().endsWith('.m3u8');
+        _streamHeaders = const {};
+        _qualities = const [];
+        _subtitleTracks = const [];
+      });
+      _startProgressSaving();
+    } catch (error) {
+      await controller.dispose();
+      if (mounted) setState(() => _error = 'Could not play download: $error');
+    }
+  }
+
+  Future<void> _downloadCurrentStream() async {
+    final url = _currentStreamUrl;
+    if (url == null || _downloadProgress != null) return;
+    final downloadKey = widget.isMovie
+        ? 'movie_${widget.tmdbId}'
+        : 'series_${widget.tmdbId}_s${_currentSeason}_e$_currentEpisode';
+    final service = MediaDownloadService();
+    setState(() => _downloadProgress = 0);
+    try {
+      final result = await service.download(
+        url: url,
+        headers: _streamHeaders,
+        downloadId: downloadKey,
+        hls: _currentStreamIsHls,
+        onProgress: (progress) {
+          if (mounted) setState(() => _downloadProgress = progress);
+        },
+      );
+      await DBHelper.insertMediaDownload(
+        downloadKey: downloadKey,
+        mediaId: widget.tmdbId,
+        mediaType: widget.isMovie ? 'movie' : 'episode',
+        seriesId: widget.isMovie ? null : widget.tmdbId,
+        seasonNumber: widget.isMovie ? null : _currentSeason,
+        episodeNumber: widget.isMovie ? null : _currentEpisode,
+        title: _currentTitle,
+        thumbnail: _posterUrl,
+        localPath: result.localPath,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Download completed')));
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Download failed: $error')));
+      }
+    } finally {
+      service.dispose();
+      if (mounted) setState(() => _downloadProgress = null);
     }
   }
 
@@ -1965,6 +2108,9 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
             showSubtitles: _subtitleTracks.isNotEmpty,
             onAspectRatio: _cycleAspectRatio,
             aspectRatioLabel: _aspectRatioLabel,
+            onDownload: _downloadCurrentStream,
+            showDownload: widget.offlinePath == null,
+            downloadProgress: _downloadProgress,
           ),
         ),
         if (_videoPlayerController != null)

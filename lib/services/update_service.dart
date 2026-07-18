@@ -1,9 +1,7 @@
-import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:open_file/open_file.dart';
 import 'notification_service.dart';
 
@@ -121,7 +119,8 @@ class UpdateService {
     await notificationService.showNotification(
       id: 9999,
       title: 'Update Available',
-      body: 'MaxStream ${info.version} is available (current: $currentVersion). Tap to download.',
+      body:
+          'MaxStream ${info.version} is available (current: $currentVersion). Tap to download.',
       payload: 'update:${info.downloadUrl}',
     );
 
@@ -134,20 +133,11 @@ class UpdateService {
     String downloadUrl,
   ) async {
     try {
-      final status = await Permission.storage.request();
-      if (!status.isGranted) {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Storage permission is required to download updates'),
-            ),
-          );
-        }
-        return;
-      }
-
       final directory = await getExternalStorageDirectory();
-      final filePath = '${directory!.path}/MaxStream.apk';
+      if (directory == null) {
+        throw StateError('App storage is unavailable');
+      }
+      final filePath = '${directory.path}/MaxStream.apk';
 
       if (context.mounted) {
         showDialog(
@@ -189,7 +179,9 @@ class UpdateService {
                   if (result.type != ResultType.done && context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
-                        content: Text('Failed to install. Check your downloads folder.'),
+                        content: Text(
+                          'Failed to install. Check your downloads folder.',
+                        ),
                       ),
                     );
                   }
@@ -203,9 +195,9 @@ class UpdateService {
     } catch (e) {
       if (context.mounted) {
         Navigator.of(context).pop(); // Close progress dialog if open
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error downloading update: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error downloading update: $e')));
       }
     }
   }
