@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:http/http.dart' show ClientException;
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -16,6 +17,7 @@ class MediaDownloadResult {
 }
 
 /// Downloads resolved, non-DRM media into the application's private storage.
+/// Supports retry with resume for both direct and HLS downloads.
 class MediaDownloadService {
   MediaDownloadService({http.Client? client})
     : _client = client ?? http.Client(),
@@ -23,6 +25,13 @@ class MediaDownloadService {
 
   final http.Client _client;
   final bool _ownsClient;
+  bool _cancelled = false;
+
+  static const int _maxRetries = 10;
+  static const Duration _initialRetryDelay = Duration(seconds: 2);
+  static const Duration _maxRetryDelay = Duration(seconds: 60);
+
+  void cancel() => _cancelled = true;
 
   Future<MediaDownloadResult> download({
     required String url,
@@ -41,8 +50,19 @@ class MediaDownloadService {
     final partial = Directory(p.join(root.path, '.$id.partial'));
     final completed = Directory(p.join(root.path, id));
 
-    await _deleteIfPresent(partial);
-    await partial.create(recursive: true);
+    // If a completed directory exists, return it immediately (resume after crash).
+    if (await completed.exists()) {
+      final existing = await _findExistingOutput(completed);
+      if (existing != null) {
+        onProgress?.call(1);
+        return MediaDownloadResult(localPath: existing, isHls: hls ?? false);
+      }
+    }
+
+    // Don't delete partial on start — we want to resume from it.
+    if (!await partial.exists()) {
+      await partial.create(recursive: true);
+    }
     onProgress?.call(0);
     try {
       final uri = Uri.parse(url);
@@ -65,7 +85,10 @@ class MediaDownloadService {
         isHls: isHls,
       );
     } catch (_) {
-      await _deleteIfPresent(partial);
+      // Keep partial directory for resume — only delete if explicitly cancelled.
+      if (_cancelled) {
+        await _deleteIfPresent(partial);
+      }
       rethrow;
     }
   }
@@ -76,27 +99,59 @@ class MediaDownloadService {
     Map<String, String> headers,
     DownloadProgress? onProgress,
   ) async {
-    final request = http.Request('GET', uri)..headers.addAll(headers);
-    final response = await _client.send(request);
-    _checkResponse(response.statusCode, uri);
     final extension = p.extension(uri.path);
     final name = 'video${extension.isEmpty ? '.mp4' : extension}';
     final file = File(p.join(directory.path, name));
-    final sink = file.openWrite();
     var received = 0;
-    try {
-      await for (final bytes in response.stream) {
-        sink.add(bytes);
-        received += bytes.length;
-        final total = response.contentLength;
-        if (total != null && total > 0) {
-          onProgress?.call((received / total).clamp(0, 1));
-        }
-      }
-      await sink.flush();
-    } finally {
-      await sink.close();
+
+    // Check if we have partial data to resume from.
+    if (await file.exists()) {
+      received = await file.length();
     }
+
+    await _retryWithResume(
+      description: 'direct download ${uri.path}',
+      onProgress: onProgress,
+      totalGetter: () async {
+        final headResponse = await _client.head(uri, headers: headers);
+        return headResponse.contentLength;
+      },
+      execute: (total) async {
+        final requestHeaders = Map<String, String>.from(headers);
+        if (received > 0) {
+          requestHeaders['Range'] = 'bytes=$received-';
+        }
+        final request = http.Request('GET', uri)..headers.addAll(requestHeaders);
+        final response = await _client.send(request);
+
+        if (received > 0 && response.statusCode == 206) {
+          // Resuming — open file in append mode.
+        } else if (received > 0 && response.statusCode == 200) {
+          // Server doesn't support range — restart from beginning.
+          received = 0;
+        } else {
+          _checkResponse(response.statusCode, uri);
+        }
+
+        final sink = file.openWrite(mode: received > 0 ? FileMode.append : FileMode.write);
+        try {
+          await for (final bytes in response.stream) {
+            if (_cancelled) break;
+            sink.add(bytes);
+            received += bytes.length;
+            if (total != null && total > 0) {
+              onProgress?.call((received / total).clamp(0, 1));
+            }
+          }
+          await sink.flush();
+        } finally {
+          await sink.close();
+        }
+      },
+      cleanup: () async {
+        if (_cancelled) await _deleteIfPresent(File(p.join(directory.path, name)).parent);
+      },
+    );
     return name;
   }
 
@@ -153,14 +208,31 @@ class MediaDownloadService {
 
     var done = 0;
     for (final entry in resources.entries) {
-      await _downloadResource(
-        entry.key,
-        File(p.join(directory.path, entry.value)),
-        headers,
+      if (_cancelled) break;
+      final file = File(p.join(directory.path, entry.value));
+
+      // Skip already-downloaded segments.
+      if (await file.exists() && await file.length() > 0) {
+        done++;
+        onProgress?.call(done / (resources.length + 1));
+        continue;
+      }
+
+      await _retryWithResume(
+        description: 'HLS segment ${entry.value}',
+        onProgress: null,
+        execute: (_) async {
+          await _downloadResource(
+            entry.key,
+            file,
+            headers,
+          );
+        },
       );
       done++;
       onProgress?.call(done / (resources.length + 1));
     }
+
     const playlistName = 'playlist.m3u8';
     await File(
       p.join(directory.path, playlistName),
@@ -182,6 +254,65 @@ class MediaDownloadService {
     } finally {
       await sink.close();
     }
+  }
+
+  /// Retries an operation with exponential backoff.
+  Future<void> _retryWithResume({
+    required String description,
+    required Future<void> Function(int? total) execute,
+    DownloadProgress? onProgress,
+    Future<int?> Function()? totalGetter,
+    Future<void> Function()? cleanup,
+  }) async {
+    var delay = _initialRetryDelay;
+    for (var attempt = 0; attempt < _maxRetries; attempt++) {
+      if (_cancelled) {
+        await cleanup?.call();
+        throw StateError('Download cancelled');
+      }
+      try {
+        final total = totalGetter != null ? await totalGetter() : null;
+        await execute(total);
+        return;
+      } catch (e) {
+        final isRetryable = e is SocketException ||
+            e is HttpException ||
+            e is TimeoutException ||
+            e is ClientException ||
+            e.toString().contains('Software caused connection abort') ||
+            e.toString().contains('Connection reset') ||
+            e.toString().contains('Connection refused') ||
+            e.toString().contains('Connection closed');
+
+        if (!isRetryable || attempt == _maxRetries - 1) {
+          await cleanup?.call();
+          rethrow;
+        }
+
+        // Exponential backoff with jitter.
+        final jitter = Duration(milliseconds: (delay.inMilliseconds * 0.5 * (DateTime.now().millisecond % 100) / 100).round());
+        final waitTime = delay + jitter;
+        await Future.delayed(waitTime);
+        delay = Duration(
+          milliseconds: (delay.inMilliseconds * 2).clamp(0, _maxRetryDelay.inMilliseconds),
+        );
+      }
+    }
+    throw StateError('Download failed after $_maxRetries retries: $description');
+  }
+
+  Future<String?> _findExistingOutput(Directory dir) async {
+    if (await dir.exists()) {
+      await for (final entity in dir.list()) {
+        if (entity is File) {
+          final name = p.basename(entity.path);
+          if (name == 'playlist.m3u8' || name.startsWith('video')) {
+            return entity.path;
+          }
+        }
+      }
+    }
+    return null;
   }
 
   Future<String> _getText(Uri uri, Map<String, String> headers) async {
@@ -276,11 +407,12 @@ class MediaDownloadService {
     return safe.isEmpty ? 'download' : safe;
   }
 
-  Future<void> _deleteIfPresent(Directory directory) async {
-    if (await directory.exists()) await directory.delete(recursive: true);
+  Future<void> _deleteIfPresent(FileSystemEntity entity) async {
+    if (await entity.exists()) await entity.delete(recursive: true);
   }
 
   void dispose() {
+    _cancelled = true;
     if (_ownsClient) _client.close();
   }
 }

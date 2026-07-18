@@ -1,9 +1,11 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../database/db_helper.dart';
 import 'direct_m3u8_service.dart';
+import 'download_service_bridge.dart';
 import 'media_download_service.dart';
 import 'notification_service.dart';
 
@@ -14,6 +16,7 @@ class ActiveMediaDownload {
     required this.label,
     required this.thumbnail,
     required this.progress,
+    this.service,
   });
 
   final String downloadKey;
@@ -21,14 +24,17 @@ class ActiveMediaDownload {
   final String label;
   final String thumbnail;
   final double progress;
+  final MediaDownloadService? service;
 
-  ActiveMediaDownload copyWith({double? progress}) => ActiveMediaDownload(
-    downloadKey: downloadKey,
-    title: title,
-    label: label,
-    thumbnail: thumbnail,
-    progress: progress ?? this.progress,
-  );
+  ActiveMediaDownload copyWith({double? progress, MediaDownloadService? service}) =>
+      ActiveMediaDownload(
+        downloadKey: downloadKey,
+        title: title,
+        label: label,
+        thumbnail: thumbnail,
+        progress: progress ?? this.progress,
+        service: service ?? this.service,
+      );
 }
 
 class MediaDownloadManager extends ChangeNotifier {
@@ -97,6 +103,34 @@ class MediaDownloadManager extends ChangeNotifier {
     return true;
   }
 
+  Future<void> _ensureForegroundService() async {
+    if (_active.isEmpty) {
+      await WakelockPlus.enable();
+      await DownloadServiceBridge.startForegroundService(
+        downloadCount: 1,
+        title: _active.values.first.title,
+      );
+    } else {
+      // Update count.
+      await DownloadServiceBridge.startForegroundService(
+        downloadCount: _active.length + 1,
+        title: _active.values.first.title,
+      );
+    }
+  }
+
+  Future<void> _updateOrStopForegroundService() async {
+    if (_active.isEmpty) {
+      await DownloadServiceBridge.stopForegroundService();
+      await WakelockPlus.disable();
+    } else {
+      await DownloadServiceBridge.startForegroundService(
+        downloadCount: _active.length,
+        title: _active.values.first.title,
+      );
+    }
+  }
+
   Future<void> start({
     required String downloadKey,
     required String url,
@@ -114,15 +148,20 @@ class MediaDownloadManager extends ChangeNotifier {
     final label = title;
     final notificationId = downloadKey.hashCode & 0x7fffffff;
     var lastNotificationProgress = -1;
+    final service = MediaDownloadService();
     _active[downloadKey] = ActiveMediaDownload(
       downloadKey: downloadKey,
       title: title,
       label: label,
       thumbnail: thumbnail,
       progress: 0,
+      service: service,
     );
     notifyListeners();
-    final service = MediaDownloadService();
+
+    // Start foreground service and wakelock when first download begins.
+    await _ensureForegroundService();
+
     try {
       await NotificationService().showDownloadProgress(
         id: notificationId,
@@ -181,6 +220,7 @@ class MediaDownloadManager extends ChangeNotifier {
       service.dispose();
       _active.remove(downloadKey);
       notifyListeners();
+      await _updateOrStopForegroundService();
     }
   }
 }
