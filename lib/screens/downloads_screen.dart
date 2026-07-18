@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../database/db_helper.dart';
+import '../services/media_download_manager.dart';
 import 'm3u8_video_player_screen.dart';
 
 class DownloadsScreen extends StatefulWidget {
@@ -15,11 +16,30 @@ class DownloadsScreen extends StatefulWidget {
 class _DownloadsScreenState extends State<DownloadsScreen> {
   List<Map<String, dynamic>> _downloads = const [];
   bool _loading = true;
+  final MediaDownloadManager _downloadManager = MediaDownloadManager.instance;
+  late int _completionVersion;
 
   @override
   void initState() {
     super.initState();
+    _completionVersion = _downloadManager.completionVersion;
+    _downloadManager.addListener(_handleDownloadManagerChanged);
     _loadDownloads();
+  }
+
+  @override
+  void dispose() {
+    _downloadManager.removeListener(_handleDownloadManagerChanged);
+    super.dispose();
+  }
+
+  void _handleDownloadManagerChanged() {
+    if (_completionVersion != _downloadManager.completionVersion) {
+      _completionVersion = _downloadManager.completionVersion;
+      _loadDownloads();
+    } else if (mounted) {
+      setState(() {});
+    }
   }
 
   Future<void> _loadDownloads() async {
@@ -115,9 +135,9 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
           ),
         ],
       ),
-      body: _loading
+      body: _loading && _downloadManager.activeDownloads.isEmpty
           ? const Center(child: CircularProgressIndicator(color: Colors.red))
-          : _downloads.isEmpty
+          : _downloads.isEmpty && _downloadManager.activeDownloads.isEmpty
           ? const Center(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -141,13 +161,25 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
+                  if (_downloadManager.activeDownloads.isNotEmpty) ...[
+                    _sectionTitle(
+                      'Downloading',
+                      _downloadManager.activeDownloads.length,
+                    ),
+                    ..._downloadManager.activeDownloads.map(
+                      _activeDownloadTile,
+                    ),
+                    const SizedBox(height: 20),
+                  ],
+                  if (_downloads.isNotEmpty)
+                    _sectionTitle('Downloaded', _downloads.length),
                   if (movies.isNotEmpty) ...[
-                    _sectionTitle('Movies', movies.length),
+                    _subsectionTitle('Movies'),
                     ...movies.map(_downloadTile),
                     const SizedBox(height: 20),
                   ],
                   if (series.isNotEmpty) ...[
-                    _sectionTitle('Series', episodes.length),
+                    _subsectionTitle('Series'),
                     ...series.values.map(_seriesGroup),
                   ],
                 ],
@@ -165,6 +197,53 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
           color: Colors.white,
           fontSize: 20,
           fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
+  }
+
+  Widget _subsectionTitle(String title) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 4, bottom: 8),
+      child: Text(
+        title,
+        style: const TextStyle(
+          color: Colors.white70,
+          fontSize: 16,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+
+  Widget _activeDownloadTile(ActiveMediaDownload download) {
+    final percent = (download.progress * 100).round().clamp(0, 100);
+    return Card(
+      color: const Color(0xFF1E1E1E),
+      child: ListTile(
+        leading: _thumbnail(download.thumbnail),
+        title: Text(
+          download.label,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(color: Colors.white),
+        ),
+        subtitle: Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: LinearProgressIndicator(
+                  value: download.progress,
+                  minHeight: 5,
+                  color: Colors.red,
+                  backgroundColor: Colors.white24,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Text('$percent%', style: const TextStyle(color: Colors.white70)),
+            ],
+          ),
         ),
       ),
     );

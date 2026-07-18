@@ -6,9 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:video_player/video_player.dart';
-import '../database/db_helper.dart';
 import '../services/direct_m3u8_service.dart';
-import '../services/media_download_service.dart';
+import '../services/media_download_manager.dart';
 import '../services/native_stream_extractor.dart';
 import '../services/tmdb_api_service.dart';
 import '../services/watch_history_service.dart';
@@ -542,6 +541,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     _currentEpisode = widget.episode;
     _currentTitle = widget.title;
     _resolverTitle = widget.title;
+    MediaDownloadManager.instance.addListener(_handleDownloadChanged);
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
@@ -765,25 +765,14 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   Future<void> _downloadCurrentStream() async {
     final url = _currentStreamUrl;
     if (url == null || _downloadProgress != null) return;
-    final downloadKey = widget.isMovie
-        ? 'movie_${widget.tmdbId}'
-        : 'series_${widget.tmdbId}_s${_currentSeason}_e$_currentEpisode';
-    final service = MediaDownloadService();
-    setState(() => _downloadProgress = 0);
     try {
-      final result = await service.download(
+      await MediaDownloadManager.instance.start(
+        downloadKey: _currentDownloadKey,
         url: url,
         headers: _streamHeaders,
-        downloadId: downloadKey,
-        hls: _currentStreamIsHls,
-        onProgress: (progress) {
-          if (mounted) setState(() => _downloadProgress = progress);
-        },
-      );
-      await DBHelper.insertMediaDownload(
-        downloadKey: downloadKey,
         mediaId: widget.tmdbId,
-        mediaType: widget.isMovie ? 'movie' : 'episode',
+        isMovie: widget.isMovie,
+        isHls: _currentStreamIsHls,
         seriesId: widget.isMovie ? null : widget.tmdbId,
         seasonNumber: widget.isMovie ? null : _currentSeason,
         episodeNumber: widget.isMovie ? null : _currentEpisode,
@@ -802,9 +791,20 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
           context,
         ).showSnackBar(SnackBar(content: Text('Download failed: $error')));
       }
-    } finally {
-      service.dispose();
-      if (mounted) setState(() => _downloadProgress = null);
+    }
+  }
+
+  String get _currentDownloadKey => widget.isMovie
+      ? 'movie_${widget.tmdbId}'
+      : 'series_${widget.tmdbId}_s${_currentSeason}_e$_currentEpisode';
+
+  void _handleDownloadChanged() {
+    if (!mounted) return;
+    final progress = MediaDownloadManager.instance
+        .taskFor(_currentDownloadKey)
+        ?.progress;
+    if (progress != _downloadProgress) {
+      setState(() => _downloadProgress = progress);
     }
   }
 
@@ -1969,6 +1969,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
 
   @override
   void dispose() {
+    MediaDownloadManager.instance.removeListener(_handleDownloadChanged);
     _selectedSubtitle.dispose();
     _activeSubtitles.dispose();
     _progressTimer?.cancel();
