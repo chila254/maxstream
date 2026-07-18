@@ -778,7 +778,6 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         episodeNumber: widget.isMovie ? null : _currentEpisode,
         title: _currentTitle,
         thumbnail: _posterUrl,
-        localPath: result.localPath,
       );
       if (mounted) {
         ScaffoldMessenger.of(
