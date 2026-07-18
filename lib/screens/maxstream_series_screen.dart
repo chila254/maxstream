@@ -3,6 +3,7 @@ import 'package:youtube_player_flutter/youtube_player_flutter.dart';
 import 'package:shimmer/shimmer.dart';
 import '../models/movie.dart';
 import '../models/series.dart';
+import '../services/media_download_manager.dart';
 import '../services/tmdb_api_service.dart';
 import '../database/db_helper.dart';
 import 'm3u8_video_player_screen.dart';
@@ -28,6 +29,8 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
   String? trailerUrl;
   List<Map<String, dynamic>> cast = [];
   List<Map<String, dynamic>> recommendations = [];
+  final Set<String> _downloadingEpisodes = {};
+  bool _downloadingSeason = false;
 
   @override
   void initState() {
@@ -217,6 +220,104 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
         ),
       ),
     );
+  }
+
+  String _episodeDownloadKey(int season, int episode) =>
+      'series_${widget.seriesItem.id}_s${season}_e$episode';
+
+  Future<bool> _downloadEpisode(
+    Episode episode, {
+    bool showResult = true,
+    int? seasonNumber,
+  }) async {
+    final season = seasonNumber ?? seasons[selectedSeasonIndex].seasonNumber;
+    final key = _episodeDownloadKey(season, episode.episodeNumber);
+    if (_downloadingEpisodes.contains(key)) return true;
+    setState(() => _downloadingEpisodes.add(key));
+    try {
+      final found = await MediaDownloadManager.instance.resolveAndStart(
+        downloadKey: key,
+        mediaId: widget.seriesItem.id,
+        isMovie: false,
+        resolverTitle: widget.seriesItem.title,
+        title:
+            '${widget.seriesItem.title} - S${season}E${episode.episodeNumber}: ${episode.name}',
+        thumbnail: episode.stillPath.isNotEmpty
+            ? 'https://image.tmdb.org/t/p/w500${episode.stillPath}'
+            : widget.seriesItem.thumbnail,
+        seasonNumber: season,
+        episodeNumber: episode.episodeNumber,
+      );
+      if (showResult && mounted && !found) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'No downloadable stream found for episode ${episode.episodeNumber}',
+            ),
+          ),
+        );
+      }
+      return found;
+    } catch (error) {
+      if (showResult && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Episode download failed: $error')),
+        );
+      }
+      return false;
+    } finally {
+      if (mounted) setState(() => _downloadingEpisodes.remove(key));
+    }
+  }
+
+  Future<void> _downloadCurrentSeason() async {
+    if (_downloadingSeason || currentEpisodes.isEmpty) return;
+    final season = seasons[selectedSeasonIndex].seasonNumber;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Download Season $season?'),
+        content: Text(
+          '${currentEpisodes.length} episodes will be downloaded one at a time.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Download'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _downloadingSeason = true);
+    var completed = 0;
+    final episodes = List<Episode>.from(currentEpisodes);
+    try {
+      for (final episode in episodes) {
+        if (await _downloadEpisode(
+          episode,
+          showResult: false,
+          seasonNumber: season,
+        )) {
+          completed++;
+        }
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Downloaded $completed of ${episodes.length} episodes from Season $season',
+            ),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _downloadingSeason = false);
+    }
   }
 
   String getYear() {
@@ -720,15 +821,37 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Padding(
-          padding: EdgeInsets.all(16.0),
-          child: Text(
-            'Seasons & Episodes',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-            ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
+          child: Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Seasons & Episodes',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              TextButton.icon(
+                onPressed: _downloadingSeason || currentEpisodes.isEmpty
+                    ? null
+                    : _downloadCurrentSeason,
+                icon: _downloadingSeason
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.download_for_offline_outlined),
+                label: Text(
+                  _downloadingSeason ? 'Downloading' : 'Download Season',
+                ),
+                style: TextButton.styleFrom(foregroundColor: Colors.white),
+              ),
+            ],
           ),
         ),
         Padding(
@@ -855,12 +978,38 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
                           ),
                         ),
                       ),
-                      const Padding(
-                        padding: EdgeInsets.all(16),
-                        child: Icon(
-                          Icons.play_arrow,
-                          color: Colors.red,
-                          size: 24,
+                      Padding(
+                        padding: const EdgeInsets.only(right: 4),
+                        child: IconButton(
+                          tooltip: 'Download episode',
+                          onPressed:
+                              _downloadingEpisodes.contains(
+                                _episodeDownloadKey(
+                                  seasons[selectedSeasonIndex].seasonNumber,
+                                  episode.episodeNumber,
+                                ),
+                              )
+                              ? null
+                              : () => _downloadEpisode(episode),
+                          icon:
+                              _downloadingEpisodes.contains(
+                                _episodeDownloadKey(
+                                  seasons[selectedSeasonIndex].seasonNumber,
+                                  episode.episodeNumber,
+                                ),
+                              )
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Icon(
+                                  Icons.download_for_offline_outlined,
+                                  color: Colors.red,
+                                ),
                         ),
                       ),
                     ],

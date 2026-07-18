@@ -3,6 +3,7 @@ import 'package:youtube_player_flutter/youtube_player_flutter.dart';
 import 'package:shimmer/shimmer.dart';
 import '../database/db_helper.dart';
 import '../models/movie.dart';
+import '../services/media_download_manager.dart';
 import '../services/tmdb_api_service.dart';
 import 'm3u8_video_player_screen.dart';
 
@@ -28,6 +29,7 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
   Map<String, dynamic>? details;
   List<Map<String, dynamic>> cast = [];
   List<Map<String, dynamic>> recommendations = [];
+  bool _downloadingMovie = false;
   late ScrollController _scrollController;
 
   @override
@@ -165,6 +167,38 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
           ),
         );
       }
+    }
+  }
+
+  Future<void> _downloadMovie() async {
+    if (_downloadingMovie) return;
+    setState(() => _downloadingMovie = true);
+    try {
+      final found = await MediaDownloadManager.instance.resolveAndStart(
+        downloadKey: 'movie_${widget.item.id}',
+        mediaId: widget.item.id,
+        isMovie: true,
+        title: widget.item.title,
+        thumbnail: widget.item.thumbnail,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            found
+                ? '${widget.item.title} downloaded successfully'
+                : 'No downloadable stream was found',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Download failed: $error')));
+      }
+    } finally {
+      if (mounted) setState(() => _downloadingMovie = false);
     }
   }
 
@@ -401,6 +435,39 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
                               ),
                             ),
                           ),
+                          if (widget.mediaType == 'movie') ...[
+                            const SizedBox(height: 8),
+                            SizedBox(
+                              width: double.infinity,
+                              height: 40,
+                              child: OutlinedButton.icon(
+                                onPressed: _downloadingMovie
+                                    ? null
+                                    : _downloadMovie,
+                                icon: _downloadingMovie
+                                    ? const SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Colors.white,
+                                        ),
+                                      )
+                                    : const Icon(
+                                        Icons.download_for_offline_outlined,
+                                      ),
+                                label: Text(
+                                  _downloadingMovie
+                                      ? 'Downloading...'
+                                      : 'Download',
+                                ),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: Colors.white,
+                                  side: const BorderSide(color: Colors.white54),
+                                ),
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                     ),

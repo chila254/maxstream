@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../database/db_helper.dart';
+import 'direct_m3u8_service.dart';
 import 'media_download_service.dart';
 import 'notification_service.dart';
 
@@ -44,6 +45,58 @@ class MediaDownloadManager extends ChangeNotifier {
 
   ActiveMediaDownload? taskFor(String downloadKey) => _active[downloadKey];
 
+  Future<bool> resolveAndStart({
+    required String downloadKey,
+    required String mediaId,
+    required bool isMovie,
+    required String title,
+    required String thumbnail,
+    String? resolverTitle,
+    int seasonNumber = 1,
+    int episodeNumber = 1,
+  }) async {
+    final lookupTitle = resolverTitle ?? title;
+    final stream = isMovie
+        ? await DirectM3u8Service.fetchMovieStreamUrl(
+            lookupTitle,
+            null,
+            mediaId,
+          )
+        : await DirectM3u8Service.fetchSeriesStreamUrl(
+            lookupTitle,
+            seasonNumber,
+            episodeNumber,
+            mediaId,
+          );
+    final url = stream?['url']?.toString() ?? '';
+    if (stream == null || url.isEmpty) return false;
+    final headers = <String, String>{};
+    if (stream['referer'] != null) {
+      headers['Referer'] = stream['referer'].toString();
+    }
+    if (stream['headers'] is Map) {
+      (stream['headers'] as Map).forEach((key, value) {
+        headers[key.toString()] = value.toString();
+      });
+    }
+    await start(
+      downloadKey: downloadKey,
+      url: url,
+      headers: headers,
+      isHls:
+          stream['type'] == 'direct_m3u8' ||
+          url.toLowerCase().contains('.m3u8'),
+      mediaId: mediaId,
+      isMovie: isMovie,
+      title: title,
+      thumbnail: thumbnail,
+      seriesId: isMovie ? null : mediaId,
+      seasonNumber: isMovie ? null : seasonNumber,
+      episodeNumber: isMovie ? null : episodeNumber,
+    );
+    return true;
+  }
+
   Future<void> start({
     required String downloadKey,
     required String url,
@@ -58,9 +111,7 @@ class MediaDownloadManager extends ChangeNotifier {
     int? episodeNumber,
   }) async {
     if (_active.containsKey(downloadKey)) return;
-    final label = isMovie
-        ? title
-        : '$title · Season $seasonNumber, Episode $episodeNumber';
+    final label = title;
     final notificationId = downloadKey.hashCode & 0x7fffffff;
     var lastNotificationProgress = -1;
     _active[downloadKey] = ActiveMediaDownload(
