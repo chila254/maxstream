@@ -1,7 +1,27 @@
 # Changelog
 
 > [!NOTE]
-> This release supports streaming functionality, but not all streams are resolved. We are still working to improve streaming functionality.
+> This release was built faster for a streamlined UX for the user and the download functionality. Download support is now available for movies and series. We are still working to improve streaming functionality.
+
+## 1.3.0+5
+
+### What's New
+- Download movies directly from the movie details screen
+- Download individual episodes from series screen
+- Download entire seasons with queued episode processing
+- Background download support with foreground service and wakelock
+- Download retry logic for failed downloads
+
+### Features
+- Movie download button on details screen
+- Episode download button on each episode row
+- Download Season action for currently selected season
+- Foreground service for background downloads
+- Wakelock to keep device awake during downloads
+- Download retry mechanism for failed downloads
+
+### Bug Fixes
+- Fix media download build error by moving local path persistence into download manager
 
 ## 1.2.0+4
 

@@ -1,5 +1,5 @@
 # Flutter
--keep-attributes signature
+-keepattributes Signature
 -keep class com.myapp.inappwebview.** { *; }
 -keep class io.flutter.app.FlutterApplication { *; }
 -keep class io.flutter.plugin.common.** { *; }
