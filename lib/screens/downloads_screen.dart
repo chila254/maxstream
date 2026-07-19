@@ -230,18 +230,31 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
         ),
         subtitle: Padding(
           padding: const EdgeInsets.only(top: 8),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: LinearProgressIndicator(
-                  value: download.progress,
-                  minHeight: 5,
-                  color: Colors.red,
-                  backgroundColor: Colors.white24,
-                ),
+              Row(
+                children: [
+                  Expanded(
+                    child: LinearProgressIndicator(
+                      value: download.progress,
+                      minHeight: 5,
+                      color: Colors.red,
+                      backgroundColor: Colors.white24,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    '$percent%',
+                    style: const TextStyle(color: Colors.white70),
+                  ),
+                ],
               ),
-              const SizedBox(width: 10),
-              Text('$percent%', style: const TextStyle(color: Colors.white70)),
+              const SizedBox(height: 5),
+              Text(
+                download.sizeLabel,
+                style: const TextStyle(color: Colors.white54, fontSize: 12),
+              ),
             ],
           ),
         ),

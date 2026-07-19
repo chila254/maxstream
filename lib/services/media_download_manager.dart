@@ -16,6 +16,8 @@ class ActiveMediaDownload {
     required this.label,
     required this.thumbnail,
     required this.progress,
+    required this.downloadedBytes,
+    required this.totalBytes,
     this.service,
   });
 
@@ -24,17 +26,39 @@ class ActiveMediaDownload {
   final String label;
   final String thumbnail;
   final double progress;
+  final int downloadedBytes;
+  final int? totalBytes;
   final MediaDownloadService? service;
 
-  ActiveMediaDownload copyWith({double? progress, MediaDownloadService? service}) =>
-      ActiveMediaDownload(
-        downloadKey: downloadKey,
-        title: title,
-        label: label,
-        thumbnail: thumbnail,
-        progress: progress ?? this.progress,
-        service: service ?? this.service,
-      );
+  ActiveMediaDownload copyWith({
+    double? progress,
+    int? downloadedBytes,
+    int? totalBytes,
+    MediaDownloadService? service,
+  }) => ActiveMediaDownload(
+    downloadKey: downloadKey,
+    title: title,
+    label: label,
+    thumbnail: thumbnail,
+    progress: progress ?? this.progress,
+    downloadedBytes: downloadedBytes ?? this.downloadedBytes,
+    totalBytes: totalBytes ?? this.totalBytes,
+    service: service ?? this.service,
+  );
+
+  String get sizeLabel {
+    final downloaded = _formatBytes(downloadedBytes);
+    return totalBytes == null
+        ? '$downloaded downloaded'
+        : '$downloaded / ${_formatBytes(totalBytes!)}';
+  }
+
+  static String _formatBytes(int bytes) {
+    const mb = 1024 * 1024;
+    const gb = 1024 * mb;
+    if (bytes >= gb) return '${(bytes / gb).toStringAsFixed(2)} GB';
+    return '${(bytes / mb).toStringAsFixed(1)} MB';
+  }
 }
 
 class MediaDownloadManager extends ChangeNotifier {
@@ -155,6 +179,8 @@ class MediaDownloadManager extends ChangeNotifier {
       label: label,
       thumbnail: thumbnail,
       progress: 0,
+      downloadedBytes: 0,
+      totalBytes: null,
       service: service,
     );
     notifyListeners();
@@ -188,9 +214,17 @@ class MediaDownloadManager extends ChangeNotifier {
                 title: isMovie ? 'Downloading movie' : 'Downloading episode',
                 label: label,
                 progress: percent,
+                size: _active[downloadKey]!.sizeLabel,
               ),
             );
           }
+        },
+        onBytesProgress: (downloadedBytes, totalBytes) {
+          _active[downloadKey] = _active[downloadKey]!.copyWith(
+            downloadedBytes: downloadedBytes,
+            totalBytes: totalBytes,
+          );
+          notifyListeners();
         },
       );
       await DBHelper.insertMediaDownload(

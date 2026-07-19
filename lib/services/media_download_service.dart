@@ -8,6 +8,8 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 typedef DownloadProgress = void Function(double progress);
+typedef DownloadBytesProgress =
+    void Function(int downloadedBytes, int? totalBytes);
 
 class MediaDownloadResult {
   const MediaDownloadResult({required this.localPath, required this.isHls});
@@ -39,6 +41,7 @@ class MediaDownloadService {
     String? downloadId,
     bool? hls,
     DownloadProgress? onProgress,
+    DownloadBytesProgress? onBytesProgress,
   }) async {
     final root = Directory(
       p.join((await getApplicationSupportDirectory()).path, 'media_downloads'),
@@ -72,9 +75,21 @@ class MediaDownloadService {
               uri.path.toLowerCase().endsWith('.m3u');
       late final String outputName;
       if (isHls) {
-        outputName = await _downloadHls(uri, partial, headers, onProgress);
+        outputName = await _downloadHls(
+          uri,
+          partial,
+          headers,
+          onProgress,
+          onBytesProgress,
+        );
       } else {
-        outputName = await _downloadDirect(uri, partial, headers, onProgress);
+        outputName = await _downloadDirect(
+          uri,
+          partial,
+          headers,
+          onProgress,
+          onBytesProgress,
+        );
       }
 
       await _deleteIfPresent(completed);
@@ -98,6 +113,7 @@ class MediaDownloadService {
     Directory directory,
     Map<String, String> headers,
     DownloadProgress? onProgress,
+    DownloadBytesProgress? onBytesProgress,
   ) async {
     final extension = p.extension(uri.path);
     final name = 'video${extension.isEmpty ? '.mp4' : extension}';
@@ -121,7 +137,8 @@ class MediaDownloadService {
         if (received > 0) {
           requestHeaders['Range'] = 'bytes=$received-';
         }
-        final request = http.Request('GET', uri)..headers.addAll(requestHeaders);
+        final request = http.Request('GET', uri)
+          ..headers.addAll(requestHeaders);
         final response = await _client.send(request);
 
         if (received > 0 && response.statusCode == 206) {
@@ -133,7 +150,9 @@ class MediaDownloadService {
           _checkResponse(response.statusCode, uri);
         }
 
-        final sink = file.openWrite(mode: received > 0 ? FileMode.append : FileMode.write);
+        final sink = file.openWrite(
+          mode: received > 0 ? FileMode.append : FileMode.write,
+        );
         try {
           await for (final bytes in response.stream) {
             if (_cancelled) break;
@@ -142,6 +161,7 @@ class MediaDownloadService {
             if (total != null && total > 0) {
               onProgress?.call((received / total).clamp(0, 1));
             }
+            onBytesProgress?.call(received, total);
           }
           await sink.flush();
         } finally {
@@ -149,7 +169,9 @@ class MediaDownloadService {
         }
       },
       cleanup: () async {
-        if (_cancelled) await _deleteIfPresent(File(p.join(directory.path, name)).parent);
+        if (_cancelled) {
+          await _deleteIfPresent(File(p.join(directory.path, name)).parent);
+        }
       },
     );
     return name;
@@ -160,6 +182,7 @@ class MediaDownloadService {
     Directory directory,
     Map<String, String> headers,
     DownloadProgress? onProgress,
+    DownloadBytesProgress? onBytesProgress,
   ) async {
     var playlistUri = initialUri;
     var playlist = await _getText(playlistUri, headers);
@@ -207,28 +230,33 @@ class MediaDownloadService {
     }
 
     var done = 0;
+    var downloadedBytes = 0;
     for (final entry in resources.entries) {
       if (_cancelled) break;
       final file = File(p.join(directory.path, entry.value));
 
       // Skip already-downloaded segments.
       if (await file.exists() && await file.length() > 0) {
+        downloadedBytes += await file.length();
+        onBytesProgress?.call(downloadedBytes, null);
         done++;
         onProgress?.call(done / (resources.length + 1));
         continue;
       }
 
+      var currentResourceBytes = 0;
       await _retryWithResume(
         description: 'HLS segment ${entry.value}',
         onProgress: null,
         execute: (_) async {
-          await _downloadResource(
-            entry.key,
-            file,
-            headers,
-          );
+          currentResourceBytes = 0;
+          await _downloadResource(entry.key, file, headers, (bytes) {
+            currentResourceBytes += bytes;
+            onBytesProgress?.call(downloadedBytes + currentResourceBytes, null);
+          });
         },
       );
+      downloadedBytes += currentResourceBytes;
       done++;
       onProgress?.call(done / (resources.length + 1));
     }
@@ -244,13 +272,18 @@ class MediaDownloadService {
     Uri uri,
     File file,
     Map<String, String> headers,
+    void Function(int bytes)? onBytes,
   ) async {
     final request = http.Request('GET', uri)..headers.addAll(headers);
     final response = await _client.send(request);
     _checkResponse(response.statusCode, uri);
     final sink = file.openWrite();
     try {
-      await response.stream.pipe(sink);
+      await for (final bytes in response.stream) {
+        sink.add(bytes);
+        onBytes?.call(bytes.length);
+      }
+      await sink.flush();
     } finally {
       await sink.close();
     }
@@ -275,7 +308,8 @@ class MediaDownloadService {
         await execute(total);
         return;
       } catch (e) {
-        final isRetryable = e is SocketException ||
+        final isRetryable =
+            e is SocketException ||
             e is HttpException ||
             e is TimeoutException ||
             e is ClientException ||
@@ -290,15 +324,27 @@ class MediaDownloadService {
         }
 
         // Exponential backoff with jitter.
-        final jitter = Duration(milliseconds: (delay.inMilliseconds * 0.5 * (DateTime.now().millisecond % 100) / 100).round());
+        final jitter = Duration(
+          milliseconds:
+              (delay.inMilliseconds *
+                      0.5 *
+                      (DateTime.now().millisecond % 100) /
+                      100)
+                  .round(),
+        );
         final waitTime = delay + jitter;
         await Future.delayed(waitTime);
         delay = Duration(
-          milliseconds: (delay.inMilliseconds * 2).clamp(0, _maxRetryDelay.inMilliseconds),
+          milliseconds: (delay.inMilliseconds * 2).clamp(
+            0,
+            _maxRetryDelay.inMilliseconds,
+          ),
         );
       }
     }
-    throw StateError('Download failed after $_maxRetries retries: $description');
+    throw StateError(
+      'Download failed after $_maxRetries retries: $description',
+    );
   }
 
   Future<String?> _findExistingOutput(Directory dir) async {

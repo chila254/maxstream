@@ -66,6 +66,7 @@ class NotificationService {
     required String title,
     required String label,
     required int progress,
+    String? size,
   }) async {
     final androidDetails = AndroidNotificationDetails(
       'maxstream_downloads',
@@ -84,7 +85,7 @@ class NotificationService {
     await _notificationsPlugin.show(
       id,
       title,
-      '$label · $progress%',
+      '$label · $progress%${size == null ? '' : ' · $size'}',
       NotificationDetails(android: androidDetails),
       payload: 'downloads',
     );
