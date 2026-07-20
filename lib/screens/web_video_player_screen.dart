@@ -1,14 +1,9 @@
-import 'dart:js_interop';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:web/web.dart' as web;
 import 'dart:ui_web' as ui_web;
-import 'package:provider/provider.dart';
-import '../providers/tv_navigation_provider.dart';
-import '../utils/index.dart';
-import '../../services/web_stream_service.dart';
-import '../../services/tmdb_api_service.dart';
-import '../../services/watch_history_service.dart';
+import '../services/web_stream_service.dart';
+import '../services/tmdb_api_service.dart';
 
 /// Web video player using HTML5 video / iframe embeds.
 /// Platform view approach for embedding video content in Flutter web.
@@ -405,7 +400,6 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
       SystemUiMode.manual,
       overlays: SystemUiOverlay.values,
     );
-    context.read<TvNavigationProvider>().setDeepNavigating(false);
     Navigator.pop(context);
   }
 
@@ -413,11 +407,6 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
   Widget build(BuildContext context) {
     return PopScope(
       canPop: true,
-      onPopInvoked: (didPop) {
-        if (didPop) {
-          context.read<TvNavigationProvider>().setDeepNavigating(false);
-        }
-      },
       child: Scaffold(
         backgroundColor: Colors.black,
         body: _error != null

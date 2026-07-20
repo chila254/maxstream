@@ -50,6 +50,7 @@ dependencies:
   flutter_secure_storage: ^9.0.0
   google_fonts: ^6.1.0
   wakelock_plus: ^1.2.1
+  web: ^1.1.1
 
 dev_dependencies:
   flutter_test:
