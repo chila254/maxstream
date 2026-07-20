@@ -5,7 +5,7 @@ import 'dart:ui_web' as ui_web;
 import '../services/web_stream_service.dart';
 import '../services/tmdb_api_service.dart';
 
-/// Web video player using HTML5 video / iframe embeds.
+/// Web video player using iframe embeds.
 class WebVideoPlayerScreen extends StatefulWidget {
   final String title;
   final String tmdbId;
@@ -31,12 +31,13 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
   String? _error;
   String? _streamUrl;
   String? _sourceName;
-  bool _isEmbed = false;
   List<Map<String, dynamic>> _availableServers = [];
   String? _currentTitle;
 
   static const String _viewType = 'maxstream-video-player';
   bool _registeredFactory = false;
+  web.HTMLIFrameElement? _currentIframe;
+  web.HTMLDivElement? _containerDiv;
 
   @override
   void initState() {
@@ -46,6 +47,9 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
       DeviceOrientation.landscapeRight,
     ]);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+
+    // Block popup ads at the document level BEFORE loading stream
+    _blockPopups();
     _loadStream();
   }
 
@@ -62,30 +66,70 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
     super.dispose();
   }
 
+  /// Block popup/popunder ads by overriding window.open and intercepting clicks
+  void _blockPopups() {
+    final script = web.document.createElement('script') as web.HTMLScriptElement;
+    script.textContent = '''
+      (function() {
+        // Override window.open to block popups
+        var origOpen = window.open;
+        window.open = function(url, name, specs) {
+          console.log('[AdBlock] Blocked popup:', url);
+          return null;
+        };
+
+        // Block target=_blank links (common ad pattern)
+        document.addEventListener('click', function(e) {
+          var el = e.target;
+          while (el && el !== document) {
+            if (el.tagName === 'A' && el.getAttribute('target') === '_blank') {
+              // Only block if it looks like an ad (not a real navigation link)
+              var href = el.getAttribute('href') || '';
+              if (href.indexOf('javascript:') === 0 || href === '#' || href === '') {
+                e.preventDefault();
+                e.stopPropagation();
+                console.log('[AdBlock] Blocked _blank link:', href);
+                return false;
+              }
+            }
+            el = el.parentNode;
+          }
+        }, true);
+
+        // Block window.open via setTimeout (some ads use this)
+        var origSetTimeout = window.setTimeout;
+        window.setTimeout = function(fn, delay) {
+          if (typeof fn === 'string' && fn.indexOf('window.open') !== -1) {
+            console.log('[AdBlock] Blocked setTimeout popup');
+            return;
+          }
+          return origSetTimeout.call(window, fn, delay);
+        };
+
+        console.log('[AdBlock] Popup blocker initialized');
+      })();
+    ''';
+    web.document.head?.appendChild(script);
+  }
+
   void _registerViewFactory() {
-    if (_registeredFactory) {
-      debugPrint('WebVideoPlayer: View factory already registered, skipping');
-      return;
-    }
+    if (_registeredFactory) return;
     _registeredFactory = true;
-    debugPrint('WebVideoPlayer: Registering platform view factory');
 
     ui_web.platformViewRegistry.registerViewFactory(
       _viewType,
       (int viewId) {
-        debugPrint('WebVideoPlayer: Creating platform view for viewId=$viewId');
         final div = web.document.createElement('div') as web.HTMLDivElement;
         div.style
           ..width = '100%'
           ..height = '100%'
           ..border = 'none'
-          ..overflow = 'hidden';
+          ..overflow = 'hidden'
+          ..backgroundColor = 'black';
+        _containerDiv = div;
 
         if (_streamUrl != null) {
-          debugPrint('WebVideoPlayer: Embedding stream URL: $_streamUrl');
-          _embedContent(div, _streamUrl!, _isEmbed);
-        } else {
-          debugPrint('WebVideoPlayer: No stream URL available for embedding');
+          _createIframe(div, _streamUrl!);
         }
 
         return div;
@@ -93,49 +137,37 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
     );
   }
 
-  void _embedContent(web.HTMLDivElement container, String url, bool isEmbed) {
-    debugPrint('WebVideoPlayer: Embedding content - url=$url, isEmbed=$isEmbed');
+  void _createIframe(web.HTMLDivElement container, String url) {
+    debugPrint('WebVideoPlayer: Creating iframe for $url');
 
-    while (container.firstChild != null) {
-      container.removeChild(container.firstChild!);
-    }
-
-    // Inject ad-blocking CSS
+    // Inject ad-blocking CSS first
     _injectAdBlockCss(container);
 
-    if (isEmbed) {
-      debugPrint('WebVideoPlayer: Creating iframe for $url');
-      final iframe = web.document.createElement('iframe') as web.HTMLIFrameElement;
-      iframe.src = url;
-      iframe.style
-        ..width = '100%'
-        ..height = '100%'
-        ..border = 'none'
-        ..backgroundColor = 'black';
-      // Allow embed site's own video player to work (HLS.js, etc.)
-      iframe.setAttribute('allow', 'autoplay; fullscreen; picture-in-picture; encrypted-media');
-      iframe.setAttribute('allowfullscreen', 'true');
-      // NO sandbox - embed sites need full JS access for their video players
-      // NO referrer restriction - embed sites may check origin
-      container.appendChild(iframe);
-      debugPrint('WebVideoPlayer: Iframe appended to container (no sandbox)');
-    } else {
-      debugPrint('WebVideoPlayer: Creating HTML5 video for $url');
-      final video = web.document.createElement('video') as web.HTMLVideoElement;
-      video.src = url;
-      video.style
-        ..width = '100%'
-        ..height = '100%'
-        ..objectFit = 'contain';
-      video.autoplay = true;
-      video.controls = true;
-      video.setAttribute('allowfullscreen', 'true');
-      container.appendChild(video);
-      debugPrint('WebVideoPlayer: Video element appended to container');
-    }
+    final iframe = web.document.createElement('iframe') as web.HTMLIFrameElement;
+    iframe.src = url;
+    iframe.style
+      ..width = '100%'
+      ..height = '100%'
+      ..border = 'none'
+      ..backgroundColor = 'black';
+    iframe.setAttribute('allow', 'autoplay; fullscreen; picture-in-picture; encrypted-media');
+    iframe.setAttribute('allowfullscreen', 'true');
+    container.appendChild(iframe);
+    _currentIframe = iframe;
 
-    // Inject ad-blocking MutationObserver script
+    // Inject popup blocker inside the iframe's parent
     _injectAdBlockScript(container);
+  }
+
+  /// Update the iframe src when switching servers or content
+  void _updateIframe(String url) {
+    debugPrint('WebVideoPlayer: Updating iframe src to: $url');
+    if (_currentIframe != null) {
+      _currentIframe!.src = url;
+    } else if (_containerDiv != null) {
+      // Iframe doesn't exist yet, create it
+      _createIframe(_containerDiv!, url);
+    }
   }
 
   void _injectAdBlockCss(web.HTMLDivElement container) {
@@ -152,11 +184,7 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
         visibility: hidden !important;
         opacity: 0 !important;
         pointer-events: none !important;
-        width: 0 !important;
-        height: 0 !important;
       }
-      video { width: 100% !important; height: 100% !important; }
-      iframe { width: 100% !important; height: 100% !important; }
     ''';
     container.appendChild(style);
   }
@@ -165,43 +193,26 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
     final script = web.document.createElement('script') as web.HTMLScriptElement;
     script.textContent = '''
       (function() {
-        var adSelectors = [
-          '[class*="ad-"]', '[class*="ads"]', '[class*="advert"]',
-          '[id*="ad-"]', '[id*="ads"]', '[id*="advert"]',
-          '[class*="popup"]', '[class*="overlay"]', '[class*="interstitial"]',
-          '[class*="preroll"]', '[class*="sponsor"]', '[class*="promo"]',
-          '.video-ad', '.player-ad', '.skip-ad', '.ad-container'
-        ];
         function removeAds(root) {
-          adSelectors.forEach(function(sel) {
-            try {
-              root.querySelectorAll(sel).forEach(function(el) {
-                if (el.tagName !== 'VIDEO' && el.tagName !== 'IFRAME') {
-                  el.remove();
-                }
-              });
-            } catch(e) {}
-          });
+          try {
+            root.querySelectorAll('[class*="ad-"],[class*="ads"],[class*="advert"],[id*="ad-"],[class*="popup"],[class*="overlay"],[class*="interstitial"],[class*="preroll"],[class*="sponsor"],[class*="promo"],.ad-container').forEach(function(el) {
+              if (el.tagName !== 'VIDEO' && el.tagName !== 'IFRAME') el.remove();
+            });
+          } catch(e) {}
           try {
             root.querySelectorAll('*').forEach(function(el) {
               var cs = window.getComputedStyle(el);
-              if ((cs.position === 'fixed' || cs.position === 'absolute') &&
-                  parseInt(cs.zIndex) > 9000 &&
-                  el.tagName !== 'VIDEO' && el.tagName !== 'IFRAME') {
+              if ((cs.position === 'fixed' || cs.position === 'absolute') && parseInt(cs.zIndex) > 9000 && el.tagName !== 'VIDEO' && el.tagName !== 'IFRAME') {
                 el.remove();
               }
             });
           } catch(e) {}
         }
         removeAds(container);
-        var observer = new MutationObserver(function(muts) {
-          muts.forEach(function(m) {
-            m.addedNodes.forEach(function(n) {
-              if (n.nodeType === 1) removeAds(n);
-            });
-          });
+        var obs = new MutationObserver(function(m) {
+          m.forEach(function(mut) { mut.addedNodes.forEach(function(n) { if (n.nodeType === 1) removeAds(n); }); });
         });
-        observer.observe(container, { childList: true, subtree: true });
+        obs.observe(container, { childList: true, subtree: true });
         setInterval(function() { removeAds(container); }, 2000);
       })();
     ''';
@@ -220,7 +231,6 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
 
     try {
       await _loadMediaMetadata();
-      debugPrint('WebVideoPlayer: Metadata loaded, title=$_currentTitle');
 
       final result = await WebStreamService.resolveStream(
         tmdbId: widget.tmdbId,
@@ -235,14 +245,22 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
       if (!mounted) return;
 
       if (result != null && result['url'] != null) {
+        final newUrl = result['url'] as String;
         setState(() {
-          _streamUrl = result['url'] as String;
+          _streamUrl = newUrl;
           _sourceName = result['source'] as String;
-          _isEmbed = result['isEmbed'] as bool? ?? false;
           _isLoading = false;
         });
-        debugPrint('WebVideoPlayer: Stream URL set: $_streamUrl (embed=$_isEmbed)');
-        _registerViewFactory();
+        debugPrint('WebVideoPlayer: Stream URL set: $_streamUrl');
+
+        if (_registeredFactory && _currentIframe != null) {
+          // Factory already registered - update iframe directly
+          _updateIframe(newUrl);
+        } else {
+          // First time - register factory
+          _registerViewFactory();
+        }
+
         _discoverServers();
         return;
       }
@@ -306,14 +324,11 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
   }
 
   void _switchServer(Map<String, dynamic> server) {
+    final newUrl = server['url'] as String;
     setState(() {
-      _streamUrl = server['url'] as String;
       _sourceName = server['name'] as String;
-      _isEmbed = server['isEmbed'] as bool? ?? true;
     });
-    _registeredFactory = false;
-    _registerViewFactory();
-    if (mounted) setState(() {});
+    _updateIframe(newUrl);
   }
 
   void _showServerPicker() {
@@ -375,9 +390,7 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
       children: [
         SizedBox.expand(child: HtmlElementView(viewType: _viewType)),
         Positioned(
-          top: 0,
-          left: 0,
-          right: 0,
+          top: 0, left: 0, right: 0,
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             decoration: const BoxDecoration(
