@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../database/db_helper.dart';
 import '../services/media_download_manager.dart';
-import 'm3u8_video_player_screen.dart';
+import '../widgets/video_player_screen.dart';
 
 class DownloadsScreen extends StatefulWidget {
   const DownloadsScreen({super.key});
@@ -63,7 +63,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
     final isMovie = download['mediaType'] == 'movie';
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => M3U8VideoPlayerScreen(
+        builder: (_) => buildVideoPlayerScreen(
           title: download['title']?.toString() ?? 'Downloaded video',
           tmdbId: download['mediaId']?.toString() ?? '',
           isMovie: isMovie,

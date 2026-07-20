@@ -5,7 +5,7 @@ import '../database/db_helper.dart';
 import '../models/movie.dart';
 import '../services/media_download_manager.dart';
 import '../services/tmdb_api_service.dart';
-import 'm3u8_video_player_screen.dart';
+import '../widgets/video_player_screen.dart';
 
 class MaxStreamDetailsScreen extends StatefulWidget {
   final Movie item;
@@ -921,7 +921,7 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => M3U8VideoPlayerScreen(
+        builder: (context) => buildVideoPlayerScreen(
           title: widget.item.title,
           tmdbId: widget.item.id.toString(),
           isMovie: widget.mediaType == 'movie',

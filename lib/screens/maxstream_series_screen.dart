@@ -6,7 +6,7 @@ import '../models/series.dart';
 import '../services/media_download_manager.dart';
 import '../services/tmdb_api_service.dart';
 import '../database/db_helper.dart';
-import 'm3u8_video_player_screen.dart';
+import '../widgets/video_player_screen.dart';
 
 class MaxStreamSeriesScreen extends StatefulWidget {
   final Movie seriesItem;
@@ -210,7 +210,7 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => M3U8VideoPlayerScreen(
+        builder: (context) => buildVideoPlayerScreen(
           title:
               '${widget.seriesItem.title} - S${season.seasonNumber}E${episode.episodeNumber}: ${episode.name}',
           tmdbId: widget.seriesItem.id.toString(),
