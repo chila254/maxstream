@@ -63,12 +63,17 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
   }
 
   void _registerViewFactory() {
-    if (_registeredFactory) return;
+    if (_registeredFactory) {
+      debugPrint('WebVideoPlayer: View factory already registered, skipping');
+      return;
+    }
     _registeredFactory = true;
+    debugPrint('WebVideoPlayer: Registering platform view factory');
 
     ui_web.platformViewRegistry.registerViewFactory(
       _viewType,
       (int viewId) {
+        debugPrint('WebVideoPlayer: Creating platform view for viewId=$viewId');
         final div = web.document.createElement('div') as web.HTMLDivElement;
         div.style
           ..width = '100%'
@@ -77,7 +82,10 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
           ..overflow = 'hidden';
 
         if (_streamUrl != null) {
+          debugPrint('WebVideoPlayer: Embedding stream URL: $_streamUrl');
           _embedContent(div, _streamUrl!, _isEmbed);
+        } else {
+          debugPrint('WebVideoPlayer: No stream URL available for embedding');
         }
 
         return div;
@@ -86,6 +94,8 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
   }
 
   void _embedContent(web.HTMLDivElement container, String url, bool isEmbed) {
+    debugPrint('WebVideoPlayer: Embedding content - url=$url, isEmbed=$isEmbed');
+
     while (container.firstChild != null) {
       container.removeChild(container.firstChild!);
     }
@@ -94,19 +104,21 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
     _injectAdBlockCss(container);
 
     if (isEmbed) {
+      debugPrint('WebVideoPlayer: Creating iframe for $url');
       final iframe = web.document.createElement('iframe') as web.HTMLIFrameElement;
       iframe.src = url;
       iframe.style
         ..width = '100%'
         ..height = '100%'
         ..border = 'none';
-      // Set attributes via setAttribute since CSS properties don't cover these
       iframe.setAttribute('allow', 'autoplay; fullscreen; picture-in-picture');
       iframe.setAttribute('allowfullscreen', 'true');
       iframe.setAttribute('referrerpolicy', 'no-referrer');
       iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-presentation allow-popups-to-escape-sandbox');
       container.appendChild(iframe);
+      debugPrint('WebVideoPlayer: Iframe appended to container');
     } else {
+      debugPrint('WebVideoPlayer: Creating HTML5 video for $url');
       final video = web.document.createElement('video') as web.HTMLVideoElement;
       video.src = url;
       video.style
@@ -117,6 +129,7 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
       video.controls = true;
       video.setAttribute('allowfullscreen', 'true');
       container.appendChild(video);
+      debugPrint('WebVideoPlayer: Video element appended to container');
     }
 
     // Inject ad-blocking MutationObserver script
@@ -196,6 +209,8 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
   Future<void> _loadStream() async {
     if (!mounted) return;
 
+    debugPrint('WebVideoPlayer: Starting stream load for TMDB ${widget.tmdbId}');
+
     setState(() {
       _isLoading = true;
       _error = null;
@@ -203,6 +218,7 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
 
     try {
       await _loadMediaMetadata();
+      debugPrint('WebVideoPlayer: Metadata loaded, title=$_currentTitle');
 
       final result = await WebStreamService.resolveStream(
         tmdbId: widget.tmdbId,
@@ -211,6 +227,8 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
         episode: widget.episode,
         title: _currentTitle ?? widget.title,
       );
+
+      debugPrint('WebVideoPlayer: Stream result=$result');
 
       if (!mounted) return;
 
@@ -221,11 +239,13 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
           _isEmbed = result['isEmbed'] as bool? ?? false;
           _isLoading = false;
         });
+        debugPrint('WebVideoPlayer: Stream URL set: $_streamUrl (embed=$_isEmbed)');
         _registerViewFactory();
         _discoverServers();
         return;
       }
 
+      debugPrint('WebVideoPlayer: No stream found');
       if (mounted) {
         setState(() {
           _error = 'No working streaming sources found.\n\nCheck your internet connection and try again.';
