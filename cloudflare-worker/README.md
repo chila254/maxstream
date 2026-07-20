@@ -17,7 +17,19 @@ npm install -g wrangler
 wrangler login
 ```
 
-### 4. Update the worker URL in your Flutter app
+### 4. Configure the signed media proxy
+The browser cannot attach provider Referer/Origin headers directly. Set a
+private signing key so the Worker can safely proxy playlists, segments, and
+encryption keys:
+
+```bash
+cd cloudflare-worker
+openssl rand -hex 32 | wrangler secret put PROXY_SECRET
+```
+
+Do not add this value to `wrangler.toml` or commit it.
+
+### 5. Update the worker URL in your Flutter app
 Edit `lib/services/web_stream_service.dart` and replace the `_workerUrl`:
 ```dart
 static const String _workerUrl = 'https://maxstream-extractor.YOUR_SUBDOMAIN.workers.dev';
@@ -38,8 +50,10 @@ That's it! The worker will be available at:
 1. Flutter web app calls `/api/extract?tmdb_id=123&is_movie=true`
 2. Worker fetches embed sites (vidlink.pro, etc.) server-side
 3. Worker extracts the actual `.m3u8` URL from the HTML
-4. Worker returns the direct URL to the app
-5. App plays the `.m3u8` directly using hls.js (no iframe, no ads)
+4. Worker returns a signed media-proxy URL to the app
+5. The proxy forwards required headers and rewrites nested playlists, segments,
+   and encryption-key URLs with browser-compatible CORS headers
+6. The app plays the proxied stream using hls.js (no iframe or popup ads)
 
 ## API Endpoints
 

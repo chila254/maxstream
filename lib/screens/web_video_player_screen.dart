@@ -70,24 +70,21 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
     if (_factoryRegistered) return;
     _factoryRegistered = true;
 
-    ui_web.platformViewRegistry.registerViewFactory(
-      _viewType,
-      (int viewId) {
-        final div = web.document.createElement('div') as web.HTMLDivElement;
-        div.style
-          ..width = '100%'
-          ..height = '100%'
-          ..border = 'none'
-          ..overflow = 'hidden'
-          ..backgroundColor = 'black';
-        _hostDiv = div;
+    ui_web.platformViewRegistry.registerViewFactory(_viewType, (int viewId) {
+      final div = web.document.createElement('div') as web.HTMLDivElement;
+      div.style
+        ..width = '100%'
+        ..height = '100%'
+        ..border = 'none'
+        ..overflow = 'hidden'
+        ..backgroundColor = 'black';
+      _hostDiv = div;
 
-        if (_streamUrl != null) {
-          _createPlayer(div, _streamUrl!, _streamType ?? 'hls');
-        }
-        return div;
-      },
-    );
+      if (_streamUrl != null) {
+        _createPlayer(div, _streamUrl!, _streamType ?? 'hls');
+      }
+      return div;
+    });
   }
 
   void _createPlayer(web.HTMLDivElement container, String url, String type) {
@@ -105,7 +102,7 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
     video.setAttribute('allowfullscreen', 'true');
     container.appendChild(video);
 
-    if (type == 'hls' && url.contains('.m3u8')) {
+    if (type == 'hls') {
       // Use hls.js for HLS streams
       _loadHlsJs(video, url);
     } else {
@@ -117,8 +114,10 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
 
   void _loadHlsJs(web.HTMLVideoElement video, String url) {
     // Load hls.js and initialize player all in one script
-    final initScript = web.document.createElement('script') as web.HTMLScriptElement;
-    initScript.textContent = '''
+    final initScript =
+        web.document.createElement('script') as web.HTMLScriptElement;
+    initScript.textContent =
+        '''
       (function() {
         var script = document.createElement('script');
         script.src = 'https://cdn.jsdelivr.net/npm/hls.js@latest';
@@ -246,9 +245,15 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
       _currentTitle = details['title']?.toString() ?? widget.title;
     } else {
       final seriesTitle = details['name']?.toString() ?? widget.title;
-      final episodes = await TmdbApiService.getSeasonEpisodes(id, widget.season);
+      final episodes = await TmdbApiService.getSeasonEpisodes(
+        id,
+        widget.season,
+      );
       final ep = episodes
-          .where((e) => ((e['episode_number'] as num?)?.toInt() ?? 0) == widget.episode)
+          .where(
+            (e) =>
+                ((e['episode_number'] as num?)?.toInt() ?? 0) == widget.episode,
+          )
           .firstOrNull;
       final epName = ep?['name']?.toString() ?? '';
       _currentTitle = epName.isNotEmpty
@@ -258,8 +263,14 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
   }
 
   void _handleBack() {
-    SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp, DeviceOrientation.portraitDown]);
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: SystemUiOverlay.values);
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+    ]);
+    SystemChrome.setEnabledSystemUIMode(
+      SystemUiMode.manual,
+      overlays: SystemUiOverlay.values,
+    );
     Navigator.pop(context);
   }
 
@@ -272,8 +283,8 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
         body: _error != null
             ? _buildError()
             : _isLoading
-                ? _buildLoading()
-                : _buildPlayer(),
+            ? _buildLoading()
+            : _buildPlayer(),
       ),
     );
   }
@@ -283,11 +294,17 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
       children: [
         SizedBox.expand(child: HtmlElementView(viewType: _viewType)),
         Positioned(
-          top: 0, left: 0, right: 0,
+          top: 0,
+          left: 0,
+          right: 0,
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             decoration: const BoxDecoration(
-              gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Colors.black87, Colors.transparent]),
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [Colors.black87, Colors.transparent],
+              ),
             ),
             child: Row(
               children: [
@@ -295,23 +312,49 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
                   onTap: _handleBack,
                   child: Container(
                     padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(8)),
-                    child: const Icon(Icons.arrow_back, color: Colors.white, size: 24),
+                    decoration: BoxDecoration(
+                      color: Colors.black54,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(
+                      Icons.arrow_back,
+                      color: Colors.white,
+                      size: 24,
+                    ),
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: Text(_currentTitle ?? widget.title, style: const TextStyle(color: Colors.white, fontSize: 16), overflow: TextOverflow.ellipsis),
+                  child: Text(
+                    _currentTitle ?? widget.title,
+                    style: const TextStyle(color: Colors.white, fontSize: 16),
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
                 if (_sourceName != null)
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                    decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(8)),
-                    child: Row(mainAxisSize: MainAxisSize.min, children: [
-                      const Icon(Icons.dns, color: Colors.white70, size: 14),
-                      const SizedBox(width: 5),
-                      Text(_sourceName!, style: const TextStyle(color: Colors.white70, fontSize: 11)),
-                    ]),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.black54,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.dns, color: Colors.white70, size: 14),
+                        const SizedBox(width: 5),
+                        Text(
+                          _sourceName!,
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
               ],
             ),
@@ -328,7 +371,10 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
         children: [
           const CircularProgressIndicator(color: Colors.red),
           const SizedBox(height: 16),
-          Text('Loading ${widget.title}...', style: const TextStyle(color: Colors.white, fontSize: 16)),
+          Text(
+            'Loading ${widget.title}...',
+            style: const TextStyle(color: Colors.white, fontSize: 16),
+          ),
         ],
       ),
     );
@@ -341,23 +387,62 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
         children: [
           const Icon(Icons.error_outline, color: Colors.red, size: 64),
           const SizedBox(height: 16),
-          const Text('Unable to Load Stream', style: TextStyle(color: Colors.red, fontSize: 20, fontWeight: FontWeight.bold)),
+          const Text(
+            'Unable to Load Stream',
+            style: TextStyle(
+              color: Colors.red,
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
           const SizedBox(height: 12),
-          Padding(padding: const EdgeInsets.symmetric(horizontal: 24), child: Text(_error!, style: TextStyle(color: Colors.grey[300], fontSize: 16), textAlign: TextAlign.center)),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Text(
+              _error!,
+              style: TextStyle(color: Colors.grey[300], fontSize: 16),
+              textAlign: TextAlign.center,
+            ),
+          ),
           const SizedBox(height: 32),
-          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-            ElevatedButton(
-              onPressed: () => setState(() { _error = null; _isLoading = true; _loadStream(); }),
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.red, padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12)),
-              child: const Text('Retry', style: TextStyle(color: Colors.white, fontSize: 18)),
-            ),
-            const SizedBox(width: 16),
-            ElevatedButton(
-              onPressed: _handleBack,
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.grey[700], padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12)),
-              child: const Text('Go Back', style: TextStyle(color: Colors.white, fontSize: 18)),
-            ),
-          ]),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              ElevatedButton(
+                onPressed: () => setState(() {
+                  _error = null;
+                  _isLoading = true;
+                  _loadStream();
+                }),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 32,
+                    vertical: 12,
+                  ),
+                ),
+                child: const Text(
+                  'Retry',
+                  style: TextStyle(color: Colors.white, fontSize: 18),
+                ),
+              ),
+              const SizedBox(width: 16),
+              ElevatedButton(
+                onPressed: _handleBack,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.grey[700],
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 32,
+                    vertical: 12,
+                  ),
+                ),
+                child: const Text(
+                  'Go Back',
+                  style: TextStyle(color: Colors.white, fontSize: 18),
+                ),
+              ),
+            ],
+          ),
         ],
       ),
     );

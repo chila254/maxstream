@@ -6,7 +6,7 @@ import '../services/api_service.dart';
 import '../database/db_helper.dart';
 import '../utils/responsive_utils.dart';
 
-import '../screens/m3u8_video_player_screen.dart';
+import 'video_player_screen.dart';
 
 class SeriesHeroBanner extends StatefulWidget {
   const SeriesHeroBanner({super.key});
@@ -134,7 +134,7 @@ class _SeriesHeroBannerState extends State<SeriesHeroBanner> {
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (context) => M3U8VideoPlayerScreen(
+          builder: (context) => buildVideoPlayerScreen(
             title: series.title,
             tmdbId: series.id,
             isMovie: false,

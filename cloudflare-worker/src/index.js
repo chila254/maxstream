@@ -30,7 +30,7 @@ export default {
     const corsHeaders = {
       "Access-Control-Allow-Origin": env.CORS_ORIGIN || "*",
       "Access-Control-Allow-Methods": "GET, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
+      "Access-Control-Allow-Headers": "Content-Type, Range",
     };
 
     if (request.method === "OPTIONS") {
@@ -49,7 +49,11 @@ export default {
 
     // Stream extraction endpoint
     if (url.pathname === "/api/extract") {
-      return this.handleExtract(url, corsHeaders);
+      return this.handleExtract(url, corsHeaders, env);
+    }
+
+    if (url.pathname === "/api/media") {
+      return this.handleMediaProxy(request, url, corsHeaders, env);
     }
 
     // List available sources
@@ -68,7 +72,7 @@ export default {
     });
   },
 
-  async handleExtract(url, corsHeaders) {
+  async handleExtract(url, corsHeaders, env) {
     const tmdbId = url.searchParams.get("tmdb_id");
     const isMovie = url.searchParams.get("is_movie") === "true";
     const season = parseInt(url.searchParams.get("season") || "1");
@@ -100,15 +104,26 @@ export default {
 
         console.log(`Trying ${source.name}: ${embedUrl}`);
 
-        const streamUrl = await this.extractFromSource(embedUrl, source.name);
+        const stream = await this.extractFromSource(embedUrl, source.name);
 
-        if (streamUrl) {
-          console.log(`Found stream from ${source.name}: ${streamUrl}`);
+        if (stream) {
+          console.log(`Found stream from ${source.name}: ${stream.url}`);
+          const isHls = stream.url.includes(".m3u8");
+          const playbackUrl = env.PROXY_SECRET
+            ? await this.createMediaProxyUrl(
+                url.origin,
+                stream.url,
+                stream.referer,
+                isHls,
+                env.PROXY_SECRET
+              )
+            : stream.url;
           return new Response(
             JSON.stringify({
-              url: streamUrl,
+              url: playbackUrl,
               source: source.name,
-              type: streamUrl.includes(".m3u8") ? "hls" : "direct",
+              type: isHls ? "hls" : "direct",
+              proxied: Boolean(env.PROXY_SECRET),
             }),
             {
               headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -150,13 +165,16 @@ export default {
     const m3u8Urls = this.extractM3u8Urls(html);
     if (m3u8Urls.length > 0) {
       // Return the best quality (last one is usually highest)
-      return m3u8Urls[m3u8Urls.length - 1];
+      return {
+        url: this.resolveUrl(embedUrl, m3u8Urls[m3u8Urls.length - 1]),
+        referer: embedUrl,
+      };
     }
 
     // Try to find video source URLs
     const videoUrls = this.extractVideoUrls(html);
     if (videoUrls.length > 0) {
-      return videoUrls[0];
+      return { url: this.resolveUrl(embedUrl, videoUrls[0]), referer: embedUrl };
     }
 
     // Check for iframes pointing to player pages
@@ -176,11 +194,20 @@ export default {
           const playerHtml = await playerResponse.text();
           const playerM3u8 = this.extractM3u8Urls(playerHtml);
           if (playerM3u8.length > 0) {
-            return playerM3u8[playerM3u8.length - 1];
+            return {
+              url: this.resolveUrl(
+                absoluteUrl,
+                playerM3u8[playerM3u8.length - 1]
+              ),
+              referer: absoluteUrl,
+            };
           }
           const playerVideo = this.extractVideoUrls(playerHtml);
           if (playerVideo.length > 0) {
-            return playerVideo[0];
+            return {
+              url: this.resolveUrl(absoluteUrl, playerVideo[0]),
+              referer: absoluteUrl,
+            };
           }
         }
       } catch (e) {
@@ -189,6 +216,176 @@ export default {
     }
 
     return null;
+  },
+
+  async handleMediaProxy(request, url, corsHeaders, env) {
+    if (!env.PROXY_SECRET) {
+      return new Response("Media proxy is not configured", {
+        status: 503,
+        headers: corsHeaders,
+      });
+    }
+    const upstream = url.searchParams.get("url") || "";
+    const referer = url.searchParams.get("referer") || "";
+    const signature = url.searchParams.get("sig") || "";
+    const forceHls = url.searchParams.get("hls") === "1";
+    if (
+      !this.isSafeMediaUrl(upstream) ||
+      signature !== (await this.signMediaUrl(upstream, referer, env.PROXY_SECRET))
+    ) {
+      return new Response("Invalid media URL", {
+        status: 403,
+        headers: corsHeaders,
+      });
+    }
+
+    const upstreamUrl = new URL(upstream);
+    const headers = {
+      "User-Agent": USER_AGENT,
+      Accept: request.headers.get("Accept") || "*/*",
+    };
+    if (referer) {
+      headers.Referer = referer;
+      try {
+        headers.Origin = new URL(referer).origin;
+      } catch (_) {}
+    }
+    const range = request.headers.get("Range");
+    if (range) headers.Range = range;
+
+    const response = await fetch(upstreamUrl, {
+      headers,
+      redirect: "follow",
+    });
+    if (!response.ok && response.status !== 206) {
+      return new Response(`Upstream HTTP ${response.status}`, {
+        status: response.status,
+        headers: corsHeaders,
+      });
+    }
+
+    const contentType = response.headers.get("Content-Type") || "";
+    const isHls =
+      forceHls ||
+      contentType.includes("mpegurl") ||
+      new URL(response.url).pathname.toLowerCase().endsWith(".m3u8");
+    if (isHls) {
+      const playlist = await response.text();
+      if (!playlist.trimStart().startsWith("#EXTM3U")) {
+        return new Response("Upstream did not return an HLS playlist", {
+          status: 502,
+          headers: corsHeaders,
+        });
+      }
+      const rewritten = await this.rewritePlaylist(
+        playlist,
+        response.url,
+        referer,
+        url.origin,
+        env.PROXY_SECRET
+      );
+      return new Response(rewritten, {
+        status: response.status,
+        headers: {
+          ...corsHeaders,
+          "Content-Type": "application/vnd.apple.mpegurl",
+          "Cache-Control": "no-store",
+        },
+      });
+    }
+
+    const responseHeaders = {
+      ...corsHeaders,
+      "Content-Type": contentType || "application/octet-stream",
+      "Cache-Control": "private, max-age=300",
+      "Accept-Ranges": response.headers.get("Accept-Ranges") || "bytes",
+      "Access-Control-Expose-Headers":
+        "Content-Length, Content-Range, Accept-Ranges",
+    };
+    for (const name of ["Content-Length", "Content-Range"]) {
+      const value = response.headers.get(name);
+      if (value) responseHeaders[name] = value;
+    }
+    return new Response(response.body, {
+      status: response.status,
+      headers: responseHeaders,
+    });
+  },
+
+  async rewritePlaylist(playlist, baseUrl, referer, workerOrigin, secret) {
+    const lines = playlist.split(/\r?\n/);
+    return (
+      await Promise.all(
+        lines.map(async (line) => {
+          const trimmed = line.trim();
+          if (!trimmed) return line;
+          if (!trimmed.startsWith("#")) {
+            const mediaUrl = new URL(trimmed, baseUrl).href;
+            return this.createMediaProxyUrl(
+              workerOrigin,
+              mediaUrl,
+              referer,
+              new URL(mediaUrl).pathname.toLowerCase().endsWith(".m3u8"),
+              secret
+            );
+          }
+          const match = /URI=("([^"]+)"|([^,]+))/i.exec(line);
+          if (!match) return line;
+          const mediaUrl = new URL(match[2] || match[3], baseUrl).href;
+          const proxyUrl = await this.createMediaProxyUrl(
+            workerOrigin,
+            mediaUrl,
+            referer,
+            new URL(mediaUrl).pathname.toLowerCase().endsWith(".m3u8"),
+            secret
+          );
+          return line.replace(match[0], `URI="${proxyUrl}"`);
+        })
+      )
+    ).join("\n");
+  },
+
+  async createMediaProxyUrl(origin, upstream, referer, isHls, secret) {
+    const proxy = new URL("/api/media", origin);
+    proxy.searchParams.set("url", upstream);
+    proxy.searchParams.set("referer", referer || "");
+    proxy.searchParams.set("sig", await this.signMediaUrl(upstream, referer, secret));
+    if (isHls) proxy.searchParams.set("hls", "1");
+    return proxy.href;
+  },
+
+  async signMediaUrl(upstream, referer, secret) {
+    const key = await crypto.subtle.importKey(
+      "raw",
+      new TextEncoder().encode(secret),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"]
+    );
+    const bytes = await crypto.subtle.sign(
+      "HMAC",
+      key,
+      new TextEncoder().encode(`${upstream}\n${referer || ""}`)
+    );
+    return [...new Uint8Array(bytes)]
+      .map((value) => value.toString(16).padStart(2, "0"))
+      .join("");
+  },
+
+  isSafeMediaUrl(value) {
+    try {
+      const url = new URL(value);
+      const host = url.hostname.toLowerCase();
+      return (
+        (url.protocol === "https:" || url.protocol === "http:") &&
+        host !== "localhost" &&
+        host !== "127.0.0.1" &&
+        host !== "0.0.0.0" &&
+        !host.endsWith(".local")
+      );
+    } catch (_) {
+      return false;
+    }
   },
 
   extractM3u8Urls(html) {
