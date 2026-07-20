@@ -110,13 +110,15 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
       iframe.style
         ..width = '100%'
         ..height = '100%'
-        ..border = 'none';
-      iframe.setAttribute('allow', 'autoplay; fullscreen; picture-in-picture');
+        ..border = 'none'
+        ..backgroundColor = 'black';
+      // Allow embed site's own video player to work (HLS.js, etc.)
+      iframe.setAttribute('allow', 'autoplay; fullscreen; picture-in-picture; encrypted-media');
       iframe.setAttribute('allowfullscreen', 'true');
-      iframe.setAttribute('referrerpolicy', 'no-referrer');
-      iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-presentation allow-popups-to-escape-sandbox');
+      // NO sandbox - embed sites need full JS access for their video players
+      // NO referrer restriction - embed sites may check origin
       container.appendChild(iframe);
-      debugPrint('WebVideoPlayer: Iframe appended to container');
+      debugPrint('WebVideoPlayer: Iframe appended to container (no sandbox)');
     } else {
       debugPrint('WebVideoPlayer: Creating HTML5 video for $url');
       final video = web.document.createElement('video') as web.HTMLVideoElement;
