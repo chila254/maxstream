@@ -149,6 +149,11 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
       ..backgroundColor = 'black';
     iframe.setAttribute('allow', 'autoplay; fullscreen; picture-in-picture; encrypted-media');
     iframe.setAttribute('allowfullscreen', 'true');
+    // CRITICAL: sandbox blocks popups by NOT including allow-popups
+    // allow-scripts + allow-same-origin = video player works
+    // NO allow-popups = window.open() inside iframe is BLOCKED
+    // NO allow-top-navigation = can't redirect the parent page
+    iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-presentation allow-forms');
     container.appendChild(iframe);
   }
 
