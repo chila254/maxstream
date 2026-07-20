@@ -6,7 +6,6 @@ import '../services/web_stream_service.dart';
 import '../services/tmdb_api_service.dart';
 
 /// Web video player using HTML5 video / iframe embeds.
-/// Platform view approach for embedding video content in Flutter web.
 class WebVideoPlayerScreen extends StatefulWidget {
   final String title;
   final String tmdbId;
@@ -36,7 +35,6 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
   List<Map<String, dynamic>> _availableServers = [];
   String? _currentTitle;
 
-  // Platform view factory ID
   static const String _viewType = 'maxstream-video-player';
   bool _registeredFactory = false;
 
@@ -48,9 +46,20 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
       DeviceOrientation.landscapeRight,
     ]);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-
-    _registerViewFactory();
     _loadStream();
+  }
+
+  @override
+  void dispose() {
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+    ]);
+    SystemChrome.setEnabledSystemUIMode(
+      SystemUiMode.manual,
+      overlays: SystemUiOverlay.values,
+    );
+    super.dispose();
   }
 
   void _registerViewFactory() {
@@ -77,33 +86,27 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
   }
 
   void _embedContent(web.HTMLDivElement container, String url, bool isEmbed) {
-    // Clear existing content
     while (container.firstChild != null) {
       container.removeChild(container.firstChild!);
     }
 
-    // Add ad-blocking CSS and MutationObserver to parent container
-    _injectAdBlocker(container);
+    // Inject ad-blocking CSS
+    _injectAdBlockCss(container);
 
     if (isEmbed) {
-      // Use iframe for embed sources
       final iframe = web.document.createElement('iframe') as web.HTMLIFrameElement;
       iframe.src = url;
       iframe.style
         ..width = '100%'
         ..height = '100%'
-        ..border = 'none'
-        ..allow = 'autoplay; fullscreen; picture-in-picture'
-        ..allowFullscreen = true.toJS;
-      // sandbox to restrict popup/overlay behavior while allowing video
-      iframe.sandbox.add('allow-scripts');
-      iframe.sandbox.add('allow-same-origin');
-      iframe.sandbox.add('allow-presentation');
-      iframe.sandbox.add('allow-popups-to-escape-sandbox');
-      iframe.referrerPolicy = 'no-referrer';
+        ..border = 'none';
+      // Set attributes via setAttribute since CSS properties don't cover these
+      iframe.setAttribute('allow', 'autoplay; fullscreen; picture-in-picture');
+      iframe.setAttribute('allowfullscreen', 'true');
+      iframe.setAttribute('referrerpolicy', 'no-referrer');
+      iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-presentation allow-popups-to-escape-sandbox');
       container.appendChild(iframe);
     } else {
-      // Use HTML5 video for direct streams
       final video = web.document.createElement('video') as web.HTMLVideoElement;
       video.src = url;
       video.style
@@ -112,29 +115,24 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
         ..objectFit = 'contain';
       video.autoplay = true;
       video.controls = true;
-      video.allowFullscreen = true;
+      video.setAttribute('allowfullscreen', 'true');
       container.appendChild(video);
     }
+
+    // Inject ad-blocking MutationObserver script
+    _injectAdBlockScript(container);
   }
 
-  /// Inject ad-blocking CSS and MutationObserver into the container.
-  /// This removes overlays, popups, and common ad elements.
-  void _injectAdBlocker(web.HTMLDivElement container) {
-    // CSS to hide common ad elements
+  void _injectAdBlockCss(web.HTMLDivElement container) {
     final style = web.document.createElement('style') as web.HTMLStyleElement;
     style.textContent = '''
-      /* Hide common ad overlays and popups */
       .ad, .ads, .advert, .advertisement, .popup, .overlay-ad,
       [class*="ad-"], [class*="ads-"], [class*="advert"],
       [id*="ad-"], [id*="ads-"], [id*="advert"],
       [class*="popup"], [class*="modal-ad"], [class*="interstitial"],
       [class*="preroll"], [class*="midroll"], [class*="postroll"],
       [class*="sponsor"], [class*="promo"],
-      .video-ad, .player-ad, .skip-ad, .ad-container,
-      [style*="z-index: 9999"], [style*="z-index:9999"],
-      [style*="position: fixed"][style*="z-index"],
-      [class*="backdrop"][class*="ad"],
-      [class*="close-btn"][class*="ad"] {
+      .video-ad, .player-ad, .skip-ad, .ad-container {
         display: none !important;
         visibility: hidden !important;
         opacity: 0 !important;
@@ -142,14 +140,14 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
         width: 0 !important;
         height: 0 !important;
       }
-      /* Ensure video fills container */
       video { width: 100% !important; height: 100% !important; }
       iframe { width: 100% !important; height: 100% !important; }
     ''';
     container.appendChild(style);
+  }
 
-    // MutationObserver to remove dynamically added ad elements
-    final script = web.document.createElement('script') as web.ScriptElement;
+  void _injectAdBlockScript(web.HTMLDivElement container) {
+    final script = web.document.createElement('script') as web.HTMLScriptElement;
     script.textContent = '''
       (function() {
         var adSelectors = [
@@ -169,54 +167,30 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
               });
             } catch(e) {}
           });
-          // Remove fixed/absolute positioned overlays with high z-index
           try {
             root.querySelectorAll('*').forEach(function(el) {
-              var style = window.getComputedStyle(el);
-              if ((style.position === 'fixed' || style.position === 'absolute') &&
-                  parseInt(style.zIndex) > 9000 &&
+              var cs = window.getComputedStyle(el);
+              if ((cs.position === 'fixed' || cs.position === 'absolute') &&
+                  parseInt(cs.zIndex) > 9000 &&
                   el.tagName !== 'VIDEO' && el.tagName !== 'IFRAME') {
-                var w = parseInt(style.width);
-                var h = parseInt(style.height);
-                if (w > 0 && h > 0 && (w < 400 || h < 300)) {
-                  el.remove();
-                }
+                el.remove();
               }
             });
           } catch(e) {}
         }
-        // Initial cleanup
         removeAds(container);
-        // Watch for dynamically added elements
-        var observer = new MutationObserver(function(mutations) {
-          mutations.forEach(function(m) {
-            m.addedNodes.forEach(function(node) {
-              if (node.nodeType === 1) {
-                removeAds(node);
-              }
+        var observer = new MutationObserver(function(muts) {
+          muts.forEach(function(m) {
+            m.addedNodes.forEach(function(n) {
+              if (n.nodeType === 1) removeAds(n);
             });
           });
         });
         observer.observe(container, { childList: true, subtree: true });
-        // Periodic cleanup every 2 seconds
         setInterval(function() { removeAds(container); }, 2000);
       })();
     ''';
     container.appendChild(script);
-  }
-  }
-
-  @override
-  void dispose() {
-    SystemChrome.setPreferredOrientations([
-      DeviceOrientation.portraitUp,
-      DeviceOrientation.portraitDown,
-    ]);
-    SystemChrome.setEnabledSystemUIMode(
-      SystemUiMode.manual,
-      overlays: SystemUiOverlay.values,
-    );
-    super.dispose();
   }
 
   Future<void> _loadStream() async {
@@ -247,23 +221,19 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
           _isEmbed = result['isEmbed'] as bool? ?? false;
           _isLoading = false;
         });
-
-        // Load available servers in background
+        _registerViewFactory();
         _discoverServers();
         return;
       }
 
       if (mounted) {
         setState(() {
-          _error = 'No working streaming sources found.\n\n'
-              'Check your internet connection\n'
-              'Try again later\n'
-              'Content might be unavailable';
+          _error = 'No working streaming sources found.\n\nCheck your internet connection and try again.';
           _isLoading = false;
         });
       }
     } catch (e) {
-      debugPrint('WebVideoPlayer: Error loading stream: $e');
+      debugPrint('WebVideoPlayer: Error: $e');
       if (mounted) {
         setState(() {
           _error = 'Failed to load stream: $e';
@@ -287,16 +257,13 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
       _currentTitle = details['title']?.toString() ?? widget.title;
     } else {
       final seriesTitle = details['name']?.toString() ?? widget.title;
-      final episodes =
-          await TmdbApiService.getSeasonEpisodes(id, widget.season);
-      final currentEpisodeData = episodes
-          .where((e) =>
-              ((e['episode_number'] as num?)?.toInt() ?? 0) ==
-              widget.episode)
+      final episodes = await TmdbApiService.getSeasonEpisodes(id, widget.season);
+      final ep = episodes
+          .where((e) => ((e['episode_number'] as num?)?.toInt() ?? 0) == widget.episode)
           .firstOrNull;
-      final episodeName = currentEpisodeData?['name']?.toString() ?? '';
-      _currentTitle = episodeName.isNotEmpty
-          ? '$seriesTitle - S${widget.season}E${widget.episode}: $episodeName'
+      final epName = ep?['name']?.toString() ?? '';
+      _currentTitle = epName.isNotEmpty
+          ? '$seriesTitle - S${widget.season}E${widget.episode}: $epName'
           : '$seriesTitle - S${widget.season}E${widget.episode}';
     }
   }
@@ -304,7 +271,6 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
   Future<void> _discoverServers() async {
     final sources = WebStreamService.getEmbedSources();
     final servers = <Map<String, dynamic>>[];
-
     for (final source in sources) {
       final url = widget.isMovie
           ? source['movieUrl']!.replaceAll('{id}', widget.tmdbId)
@@ -312,17 +278,9 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
               .replaceAll('{id}', widget.tmdbId)
               .replaceAll('{season}', widget.season.toString())
               .replaceAll('{episode}', widget.episode.toString());
-
-      servers.add({
-        'name': source['name'],
-        'url': url,
-        'isEmbed': true,
-      });
+      servers.add({'name': source['name'], 'url': url, 'isEmbed': true});
     }
-
-    if (mounted) {
-      setState(() => _availableServers = servers);
-    }
+    if (mounted) setState(() => _availableServers = servers);
   }
 
   void _switchServer(Map<String, dynamic> server) {
@@ -331,14 +289,9 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
       _sourceName = server['name'] as String;
       _isEmbed = server['isEmbed'] as bool? ?? true;
     });
-
-    // Re-register factory to update the view
     _registeredFactory = false;
     _registerViewFactory();
-
-    if (mounted) {
-      setState(() {}); // Trigger rebuild
-    }
+    if (mounted) setState(() {});
   }
 
   void _showServerPicker() {
@@ -354,31 +307,14 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Select Server',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
+            const Text('Select Server', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 12),
             ..._availableServers.map((server) {
               final name = server['name'] as String;
               final isSelected = name == _sourceName;
               return ListTile(
-                leading: Icon(
-                  isSelected
-                      ? Icons.radio_button_checked
-                      : Icons.radio_button_unchecked,
-                  color: isSelected ? Colors.red : Colors.grey,
-                ),
-                title: Text(
-                  name,
-                  style: TextStyle(
-                    color: isSelected ? Colors.white : Colors.grey[300],
-                  ),
-                ),
+                leading: Icon(isSelected ? Icons.radio_button_checked : Icons.radio_button_unchecked, color: isSelected ? Colors.red : Colors.grey),
+                title: Text(name, style: TextStyle(color: isSelected ? Colors.white : Colors.grey[300])),
                 onTap: () {
                   Navigator.pop(context);
                   if (!isSelected) _switchServer(server);
@@ -392,14 +328,8 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
   }
 
   void _handleBack() {
-    SystemChrome.setPreferredOrientations([
-      DeviceOrientation.portraitUp,
-      DeviceOrientation.portraitDown,
-    ]);
-    SystemChrome.setEnabledSystemUIMode(
-      SystemUiMode.manual,
-      overlays: SystemUiOverlay.values,
-    );
+    SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp, DeviceOrientation.portraitDown]);
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: SystemUiOverlay.values);
     Navigator.pop(context);
   }
 
@@ -421,11 +351,7 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
   Widget _buildPlayerWidget() {
     return Stack(
       children: [
-        // Video player platform view
-        SizedBox.expand(
-          child: HtmlElementView(viewType: _viewType),
-        ),
-        // Top bar overlay
+        SizedBox.expand(child: HtmlElementView(viewType: _viewType)),
         Positioned(
           top: 0,
           left: 0,
@@ -433,11 +359,7 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [Colors.black87, Colors.transparent],
-              ),
+              gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Colors.black87, Colors.transparent]),
             ),
             child: Row(
               children: [
@@ -445,46 +367,26 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
                   onTap: _handleBack,
                   child: Container(
                     padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.6),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child:
-                        const Icon(Icons.arrow_back, color: Colors.white, size: 24),
+                    decoration: BoxDecoration(color: Colors.black.withOpacity(0.6), borderRadius: BorderRadius.circular(8)),
+                    child: const Icon(Icons.arrow_back, color: Colors.white, size: 24),
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: Text(
-                    _currentTitle ?? widget.title,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                  child: Text(_currentTitle ?? widget.title, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w500), overflow: TextOverflow.ellipsis),
                 ),
                 if (_sourceName != null)
                   GestureDetector(
                     onTap: _showServerPicker,
                     child: Container(
-                      padding:
-                          const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.6),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(color: Colors.black.withOpacity(0.6), borderRadius: BorderRadius.circular(8)),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           const Icon(Icons.dns, color: Colors.white70, size: 14),
                           const SizedBox(width: 5),
-                          Text(
-                            _sourceName!,
-                            style:
-                                const TextStyle(color: Colors.white70, fontSize: 11),
-                          ),
+                          Text(_sourceName!, style: const TextStyle(color: Colors.white70, fontSize: 11)),
                         ],
                       ),
                     ),
@@ -507,11 +409,7 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
             children: [
               const CircularProgressIndicator(color: Colors.red),
               const SizedBox(height: 16),
-              Text(
-                'Loading stream for ${widget.title}...',
-                style: const TextStyle(color: Colors.white, fontSize: 16),
-                textAlign: TextAlign.center,
-              ),
+              Text('Loading stream for ${widget.title}...', style: const TextStyle(color: Colors.white, fontSize: 16), textAlign: TextAlign.center),
             ],
           ),
         ),
@@ -529,65 +427,26 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
             children: [
               const Icon(Icons.error_outline, color: Colors.red, size: 64),
               const SizedBox(height: 16),
-              const Text(
-                'Unable to Load Stream',
-                style: TextStyle(
-                  color: Colors.red,
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
+              const Text('Unable to Load Stream', style: TextStyle(color: Colors.red, fontSize: 20, fontWeight: FontWeight.bold)),
               const SizedBox(height: 12),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Text(
-                  _error!,
-                  style: TextStyle(color: Colors.grey[300], fontSize: 16),
-                  textAlign: TextAlign.center,
-                ),
+                child: Text(_error!, style: TextStyle(color: Colors.grey[300], fontSize: 16), textAlign: TextAlign.center),
               ),
               const SizedBox(height: 32),
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   ElevatedButton(
-                    onPressed: () {
-                      setState(() {
-                        _error = null;
-                        _isLoading = true;
-                      });
-                      _loadStream();
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red,
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 32, vertical: 12),
-                    ),
-                    child: const Text(
-                      'Retry',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
+                    onPressed: () => setState(() { _error = null; _isLoading = true; _loadStream(); }),
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.red, padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12)),
+                    child: const Text('Retry', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
                   ),
                   const SizedBox(width: 16),
                   ElevatedButton(
                     onPressed: _handleBack,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.grey[700],
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 32, vertical: 12),
-                    ),
-                    child: const Text(
-                      'Go Back',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.grey[700], padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12)),
+                    child: const Text('Go Back', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
                   ),
                 ],
               ),
