@@ -1,11 +1,11 @@
 {
-    "name": "temp_maxstream",
-    "short_name": "temp_maxstream",
+    "name": "MaxStream",
+    "short_name": "MaxStream",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#121212",
+    "theme_color": "#121212",
+    "description": "Discover movies and series with MaxStream.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

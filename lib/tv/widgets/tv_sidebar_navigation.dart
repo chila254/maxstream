@@ -2,10 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../utils/tv_focus_manager.dart';
 
-/// MaxStream left sidebar navigation for TV
-/// Displays vertical navigation tabs with red rounded borders
-/// Features D-pad UP/DOWN navigation between menu items
-/// Integrates with TvFocusManager for Netflix-style focus restoration
 class TvSidebarNavigation extends StatefulWidget {
   final int selectedIndex;
   final List<String> titles;
@@ -24,23 +20,28 @@ class TvSidebarNavigation extends StatefulWidget {
   State<TvSidebarNavigation> createState() => _TvSidebarNavigationState();
 }
 
-class _TvSidebarNavigationState extends State<TvSidebarNavigation> {
+class _TvSidebarNavigationState extends State<TvSidebarNavigation>
+    with SingleTickerProviderStateMixin {
   late ScrollController _scrollController;
   late List<FocusNode> _menuItemFocusNodes;
+  int _focusedIndex = -1;
+
+  static const _panelColor = Color(0xFF141414);
+  static const _selectedBackground = Color(0xFFE50914);
+  static const _focusBackground = Color(0x18FFFFFF);
+  static const _iconCircleDefault = Color(0xFF222222);
+  static const _iconCircleSelected = Color(0x28FFFFFF);
 
   @override
   void initState() {
     super.initState();
     _scrollController = ScrollController();
 
-    // Create focus nodes for each menu item (indices: 0=Home, 1=Search, 2=Genre, 3=Series, 4=Watchlist, 5=Settings)
     _menuItemFocusNodes = List.generate(
       widget.titles.length,
-      (index) =>
-          FocusNode(onKey: (node, event) => _handleMenuKeyEvent(event, index)),
+      (index) => FocusNode(onKey: (node, event) => _handleKeyEvent(event, index)),
     );
 
-    // Auto-focus the last focused item or first item
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final lastFocused = TvFocusManager.getLastSidebarItemFocus();
       if (lastFocused != null && _menuItemFocusNodes.contains(lastFocused)) {
@@ -55,25 +56,18 @@ class _TvSidebarNavigationState extends State<TvSidebarNavigation> {
   void didUpdateWidget(TvSidebarNavigation oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.selectedIndex != oldWidget.selectedIndex) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _scrollToSelected();
-      });
+      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToSelected());
     }
   }
 
   void _scrollToSelected() {
     if (!_scrollController.hasClients) return;
-    final itemHeight = 100.0;
+    final itemHeight = 52.0;
     final maxScroll = _scrollController.position.maxScrollExtent;
     final offset = (widget.selectedIndex * itemHeight).clamp(0.0, maxScroll);
-    _scrollController.animateTo(
-      offset,
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.easeInOut,
-    );
+    _scrollController.animateTo(offset, duration: const Duration(milliseconds: 250), curve: Curves.easeOutCubic);
   }
 
-  /// Save the currently focused sidebar item
   void _saveFocusedItem(int index) {
     TvFocusManager.saveSidebarItemFocus(_menuItemFocusNodes[index]);
   }
@@ -87,30 +81,20 @@ class _TvSidebarNavigationState extends State<TvSidebarNavigation> {
     super.dispose();
   }
 
-  /// Handle D-pad navigation within sidebar menu
-  /// Saves focus when moving between items for Netflix-style restoration
-  /// LEFT key returns focus to content area
-  KeyEventResult _handleMenuKeyEvent(RawKeyEvent event, int itemIndex) {
+  KeyEventResult _handleKeyEvent(RawKeyEvent event, int itemIndex) {
     if (event is! RawKeyDownEvent) return KeyEventResult.ignored;
 
     if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
-      // Move to next menu item
       if (itemIndex < _menuItemFocusNodes.length - 1) {
         _menuItemFocusNodes[itemIndex + 1].requestFocus();
         return KeyEventResult.handled;
       }
     } else if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
-      // Move to previous menu item
       if (itemIndex > 0) {
         _menuItemFocusNodes[itemIndex - 1].requestFocus();
         return KeyEventResult.handled;
       }
-    } else if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
-      // LEFT key: Move focus back to content area (Netflix-style)
-      // This is handled by the parent Action in tv_maxstream_main
-      return KeyEventResult.ignored;
     } else if (event.logicalKey == LogicalKeyboardKey.select) {
-      // Select menu item
       widget.onItemSelected(itemIndex);
       return KeyEventResult.handled;
     }
@@ -121,257 +105,193 @@ class _TvSidebarNavigationState extends State<TvSidebarNavigation> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 140,
-      decoration: BoxDecoration(
-        color: const Color(0xFF1A1A1A),
+      width: 120,
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFF1A1A1A), Color(0xFF111111)],
+        ),
         border: Border(
-          right: BorderSide(color: Colors.white.withOpacity(0.1), width: 1),
+          right: BorderSide(color: Color(0x18FFFFFF), width: 1),
         ),
       ),
-      child: SingleChildScrollView(
-        controller: _scrollController,
-        scrollDirection: Axis.vertical,
-        child: Column(
-          children: [
-            const SizedBox(height: 24),
-            // Home button
-            Focus(
-              focusNode: _menuItemFocusNodes[0],
-              onFocusChange: (hasFocus) {
-                if (hasFocus) {
-                  _saveFocusedItem(0);
-                  widget.onItemSelected(0);
-                }
-              },
-              child: _buildNavButton(
-                context,
-                0,
-                isSelected: widget.selectedIndex == 0,
-              ),
-            ),
-            const SizedBox(height: 20),
-
-            // Series button
-            Focus(
-              focusNode: _menuItemFocusNodes[3],
-              onFocusChange: (hasFocus) {
-                if (hasFocus) {
-                  _saveFocusedItem(3);
-                  widget.onItemSelected(3);
-                }
-              },
-              child: _buildNavButton(
-                context,
-                3,
-                isSelected: widget.selectedIndex == 3,
-              ),
-            ),
-            const SizedBox(height: 20),
-
-            // Genre button
-            Focus(
-              focusNode: _menuItemFocusNodes[2],
-              onFocusChange: (hasFocus) {
-                if (hasFocus) {
-                  _saveFocusedItem(2);
-                  widget.onItemSelected(2);
-                }
-              },
-              child: _buildNavButton(
-                context,
-                2,
-                isSelected: widget.selectedIndex == 2,
-              ),
-            ),
-            const SizedBox(height: 20),
-
-            // Search button
-            Focus(
-              focusNode: _menuItemFocusNodes[1],
-              onFocusChange: (hasFocus) {
-                if (hasFocus) {
-                  _saveFocusedItem(1);
-                  widget.onItemSelected(1);
-                }
-              },
-              child: _buildNavButton(
-                context,
-                1,
-                isSelected: widget.selectedIndex == 1,
-              ),
-            ),
-            const SizedBox(height: 20),
-
-            // Watchlist button
-            Focus(
-              focusNode: _menuItemFocusNodes[4],
-              onFocusChange: (hasFocus) {
-                if (hasFocus) {
-                  _saveFocusedItem(4);
-                  widget.onItemSelected(4);
-                }
-              },
-              child: _buildNavButton(
-                context,
-                4,
-                isSelected: widget.selectedIndex == 4,
-              ),
-            ),
-            const SizedBox(height: 20),
-
-            // Settings button
-            Focus(
-              focusNode: _menuItemFocusNodes[5],
-              onFocusChange: (hasFocus) {
-                if (hasFocus) {
-                  _saveFocusedItem(5);
-                  widget.onItemSelected(5);
-                }
-              },
-              child: _buildSettingsButton(
-                context,
-                isSelected: widget.selectedIndex == 5,
-              ),
-            ),
-            const SizedBox(height: 24),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildNavButton(
-    BuildContext context,
-    int index, {
-    required bool isSelected,
-  }) {
-    return GestureDetector(
-      onTap: () => widget.onItemSelected(index),
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        child: TweenAnimationBuilder<double>(
-          tween: Tween<double>(begin: 1.0, end: isSelected ? 1.1 : 1.0),
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOutBack,
-          builder: (context, scale, child) {
-            return Transform.scale(scale: scale, child: child);
-          },
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 300),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-            margin: const EdgeInsets.symmetric(horizontal: 8),
+      child: Column(
+        children: [
+          const SizedBox(height: 28),
+          // App logo/icon
+          Container(
+            width: 40,
+            height: 40,
             decoration: BoxDecoration(
-              color: const Color(0xFFE50914),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: isSelected ? Colors.white : const Color(0xFFE50914),
-                width: isSelected ? 2 : 1.5,
+              gradient: const LinearGradient(
+                colors: [Color(0xFFE50914), Color(0xFFB20710)],
               ),
-              boxShadow: isSelected
-                  ? [
-                      BoxShadow(
-                        color: const Color(0xFFE50914).withValues(alpha: 0.4),
-                        blurRadius: 12,
-                        spreadRadius: 2,
-                      ),
-                    ]
-                  : [],
+              borderRadius: BorderRadius.circular(12),
             ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                AnimatedScale(
-                  scale: isSelected ? 1.15 : 1.0,
-                  duration: const Duration(milliseconds: 300),
-                  curve: Curves.easeOutBack,
-                  child: Icon(
-                    widget.icons[index],
-                    color: Colors.white,
-                    size: 24,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                AnimatedDefaultTextStyle(
-                  duration: const Duration(milliseconds: 300),
-                  curve: Curves.easeOutBack,
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: isSelected ? 11 : 10,
-                    fontWeight: isSelected
-                        ? FontWeight.bold
-                        : FontWeight.normal,
-                  ),
-                  child: Text(
-                    widget.titles[index],
-                    textAlign: TextAlign.center,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
+            child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 24),
+          ),
+          const SizedBox(height: 28),
+          // Navigation items - vertically centered with compact spacing
+          Expanded(
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: List.generate(widget.titles.length, (index) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 3),
+                    child: _NavPillItem(
+                      focusNode: _menuItemFocusNodes[index],
+                      icon: widget.icons[index],
+                      label: widget.titles[index],
+                      isSelected: widget.selectedIndex == index,
+                      isFocused: _focusedIndex == index,
+                      onFocusChanged: (focused) {
+                        if (focused) {
+                          setState(() => _focusedIndex = index);
+                          _saveFocusedItem(index);
+                          widget.onItemSelected(index);
+                        } else {
+                          if (_focusedIndex == index) {
+                            setState(() => _focusedIndex = -1);
+                          }
+                        }
+                      },
+                      onTap: () => widget.onItemSelected(index),
+                    ),
+                  );
+                }),
+              ),
             ),
           ),
-        ),
+          const SizedBox(height: 16),
+        ],
       ),
     );
   }
+}
 
-  Widget _buildSettingsButton(
-    BuildContext context, {
-    required bool isSelected,
-  }) {
-    return GestureDetector(
-      onTap: () => widget.onItemSelected(5),
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        child: TweenAnimationBuilder<double>(
-          tween: Tween<double>(begin: 1.0, end: isSelected ? 1.08 : 1.0),
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOutBack,
-          builder: (context, scale, child) {
-            return Transform.scale(scale: scale, child: child);
-          },
+class _NavPillItem extends StatefulWidget {
+  final FocusNode focusNode;
+  final IconData icon;
+  final String label;
+  final bool isSelected;
+  final bool isFocused;
+  final ValueChanged<bool> onFocusChanged;
+  final VoidCallback onTap;
+
+  const _NavPillItem({
+    required this.focusNode,
+    required this.icon,
+    required this.label,
+    required this.isSelected,
+    required this.isFocused,
+    required this.onFocusChanged,
+    required this.onTap,
+  });
+
+  @override
+  State<_NavPillItem> createState() => _NavPillItemState();
+}
+
+class _NavPillItemState extends State<_NavPillItem>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _scaleAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      duration: const Duration(milliseconds: 200),
+      vsync: this,
+    );
+    _scaleAnimation = Tween<double>(begin: 1.0, end: 1.05).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic),
+    );
+  }
+
+  @override
+  void didUpdateWidget(_NavPillItem oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isFocused && !oldWidget.isFocused) {
+      _controller.forward();
+    } else if (!widget.isFocused && oldWidget.isFocused) {
+      _controller.reverse();
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bgColor = widget.isSelected
+        ? const Color(0x38FFFFFF)
+        : widget.isFocused
+            ? const Color(0x14FFFFFF)
+            : Colors.transparent;
+    final borderColor = widget.isFocused
+        ? const Color(0x30FFFFFF)
+        : Colors.transparent;
+
+    return ScaleTransition(
+      scale: _scaleAnimation,
+      child: Focus(
+        focusNode: widget.focusNode,
+        onFocusChange: widget.onFocusChanged,
+        child: GestureDetector(
+          onTap: widget.onTap,
           child: AnimatedContainer(
-            duration: const Duration(milliseconds: 300),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-            margin: const EdgeInsets.symmetric(horizontal: 8),
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOutCubic,
+            width: 104,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             decoration: BoxDecoration(
-              color: const Color(0xFFE50914),
-              borderRadius: BorderRadius.circular(16),
-              border: isSelected
-                  ? Border.all(color: Colors.white, width: 2)
-                  : Border.all(color: const Color(0xFFE50914), width: 1.5),
-              boxShadow: isSelected
-                  ? [
-                      BoxShadow(
-                        color: const Color(0xFFE50914).withValues(alpha: 0.5),
-                        blurRadius: 12,
-                        spreadRadius: 2,
-                      ),
-                    ]
-                  : [],
+              color: bgColor,
+              borderRadius: BorderRadius.circular(28),
+              border: Border.all(color: borderColor, width: 1.5),
             ),
-            child: Column(
+            child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                AnimatedScale(
-                  scale: isSelected ? 1.15 : 1.0,
-                  duration: const Duration(milliseconds: 300),
-                  curve: Curves.easeOutBack,
-                  child: Icon(Icons.settings, color: Colors.white, size: 24),
-                ),
-                const SizedBox(height: 6),
-                AnimatedDefaultTextStyle(
-                  duration: const Duration(milliseconds: 300),
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
-                    fontSize: isSelected ? 11 : 10,
+                // Circular icon container
+                Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: widget.isSelected
+                        ? const Color(0x28FFFFFF)
+                        : const Color(0xFF222222),
+                    shape: BoxShape.circle,
                   ),
-                  child: const Text(
-                    'Settings',
-                    textAlign: TextAlign.center,
-                    maxLines: 2,
+                  child: Icon(
+                    widget.icon,
+                    color: widget.isSelected
+                        ? Colors.white
+                        : widget.isFocused
+                            ? Colors.white
+                            : const Color(0xFF999999),
+                    size: 18,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                // Label
+                Flexible(
+                  child: Text(
+                    widget.label,
+                    style: TextStyle(
+                      color: widget.isSelected || widget.isFocused
+                          ? Colors.white
+                          : const Color(0xFF999999),
+                      fontSize: 13,
+                      fontWeight:
+                          widget.isSelected ? FontWeight.w600 : FontWeight.w400,
+                    ),
+                    maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),

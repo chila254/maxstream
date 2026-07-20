@@ -55,12 +55,22 @@ jobs:
         run: |
           keytool -list -keystore android/app/key.jks -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" || true
 
-      - name: Build APK
+      - name: Build Mobile APK
         run: flutter build apk --release
 
-      - name: Upload APK
+      - name: Upload Mobile APK
         uses: actions/upload-artifact@v4
         with:
-          name: app-release.apk
+          name: maxstream-mobile.apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 7
+
+      - name: Build TV APK
+        run: flutter build apk --release --target lib/tv/main_tv.dart
+
+      - name: Upload TV APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: maxstream-tv.apk
           path: build/app/outputs/flutter-apk/app-release.apk
           retention-days: 7

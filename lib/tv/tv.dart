@@ -17,9 +17,7 @@ export 'utils/index.dart';
 // Providers
 export 'providers/index.dart';
 
-// Services
-export 'services/tv_scraper_service.dart';
-export 'services/tv_scraper_provider.dart';
+// Services (none currently active)
 
 // Models
 export 'models/tv_channel.dart';

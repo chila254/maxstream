@@ -1,26 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'dart:async';
 import '../../models/movie.dart';
 import '../../services/tmdb_api_service.dart';
 import '../../services/watch_history_service.dart';
 import '../providers/tv_navigation_provider.dart';
 import '../utils/index.dart';
-import '../widgets/tv_enhanced_hero_banner.dart';
 import '../widgets/tv_content_card.dart';
-import '../widgets/tv_carousel_enhanced.dart';
-import '../widgets/tv_visual_enhancements.dart';
 import '../widgets/tv_dark_mode_polish.dart';
-import '../widgets/tv_streaming_providers_widget.dart';
-import '../widgets/tv_content_grid.dart';
 import 'tv_details_screen.dart';
 import 'tv_series_screen.dart';
 import 'tv_video_player_screen.dart';
 
-/// Netflix-style TV Home Screen (non-freezing version)
-/// Data loads asynchronously without blocking navigation
-/// Persists scroll position across navigation
 class TvHomeScreen extends StatefulWidget {
   final VoidCallback? onReturnToSidebar;
   final GlobalKey<NavigatorState>? navigatorKey;
@@ -31,8 +22,7 @@ class TvHomeScreen extends StatefulWidget {
   State<TvHomeScreen> createState() => _TvHomeScreenState();
 }
 
-class _TvHomeScreenState extends State<TvHomeScreen>
-    with TvContentScreenMixin, TvDPadNavigationMixin {
+class _TvHomeScreenState extends State<TvHomeScreen> {
   bool _isLoading = true;
   String? _errorMessage;
 
@@ -42,55 +32,33 @@ class _TvHomeScreenState extends State<TvHomeScreen>
   List<Map<String, dynamic>> topRatedMovies = [];
   List<Map<String, dynamic>> continueWatching = [];
 
-  late PageController _heroBannerController;
   late ScrollController _contentScrollController;
-  late FocusNode _heroBannerFocusNode; // Hero banner gets initial focus
-  Timer? _heroBannerTimer;
-  int _heroBannerPage = 0;
-  bool _userInteractingWithHeroBanner = false;
 
   @override
   void initState() {
     super.initState();
-    _heroBannerController = PageController();
     _contentScrollController = ScrollController();
-    _heroBannerFocusNode = FocusNode();
 
-    // Register scroll controller with provider for scroll restoration
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final navProvider = context.read<TvNavigationProvider>();
       navProvider.registerScrollController(0, _contentScrollController);
-
-      // Add scroll listener to save scroll offset
       _contentScrollController.addListener(() {
         navProvider.saveScrollOffset(0, _contentScrollController.offset);
       });
-
-      // Netflix-style: Focus hero banner when Home screen loads
-      // This is the primary entry point for content
-      if (trendingMovies.isNotEmpty) {
-        _heroBannerFocusNode.requestFocus();
-      }
     });
 
-    // Load content asynchronously (non-blocking)
-    Future.microtask(() => _loadContent());
+    _loadContent();
   }
 
   @override
   void dispose() {
-    _heroBannerController.dispose();
     _contentScrollController.dispose();
-    _heroBannerFocusNode.dispose();
-    // Safely cancel timer with error handling
-    _heroBannerTimer?.cancel();
-    _heroBannerTimer = null;
     super.dispose();
   }
 
   Future<void> _loadContent() async {
     try {
-      safeSetState(() => _isLoading = true);
+      setState(() => _isLoading = true);
 
       final results = await Future.wait([
         TmdbApiService.fetchTrendingMovies(),
@@ -100,7 +68,7 @@ class _TvHomeScreenState extends State<TvHomeScreen>
         WatchHistoryService.getWatchHistory(),
       ]);
 
-      safeSetState(() {
+      setState(() {
         trendingMovies = results[0];
         trendingSeries = results[1];
         popularMovies = results[2];
@@ -108,64 +76,10 @@ class _TvHomeScreenState extends State<TvHomeScreen>
         continueWatching = results[4].take(10).toList();
         _errorMessage = null;
       });
-
-      // Start auto-scrolling hero banner
-      if (trendingMovies.isNotEmpty) {
-        _startHeroBannerTimer();
-      }
     } catch (e) {
-      safeSetState(() {
-        _errorMessage = 'Failed to load content: $e';
-      });
+      setState(() => _errorMessage = 'Failed to load content: $e');
     } finally {
-      safeSetState(() => _isLoading = false);
-    }
-  }
-
-  void _startHeroBannerTimer() {
-    // Cancel existing timer safely
-    _heroBannerTimer?.cancel();
-    _heroBannerTimer = null;
-
-    // Only start timer if not in user interaction
-    if (!_userInteractingWithHeroBanner) {
-      _heroBannerTimer = Timer.periodic(const Duration(seconds: 15), (timer) {
-        // Check if widget is still mounted and user isn't interacting
-        if (!mounted || _userInteractingWithHeroBanner) {
-          timer.cancel();
-          return;
-        }
-
-        if (trendingMovies.isNotEmpty && _heroBannerController.hasClients) {
-          _heroBannerPage = (_heroBannerPage + 1) % trendingMovies.length;
-          try {
-            _heroBannerController.animateToPage(
-              _heroBannerPage,
-              duration: const Duration(milliseconds: 400),
-              curve: Curves.easeInOut,
-            );
-          } catch (e) {
-            debugPrint('Hero banner animation error: $e');
-          }
-        }
-      });
-    }
-  }
-
-  void _pauseHeroBannerTimer() {
-    _userInteractingWithHeroBanner = true;
-    _heroBannerTimer?.cancel();
-    _heroBannerTimer = null;
-  }
-
-  void _resumeHeroBannerTimer() {
-    _userInteractingWithHeroBanner = false;
-    if (trendingMovies.isNotEmpty) {
-      Future.delayed(const Duration(seconds: 5), () {
-        if (mounted && !_userInteractingWithHeroBanner) {
-          _startHeroBannerTimer();
-        }
-      });
+      setState(() => _isLoading = false);
     }
   }
 
@@ -175,392 +89,322 @@ class _TvHomeScreenState extends State<TvHomeScreen>
       child: Scaffold(
         backgroundColor: Colors.transparent,
         body: _errorMessage != null
-            ? buildErrorWidget(_errorMessage!, _loadContent)
+            ? _buildErrorWidget()
             : _isLoading
-            ? buildLoadingWidget()
-            : _buildContent(),
+                ? _buildLoadingWidget()
+                : _buildContent(),
       ),
     );
   }
 
   Widget _buildContent() {
-    return SafeArea(
-      child: Focus(
-        onKey: (node, event) {
-          if (event.isKeyPressed(LogicalKeyboardKey.arrowUp)) {
-            if (_contentScrollController.offset > 0) {
-              _contentScrollController.animateTo(
-                _contentScrollController.offset - 300,
-                duration: const Duration(milliseconds: 300),
-                curve: Curves.easeInOut,
-              );
-            }
-            return KeyEventResult.handled;
-          } else if (event.isKeyPressed(LogicalKeyboardKey.arrowDown)) {
-            if (_contentScrollController.offset <
-                _contentScrollController.position.maxScrollExtent) {
-              _contentScrollController.animateTo(
-                _contentScrollController.offset + 300,
-                duration: const Duration(milliseconds: 300),
-                curve: Curves.easeInOut,
-              );
-            }
-            return KeyEventResult.handled;
-          }
-          return KeyEventResult.ignored;
-        },
-        autofocus: true,
-        child: RefreshIndicator(
-          onRefresh: _loadContent,
-          child: CustomScrollView(
-            controller: _contentScrollController,
-            slivers: [
-              if (trendingMovies.isNotEmpty) ...[
-                SliverToBoxAdapter(child: _buildHeroBanner()),
-                SliverToBoxAdapter(child: _buildHeroBannerIndicators()),
-              ],
-              // Streaming Providers Section
-              SliverToBoxAdapter(child: _buildStreamingProvidersSection()),
-              if (continueWatching.isNotEmpty)
-                SliverToBoxAdapter(child: _buildContinueWatchingCarousel()),
-              SliverToBoxAdapter(
-                child: _buildSection(
-                  'Trending Movies',
-                  trendingMovies.take(10).toList(),
-                  'movie',
-                  sectionName: 'trending_movies',
-                ),
-              ),
-              SliverToBoxAdapter(
-                child: _buildSection(
-                  'Trending Series',
-                  trendingSeries.take(10).toList(),
-                  'series',
-                  sectionName: 'trending_series',
-                ),
-              ),
-              SliverToBoxAdapter(
-                child: _buildSection(
-                  'Popular Movies',
-                  popularMovies.take(10).toList(),
-                  'movie',
-                  sectionName: 'popular_movies',
-                ),
-              ),
-              SliverToBoxAdapter(
-                child: _buildSection(
-                  'Top Rated',
-                  topRatedMovies.take(10).toList(),
-                  'movie',
-                  sectionName: 'top_rated_movies',
-                ),
-              ),
-              SliverToBoxAdapter(child: SizedBox(height: 40)),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildHeroBanner() {
-    final height = 606.0;
-
     return Focus(
-      focusNode: _heroBannerFocusNode,
       onKey: (node, event) {
-        if (event.isKeyPressed(LogicalKeyboardKey.select)) {
-          // Play the hero movie on SELECT
-          if (trendingMovies.isNotEmpty) {
-            _playMovie(trendingMovies[_heroBannerPage]);
+        if (event.isKeyPressed(LogicalKeyboardKey.arrowUp)) {
+          if (_contentScrollController.offset > 0) {
+            _contentScrollController.animateTo(
+              _contentScrollController.offset - 400,
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeOutCubic,
+            );
           }
           return KeyEventResult.handled;
-        } else if (event.isKeyPressed(LogicalKeyboardKey.arrowLeft)) {
-          // LEFT from hero banner → Sidebar (Netflix-style restoration)
-          TvFocusManager.focusSidebar();
-          context.read<TvNavigationProvider>().setFocusOnSidebar(true);
+        } else if (event.isKeyPressed(LogicalKeyboardKey.arrowDown)) {
+          if (_contentScrollController.offset <
+              _contentScrollController.position.maxScrollExtent) {
+            _contentScrollController.animateTo(
+              _contentScrollController.offset + 400,
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeOutCubic,
+            );
+          }
           return KeyEventResult.handled;
         }
         return KeyEventResult.ignored;
       },
-      child: SizedBox(
-        width: double.infinity,
-        height: height,
-        child: GestureDetector(
-          onLongPress: _pauseHeroBannerTimer,
-          onLongPressUp: _resumeHeroBannerTimer,
-          child: MouseRegion(
-            onEnter: (_) => _pauseHeroBannerTimer(),
-            onExit: (_) => _resumeHeroBannerTimer(),
-            child: PageView.builder(
-              controller: _heroBannerController,
-              onPageChanged: (index) {
-                setState(() {
-                  _heroBannerPage = index;
-                });
-                // Pause auto-scroll when user manually navigates
-                _pauseHeroBannerTimer();
-                // Resume after 5 seconds of inactivity
-                Future.delayed(const Duration(seconds: 5), () {
-                  if (mounted) {
-                    _resumeHeroBannerTimer();
-                  }
-                });
-              },
-              itemCount: trendingMovies.length,
-              itemBuilder: (context, index) {
-                final movie = trendingMovies[index];
-                final backdropUrl = TmdbApiService.getBackdropUrl(
-                  movie['backdrop_path'] ?? '',
-                );
-                final title = movie['title'] ?? movie['name'] ?? 'Unknown';
-                final rating =
-                    (movie['vote_average'] as num?)?.toDouble() ?? 0.0;
-                final overview = movie['overview'] ?? '';
-
-                return TvEnhancedHeroBanner(
-                  backdropUrl: backdropUrl,
-                  title: title,
-                  description: overview,
-                  rating: rating > 0 ? rating : null,
-                  onTap: () => _navigateToDetails(movie, 'movie'),
-                  onWatchNow: () => _playMovie(movie),
-                  onDetails: () => _navigateToDetails(movie, 'movie'),
-                  isFocused: _heroBannerFocusNode.hasFocus,
-                );
-              },
+      autofocus: true,
+      child: RefreshIndicator(
+        onRefresh: _loadContent,
+        child: CustomScrollView(
+          controller: _contentScrollController,
+          slivers: [
+            // Featured section - first trending movie as big hero card
+            if (trendingMovies.isNotEmpty)
+              SliverToBoxAdapter(
+                child: _buildFeaturedSection(),
+              ),
+            // Continue Watching
+            if (continueWatching.isNotEmpty)
+              SliverToBoxAdapter(
+                child: _buildContentRow(
+                  'Continue Watching',
+                  continueWatching,
+                  showProgress: true,
+                ),
+              ),
+            // Trending Movies
+            SliverToBoxAdapter(
+              child: _buildContentRow(
+                'Trending Movies',
+                trendingMovies.take(15).toList(),
+              ),
             ),
-          ),
+            // Trending Series
+            SliverToBoxAdapter(
+              child: _buildContentRow(
+                'Trending Series',
+                trendingSeries.take(15).toList(),
+                contentType: 'series',
+              ),
+            ),
+            // Popular Movies
+            SliverToBoxAdapter(
+              child: _buildContentRow(
+                'Popular Movies',
+                popularMovies.take(15).toList(),
+              ),
+            ),
+            // Top Rated
+            SliverToBoxAdapter(
+              child: _buildContentRow(
+                'Top Rated',
+                topRatedMovies.take(15).toList(),
+              ),
+            ),
+            const SliverToBoxAdapter(child: SizedBox(height: 48)),
+          ],
         ),
       ),
     );
   }
 
-  Widget _buildHeroBannerIndicators() {
+  Widget _buildFeaturedSection() {
+    final movie = trendingMovies.first;
+    final backdropUrl = TmdbApiService.getBackdropUrl(
+      movie['backdrop_path'] ?? '',
+    );
+    final title = movie['title'] ?? movie['name'] ?? 'Unknown';
+    final rating = (movie['vote_average'] as num?)?.toDouble() ?? 0.0;
+    final overview = movie['overview'] ?? '';
+    final year = (movie['release_date'] as String?)?.substring(0, 4);
+
     return Padding(
-      padding: EdgeInsets.symmetric(
-        vertical: TvUtils.responsivePadding(16, context),
-      ),
-      child: TvEnhancedPageIndicator(
-        itemCount: trendingMovies.length,
-        currentIndex: _heroBannerPage,
-        animationDuration: const Duration(milliseconds: 300),
-      ),
-    );
-  }
-
-  Widget _buildStreamingProvidersSection() {
-    // Streaming providers matching MaxStream mobile app
-    final providerIds = [
-      8, // Netflix
-      9, // Prime Video
-      337, // Disney+
-      15, // Hulu
-      350, // Apple TV
-      1899, // HBO Max
-      386, // Peacock
-      582, // Paramount+
-      526, // AMC+
-    ];
-
-    return Focus(
-      onKey: (node, event) {
-        if (event.isKeyPressed(LogicalKeyboardKey.arrowLeft)) {
-          node.previousFocus();
-          return KeyEventResult.handled;
-        } else if (event.isKeyPressed(LogicalKeyboardKey.arrowRight)) {
-          node.nextFocus();
-          return KeyEventResult.handled;
-        }
-        return KeyEventResult.ignored;
-      },
-      child: Container(
-        padding: EdgeInsets.symmetric(
-          vertical: TvUtils.responsivePadding(24, context),
-          horizontal: TvUtils.responsivePadding(24, context),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            GradientText(
-              'Watch On',
-              baseStyle: TextStyle(
-                fontSize: TvUtils.responsiveFontSize(22, context),
-                fontWeight: FontWeight.bold,
-              ),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+      child: GestureDetector(
+        onTap: () => _navigateToDetails(movie, 'movie'),
+        child: Focus(
+          onKey: (node, event) {
+            if (event.isKeyPressed(LogicalKeyboardKey.select)) {
+              _playMovie(movie);
+              return KeyEventResult.handled;
+            }
+            return KeyEventResult.ignored;
+          },
+          child: Container(
+            height: 320,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              color: const Color(0xFF1A1A1A),
             ),
-            SizedBox(height: TvUtils.responsivePadding(16, context)),
-            TvStreamingProvidersHorizontalList(
-              providerIds: providerIds,
-              onProviderSelected: _handleProviderSelected,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _handleProviderSelected(dynamic provider) {
-    // Show visual feedback
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            const Icon(Icons.play_circle_outline, color: Colors.white),
-            const SizedBox(width: 12),
-            Expanded(child: Text('Open ${provider.name}')),
-          ],
-        ),
-        backgroundColor: Colors.grey[900],
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-        duration: const Duration(milliseconds: 1500),
-      ),
-    );
-
-    // In a real app, you would navigate to provider content
-    // For now, this provides visual feedback that the button is clickable
-  }
-
-  Widget _buildContinueWatchingCarousel() {
-    final items = continueWatching.take(10).map((item) {
-      final titleKey = item['title'] != null ? 'title' : 'name';
-      final dateKey = item['title'] != null ? 'release_date' : 'first_air_date';
-      final dateStr = item[dateKey] as String?;
-      final year = dateStr != null ? int.tryParse(dateStr.split('-')[0]) : null;
-      final rating = (item['vote_average'] as num?)?.toDouble();
-
-      return ContinueWatchingItem(
-        id: item['id'].toString(),
-        title: item[titleKey] ?? 'Unknown',
-        posterUrl: TmdbApiService.getPosterUrl(item['poster_path'] ?? ''),
-        progress: 0.65, // Default progress, can be fetched from watch history
-        duration: '45 min',
-        nextEpisode: 'Season 2 • Episode 3',
-        rating: rating != null ? '${rating.toStringAsFixed(1)}/10' : null,
-        releaseYear: year,
-      );
-    }).toList();
-
-    return TvContinueWatchingCarousel(
-      items: items,
-      scrollDuration: const Duration(milliseconds: 500),
-      animationDuration: const Duration(milliseconds: 300),
-      enableParallax: true,
-      onItemSelected: (index) {
-        if (index < continueWatching.length) {
-          _navigateToDetails(continueWatching[index], 'movie');
-        }
-      },
-    );
-  }
-
-  Widget _buildSection(
-    String title,
-    List<Map<String, dynamic>> items,
-    String contentType, {
-    String sectionName = '',
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        vertical: TvSpacing.sectionPaddingV,
-        horizontal: TvSpacing.sectionPaddingH,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              GradientText(title, baseStyle: TvTypography.sectionTitle),
-              Focus(
-                onKey: (node, event) {
-                  if (event.isKeyPressed(LogicalKeyboardKey.select)) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('View all $title'),
-                        duration: const Duration(milliseconds: 800),
-                      ),
-                    );
-                    return KeyEventResult.handled;
-                  }
-                  return KeyEventResult.ignored;
-                },
-                child: GestureDetector(
-                  onTap: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('View all $title'),
-                        duration: const Duration(milliseconds: 800),
-                      ),
-                    );
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFE50914),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Text(
-                      'See All',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
-                      ),
+            clipBehavior: Clip.antiAlias,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                // Backdrop image
+                Image.network(
+                  backdropUrl,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => Container(
+                    color: Colors.grey[900],
+                    child: const Icon(Icons.movie, color: Colors.grey, size: 60),
+                  ),
+                ),
+                // Gradient overlays
+                const DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.centerRight,
+                      end: Alignment.centerLeft,
+                      colors: [Colors.transparent, Colors.black87],
                     ),
                   ),
                 ),
-              ),
-            ],
+                const DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.bottomCenter,
+                      end: Alignment.topCenter,
+                      colors: [Colors.black87, Colors.transparent],
+                      stops: [0.0, 0.5],
+                    ),
+                  ),
+                ),
+                // Content
+                Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 32,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          if (rating > 0) ...[
+                            const Icon(Icons.star, color: Colors.amber, size: 18),
+                            const SizedBox(width: 4),
+                            Text(
+                              rating.toStringAsFixed(1),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                          ],
+                          if (year != null)
+                            Text(
+                              year,
+                              style: TextStyle(
+                                color: Colors.grey[400],
+                                fontSize: 14,
+                              ),
+                            ),
+                          const SizedBox(width: 12),
+                          // Genre chips
+                          if (movie['genre_ids'] != null)
+                            ...((movie['genre_ids'] as List).take(2).map((id) {
+                              return Padding(
+                                padding: const EdgeInsets.only(right: 6),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 8, vertical: 3),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withOpacity(0.15),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    _getGenreName(id),
+                                    style: const TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                ),
+                              );
+                            })),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        overview,
+                        style: TextStyle(
+                          color: Colors.grey[300],
+                          fontSize: 13,
+                          height: 1.4,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          _ActionChip(
+                            icon: Icons.play_arrow,
+                            label: 'Play',
+                            primary: true,
+                            onTap: () => _playMovie(movie),
+                          ),
+                          const SizedBox(width: 8),
+                          _ActionChip(
+                            icon: Icons.info_outline,
+                            label: 'Details',
+                            onTap: () => _navigateToDetails(movie, 'movie'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: TvSpacing.titleGap),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildContentRow(
+    String title,
+    List<Map<String, dynamic>> items, {
+    String contentType = 'movie',
+    bool showProgress = false,
+  }) {
+    if (items.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Text(
+              title,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
           SizedBox(
-            height: 300,
-            child: TvContentGrid(
-              items: items.map((item) {
-                final contentTypeEnum = contentType == 'series'
-                    ? ContentType.series
-                    : ContentType.movie;
+            height: 240,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              itemCount: items.length,
+              itemBuilder: (context, index) {
+                final item = items[index];
                 final isMovie = contentType == 'movie';
                 final dateKey = isMovie ? 'release_date' : 'first_air_date';
                 final titleKey = isMovie ? 'title' : 'name';
                 final posterUrl = TmdbApiService.getPosterUrl(
                   item['poster_path'] ?? '',
                 );
-                final title = item[titleKey] ?? 'Unknown';
+                final itemTitle = item[titleKey] ?? 'Unknown';
                 final rating = (item['vote_average'] as num?)?.toDouble();
                 final dateStr = item[dateKey] as String?;
                 final year = dateStr != null
                     ? int.tryParse(dateStr.split('-')[0])
                     : null;
 
-                return TvContentCard(
+                return _ContentRowItem(
                   posterUrl: posterUrl,
-                  title: title,
-                  contentType: contentTypeEnum,
-                  rating: rating,
+                  title: itemTitle,
                   year: year,
+                  rating: rating,
                   onTap: () => _navigateToDetails(item, contentType),
-                  width: 180,
-                  height: 270,
-                );
-              }).toList(),
-              itemsPerRow: 1,
-              itemHeight: 300,
-              itemWidth: 180,
-              spacing: 16,
-              padding: EdgeInsets.zero,
-              onItemSelected: (index) {
-                _navigateToDetails(
-                  items[index],
-                  contentType == 'series' ? 'series' : 'movie',
+                  onPlay: () {
+                    if (contentType == 'series') {
+                      _playSeries(item);
+                    } else {
+                      _playMovie(item);
+                    }
+                  },
                 );
               },
-              onReturnToSidebar: widget.onReturnToSidebar ?? () {},
             ),
           ),
         ],
@@ -599,6 +443,267 @@ class _TvHomeScreenState extends State<TvHomeScreen>
           isMovie: true,
           season: 0,
           episode: 0,
+        ),
+      ),
+    );
+  }
+
+  void _playSeries(Map<String, dynamic> series) {
+    final seriesItem = Movie.fromJson(series);
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => TvVideoPlayerScreen(
+          title: seriesItem.title,
+          tmdbId: seriesItem.id,
+          isMovie: false,
+          season: 1,
+          episode: 1,
+        ),
+      ),
+    );
+  }
+
+  String _getGenreName(int id) {
+    const genres = {
+      28: 'Action', 12: 'Adventure', 16: 'Animation', 35: 'Comedy',
+      80: 'Crime', 99: 'Documentary', 18: 'Drama', 10751: 'Family',
+      14: 'Fantasy', 36: 'History', 27: 'Horror', 10402: 'Music',
+      9648: 'Mystery', 10749: 'Romance', 878: 'Sci-Fi', 10770: 'TV Movie',
+      53: 'Thriller', 10752: 'War', 37: 'Western',
+    };
+    return genres[id] ?? 'Movie';
+  }
+
+  Widget _buildLoadingWidget() {
+    return const Center(
+      child: CircularProgressIndicator(color: Colors.red),
+    );
+  }
+
+  Widget _buildErrorWidget() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.error_outline, color: Colors.red, size: 48),
+          const SizedBox(height: 16),
+          Text(
+            _errorMessage!,
+            style: const TextStyle(color: Colors.white),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 16),
+          ElevatedButton(
+            onPressed: _loadContent,
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Retry', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ContentRowItem extends StatefulWidget {
+  final String posterUrl;
+  final String title;
+  final int? year;
+  final double? rating;
+  final VoidCallback onTap;
+  final VoidCallback onPlay;
+
+  const _ContentRowItem({
+    required this.posterUrl,
+    required this.title,
+    this.year,
+    this.rating,
+    required this.onTap,
+    required this.onPlay,
+  });
+
+  @override
+  State<_ContentRowItem> createState() => _ContentRowItemState();
+}
+
+class _ContentRowItemState extends State<_ContentRowItem> {
+  bool _isFocused = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 10),
+      child: Focus(
+        onKey: (node, event) {
+          if (event is KeyDownEvent) {
+            if (event.logicalKey == LogicalKeyboardKey.select) {
+              widget.onTap();
+              return KeyEventResult.handled;
+            }
+          }
+          return KeyEventResult.ignored;
+        },
+        onFocusChange: (focused) => setState(() => _isFocused = focused),
+        child: GestureDetector(
+          onTap: widget.onTap,
+          child: AnimatedScale(
+            scale: _isFocused ? 1.08 : 1.0,
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOutCubic,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              width: 130,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(8),
+                border: _isFocused
+                    ? Border.all(color: Colors.red, width: 2)
+                    : null,
+                boxShadow: _isFocused
+                    ? [
+                        BoxShadow(
+                          color: Colors.red.withOpacity(0.3),
+                          blurRadius: 12,
+                          spreadRadius: 2,
+                        ),
+                      ]
+                    : null,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Poster
+                  Expanded(
+                    child: ClipRRect(
+                      borderRadius:
+                          const BorderRadius.vertical(top: Radius.circular(8)),
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          Image.network(
+                            widget.posterUrl,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => Container(
+                              color: Colors.grey[800],
+                              child: const Icon(Icons.movie,
+                                  color: Colors.grey, size: 40),
+                            ),
+                          ),
+                          if (_isFocused)
+                            Positioned.fill(
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    begin: Alignment.topCenter,
+                                    end: Alignment.bottomCenter,
+                                    colors: [
+                                      Colors.transparent,
+                                      Colors.black.withOpacity(0.8),
+                                    ],
+                                  ),
+                                ),
+                                child: Align(
+                                  alignment: Alignment.center,
+                                  child: GestureDetector(
+                                    onTap: widget.onPlay,
+                                    child: Container(
+                                      width: 44,
+                                      height: 44,
+                                      decoration: BoxDecoration(
+                                        color: Colors.red,
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: const Icon(Icons.play_arrow,
+                                          color: Colors.white, size: 28),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  // Info
+                  Container(
+                    padding: const EdgeInsets.fromLTRB(8, 8, 8, 6),
+                    decoration: const BoxDecoration(
+                      color: Color(0xFF1A1A1A),
+                      borderRadius:
+                          BorderRadius.vertical(bottom: Radius.circular(8)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          widget.title,
+                          style: TextStyle(
+                            color: _isFocused ? Colors.white : Colors.grey[300],
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        if (widget.year != null) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            widget.year.toString(),
+                            style: TextStyle(
+                              color: Colors.grey[500],
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ActionChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool primary;
+  final VoidCallback onTap;
+
+  const _ActionChip({
+    required this.icon,
+    required this.label,
+    this.primary = false,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: primary ? Colors.red : Colors.white.withOpacity(0.15),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: Colors.white, size: 18),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
         ),
       ),
     );

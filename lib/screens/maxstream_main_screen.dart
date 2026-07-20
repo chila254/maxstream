@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'maxstream_home_screen.dart';
 import 'maxstream_search_screen.dart';
@@ -6,7 +7,6 @@ import 'maxstream_series_list_screen.dart';
 import 'maxstream_watchlist_screen.dart';
 import 'maxstream_more_screen.dart';
 import '../services/update_service.dart';
-import '../services/notification_service.dart';
 import '../services/notification_permission_service.dart';
 import '../services/content_notification_service.dart';
 
@@ -30,8 +30,10 @@ class _MaxStreamMainScreenState extends State<MaxStreamMainScreen> {
   @override
   void initState() {
     super.initState();
-    _initializeServices();
-    _setupNotificationTap();
+    if (!kIsWeb) {
+      _initializeServices();
+      _setupNotificationTap();
+    }
   }
 
   void _setupNotificationTap() {
@@ -112,10 +114,7 @@ class _MaxStreamMainScreenState extends State<MaxStreamMainScreen> {
                 const SizedBox(height: 12),
                 const Text(
                   'What\'s New:',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                  ),
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                 ),
                 const SizedBox(height: 6),
                 ConstrainedBox(
@@ -204,4 +203,3 @@ class _MaxStreamMainScreenState extends State<MaxStreamMainScreen> {
     );
   }
 }
-

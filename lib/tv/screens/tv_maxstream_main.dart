@@ -226,16 +226,11 @@ class _TvMaxStreamMainState extends State<TvMaxStreamMain> {
                             _navProvider.setFocusOnSidebar(true);
                           }
                         },
-                        child: Container(
-                          color: _sidebarFocused
-                              ? Colors.grey.withValues(alpha: 0.1)
-                              : Colors.transparent,
-                          child: TvSidebarNavigation(
-                            selectedIndex: navProvider.selectedTab,
-                            titles: _navTitles,
-                            icons: _navIcons,
-                            onItemSelected: _onNavItemSelected,
-                          ),
+                        child: TvSidebarNavigation(
+                          selectedIndex: navProvider.selectedTab,
+                          titles: _navTitles,
+                          icons: _navIcons,
+                          onItemSelected: _onNavItemSelected,
                         ),
                       ),
                     ),
@@ -251,19 +246,14 @@ class _TvMaxStreamMainState extends State<TvMaxStreamMain> {
                               _navProvider.setFocusOnSidebar(false);
                             }
                           },
-                          child: Container(
-                            color: !_sidebarFocused
-                                ? Colors.grey.withValues(alpha: 0.05)
-                                : Colors.transparent,
-                            child: Navigator(
-                              key: _navigatorKey,
-                              observers: [TvNavigationObserver(_navProvider)],
-                              onGenerateRoute: (settings) {
-                                return MaterialPageRoute(
-                                  builder: (context) => _buildCurrentScreen(),
-                                );
-                              },
-                            ),
+                          child: Navigator(
+                            key: _navigatorKey,
+                            observers: [TvNavigationObserver(_navProvider)],
+                            onGenerateRoute: (settings) {
+                              return MaterialPageRoute(
+                                builder: (context) => _buildCurrentScreen(),
+                              );
+                            },
                           ),
                         ),
                       ),

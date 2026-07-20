@@ -10,6 +10,9 @@ dependencies:
   flutter:
     sdk: flutter
   video_player: ^2.8.2
+  media_kit: ^1.1.11
+  media_kit_video: ^1.2.5
+  media_kit_libs_video: ^1.0.5
   cupertino_icons: ^1.0.8
   flutter_inappwebview: ^6.2.0-beta.3
   http: ^1.4.0

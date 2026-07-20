@@ -1,4 +1,5 @@
 import 'firebase_options.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -16,7 +17,7 @@ void main() async {
       options: DefaultFirebaseOptions.currentPlatform,
     );
 
-    await NotificationService().initialize();
+    if (!kIsWeb) await NotificationService().initialize();
     await ThemeService.instance.loadTheme();
 
     // Check for updates after initialization
@@ -56,7 +57,7 @@ class ErrorApp extends StatelessWidget {
 }
 
 class MaxStreamApp extends StatelessWidget {
-const MaxStreamApp({super.key});
+  const MaxStreamApp({super.key});
 
   @override
   Widget build(BuildContext context) {
