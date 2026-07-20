@@ -74,7 +74,7 @@ class DirectM3u8Service {
   }) async {
     if (kIsWeb) {
       // On web, return embed sources as available servers
-      final sources = WebStreamService.getEmbedSources();
+      final sources = WebStreamService.servers;
       return sources.map((source) {
         final url = isMovie
             ? source['movieUrl']!.replaceAll('{id}', tmdbId)
