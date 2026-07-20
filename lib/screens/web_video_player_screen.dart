@@ -87,6 +87,9 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
       container.removeChild(container.firstChild!);
     }
 
+    // Add ad-blocking CSS and MutationObserver to parent container
+    _injectAdBlocker(container);
+
     if (isEmbed) {
       // Use iframe for embed sources
       final iframe = web.document.createElement('iframe') as web.HTMLIFrameElement;
@@ -97,6 +100,12 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
         ..border = 'none'
         ..allow = 'autoplay; fullscreen; picture-in-picture'
         ..allowFullscreen = true.toJS;
+      // sandbox to restrict popup/overlay behavior while allowing video
+      iframe.sandbox.add('allow-scripts');
+      iframe.sandbox.add('allow-same-origin');
+      iframe.sandbox.add('allow-presentation');
+      iframe.sandbox.add('allow-popups-to-escape-sandbox');
+      iframe.referrerPolicy = 'no-referrer';
       container.appendChild(iframe);
     } else {
       // Use HTML5 video for direct streams
@@ -111,6 +120,95 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
       video.allowFullscreen = true;
       container.appendChild(video);
     }
+  }
+
+  /// Inject ad-blocking CSS and MutationObserver into the container.
+  /// This removes overlays, popups, and common ad elements.
+  void _injectAdBlocker(web.HTMLDivElement container) {
+    // CSS to hide common ad elements
+    final style = web.document.createElement('style') as web.HTMLStyleElement;
+    style.textContent = '''
+      /* Hide common ad overlays and popups */
+      .ad, .ads, .advert, .advertisement, .popup, .overlay-ad,
+      [class*="ad-"], [class*="ads-"], [class*="advert"],
+      [id*="ad-"], [id*="ads-"], [id*="advert"],
+      [class*="popup"], [class*="modal-ad"], [class*="interstitial"],
+      [class*="preroll"], [class*="midroll"], [class*="postroll"],
+      [class*="sponsor"], [class*="promo"],
+      .video-ad, .player-ad, .skip-ad, .ad-container,
+      [style*="z-index: 9999"], [style*="z-index:9999"],
+      [style*="position: fixed"][style*="z-index"],
+      [class*="backdrop"][class*="ad"],
+      [class*="close-btn"][class*="ad"] {
+        display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+        width: 0 !important;
+        height: 0 !important;
+      }
+      /* Ensure video fills container */
+      video { width: 100% !important; height: 100% !important; }
+      iframe { width: 100% !important; height: 100% !important; }
+    ''';
+    container.appendChild(style);
+
+    // MutationObserver to remove dynamically added ad elements
+    final script = web.document.createElement('script') as web.ScriptElement;
+    script.textContent = '''
+      (function() {
+        var adSelectors = [
+          '[class*="ad-"]', '[class*="ads"]', '[class*="advert"]',
+          '[id*="ad-"]', '[id*="ads"]', '[id*="advert"]',
+          '[class*="popup"]', '[class*="overlay"]', '[class*="interstitial"]',
+          '[class*="preroll"]', '[class*="sponsor"]', '[class*="promo"]',
+          '.video-ad', '.player-ad', '.skip-ad', '.ad-container'
+        ];
+        function removeAds(root) {
+          adSelectors.forEach(function(sel) {
+            try {
+              root.querySelectorAll(sel).forEach(function(el) {
+                if (el.tagName !== 'VIDEO' && el.tagName !== 'IFRAME') {
+                  el.remove();
+                }
+              });
+            } catch(e) {}
+          });
+          // Remove fixed/absolute positioned overlays with high z-index
+          try {
+            root.querySelectorAll('*').forEach(function(el) {
+              var style = window.getComputedStyle(el);
+              if ((style.position === 'fixed' || style.position === 'absolute') &&
+                  parseInt(style.zIndex) > 9000 &&
+                  el.tagName !== 'VIDEO' && el.tagName !== 'IFRAME') {
+                var w = parseInt(style.width);
+                var h = parseInt(style.height);
+                if (w > 0 && h > 0 && (w < 400 || h < 300)) {
+                  el.remove();
+                }
+              }
+            });
+          } catch(e) {}
+        }
+        // Initial cleanup
+        removeAds(container);
+        // Watch for dynamically added elements
+        var observer = new MutationObserver(function(mutations) {
+          mutations.forEach(function(m) {
+            m.addedNodes.forEach(function(node) {
+              if (node.nodeType === 1) {
+                removeAds(node);
+              }
+            });
+          });
+        });
+        observer.observe(container, { childList: true, subtree: true });
+        // Periodic cleanup every 2 seconds
+        setInterval(function() { removeAds(container); }, 2000);
+      })();
+    ''';
+    container.appendChild(script);
+  }
   }
 
   @override

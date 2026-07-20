@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../screens/m3u8_video_player_screen.dart';
+import 'video_player_screen.dart';
 import '../services/watch_history_service.dart';
 
 class ContinueWatchingSection extends StatefulWidget {
@@ -247,7 +247,7 @@ class _ContinueWatchingSectionState extends State<ContinueWatchingSection> {
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => M3U8VideoPlayerScreen(
+        builder: (context) => buildVideoPlayerScreen(
           title: item['title'],
           tmdbId: item['tmdbId'],
           isMovie: item['isMovie'],
