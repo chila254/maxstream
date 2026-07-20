@@ -661,10 +661,12 @@ class _TvDetailsScreenState extends State<TvDetailsScreen> {
                   item['poster_path'] ?? '',
                 );
                 final itemTitle = item['name'] ?? item['title'] ?? 'Unknown';
-                final year = (item['release_date'] as String?)?.length >= 4
-                    ? (item['release_date'] as String).substring(0, 4)
-                    : (item['first_air_date'] as String?)?.length >= 4
-                        ? (item['first_air_date'] as String).substring(0, 4)
+                final releaseDate = item['release_date'] as String?;
+                final firstAirDate = item['first_air_date'] as String?;
+                final year = releaseDate != null && releaseDate.length >= 4
+                    ? releaseDate.substring(0, 4)
+                    : firstAirDate != null && firstAirDate.length >= 4
+                        ? firstAirDate.substring(0, 4)
                         : null;
 
                 return _RecommendationCard(

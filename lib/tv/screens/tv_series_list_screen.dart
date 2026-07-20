@@ -93,6 +93,7 @@ class _TvSeriesListScreenState extends State<TvSeriesListScreen> {
         child: Focus(
           onKey: (node, event) {
             if (event.isKeyPressed(LogicalKeyboardKey.arrowLeft)) {
+              TvFocusManager.focusSidebar();
               context.read<TvNavigationProvider>().setFocusOnSidebar(true);
               return KeyEventResult.handled;
             }
@@ -142,7 +143,8 @@ class _TvSeriesListScreenState extends State<TvSeriesListScreen> {
     final title = series['name'] ?? 'Unknown';
     final rating = (series['vote_average'] as num?)?.toDouble() ?? 0.0;
     final overview = series['overview'] ?? '';
-    final year = (series['first_air_date'] as String?)?.length >= 4
+    final year = (series['first_air_date'] as String?)?.isNotEmpty == true
+        && (series['first_air_date'] as String).length >= 4
         ? (series['first_air_date'] as String).substring(0, 4)
         : null;
     final seasons = series['number_of_seasons'] as int?;
@@ -329,7 +331,8 @@ class _TvSeriesListScreenState extends State<TvSeriesListScreen> {
                   );
                   final itemTitle = item['name'] ?? 'Unknown';
                   final rating = (item['vote_average'] as num?)?.toDouble();
-                  final year = (item['first_air_date'] as String?)?.length >= 4
+                  final year = (item['first_air_date'] as String?)?.isNotEmpty == true
+                      && (item['first_air_date'] as String).length >= 4
                       ? int.tryParse(
                           (item['first_air_date'] as String).substring(0, 4))
                       : null;

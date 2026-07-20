@@ -120,6 +120,7 @@ class _TvWatchlistScreenState extends State<TvWatchlistScreen>
               if (widget.onReturnToSidebar != null) {
                 widget.onReturnToSidebar!();
               } else {
+                TvFocusManager.focusSidebar();
                 context.read<TvNavigationProvider>().setFocusOnSidebar(true);
               }
               return KeyEventResult.handled;
@@ -356,10 +357,7 @@ class _WatchlistGridFocusState extends State<_WatchlistGridFocus> {
     final currentCol = index % widget.itemsPerRow;
 
     if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
-      if (TvNavigation.isAtLeftBoundary(
-        index,
-        itemsPerRow: widget.itemsPerRow,
-      )) {
+      if (index % widget.itemsPerRow == 0) {
         TvFocusManager.focusSidebar();
         widget.onReturnToSidebar();
         return KeyEventResult.handled;

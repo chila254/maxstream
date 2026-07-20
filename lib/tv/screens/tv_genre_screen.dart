@@ -198,6 +198,7 @@ class _TvGenreScreenState extends State<TvGenreScreen> {
           if (widget.onReturnToSidebar != null) {
             widget.onReturnToSidebar!();
           } else {
+            TvFocusManager.focusSidebar();
             context.read<TvNavigationProvider>().setFocusOnSidebar(true);
           }
           return KeyEventResult.handled;
@@ -480,10 +481,7 @@ class _TvGenreScreenState extends State<TvGenreScreen> {
                         } else if (event.isKeyPressed(
                           LogicalKeyboardKey.arrowLeft,
                         )) {
-                          if (TvNavigation.isAtLeftBoundary(
-                            index,
-                            itemsPerRow: 4,
-                          )) {
+                          if (index % 4 == 0) {
                             // At leftmost - return to sidebar
                             if (widget.onReturnToSidebar != null) {
                               widget.onReturnToSidebar!();

@@ -283,6 +283,7 @@ class _TvSearchScreenState extends State<TvSearchScreen> {
                       LogicalKeyboardKey.arrowLeft,
                     )) {
                       // Return to sidebar
+                      TvFocusManager.focusSidebar();
                       context.read<TvNavigationProvider>().setFocusOnSidebar(
                         true,
                       );
