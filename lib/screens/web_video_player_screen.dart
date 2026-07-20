@@ -54,7 +54,8 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
     ]);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
 
-    _blockPopups();
+    // Block popups at parent page level
+    _injectPopupBlocker();
     _loadStream();
   }
 
@@ -69,48 +70,6 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
       overlays: SystemUiOverlay.values,
     );
     super.dispose();
-  }
-
-  /// Block popups globally on the document
-  void _blockPopups() {
-    // Only inject once
-    if (web.document.getElementById('maxstream-adblock') != null) return;
-
-    final script = web.document.createElement('script') as web.HTMLScriptElement;
-    script.id = 'maxstream-adblock';
-    script.textContent = '''
-      (function() {
-        if (window._maxstreamAdBlockActive) return;
-        window._maxstreamAdBlockActive = true;
-
-        // Block window.open
-        var origOpen = window.open;
-        window.open = function() { return null; };
-
-        // Block target=_blank on click
-        document.addEventListener('click', function(e) {
-          var el = e.target;
-          while (el && el !== document) {
-            if (el.tagName === 'A' && el.getAttribute('target') === '_blank') {
-              e.preventDefault();
-              e.stopPropagation();
-              return false;
-            }
-            el = el.parentNode;
-          }
-        }, true);
-
-        // Block setTimeout-based popups
-        var origSetTimeout = window.setTimeout;
-        window.setTimeout = function(fn, delay) {
-          if (typeof fn === 'string' && fn.indexOf('window.open') !== -1) return;
-          return origSetTimeout.call(window, fn, delay);
-        };
-
-        console.log('[AdBlock] Active');
-      })();
-    ''';
-    web.document.head?.appendChild(script);
   }
 
   void _registerFactory() {
@@ -140,9 +99,6 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
   void _createIframe(web.HTMLDivElement container, String url) {
     debugPrint('WebVideoPlayer: Creating iframe for $url');
 
-    // CSS to hide embed site's "disable sandbox" warnings and ad overlays
-    _injectOverlayBlocker(container);
-
     final iframe = web.document.createElement('iframe') as web.HTMLIFrameElement;
     iframe.src = url;
     iframe.style
@@ -152,70 +108,46 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
       ..backgroundColor = 'black';
     iframe.setAttribute('allow', 'autoplay; fullscreen; picture-in-picture; encrypted-media');
     iframe.setAttribute('allowfullscreen', 'true');
-    // Sandbox blocks popups (no allow-popups) while keeping video playback working
-    iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-presentation allow-forms');
+    // No sandbox - embed sites detect it and block playback entirely
     container.appendChild(iframe);
   }
 
-  /// Block popup overlays and "disable sandbox" warnings from embed sites
-  void _injectOverlayBlocker(web.HTMLDivElement container) {
-    final style = web.document.createElement('style') as web.HTMLStyleElement;
-    style.textContent = '''
-      /* Hide sandbox warnings and ad overlays from embed sites */
-      .sandbox-warning, .sandbox-notice, .disable-sandbox,
-      [class*="sandbox"], [class*="overlay"], [class*="popup"],
-      [class*="modal"], [class*="ad-"], [class*="advert"],
-      [id*="ad-"], [id*="popup"], [id*="overlay"],
-      [style*="position: fixed"][style*="z-index"],
-      [style*="position:fixed"][style*="z-index"],
-      .backdrop, .mask, .dimmer {
-        display: none !important;
-        visibility: hidden !important;
-        opacity: 0 !important;
-        pointer-events: none !important;
-        z-index: -9999 !important;
-      }
-    ''';
-    container.appendChild(style);
+  /// Block popups at the PARENT page level
+  /// This catches popups from the parent but not from inside the iframe
+  void _injectPopupBlocker() {
+    // Only inject once
+    if (web.document.getElementById('ms-popup-blocker') != null) return;
 
-    // MutationObserver to remove dynamically added overlays
     final script = web.document.createElement('script') as web.HTMLScriptElement;
+    script.id = 'ms-popup-blocker';
     script.textContent = '''
       (function() {
-        function cleanOverlays(root) {
-          try {
-            // Hide any fixed/absolute positioned overlays with high z-index
-            root.querySelectorAll('*').forEach(function(el) {
-              var cs = window.getComputedStyle(el);
-              var pos = cs.position;
-              var zi = parseInt(cs.zIndex) || 0;
-              if ((pos === 'fixed' || pos === 'absolute') && zi > 100) {
-                var w = el.offsetWidth || parseInt(cs.width) || 0;
-                var h = el.offsetHeight || parseInt(cs.height) || 0;
-                // Small overlays are likely ads/warnings, not the video player
-                if (w < 600 || h < 400) {
-                  el.style.display = 'none';
-                  el.style.visibility = 'hidden';
-                  el.style.pointerEvents = 'none';
-                  el.style.zIndex = '-9999';
-                }
-              }
-            });
-          } catch(e) {}
-        }
-        cleanOverlays(container);
-        var obs = new MutationObserver(function(muts) {
-          muts.forEach(function(m) {
-            m.addedNodes.forEach(function(n) {
-              if (n.nodeType === 1) cleanOverlays(n);
-            });
-          });
-        });
-        obs.observe(container, { childList: true, subtree: true });
-        setInterval(function() { cleanOverlays(container); }, 1000);
+        if (window._msBlocked) return;
+        window._msBlocked = true;
+
+        // Override window.open on parent page
+        window.open = function(url, name, specs) {
+          console.log('[PopupBlocker] Blocked parent popup:', url);
+          return null;
+        };
+
+        // Block target=_blank clicks on parent page
+        document.addEventListener('click', function(e) {
+          var el = e.target;
+          while (el && el !== document) {
+            if (el.tagName === 'A' && el.getAttribute('target') === '_blank') {
+              e.preventDefault();
+              e.stopPropagation();
+              return false;
+            }
+            el = el.parentNode;
+          }
+        }, true);
+
+        console.log('[PopupBlocker] Parent-level blocker active');
       })();
     ''';
-    container.appendChild(script);
+    web.document.head?.appendChild(script);
   }
 
   /// Replace the iframe with a new one pointing to a different URL
