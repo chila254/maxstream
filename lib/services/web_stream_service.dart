@@ -9,7 +9,7 @@ class WebStreamService {
   static const String _tag = 'WebStreamService';
 
   // TODO: Replace with your actual Cloudflare Worker URL after deployment
-  static const String _workerUrl = 'https://maxstream-extractor.your-subdomain.workers.dev';
+  static const String _workerUrl = 'https://maxstream123.workers.dev';
 
   /// Resolve a stream URL for web playback.
   /// Calls the Cloudflare Worker to extract the actual .m3u8 URL.
