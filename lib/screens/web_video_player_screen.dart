@@ -6,6 +6,7 @@ import '../services/web_stream_service.dart';
 import '../services/tmdb_api_service.dart';
 
 /// Web video player using iframe embeds.
+/// Uses unique view type per instance to avoid factory caching issues.
 class WebVideoPlayerScreen extends StatefulWidget {
   final String title;
   final String tmdbId;
@@ -34,21 +35,25 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
   List<Map<String, dynamic>> _availableServers = [];
   String? _currentTitle;
 
-  static const String _viewType = 'maxstream-video-player';
-  bool _registeredFactory = false;
-  web.HTMLIFrameElement? _currentIframe;
-  web.HTMLDivElement? _containerDiv;
+  // Unique view type per instance to avoid global factory caching
+  late final String _viewType;
+  bool _factoryRegistered = false;
+
+  // Reference to the div so we can update iframe src directly
+  web.HTMLDivElement? _hostDiv;
 
   @override
   void initState() {
     super.initState();
+    // Unique view type per widget instance
+    _viewType = 'maxstream-player-${DateTime.now().millisecondsSinceEpoch}';
+
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
     ]);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
 
-    // Block popup ads at the document level BEFORE loading stream
     _blockPopups();
     _loadStream();
   }
@@ -66,55 +71,51 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
     super.dispose();
   }
 
-  /// Block popup/popunder ads by overriding window.open and intercepting clicks
+  /// Block popups globally on the document
   void _blockPopups() {
+    // Only inject once
+    if (web.document.getElementById('maxstream-adblock') != null) return;
+
     final script = web.document.createElement('script') as web.HTMLScriptElement;
+    script.id = 'maxstream-adblock';
     script.textContent = '''
       (function() {
-        // Override window.open to block popups
-        var origOpen = window.open;
-        window.open = function(url, name, specs) {
-          console.log('[AdBlock] Blocked popup:', url);
-          return null;
-        };
+        if (window._maxstreamAdBlockActive) return;
+        window._maxstreamAdBlockActive = true;
 
-        // Block target=_blank links (common ad pattern)
+        // Block window.open
+        var origOpen = window.open;
+        window.open = function() { return null; };
+
+        // Block target=_blank on click
         document.addEventListener('click', function(e) {
           var el = e.target;
           while (el && el !== document) {
             if (el.tagName === 'A' && el.getAttribute('target') === '_blank') {
-              // Only block if it looks like an ad (not a real navigation link)
-              var href = el.getAttribute('href') || '';
-              if (href.indexOf('javascript:') === 0 || href === '#' || href === '') {
-                e.preventDefault();
-                e.stopPropagation();
-                console.log('[AdBlock] Blocked _blank link:', href);
-                return false;
-              }
+              e.preventDefault();
+              e.stopPropagation();
+              return false;
             }
             el = el.parentNode;
           }
         }, true);
 
-        // Block window.open via setTimeout (some ads use this)
+        // Block setTimeout-based popups
         var origSetTimeout = window.setTimeout;
         window.setTimeout = function(fn, delay) {
-          if (typeof fn === 'string' && fn.indexOf('window.open') !== -1) {
-            console.log('[AdBlock] Blocked setTimeout popup');
-            return;
-          }
+          if (typeof fn === 'string' && fn.indexOf('window.open') !== -1) return;
           return origSetTimeout.call(window, fn, delay);
         };
 
-        console.log('[AdBlock] Popup blocker initialized');
+        console.log('[AdBlock] Active');
       })();
     ''';
     web.document.head?.appendChild(script);
   }
 
-  void _registerViewFactory() {
-    if (_registeredFactory) return;
-    _registeredFactory = true;
+  void _registerFactory() {
+    if (_factoryRegistered) return;
+    _factoryRegistered = true;
 
     ui_web.platformViewRegistry.registerViewFactory(
       _viewType,
@@ -126,12 +127,11 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
           ..border = 'none'
           ..overflow = 'hidden'
           ..backgroundColor = 'black';
-        _containerDiv = div;
+        _hostDiv = div;
 
         if (_streamUrl != null) {
           _createIframe(div, _streamUrl!);
         }
-
         return div;
       },
     );
@@ -139,9 +139,6 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
 
   void _createIframe(web.HTMLDivElement container, String url) {
     debugPrint('WebVideoPlayer: Creating iframe for $url');
-
-    // Inject ad-blocking CSS first
-    _injectAdBlockCss(container);
 
     final iframe = web.document.createElement('iframe') as web.HTMLIFrameElement;
     iframe.src = url;
@@ -153,76 +150,24 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
     iframe.setAttribute('allow', 'autoplay; fullscreen; picture-in-picture; encrypted-media');
     iframe.setAttribute('allowfullscreen', 'true');
     container.appendChild(iframe);
-    _currentIframe = iframe;
-
-    // Inject popup blocker inside the iframe's parent
-    _injectAdBlockScript(container);
   }
 
-  /// Update the iframe src when switching servers or content
-  void _updateIframe(String url) {
-    debugPrint('WebVideoPlayer: Updating iframe src to: $url');
-    if (_currentIframe != null) {
-      _currentIframe!.src = url;
-    } else if (_containerDiv != null) {
-      // Iframe doesn't exist yet, create it
-      _createIframe(_containerDiv!, url);
+  /// Replace the iframe with a new one pointing to a different URL
+  void _replaceIframe(String url) {
+    debugPrint('WebVideoPlayer: Replacing iframe with: $url');
+    if (_hostDiv == null) return;
+
+    // Remove old iframe
+    while (_hostDiv!.firstChild != null) {
+      _hostDiv!.removeChild(_hostDiv!.firstChild!);
     }
-  }
-
-  void _injectAdBlockCss(web.HTMLDivElement container) {
-    final style = web.document.createElement('style') as web.HTMLStyleElement;
-    style.textContent = '''
-      .ad, .ads, .advert, .advertisement, .popup, .overlay-ad,
-      [class*="ad-"], [class*="ads-"], [class*="advert"],
-      [id*="ad-"], [id*="ads-"], [id*="advert"],
-      [class*="popup"], [class*="modal-ad"], [class*="interstitial"],
-      [class*="preroll"], [class*="midroll"], [class*="postroll"],
-      [class*="sponsor"], [class*="promo"],
-      .video-ad, .player-ad, .skip-ad, .ad-container {
-        display: none !important;
-        visibility: hidden !important;
-        opacity: 0 !important;
-        pointer-events: none !important;
-      }
-    ''';
-    container.appendChild(style);
-  }
-
-  void _injectAdBlockScript(web.HTMLDivElement container) {
-    final script = web.document.createElement('script') as web.HTMLScriptElement;
-    script.textContent = '''
-      (function() {
-        function removeAds(root) {
-          try {
-            root.querySelectorAll('[class*="ad-"],[class*="ads"],[class*="advert"],[id*="ad-"],[class*="popup"],[class*="overlay"],[class*="interstitial"],[class*="preroll"],[class*="sponsor"],[class*="promo"],.ad-container').forEach(function(el) {
-              if (el.tagName !== 'VIDEO' && el.tagName !== 'IFRAME') el.remove();
-            });
-          } catch(e) {}
-          try {
-            root.querySelectorAll('*').forEach(function(el) {
-              var cs = window.getComputedStyle(el);
-              if ((cs.position === 'fixed' || cs.position === 'absolute') && parseInt(cs.zIndex) > 9000 && el.tagName !== 'VIDEO' && el.tagName !== 'IFRAME') {
-                el.remove();
-              }
-            });
-          } catch(e) {}
-        }
-        removeAds(container);
-        var obs = new MutationObserver(function(m) {
-          m.forEach(function(mut) { mut.addedNodes.forEach(function(n) { if (n.nodeType === 1) removeAds(n); }); });
-        });
-        obs.observe(container, { childList: true, subtree: true });
-        setInterval(function() { removeAds(container); }, 2000);
-      })();
-    ''';
-    container.appendChild(script);
+    // Create new iframe
+    _createIframe(_hostDiv!, url);
   }
 
   Future<void> _loadStream() async {
     if (!mounted) return;
-
-    debugPrint('WebVideoPlayer: Starting stream load for TMDB ${widget.tmdbId}');
+    debugPrint('WebVideoPlayer: Loading stream for TMDB ${widget.tmdbId} (movie=${widget.isMovie}, s${widget.season}e${widget.episode})');
 
     setState(() {
       _isLoading = true;
@@ -231,6 +176,7 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
 
     try {
       await _loadMediaMetadata();
+      debugPrint('WebVideoPlayer: Title=$_currentTitle');
 
       final result = await WebStreamService.resolveStream(
         tmdbId: widget.tmdbId,
@@ -240,35 +186,31 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
         title: _currentTitle ?? widget.title,
       );
 
-      debugPrint('WebVideoPlayer: Stream result=$result');
-
       if (!mounted) return;
 
       if (result != null && result['url'] != null) {
-        final newUrl = result['url'] as String;
+        final url = result['url'] as String;
+        debugPrint('WebVideoPlayer: Got URL: $url');
         setState(() {
-          _streamUrl = newUrl;
+          _streamUrl = url;
           _sourceName = result['source'] as String;
           _isLoading = false;
         });
-        debugPrint('WebVideoPlayer: Stream URL set: $_streamUrl');
 
-        if (_registeredFactory && _currentIframe != null) {
-          // Factory already registered - update iframe directly
-          _updateIframe(newUrl);
+        // If factory already registered and div exists, replace iframe directly
+        if (_hostDiv != null) {
+          _replaceIframe(url);
         } else {
-          // First time - register factory
-          _registerViewFactory();
+          _registerFactory();
         }
 
         _discoverServers();
         return;
       }
 
-      debugPrint('WebVideoPlayer: No stream found');
       if (mounted) {
         setState(() {
-          _error = 'No working streaming sources found.\n\nCheck your internet connection and try again.';
+          _error = 'No streaming sources found. Check your connection.';
           _isLoading = false;
         });
       }
@@ -276,7 +218,7 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
       debugPrint('WebVideoPlayer: Error: $e');
       if (mounted) {
         setState(() {
-          _error = 'Failed to load stream: $e';
+          _error = 'Failed to load: $e';
           _isLoading = false;
         });
       }
@@ -318,17 +260,15 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
               .replaceAll('{id}', widget.tmdbId)
               .replaceAll('{season}', widget.season.toString())
               .replaceAll('{episode}', widget.episode.toString());
-      servers.add({'name': source['name'], 'url': url, 'isEmbed': true});
+      servers.add({'name': source['name'], 'url': url});
     }
     if (mounted) setState(() => _availableServers = servers);
   }
 
   void _switchServer(Map<String, dynamic> server) {
-    final newUrl = server['url'] as String;
-    setState(() {
-      _sourceName = server['name'] as String;
-    });
-    _updateIframe(newUrl);
+    final url = server['url'] as String;
+    setState(() => _sourceName = server['name'] as String);
+    _replaceIframe(url);
   }
 
   void _showServerPicker() {
@@ -338,7 +278,7 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      builder: (context) => Container(
+      builder: (ctx) => Container(
         padding: const EdgeInsets.all(16),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -346,16 +286,13 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
           children: [
             const Text('Select Server', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 12),
-            ..._availableServers.map((server) {
-              final name = server['name'] as String;
-              final isSelected = name == _sourceName;
+            ..._availableServers.map((s) {
+              final name = s['name'] as String;
+              final sel = name == _sourceName;
               return ListTile(
-                leading: Icon(isSelected ? Icons.radio_button_checked : Icons.radio_button_unchecked, color: isSelected ? Colors.red : Colors.grey),
-                title: Text(name, style: TextStyle(color: isSelected ? Colors.white : Colors.grey[300])),
-                onTap: () {
-                  Navigator.pop(context);
-                  if (!isSelected) _switchServer(server);
-                },
+                leading: Icon(sel ? Icons.radio_button_checked : Icons.radio_button_unchecked, color: sel ? Colors.red : Colors.grey),
+                title: Text(name, style: TextStyle(color: sel ? Colors.white : Colors.grey[300])),
+                onTap: () { Navigator.pop(ctx); if (!sel) _switchServer(s); },
               );
             }),
           ],
@@ -377,18 +314,19 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
       child: Scaffold(
         backgroundColor: Colors.black,
         body: _error != null
-            ? _buildErrorWidget()
+            ? _buildError()
             : _isLoading
-                ? _buildLoadingWidget()
-                : _buildPlayerWidget(),
+                ? _buildLoading()
+                : _buildPlayer(),
       ),
     );
   }
 
-  Widget _buildPlayerWidget() {
+  Widget _buildPlayer() {
     return Stack(
       children: [
         SizedBox.expand(child: HtmlElementView(viewType: _viewType)),
+        // Top bar
         Positioned(
           top: 0, left: 0, right: 0,
           child: Container(
@@ -402,28 +340,25 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
                   onTap: _handleBack,
                   child: Container(
                     padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(color: Colors.black.withOpacity(0.6), borderRadius: BorderRadius.circular(8)),
+                    decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(8)),
                     child: const Icon(Icons.arrow_back, color: Colors.white, size: 24),
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: Text(_currentTitle ?? widget.title, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w500), overflow: TextOverflow.ellipsis),
+                  child: Text(_currentTitle ?? widget.title, style: const TextStyle(color: Colors.white, fontSize: 16), overflow: TextOverflow.ellipsis),
                 ),
                 if (_sourceName != null)
                   GestureDetector(
                     onTap: _showServerPicker,
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                      decoration: BoxDecoration(color: Colors.black.withOpacity(0.6), borderRadius: BorderRadius.circular(8)),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(Icons.dns, color: Colors.white70, size: 14),
-                          const SizedBox(width: 5),
-                          Text(_sourceName!, style: const TextStyle(color: Colors.white70, fontSize: 11)),
-                        ],
-                      ),
+                      decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(8)),
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        const Icon(Icons.dns, color: Colors.white70, size: 14),
+                        const SizedBox(width: 5),
+                        Text(_sourceName!, style: const TextStyle(color: Colors.white70, fontSize: 11)),
+                      ]),
                     ),
                   ),
               ],
@@ -434,61 +369,45 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
     );
   }
 
-  Widget _buildLoadingWidget() {
-    return Stack(
-      children: [
-        Container(color: Colors.black),
-        Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const CircularProgressIndicator(color: Colors.red),
-              const SizedBox(height: 16),
-              Text('Loading stream for ${widget.title}...', style: const TextStyle(color: Colors.white, fontSize: 16), textAlign: TextAlign.center),
-            ],
-          ),
-        ),
-      ],
+  Widget _buildLoading() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const CircularProgressIndicator(color: Colors.red),
+          const SizedBox(height: 16),
+          Text('Loading ${widget.title}...', style: const TextStyle(color: Colors.white, fontSize: 16)),
+        ],
+      ),
     );
   }
 
-  Widget _buildErrorWidget() {
-    return Stack(
-      children: [
-        Container(color: Colors.black),
-        Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.error_outline, color: Colors.red, size: 64),
-              const SizedBox(height: 16),
-              const Text('Unable to Load Stream', style: TextStyle(color: Colors.red, fontSize: 20, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 12),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Text(_error!, style: TextStyle(color: Colors.grey[300], fontSize: 16), textAlign: TextAlign.center),
-              ),
-              const SizedBox(height: 32),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  ElevatedButton(
-                    onPressed: () => setState(() { _error = null; _isLoading = true; _loadStream(); }),
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.red, padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12)),
-                    child: const Text('Retry', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-                  ),
-                  const SizedBox(width: 16),
-                  ElevatedButton(
-                    onPressed: _handleBack,
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.grey[700], padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12)),
-                    child: const Text('Go Back', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ],
+  Widget _buildError() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.error_outline, color: Colors.red, size: 64),
+          const SizedBox(height: 16),
+          const Text('Unable to Load Stream', style: TextStyle(color: Colors.red, fontSize: 20, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 12),
+          Padding(padding: const EdgeInsets.symmetric(horizontal: 24), child: Text(_error!, style: TextStyle(color: Colors.grey[300], fontSize: 16), textAlign: TextAlign.center)),
+          const SizedBox(height: 32),
+          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+            ElevatedButton(
+              onPressed: () => setState(() { _error = null; _isLoading = true; _loadStream(); }),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red, padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12)),
+              child: const Text('Retry', style: TextStyle(color: Colors.white, fontSize: 18)),
+            ),
+            const SizedBox(width: 16),
+            ElevatedButton(
+              onPressed: _handleBack,
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.grey[700], padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12)),
+              child: const Text('Go Back', style: TextStyle(color: Colors.white, fontSize: 18)),
+            ),
+          ]),
+        ],
+      ),
     );
   }
 }
