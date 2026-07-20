@@ -5,8 +5,8 @@ import 'dart:ui_web' as ui_web;
 import '../services/web_stream_service.dart';
 import '../services/tmdb_api_service.dart';
 
-/// Web video player using iframe embeds.
-/// Uses unique view type per instance to avoid factory caching issues.
+/// Web video player using hls.js for .m3u8 streams.
+/// No iframes = no popup ads.
 class WebVideoPlayerScreen extends StatefulWidget {
   final String title;
   final String tmdbId;
@@ -32,20 +32,16 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
   String? _error;
   String? _streamUrl;
   String? _sourceName;
-  List<Map<String, dynamic>> _availableServers = [];
+  String? _streamType;
   String? _currentTitle;
 
-  // Unique view type per instance to avoid global factory caching
   late final String _viewType;
   bool _factoryRegistered = false;
-
-  // Reference to the div so we can update iframe src directly
   web.HTMLDivElement? _hostDiv;
 
   @override
   void initState() {
     super.initState();
-    // Unique view type per widget instance
     _viewType = 'maxstream-player-${DateTime.now().millisecondsSinceEpoch}';
 
     SystemChrome.setPreferredOrientations([
@@ -54,8 +50,6 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
     ]);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
 
-    // Block popups at parent page level
-    _injectPopupBlocker();
     _loadStream();
   }
 
@@ -89,83 +83,98 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
         _hostDiv = div;
 
         if (_streamUrl != null) {
-          _createIframe(div, _streamUrl!);
+          _createPlayer(div, _streamUrl!, _streamType ?? 'hls');
         }
         return div;
       },
     );
   }
 
-  void _createIframe(web.HTMLDivElement container, String url) {
-    debugPrint('WebVideoPlayer: Creating iframe for $url');
+  void _createPlayer(web.HTMLDivElement container, String url, String type) {
+    debugPrint('WebVideoPlayer: Creating player for $url (type=$type)');
 
-    final iframe = web.document.createElement('iframe') as web.HTMLIFrameElement;
-    iframe.src = url;
-    iframe.style
+    // Create video element
+    final video = web.document.createElement('video') as web.HTMLVideoElement;
+    video.style
       ..width = '100%'
       ..height = '100%'
-      ..border = 'none'
+      ..objectFit = 'contain'
       ..backgroundColor = 'black';
-    iframe.setAttribute('allow', 'autoplay; fullscreen; picture-in-picture; encrypted-media');
-    iframe.setAttribute('allowfullscreen', 'true');
-    // No sandbox - embed sites detect it and block playback entirely
-    container.appendChild(iframe);
+    video.controls = true;
+    video.autoplay = true;
+    video.setAttribute('allowfullscreen', 'true');
+    container.appendChild(video);
+
+    if (type == 'hls' && url.contains('.m3u8')) {
+      // Use hls.js for HLS streams
+      _loadHlsJs(video, url);
+    } else {
+      // Direct video URL
+      video.src = url;
+      video.play();
+    }
   }
 
-  /// Block popups at the PARENT page level
-  /// This catches popups from the parent but not from inside the iframe
-  void _injectPopupBlocker() {
-    // Only inject once
-    if (web.document.getElementById('ms-popup-blocker') != null) return;
-
-    final script = web.document.createElement('script') as web.HTMLScriptElement;
-    script.id = 'ms-popup-blocker';
-    script.textContent = '''
+  void _loadHlsJs(web.HTMLVideoElement video, String url) {
+    // Load hls.js and initialize player all in one script
+    final initScript = web.document.createElement('script') as web.HTMLScriptElement;
+    initScript.textContent = '''
       (function() {
-        if (window._msBlocked) return;
-        window._msBlocked = true;
-
-        // Override window.open on parent page
-        window.open = function(url, name, specs) {
-          console.log('[PopupBlocker] Blocked parent popup:', url);
-          return null;
-        };
-
-        // Block target=_blank clicks on parent page
-        document.addEventListener('click', function(e) {
-          var el = e.target;
-          while (el && el !== document) {
-            if (el.tagName === 'A' && el.getAttribute('target') === '_blank') {
-              e.preventDefault();
-              e.stopPropagation();
-              return false;
-            }
-            el = el.parentNode;
+        var script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/hls.js@latest';
+        script.onload = function() {
+          var video = document.querySelector('video:last-of-type');
+          if (!video) return;
+          if (Hls.isSupported()) {
+            var hls = new Hls({
+              enableWorker: true,
+              lowLatencyMode: false,
+              maxBufferLength: 30,
+              maxMaxBufferLength: 60,
+            });
+            hls.loadSource('$url');
+            hls.attachMedia(video);
+            hls.on(Hls.Events.MANIFEST_PARSED, function() {
+              console.log('[Player] HLS loaded');
+              video.play().catch(function(e) { console.log('[Player] Autoplay:', e); });
+            });
+            hls.on(Hls.Events.ERROR, function(event, data) {
+              console.log('[Player] HLS error:', data.type, data.details);
+              if (data.fatal) {
+                if (data.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad();
+                else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
+              }
+            });
+            window._hlsPlayer = hls;
+          } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+            video.src = '$url';
+            video.play().catch(function(e) { console.log('[Player] Autoplay:', e); });
           }
-        }, true);
-
-        console.log('[PopupBlocker] Parent-level blocker active');
+        };
+        script.onerror = function() {
+          console.log('[Player] hls.js load failed, trying native');
+          var video = document.querySelector('video:last-of-type');
+          if (video) { video.src = '$url'; }
+        };
+        document.head.appendChild(script);
       })();
     ''';
-    web.document.head?.appendChild(script);
+    web.document.body?.appendChild(initScript);
   }
 
-  /// Replace the iframe with a new one pointing to a different URL
-  void _replaceIframe(String url) {
-    debugPrint('WebVideoPlayer: Replacing iframe with: $url');
+  void _replacePlayer(String url, String type) {
+    debugPrint('WebVideoPlayer: Replacing player with: $url (type=$type)');
     if (_hostDiv == null) return;
 
-    // Remove old iframe
     while (_hostDiv!.firstChild != null) {
       _hostDiv!.removeChild(_hostDiv!.firstChild!);
     }
-    // Create new iframe
-    _createIframe(_hostDiv!, url);
+    _createPlayer(_hostDiv!, url, type);
   }
 
   Future<void> _loadStream() async {
     if (!mounted) return;
-    debugPrint('WebVideoPlayer: Loading stream for TMDB ${widget.tmdbId} (movie=${widget.isMovie}, s${widget.season}e${widget.episode})');
+    debugPrint('WebVideoPlayer: Loading stream for TMDB ${widget.tmdbId}');
 
     setState(() {
       _isLoading = true;
@@ -174,7 +183,6 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
 
     try {
       await _loadMediaMetadata();
-      debugPrint('WebVideoPlayer: Title=$_currentTitle');
 
       final result = await WebStreamService.resolveStream(
         tmdbId: widget.tmdbId,
@@ -188,21 +196,22 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
 
       if (result != null && result['url'] != null) {
         final url = result['url'] as String;
-        debugPrint('WebVideoPlayer: Got URL: $url');
+        final type = result['type'] as String? ?? 'hls';
+        debugPrint('WebVideoPlayer: Got URL: $url (type=$type)');
         setState(() {
           _streamUrl = url;
           _sourceName = result['source'] as String;
+          _streamType = type;
           _isLoading = false;
         });
 
-        // If factory already registered and div exists, replace iframe directly
         if (_hostDiv != null) {
-          _replaceIframe(url);
+          _replacePlayer(url, type);
         } else {
           _registerFactory();
         }
 
-        _discoverServers();
+        _registerFactory();
         return;
       }
 
@@ -248,57 +257,6 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
     }
   }
 
-  Future<void> _discoverServers() async {
-    final sources = WebStreamService.getEmbedSources();
-    final servers = <Map<String, dynamic>>[];
-    for (final source in sources) {
-      final url = widget.isMovie
-          ? source['movieUrl']!.replaceAll('{id}', widget.tmdbId)
-          : source['tvUrl']!
-              .replaceAll('{id}', widget.tmdbId)
-              .replaceAll('{season}', widget.season.toString())
-              .replaceAll('{episode}', widget.episode.toString());
-      servers.add({'name': source['name'], 'url': url});
-    }
-    if (mounted) setState(() => _availableServers = servers);
-  }
-
-  void _switchServer(Map<String, dynamic> server) {
-    final url = server['url'] as String;
-    setState(() => _sourceName = server['name'] as String);
-    _replaceIframe(url);
-  }
-
-  void _showServerPicker() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: const Color(0xFF1A1A1A),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (ctx) => Container(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Select Server', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 12),
-            ..._availableServers.map((s) {
-              final name = s['name'] as String;
-              final sel = name == _sourceName;
-              return ListTile(
-                leading: Icon(sel ? Icons.radio_button_checked : Icons.radio_button_unchecked, color: sel ? Colors.red : Colors.grey),
-                title: Text(name, style: TextStyle(color: sel ? Colors.white : Colors.grey[300])),
-                onTap: () { Navigator.pop(ctx); if (!sel) _switchServer(s); },
-              );
-            }),
-          ],
-        ),
-      ),
-    );
-  }
-
   void _handleBack() {
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp, DeviceOrientation.portraitDown]);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: SystemUiOverlay.values);
@@ -324,7 +282,6 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
     return Stack(
       children: [
         SizedBox.expand(child: HtmlElementView(viewType: _viewType)),
-        // Top bar
         Positioned(
           top: 0, left: 0, right: 0,
           child: Container(
@@ -347,17 +304,14 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
                   child: Text(_currentTitle ?? widget.title, style: const TextStyle(color: Colors.white, fontSize: 16), overflow: TextOverflow.ellipsis),
                 ),
                 if (_sourceName != null)
-                  GestureDetector(
-                    onTap: _showServerPicker,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                      decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(8)),
-                      child: Row(mainAxisSize: MainAxisSize.min, children: [
-                        const Icon(Icons.dns, color: Colors.white70, size: 14),
-                        const SizedBox(width: 5),
-                        Text(_sourceName!, style: const TextStyle(color: Colors.white70, fontSize: 11)),
-                      ]),
-                    ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(8)),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      const Icon(Icons.dns, color: Colors.white70, size: 14),
+                      const SizedBox(width: 5),
+                      Text(_sourceName!, style: const TextStyle(color: Colors.white70, fontSize: 11)),
+                    ]),
                   ),
               ],
             ),

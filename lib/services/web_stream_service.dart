@@ -1,32 +1,18 @@
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 
-/// Web-compatible stream resolution service.
-/// Returns embed URLs for iframe playback. No CORS-blocked HTTP checks.
+/// Web stream resolution service.
+/// Calls Cloudflare Worker API to extract actual .m3u8 URLs server-side.
+/// No CORS issues, no iframes, no ads.
 class WebStreamService {
   static const String _tag = 'WebStreamService';
 
-  /// Embed sources that work in browsers via iframe.
-  static const List<Map<String, String>> _embedSources = [
-    {
-      'name': 'VidLink',
-      'movieUrl': 'https://vidlink.pro/movie/{id}',
-      'tvUrl': 'https://vidlink.pro/tv/{id}/{season}/{episode}',
-    },
-    {
-      'name': 'MultiEmbed',
-      'movieUrl': 'https://multiembed.mov/?video_id={id}&tmdb=1',
-      'tvUrl': 'https://multiembed.mov/?video_id={id}&tmdb=1&season={season}&episode={episode}',
-    },
-    {
-      'name': 'VidStreaming',
-      'movieUrl': 'https://vidstreaming.io/movie/{id}',
-      'tvUrl': 'https://vidstreaming.io/tv/{id}/{season}/{episode}',
-    },
-  ];
+  // TODO: Replace with your actual Cloudflare Worker URL after deployment
+  static const String _workerUrl = 'https://maxstream-extractor.your-subdomain.workers.dev';
 
   /// Resolve a stream URL for web playback.
-  /// Returns an embed URL that can be loaded in an iframe.
-  /// No HTTP verification - let the iframe handle loading.
+  /// Calls the Cloudflare Worker to extract the actual .m3u8 URL.
   static Future<Map<String, dynamic>?> resolveStream({
     required String tmdbId,
     required bool isMovie,
@@ -41,20 +27,66 @@ class WebStreamService {
       return null;
     }
 
-    // Return first embed source - no CORS-blocked HTTP checks
-    final source = _embedSources.first;
-    final url = isMovie
-        ? source['movieUrl']!.replaceAll('{id}', tmdbId)
-        : source['tvUrl']!
-            .replaceAll('{id}', tmdbId)
-            .replaceAll('{season}', season.toString())
-            .replaceAll('{episode}', episode.toString());
+    try {
+      final url = '$_workerUrl/api/extract'
+          '?tmdb_id=$tmdbId'
+          '&is_movie=$isMovie'
+          '&season=$season'
+          '&episode=$episode';
 
-    debugPrint('$_tag: Returning embed URL from ${source['name']}: $url');
+      debugPrint('$_tag: Calling worker: $url');
+
+      final client = HttpClient();
+      try {
+        final httpRequest = await client.getUrl(Uri.parse(url));
+        final httpResponse = await httpRequest.close().timeout(
+          const Duration(seconds: 15),
+        );
+
+        final body = await httpResponse.transform(utf8.decoder).join();
+        debugPrint('$_tag: Worker response: $body');
+
+        if (httpResponse.statusCode == 200) {
+          final data = json.decode(body) as Map<String, dynamic>;
+          if (data.containsKey('url')) {
+            debugPrint('$_tag: Got stream URL: ${data['url']}');
+            return {
+              'url': data['url'] as String,
+              'source': data['source'] as String? ?? 'Cloudflare Worker',
+              'type': data['type'] as String? ?? 'hls',
+              'headers': <String, String>{},
+              'isEmbed': false,
+            };
+          }
+        } else {
+          debugPrint('$_tag: Worker returned ${httpResponse.statusCode}');
+        }
+      } finally {
+        client.close();
+      }
+    } catch (e) {
+      debugPrint('$_tag: Worker call failed: $e');
+    }
+
+    // Fallback: return embed URL if worker is unavailable
+    debugPrint('$_tag: Worker unavailable, returning embed URL fallback');
+    return _fallbackEmbedUrl(tmdbId, isMovie, season, episode);
+  }
+
+  /// Fallback: return embed URL if worker is down
+  static Map<String, dynamic>? _fallbackEmbedUrl(
+    String tmdbId,
+    bool isMovie,
+    int season,
+    int episode,
+  ) {
+    final url = isMovie
+        ? 'https://vidlink.pro/movie/$tmdbId'
+        : 'https://vidlink.pro/tv/$tmdbId/$season/$episode';
 
     return {
       'url': url,
-      'source': source['name'],
+      'source': 'VidLink (embed)',
       'type': 'embed',
       'headers': <String, String>{},
       'isEmbed': true,
@@ -62,27 +94,10 @@ class WebStreamService {
   }
 
   /// Get all available embed sources for server picker.
-  static List<Map<String, String>> getEmbedSources() =>
-      List.from(_embedSources);
-
-  /// Generate an embed URL for a specific source.
-  static String generateEmbedUrl({
-    required String tmdbId,
-    required bool isMovie,
-    int season = 1,
-    int episode = 1,
-    required String sourceName,
-  }) {
-    final source = _embedSources.firstWhere(
-      (s) => s['name'] == sourceName,
-      orElse: () => _embedSources.first,
-    );
-
-    return isMovie
-        ? source['movieUrl']!.replaceAll('{id}', tmdbId)
-        : source['tvUrl']!
-            .replaceAll('{id}', tmdbId)
-            .replaceAll('{season}', season.toString())
-            .replaceAll('{episode}', episode.toString());
+  static List<Map<String, String>> getEmbedSources() {
+    return [
+      {'name': 'VidLink', 'url': 'https://vidlink.pro'},
+      {'name': 'MultiEmbed', 'url': 'https://multiembed.mov'},
+    ];
   }
 }
