@@ -42,6 +42,7 @@ export default {
     const isMovie = url.searchParams.get("is_movie") === "true";
     const season = parseInt(url.searchParams.get("season") || "1");
     const episode = parseInt(url.searchParams.get("episode") || "1");
+    const server = url.searchParams.get("server"); // Optional: "vixsrc", "vidlink", "2embed"
 
     if (!tmdbId) {
       return new Response(JSON.stringify({ error: "tmdb_id required" }), {
@@ -50,9 +51,33 @@ export default {
       });
     }
 
-    console.log(`Extract: TMDB ${tmdbId} movie=${isMovie} s${season}e${episode}`);
+    console.log(`Extract: TMDB ${tmdbId} movie=${isMovie} s${season}e${episode} server=${server || 'all'}`);
 
-    // Try VixSrc first (most reliable, no JS needed)
+    // If specific server requested, only try that one
+    if (server) {
+      try {
+        let result;
+        if (server === "vixsrc") result = await this.extractVixSrc(tmdbId, isMovie, season, episode);
+        else if (server === "vidlink") result = await this.extractVidLink(tmdbId, isMovie, season, episode);
+        else if (server === "2embed") result = await this.extract2Embed(tmdbId, isMovie, season, episode);
+
+        if (result) {
+          console.log(`${server} success: ${result.url}`);
+          return new Response(JSON.stringify(result), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+      } catch (e) {
+        console.log(`${server} failed: ${e.message}`);
+      }
+
+      return new Response(JSON.stringify({ error: `${server} failed` }), {
+        status: 404,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Try all servers in order
     try {
       const result = await this.extractVixSrc(tmdbId, isMovie, season, episode);
       if (result) {
