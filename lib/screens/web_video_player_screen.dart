@@ -90,6 +90,23 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
   void _createPlayer(web.HTMLDivElement container, String url, String type) {
     debugPrint('WebVideoPlayer: Creating player for $url (type=$type)');
 
+    if (type == 'embed') {
+      final iframe =
+          web.document.createElement('iframe') as web.HTMLIFrameElement;
+      iframe.src = url;
+      iframe.style
+        ..width = '100%'
+        ..height = '100%'
+        ..border = 'none'
+        ..backgroundColor = 'black';
+      iframe.allow =
+          'autoplay; fullscreen; encrypted-media; picture-in-picture';
+      iframe.setAttribute('allowfullscreen', 'true');
+      iframe.referrerPolicy = 'origin';
+      container.appendChild(iframe);
+      return;
+    }
+
     // Create video element
     final video = web.document.createElement('video') as web.HTMLVideoElement;
     video.style
@@ -181,7 +198,10 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
     });
 
     try {
-      await _loadMediaMetadata();
+      await _loadMediaMetadata().timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {},
+      );
 
       final result = await WebStreamService.resolveStream(
         tmdbId: widget.tmdbId,
