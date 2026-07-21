@@ -1,6 +1,9 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
+import 'package:path/path.dart' as p;
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../database/db_helper.dart';
@@ -123,6 +126,13 @@ class MediaDownloadManager extends ChangeNotifier {
       seriesId: isMovie ? null : mediaId,
       seasonNumber: isMovie ? null : seasonNumber,
       episodeNumber: isMovie ? null : episodeNumber,
+      subtitles: (stream['subtitles'] as List? ?? const [])
+          .whereType<Map>()
+          .map(
+            (track) =>
+                track.map((key, value) => MapEntry(key.toString(), value)),
+          )
+          .toList(),
     );
     return true;
   }
@@ -167,6 +177,7 @@ class MediaDownloadManager extends ChangeNotifier {
     String? seriesId,
     int? seasonNumber,
     int? episodeNumber,
+    List<Map<String, dynamic>> subtitles = const [],
   }) async {
     if (_active.containsKey(downloadKey)) return;
     final label = title;
@@ -227,6 +238,11 @@ class MediaDownloadManager extends ChangeNotifier {
           notifyListeners();
         },
       );
+      final localSubtitles = await _downloadSubtitles(
+        subtitles,
+        File(result.localPath).parent,
+        headers,
+      );
       await DBHelper.insertMediaDownload(
         downloadKey: downloadKey,
         mediaId: mediaId,
@@ -237,6 +253,7 @@ class MediaDownloadManager extends ChangeNotifier {
         title: title,
         thumbnail: thumbnail,
         localPath: result.localPath,
+        subtitles: localSubtitles,
       );
       _completionVersion++;
       await NotificationService().showDownloadFinished(
@@ -256,5 +273,58 @@ class MediaDownloadManager extends ChangeNotifier {
       notifyListeners();
       await _updateOrStopForegroundService();
     }
+  }
+
+  Future<List<Map<String, dynamic>>> _downloadSubtitles(
+    List<Map<String, dynamic>> tracks,
+    Directory directory,
+    Map<String, String> streamHeaders,
+  ) async {
+    final downloaded = <Map<String, dynamic>>[];
+    for (var index = 0; index < tracks.length; index++) {
+      final track = tracks[index];
+      final rawUrl = track['url']?.toString() ?? '';
+      final uri = Uri.tryParse(rawUrl);
+      if (uri == null || !uri.hasScheme || uri.host.isEmpty) continue;
+      try {
+        final headers = <String, String>{
+          if (track['source']?.toString() != 'Vidflix') ...streamHeaders,
+          'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
+          'Accept': 'text/vtt, application/x-subrip, text/plain, */*',
+        };
+        final response = await http
+            .get(uri, headers: headers)
+            .timeout(const Duration(seconds: 15));
+        if (response.statusCode < 200 ||
+            response.statusCode >= 300 ||
+            response.bodyBytes.isEmpty) {
+          continue;
+        }
+        var extension = p.extension(uri.path).toLowerCase();
+        if (!{
+          '.vtt',
+          '.srt',
+          '.ass',
+          '.ssa',
+          '.ttml',
+          '.xml',
+          '.json',
+        }.contains(extension)) {
+          extension = '.vtt';
+        }
+        final file = File(p.join(directory.path, 'subtitle_$index$extension'));
+        await file.writeAsBytes(response.bodyBytes, flush: true);
+        downloaded.add({
+          'label': track['label']?.toString() ?? 'Subtitle ${index + 1}',
+          'url': file.path,
+          'default': track['default'] == true,
+          'source': 'Downloaded',
+        });
+      } catch (_) {
+        // A broken subtitle must not fail the video download.
+      }
+    }
+    return downloaded;
   }
 }

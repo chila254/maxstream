@@ -61,6 +61,17 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
 
   Future<void> _play(Map<String, dynamic> download) async {
     final isMovie = download['mediaType'] == 'movie';
+    final seriesId = download['seriesId']?.toString();
+    final offlineEpisodes = isMovie
+        ? const <Map<String, dynamic>>[]
+        : _downloads
+              .where(
+                (item) =>
+                    item['mediaType'] == 'episode' &&
+                    item['seriesId']?.toString() == seriesId,
+              )
+              .map((item) => Map<String, dynamic>.from(item))
+              .toList();
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => buildVideoPlayerScreen(
@@ -70,6 +81,14 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
           season: (download['seasonNumber'] as num?)?.toInt() ?? 1,
           episode: (download['episodeNumber'] as num?)?.toInt() ?? 1,
           offlinePath: download['localPath']?.toString(),
+          offlineSubtitles: (download['subtitles'] as List? ?? const [])
+              .whereType<Map>()
+              .map(
+                (track) =>
+                    track.map((key, value) => MapEntry(key.toString(), value)),
+              )
+              .toList(),
+          offlineEpisodes: offlineEpisodes,
         ),
       ),
     );

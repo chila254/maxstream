@@ -16,7 +16,7 @@ class DBHelper {
     final path = join(await getDatabasesPath(), 'watchlist.db');
     return openDatabase(
       path,
-      version: 8,
+      version: 9,
       onCreate: _createDb,
       onUpgrade: _upgradeDb,
     );
@@ -135,6 +135,10 @@ class DBHelper {
     }
     if (oldVersion < 8) {
       await _createMediaDownloadsTable(db);
+    } else if (oldVersion < 9) {
+      await db.execute(
+        "ALTER TABLE media_downloads ADD COLUMN subtitles TEXT NOT NULL DEFAULT '[]'",
+      );
     }
   }
 
@@ -150,6 +154,7 @@ class DBHelper {
         title TEXT NOT NULL,
         thumbnail TEXT NOT NULL,
         localPath TEXT NOT NULL,
+        subtitles TEXT NOT NULL DEFAULT '[]',
         downloadDate TEXT NOT NULL
       )
     ''');
@@ -162,6 +167,7 @@ class DBHelper {
     required String title,
     required String thumbnail,
     required String localPath,
+    List<Map<String, dynamic>> subtitles = const [],
     String? seriesId,
     int? seasonNumber,
     int? episodeNumber,
@@ -178,6 +184,7 @@ class DBHelper {
       'title': title,
       'thumbnail': thumbnail,
       'localPath': localPath,
+      'subtitles': jsonEncode(subtitles),
       'downloadDate': (downloadDate ?? DateTime.now()).toIso8601String(),
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
@@ -186,12 +193,23 @@ class DBHelper {
     String? mediaType,
   }) async {
     final db = await database;
-    return db.query(
+    final downloads = await db.query(
       'media_downloads',
       where: mediaType == null ? null : 'mediaType = ?',
       whereArgs: mediaType == null ? null : [mediaType],
       orderBy: 'downloadDate DESC',
     );
+    return downloads.map((download) {
+      final result = Map<String, dynamic>.from(download);
+      try {
+        result['subtitles'] = jsonDecode(
+          download['subtitles']?.toString() ?? '[]',
+        );
+      } on FormatException {
+        result['subtitles'] = <dynamic>[];
+      }
+      return result;
+    }).toList();
   }
 
   static Future<void> deleteMediaDownload(String downloadKey) async {

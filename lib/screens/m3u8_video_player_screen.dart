@@ -19,6 +19,8 @@ class M3U8VideoPlayerScreen extends StatefulWidget {
   final int season;
   final int episode;
   final String? offlinePath;
+  final List<Map<String, dynamic>> offlineSubtitles;
+  final List<Map<String, dynamic>> offlineEpisodes;
 
   const M3U8VideoPlayerScreen({
     super.key,
@@ -28,6 +30,8 @@ class M3U8VideoPlayerScreen extends StatefulWidget {
     this.season = 1,
     this.episode = 1,
     this.offlinePath,
+    this.offlineSubtitles = const [],
+    this.offlineEpisodes = const [],
   });
 
   @override
@@ -529,6 +533,8 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   bool _recoveringPlayback = false;
   int _playbackRetryCount = 0;
   double? _downloadProgress;
+  String? _offlinePath;
+  List<Map<String, dynamic>> _offlineSubtitles = const [];
   List<Map<String, dynamic>> _availableServers = const [];
   bool _serversLoading = false;
   String? _selectedServerUrl;
@@ -541,6 +547,8 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     _currentEpisode = widget.episode;
     _currentTitle = widget.title;
     _resolverTitle = widget.title;
+    _offlinePath = widget.offlinePath;
+    _offlineSubtitles = widget.offlineSubtitles;
     MediaDownloadManager.instance.addListener(_handleDownloadChanged);
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.landscapeLeft,
@@ -567,7 +575,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
 
   Future<void> _loadStream({bool resume = true}) async {
     if (!mounted) return;
-    final offlinePath = widget.offlinePath;
+    final offlinePath = _offlinePath;
     if (offlinePath != null && offlinePath.isNotEmpty) {
       await _loadOfflineStream(offlinePath, resume: resume);
       return;
@@ -707,6 +715,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   }
 
   Future<void> _loadOfflineStream(String path, {required bool resume}) async {
+    final previousVideo = _videoPlayerController;
     setState(() {
       _error = null;
       _statusMessage = 'Opening download...';
@@ -726,6 +735,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       ),
     );
     try {
+      final subtitleTracks = _parseSubtitleTracks(_offlineSubtitles);
       await controller.initialize();
       final position = resume
           ? await WatchHistoryService.loadWatchPosition(
@@ -744,6 +754,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         return;
       }
       controller.addListener(_handlePlaybackChanged);
+      _prepareNextOfflineEpisode();
       setState(() {
         _videoPlayerController = controller;
         _useNativePlayer = true;
@@ -753,13 +764,64 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         _currentStreamIsHls = path.toLowerCase().endsWith('.m3u8');
         _streamHeaders = const {};
         _qualities = const [];
-        _subtitleTracks = const [];
+        _subtitleTracks = subtitleTracks;
+        _selectedSubtitle.value = 'Off';
+        _activeSubtitles.value = const [];
+        _nextEpisodeCancelled = false;
       });
+      previousVideo?.removeListener(_handlePlaybackChanged);
+      await previousVideo?.dispose();
       _startProgressSaving();
     } catch (error) {
       await controller.dispose();
       if (mounted) setState(() => _error = 'Could not play download: $error');
     }
+  }
+
+  void _prepareNextOfflineEpisode() {
+    if (widget.isMovie || widget.offlineEpisodes.isEmpty) {
+      _nextEpisode = null;
+      return;
+    }
+    final episodes = List<Map<String, dynamic>>.from(widget.offlineEpisodes)
+      ..sort((a, b) {
+        final season = ((a['seasonNumber'] as num?)?.toInt() ?? 0).compareTo(
+          (b['seasonNumber'] as num?)?.toInt() ?? 0,
+        );
+        return season != 0
+            ? season
+            : ((a['episodeNumber'] as num?)?.toInt() ?? 0).compareTo(
+                (b['episodeNumber'] as num?)?.toInt() ?? 0,
+              );
+      });
+    Map<String, dynamic>? next;
+    for (final episode in episodes) {
+      final season = (episode['seasonNumber'] as num?)?.toInt() ?? 0;
+      final number = (episode['episodeNumber'] as num?)?.toInt() ?? 0;
+      if (season > _currentSeason ||
+          (season == _currentSeason && number > _currentEpisode)) {
+        next = episode;
+        break;
+      }
+    }
+    if (next == null) {
+      _nextEpisode = null;
+      return;
+    }
+    final title = next['title']?.toString() ?? 'Next episode';
+    _nextEpisode = {
+      'season': next['seasonNumber'],
+      'episode': next['episodeNumber'],
+      'name': title.contains(': ')
+          ? title.split(': ').skip(1).join(': ')
+          : title,
+      'seriesTitle': title.contains(' - S')
+          ? title.split(' - S').first
+          : _resolverTitle,
+      'stillUrl': next['thumbnail']?.toString() ?? '',
+      'offlinePath': next['localPath']?.toString() ?? '',
+      'subtitles': next['subtitles'] ?? const <Map<String, dynamic>>[],
+    };
   }
 
   Future<void> _downloadCurrentStream() async {
@@ -1149,6 +1211,16 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     _currentEpisode = (next['episode'] as num).toInt();
     _currentTitle =
         '${next['seriesTitle']} - S${_currentSeason}E$_currentEpisode: ${next['name']}';
+    if (_offlinePath != null) {
+      _offlinePath = next['offlinePath']?.toString();
+      _offlineSubtitles = (next['subtitles'] as List? ?? const [])
+          .whereType<Map>()
+          .map(
+            (track) =>
+                track.map((key, value) => MapEntry(key.toString(), value)),
+          )
+          .toList();
+    }
     try {
       await _loadStream(resume: false);
     } finally {
@@ -1493,6 +1565,17 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     _SubtitleTrack track,
     Map<String, String> headers,
   ) async {
+    final localFile = File(track.url);
+    if (await localFile.exists()) {
+      final input = await localFile.readAsString();
+      final subtitles = _parseSubtitleFile(input);
+      if (subtitles.isEmpty) {
+        throw const FormatException(
+          'The downloaded subtitle contained no valid timed cues',
+        );
+      }
+      return subtitles;
+    }
     final uri = Uri.parse(track.url);
     if (uri.host.isEmpty) {
       throw Exception('Invalid subtitle URL: ${track.url}');
