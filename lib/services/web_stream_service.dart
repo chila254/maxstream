@@ -60,15 +60,26 @@ class WebStreamService {
       if (response.statusCode == 200) {
         final data = json.decode(response.body) as Map<String, dynamic>;
         final streamUrl = data['url']?.toString() ?? '';
-        if (streamUrl.isNotEmpty) {
+        final streamUri = Uri.tryParse(streamUrl);
+        final workerUri = Uri.parse(_workerUrl);
+        final isWorkerMediaUrl =
+            streamUri != null &&
+            streamUri.scheme == 'https' &&
+            streamUri.host == workerUri.host &&
+            streamUri.path == '/api/media' &&
+            streamUri.queryParameters.containsKey('token') &&
+            streamUri.queryParameters.containsKey('sig');
+        if (isWorkerMediaUrl && data['type'] == 'hls') {
           return {
             'url': streamUrl,
             'source': data['source'] as String? ?? serverId,
-            'type': data['type'] as String? ?? 'hls',
+            'type': 'hls',
             'headers': <String, String>{},
-            'isEmbed': (data['type'] as String?) == 'embed',
           };
         }
+        debugPrint(
+          '$_tag: Worker returned an unsafe or unsupported stream URL',
+        );
       }
     } catch (e) {
       debugPrint('$_tag: Worker call failed: $e');
@@ -100,25 +111,12 @@ class WebStreamService {
       }
     }
 
-    // Fallback: return VidLink embed URL
-    debugPrint('$_tag: All servers failed, using embed fallback');
-    final embedUrl = isMovie
-        ? 'https://vidlink.pro/movie/$tmdbId'
-        : 'https://vidlink.pro/tv/$tmdbId/$season/$episode';
-    return {
-      'url': embedUrl,
-      'source': 'VidLink',
-      'type': 'embed',
-      'headers': <String, String>{},
-      'isEmbed': true,
-    };
+    debugPrint('$_tag: No direct streaming source was found');
+    return null;
   }
 
   /// Get server list for UI picker.
   static List<Map<String, String>> getServerList() {
-    return servers.map((s) => {
-      'name': s['name']!,
-      'id': s['id']!,
-    }).toList();
+    return servers.map((s) => {'name': s['name']!, 'id': s['id']!}).toList();
   }
 }

@@ -49,7 +49,6 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
     ]);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
 
-    _blockPopups();
     _loadStream();
   }
 
@@ -66,72 +65,31 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
     super.dispose();
   }
 
-  void _blockPopups() {
-    if (web.document.getElementById('ms-popup-blocker') != null) return;
-    final script = web.document.createElement('script') as web.HTMLScriptElement;
-    script.id = 'ms-popup-blocker';
-    script.textContent = '''
-      (function() {
-        if (window._msBlocked) return;
-        window._msBlocked = true;
-        window.open = function() { return null; };
-        document.addEventListener('click', function(e) {
-          var el = e.target;
-          while (el && el !== document) {
-            if (el.tagName === 'A' && el.getAttribute('target') === '_blank') {
-              e.preventDefault(); e.stopPropagation(); return false;
-            }
-            el = el.parentNode;
-          }
-        }, true);
-      })();
-    ''';
-    web.document.head?.appendChild(script);
-  }
-
   void _registerFactory() {
     if (_factoryRegistered) return;
     _factoryRegistered = true;
 
-    ui_web.platformViewRegistry.registerViewFactory(
-      _viewType,
-      (int viewId) {
-        final div = web.document.createElement('div') as web.HTMLDivElement;
-        div.style
-          ..width = '100%'
-          ..height = '100%'
-          ..border = 'none'
-          ..overflow = 'hidden'
-          ..backgroundColor = 'black';
-        _hostDiv = div;
+    ui_web.platformViewRegistry.registerViewFactory(_viewType, (int viewId) {
+      final div = web.document.createElement('div') as web.HTMLDivElement;
+      div.style
+        ..width = '100%'
+        ..height = '100%'
+        ..border = 'none'
+        ..overflow = 'hidden'
+        ..backgroundColor = 'black';
+      _hostDiv = div;
 
-        if (_streamUrl != null) {
-          _createPlayer(div, _streamUrl!, _streamType ?? 'hls');
-        }
-        return div;
-      },
-    );
+      if (_streamUrl != null) {
+        _createPlayer(div, _streamUrl!, _streamType ?? 'hls');
+      }
+      return div;
+    });
   }
 
   void _createPlayer(web.HTMLDivElement container, String url, String type) {
     debugPrint('WebVideoPlayer: Creating player for $url (type=$type)');
 
-    if (type == 'embed') {
-      _createAdBlockingCss(container);
-      final iframe = web.document.createElement('iframe') as web.HTMLIFrameElement;
-      iframe.src = url;
-      iframe.style
-        ..width = '100%'
-        ..height = '100%'
-        ..border = 'none'
-        ..backgroundColor = 'black';
-      iframe.setAttribute('allow', 'autoplay; fullscreen; encrypted-media; picture-in-picture');
-      iframe.setAttribute('allowfullscreen', 'true');
-      container.appendChild(iframe);
-      return;
-    }
-
-    // HLS or direct video
+    // Direct HLS playback only. Provider pages are never embedded.
     final video = web.document.createElement('video') as web.HTMLVideoElement;
     video.style
       ..width = '100%'
@@ -150,50 +108,11 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
     }
   }
 
-  void _createAdBlockingCss(web.HTMLDivElement container) {
-    final style = web.document.createElement('style') as web.HTMLStyleElement;
-    style.textContent = '''
-      .ad, .ads, .advert, .popup, .overlay-ad,
-      [class*="ad-"], [class*="advert"], [id*="ad-"],
-      [class*="popup"], [class*="modal"], [class*="interstitial"],
-      .video-ad, .player-ad, .skip-ad, .ad-container {
-        display: none !important;
-        visibility: hidden !important;
-        pointer-events: none !important;
-      }
-    ''';
-    container.appendChild(style);
-
-    final script = web.document.createElement('script') as web.HTMLScriptElement;
-    script.textContent = '''
-      (function() {
-        function removeAds(root) {
-          try {
-            root.querySelectorAll('[class*="ad"],[class*="popup"],[class*="overlay"],[class*="modal"],[id*="ad"]').forEach(function(el) {
-              if (el.tagName !== 'VIDEO' && el.tagName !== 'IFRAME') el.remove();
-            });
-            root.querySelectorAll('*').forEach(function(el) {
-              var cs = window.getComputedStyle(el);
-              if ((cs.position === 'fixed' || cs.position === 'absolute') && parseInt(cs.zIndex) > 9000 && el.tagName !== 'VIDEO' && el.tagName !== 'IFRAME') {
-                el.remove();
-              }
-            });
-          } catch(e) {}
-        }
-        removeAds(container);
-        var obs = new MutationObserver(function(m) {
-          m.forEach(function(mut) { mut.addedNodes.forEach(function(n) { if (n.nodeType === 1) removeAds(n); }); });
-        });
-        obs.observe(container, { childList: true, subtree: true });
-        setInterval(function() { removeAds(container); }, 2000);
-      })();
-    ''';
-    container.appendChild(script);
-  }
-
   void _loadHlsJs(web.HTMLVideoElement video, String url) {
-    final initScript = web.document.createElement('script') as web.HTMLScriptElement;
-    initScript.textContent = '''
+    final initScript =
+        web.document.createElement('script') as web.HTMLScriptElement;
+    initScript.textContent =
+        '''
       (function() {
         var script = document.createElement('script');
         script.src = 'https://cdn.jsdelivr.net/npm/hls.js@latest';
@@ -202,13 +121,22 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
           if (!video) return;
           if (Hls.isSupported()) {
             var hls = new Hls({ enableWorker: true, lowLatencyMode: false, maxBufferLength: 30, maxMaxBufferLength: 60 });
+            var networkRecoveries = 0;
+            var mediaRecoveries = 0;
             hls.loadSource('$url');
             hls.attachMedia(video);
             hls.on(Hls.Events.MANIFEST_PARSED, function() { video.play().catch(function() {}); });
             hls.on(Hls.Events.ERROR, function(event, data) {
               if (data.fatal) {
-                if (data.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad();
-                else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
+                if (data.type === Hls.ErrorTypes.NETWORK_ERROR && networkRecoveries < 2) {
+                  networkRecoveries++;
+                  setTimeout(function() { hls.startLoad(); }, networkRecoveries * 1000);
+                }
+                else if (data.type === Hls.ErrorTypes.MEDIA_ERROR && mediaRecoveries < 2) {
+                  mediaRecoveries++;
+                  hls.recoverMediaError();
+                }
+                else hls.destroy();
               }
             });
           } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
@@ -319,9 +247,15 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
       _currentTitle = details['title']?.toString() ?? widget.title;
     } else {
       final seriesTitle = details['name']?.toString() ?? widget.title;
-      final episodes = await TmdbApiService.getSeasonEpisodes(id, widget.season);
+      final episodes = await TmdbApiService.getSeasonEpisodes(
+        id,
+        widget.season,
+      );
       final ep = episodes
-          .where((e) => ((e['episode_number'] as num?)?.toInt() ?? 0) == widget.episode)
+          .where(
+            (e) =>
+                ((e['episode_number'] as num?)?.toInt() ?? 0) == widget.episode,
+          )
           .firstOrNull;
       final epName = ep?['name']?.toString() ?? '';
       _currentTitle = epName.isNotEmpty
@@ -365,18 +299,25 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
               final isSelected = name == _sourceName;
               return ListTile(
                 leading: Icon(
-                  isSelected ? Icons.radio_button_checked : Icons.radio_button_unchecked,
+                  isSelected
+                      ? Icons.radio_button_checked
+                      : Icons.radio_button_unchecked,
                   color: isSelected ? Colors.red : Colors.grey,
                 ),
                 title: Text(
                   name,
                   style: TextStyle(
                     color: isSelected ? Colors.white : Colors.grey[300],
-                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                    fontWeight: isSelected
+                        ? FontWeight.bold
+                        : FontWeight.normal,
                   ),
                 ),
                 subtitle: isSelected
-                    ? const Text('Playing', style: TextStyle(color: Colors.red, fontSize: 12))
+                    ? const Text(
+                        'Playing',
+                        style: TextStyle(color: Colors.red, fontSize: 12),
+                      )
                     : null,
                 onTap: () {
                   Navigator.pop(ctx);
@@ -415,8 +356,8 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
         body: _error != null
             ? _buildError()
             : _isLoading
-                ? _buildLoading()
-                : _buildPlayer(),
+            ? _buildLoading()
+            : _buildPlayer(),
       ),
     );
   }
@@ -449,7 +390,11 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
                       color: Colors.black54,
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: const Icon(Icons.arrow_back, color: Colors.white, size: 24),
+                    child: const Icon(
+                      Icons.arrow_back,
+                      color: Colors.white,
+                      size: 24,
+                    ),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -464,7 +409,10 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
                 GestureDetector(
                   onTap: _showServerPicker,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.black54,
                       borderRadius: BorderRadius.circular(8),
@@ -477,10 +425,17 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
                         const SizedBox(width: 5),
                         Text(
                           _sourceName ?? 'Server',
-                          style: const TextStyle(color: Colors.white70, fontSize: 11),
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 11,
+                          ),
                         ),
                         const SizedBox(width: 4),
-                        const Icon(Icons.arrow_drop_down, color: Colors.white54, size: 16),
+                        const Icon(
+                          Icons.arrow_drop_down,
+                          color: Colors.white54,
+                          size: 16,
+                        ),
                       ],
                     ),
                   ),
@@ -524,7 +479,11 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
           const SizedBox(height: 16),
           const Text(
             'Unable to Load Stream',
-            style: TextStyle(color: Colors.red, fontSize: 20, fontWeight: FontWeight.bold),
+            style: TextStyle(
+              color: Colors.red,
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+            ),
           ),
           const SizedBox(height: 12),
           Padding(
@@ -547,24 +506,39 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
                 }),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.red,
-                  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 32,
+                    vertical: 12,
+                  ),
                 ),
-                child: const Text('Retry', style: TextStyle(color: Colors.white, fontSize: 18)),
+                child: const Text(
+                  'Retry',
+                  style: TextStyle(color: Colors.white, fontSize: 18),
+                ),
               ),
               const SizedBox(width: 16),
               ElevatedButton(
                 onPressed: _handleBack,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.grey[700],
-                  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 32,
+                    vertical: 12,
+                  ),
                 ),
-                child: const Text('Go Back', style: TextStyle(color: Colors.white, fontSize: 18)),
+                child: const Text(
+                  'Go Back',
+                  style: TextStyle(color: Colors.white, fontSize: 18),
+                ),
               ),
             ],
           ),
           const SizedBox(height: 24),
           // Quick server switch buttons
-          const Text('Or try a different server:', style: TextStyle(color: Colors.white54, fontSize: 14)),
+          const Text(
+            'Or try a different server:',
+            style: TextStyle(color: Colors.white54, fontSize: 14),
+          ),
           const SizedBox(height: 12),
           Wrap(
             spacing: 8,
@@ -584,7 +558,10 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
                 label: Text(server['name']!),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.grey[800],
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
                 ),
               );
             }).toList(),
