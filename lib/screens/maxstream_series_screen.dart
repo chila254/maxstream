@@ -4,6 +4,7 @@ import 'package:shimmer/shimmer.dart';
 import '../models/movie.dart';
 import '../models/series.dart';
 import '../services/media_download_manager.dart';
+import '../services/direct_m3u8_service.dart';
 import '../services/tmdb_api_service.dart';
 import '../database/db_helper.dart';
 import '../widgets/video_player_screen.dart';
@@ -31,10 +32,14 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
   List<Map<String, dynamic>> recommendations = [];
   final Set<String> _downloadingEpisodes = {};
   bool _downloadingSeason = false;
+  late final MediaDownloadManager _downloadManager;
+  final Set<String> _downloadedEpisodeKeys = {};
 
   @override
   void initState() {
     super.initState();
+    _downloadManager = MediaDownloadManager.instance;
+    _downloadManager.addListener(_onDownloadChanged);
     _loadSeriesDetails();
     _checkWatchlistStatus();
   }
@@ -42,7 +47,38 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
   @override
   void dispose() {
     _youtubeController?.dispose();
+    _downloadManager.removeListener(_onDownloadChanged);
     super.dispose();
+  }
+
+  void _onDownloadChanged() {
+    if (mounted) {
+      _refreshDownloadedStatus();
+      setState(() {});
+    }
+  }
+
+  String _episodeDownloadKey(int season, int episode) =>
+      'series_${widget.seriesItem.id}_s${season}_e$episode';
+
+  Future<void> _refreshDownloadedStatus() async {
+    final downloads = await DBHelper.getMediaDownloads();
+    final keys = <String>{};
+    for (final d in downloads) {
+      final key = d['downloadKey']?.toString() ?? '';
+      if (key.isNotEmpty) keys.add(key);
+    }
+    // Also include active downloads
+    for (final active in _downloadManager.activeDownloads) {
+      keys.add(active.downloadKey);
+    }
+    if (mounted) {
+      setState(() {
+        _downloadedEpisodeKeys
+          ..clear()
+          ..addAll(keys);
+      });
+    }
   }
 
   void _initializeYouTubePlayer(String url) {
@@ -97,6 +133,7 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
           _initializeYouTubePlayer(trailerUrlFromApi);
         }
       }
+      _refreshDownloadedStatus();
     } catch (e) {
       // Error loading series details
     } finally {
@@ -122,6 +159,7 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
           currentEpisodes = episodes;
           isLoadingEpisodes = false;
         });
+        _refreshDownloadedStatus();
       }
     } catch (e) {
       // Error loading episodes
@@ -222,13 +260,40 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
     );
   }
 
-  String _episodeDownloadKey(int season, int episode) =>
-      'series_${widget.seriesItem.id}_s${season}_e$episode';
+  void _showEpisodeQualitySheet(Episode episode) {
+    final season = seasons[selectedSeasonIndex].seasonNumber;
+    final episodeTitle =
+        '${widget.seriesItem.title} - S${season}E${episode.episodeNumber}: ${episode.name}';
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1E1E1E),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) {
+        return _EpisodeQualitySheet(
+          title: episodeTitle,
+          tmdbId: widget.seriesItem.id,
+          season: season,
+          episode: episode.episodeNumber,
+          onDownload: (quality, resolverTitle) {
+            _downloadEpisode(
+              episode,
+              seasonNumber: season,
+              resolverTitle: resolverTitle,
+            );
+          },
+        );
+      },
+    );
+  }
 
   Future<bool> _downloadEpisode(
     Episode episode, {
     bool showResult = true,
     int? seasonNumber,
+    String? resolverTitle,
   }) async {
     final season = seasonNumber ?? seasons[selectedSeasonIndex].seasonNumber;
     final key = _episodeDownloadKey(season, episode.episodeNumber);
@@ -239,7 +304,7 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
         downloadKey: key,
         mediaId: widget.seriesItem.id,
         isMovie: false,
-        resolverTitle: widget.seriesItem.title,
+        resolverTitle: resolverTitle ?? widget.seriesItem.title,
         title:
             '${widget.seriesItem.title} - S${season}E${episode.episodeNumber}: ${episode.name}',
         thumbnail: episode.stillPath.isNotEmpty
@@ -266,7 +331,10 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
       }
       return false;
     } finally {
-      if (mounted) setState(() => _downloadingEpisodes.remove(key));
+      if (mounted) {
+        setState(() => _downloadingEpisodes.remove(key));
+        _refreshDownloadedStatus();
+      }
     }
   }
 
@@ -899,124 +967,7 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
           )
         else if (currentEpisodes.isNotEmpty)
           ...currentEpisodes.map(
-            (episode) => Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: InkWell(
-                onTap: () => _playEpisode(episode),
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF1E1E1E),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 120,
-                        height: 80,
-                        decoration: BoxDecoration(
-                          borderRadius: const BorderRadius.horizontal(
-                            left: Radius.circular(8),
-                          ),
-                          color: const Color(0xFF2A2A2A),
-                        ),
-                        child: episode.stillPath.isNotEmpty
-                            ? ClipRRect(
-                                borderRadius: const BorderRadius.horizontal(
-                                  left: Radius.circular(8),
-                                ),
-                                child: Image.network(
-                                  'https://image.tmdb.org/t/p/w300${episode.stillPath}',
-                                  fit: BoxFit.cover,
-                                ),
-                              )
-                            : const Icon(
-                                Icons.play_circle_outline,
-                                color: Colors.white54,
-                                size: 40,
-                              ),
-                      ),
-                      Expanded(
-                        child: Padding(
-                          padding: const EdgeInsets.all(12),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Text(
-                                    '${episode.episodeNumber}. ',
-                                    style: const TextStyle(
-                                      color: Colors.red,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  Expanded(
-                                    child: Text(
-                                      episode.name,
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              if (episode.overview.isNotEmpty) ...[
-                                const SizedBox(height: 4),
-                                Text(
-                                  episode.overview,
-                                  style: const TextStyle(
-                                    color: Colors.grey,
-                                    fontSize: 12,
-                                  ),
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.only(right: 4),
-                        child: IconButton(
-                          tooltip: 'Download episode',
-                          onPressed:
-                              _downloadingEpisodes.contains(
-                                _episodeDownloadKey(
-                                  seasons[selectedSeasonIndex].seasonNumber,
-                                  episode.episodeNumber,
-                                ),
-                              )
-                              ? null
-                              : () => _downloadEpisode(episode),
-                          icon:
-                              _downloadingEpisodes.contains(
-                                _episodeDownloadKey(
-                                  seasons[selectedSeasonIndex].seasonNumber,
-                                  episode.episodeNumber,
-                                ),
-                              )
-                              ? const SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Colors.white,
-                                  ),
-                                )
-                              : const Icon(
-                                  Icons.download_for_offline_outlined,
-                                  color: Colors.red,
-                                ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
+            (episode) => _buildEpisodeTile(episode),
           )
         else
           const Center(
@@ -1028,6 +979,173 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
               ),
             ),
           ),
+      ],
+    );
+  }
+
+  Widget _buildEpisodeTile(Episode episode) {
+    final season = seasons[selectedSeasonIndex].seasonNumber;
+    final key = _episodeDownloadKey(season, episode.episodeNumber);
+    final isDownloading = _downloadingEpisodes.contains(key);
+    final isDownloaded = _downloadedEpisodeKeys.contains(key);
+    final activeTask = _downloadManager.taskFor(key);
+    final isCurrentlyDownloading = activeTask != null;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: InkWell(
+        onTap: () => _playEpisode(episode),
+        child: Container(
+          decoration: BoxDecoration(
+            color: const Color(0xFF1E1E1E),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 120,
+                height: 80,
+                decoration: BoxDecoration(
+                  borderRadius: const BorderRadius.horizontal(
+                    left: Radius.circular(8),
+                  ),
+                  color: const Color(0xFF2A2A2A),
+                ),
+                child: episode.stillPath.isNotEmpty
+                    ? ClipRRect(
+                        borderRadius: const BorderRadius.horizontal(
+                          left: Radius.circular(8),
+                        ),
+                        child: Image.network(
+                          'https://image.tmdb.org/t/p/w300${episode.stillPath}',
+                          fit: BoxFit.cover,
+                        ),
+                      )
+                    : const Icon(
+                        Icons.play_circle_outline,
+                        color: Colors.white54,
+                        size: 40,
+                      ),
+              ),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Text(
+                            '${episode.episodeNumber}. ',
+                            style: const TextStyle(
+                              color: Colors.red,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          Expanded(
+                            child: Text(
+                              episode.name,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w500,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (episode.overview.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          episode.overview,
+                          style: const TextStyle(
+                            color: Colors.grey,
+                            fontSize: 12,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                      if (isCurrentlyDownloading) ...[
+                        const SizedBox(height: 8),
+                        _buildEpisodeDownloadProgress(activeTask),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(right: 4),
+                child: IconButton(
+                  tooltip: isDownloaded
+                      ? 'Downloaded'
+                      : isCurrentlyDownloading
+                          ? 'Downloading'
+                          : 'Download episode',
+                  onPressed: isDownloading || isCurrentlyDownloading
+                      ? null
+                      : isDownloaded
+                          ? null
+                          : () => _showEpisodeQualitySheet(episode),
+                  icon: isDownloading || isCurrentlyDownloading
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : isDownloaded
+                          ? const Icon(
+                              Icons.check_circle,
+                              color: Colors.green,
+                            )
+                          : const Icon(
+                              Icons.download_for_offline_outlined,
+                              color: Colors.red,
+                            ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEpisodeDownloadProgress(ActiveMediaDownload task) {
+    final percent = (task.progress * 100).round().clamp(0, 100);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: LinearProgressIndicator(
+                value: task.progress,
+                minHeight: 4,
+                color: task.isPaused ? Colors.orange : Colors.red,
+                backgroundColor: Colors.white24,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              '$percent%',
+              style: const TextStyle(color: Colors.white70, fontSize: 11),
+            ),
+          ],
+        ),
+        const SizedBox(height: 2),
+        Text(
+          task.isPaused ? 'Paused' : task.sizeLabel,
+          style: TextStyle(
+            color: task.isPaused ? Colors.orange : Colors.white54,
+            fontSize: 10,
+          ),
+        ),
       ],
     );
   }
@@ -1127,6 +1245,227 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Bottom sheet for episode quality selection before download.
+class _EpisodeQualitySheet extends StatefulWidget {
+  final String title;
+  final String tmdbId;
+  final int season;
+  final int episode;
+  final void Function(String quality, String? resolverTitle) onDownload;
+
+  const _EpisodeQualitySheet({
+    required this.title,
+    required this.tmdbId,
+    required this.season,
+    required this.episode,
+    required this.onDownload,
+  });
+
+  @override
+  State<_EpisodeQualitySheet> createState() => _EpisodeQualitySheetState();
+}
+
+class _EpisodeQualitySheetState extends State<_EpisodeQualitySheet> {
+  String _selectedQuality = 'auto';
+  bool _loadingStreams = true;
+  List<Map<String, dynamic>> _availableStreams = [];
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchAvailableStreams();
+  }
+
+  Future<void> _fetchAvailableStreams() async {
+    try {
+      final streams = await DirectM3u8Service.fetchAvailableStreams(
+        title: widget.title,
+        tmdbId: widget.tmdbId,
+        isMovie: false,
+        season: widget.season,
+        episode: widget.episode,
+      );
+      if (mounted) {
+        setState(() {
+          _availableStreams = streams;
+          _loadingStreams = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = e.toString();
+          _loadingStreams = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey[600],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            'Select Quality',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            widget.title,
+            style: const TextStyle(color: Colors.grey, fontSize: 13),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 16),
+          if (_loadingStreams)
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.all(20),
+                child: CircularProgressIndicator(color: Colors.red),
+              ),
+            )
+          else if (_error != null)
+            _buildQualityOption(
+              value: 'auto',
+              label: 'Auto (Best Quality)',
+              subtitle: 'Let the app choose the best quality',
+              icon: Icons.auto_awesome,
+            )
+          else ...[
+            _buildQualityOption(
+              value: 'auto',
+              label: 'Auto (Best Quality)',
+              subtitle: _availableStreams.isNotEmpty
+                  ? '${_availableStreams.length} server(s) found'
+                  : 'Let the app choose the best quality',
+              icon: Icons.auto_awesome,
+            ),
+            const SizedBox(height: 8),
+            _buildQualityOption(
+              value: '720p',
+              label: '720p',
+              subtitle: 'Good quality, moderate size',
+              icon: Icons.high_quality,
+            ),
+            const SizedBox(height: 8),
+            _buildQualityOption(
+              value: '480p',
+              label: '480p',
+              subtitle: 'Lower quality, smaller size',
+              icon: Icons.hd,
+            ),
+          ],
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: ElevatedButton(
+              onPressed: () {
+                Navigator.pop(context);
+                widget.onDownload(_selectedQuality, widget.title);
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              child: const Text(
+                'Start Download',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildQualityOption({
+    required String value,
+    required String label,
+    required String subtitle,
+    required IconData icon,
+  }) {
+    final isSelected = _selectedQuality == value;
+    return GestureDetector(
+      onTap: () => setState(() => _selectedQuality = value),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? Colors.red.withValues(alpha: 0.15)
+              : const Color(0xFF2A2A2A),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: isSelected ? Colors.red : Colors.transparent,
+            width: 1.5,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              icon,
+              color: isSelected ? Colors.red : Colors.grey,
+              size: 24,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      color: isSelected ? Colors.white : Colors.white70,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      color: isSelected ? Colors.white60 : Colors.grey,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (isSelected)
+              const Icon(Icons.radio_button_checked, color: Colors.red, size: 20)
+            else
+              const Icon(Icons.radio_button_off, color: Colors.grey, size: 20),
+          ],
+        ),
+      ),
     );
   }
 }

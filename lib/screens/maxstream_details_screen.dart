@@ -3,6 +3,7 @@ import 'package:youtube_player_flutter/youtube_player_flutter.dart';
 import 'package:shimmer/shimmer.dart';
 import '../database/db_helper.dart';
 import '../models/movie.dart';
+import '../services/direct_m3u8_service.dart';
 import '../services/media_download_manager.dart';
 import '../services/tmdb_api_service.dart';
 import '../widgets/video_player_screen.dart';
@@ -30,20 +31,48 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
   List<Map<String, dynamic>> cast = [];
   List<Map<String, dynamic>> recommendations = [];
   bool _downloadingMovie = false;
+  bool _isMovieDownloaded = false;
   late ScrollController _scrollController;
+  late final MediaDownloadManager _downloadManager;
 
   @override
   void initState() {
     super.initState();
     _scrollController = ScrollController();
+    _downloadManager = MediaDownloadManager.instance;
+    _downloadManager.addListener(_onDownloadChanged);
     _loadDetails();
+    _checkDownloadStatus();
   }
 
   @override
   void dispose() {
     _youtubeController?.dispose();
     _scrollController.dispose();
+    _downloadManager.removeListener(_onDownloadChanged);
     super.dispose();
+  }
+
+  void _onDownloadChanged() {
+    if (mounted) {
+      _checkDownloadStatus();
+      setState(() {});
+    }
+  }
+
+  String get _downloadKey => 'movie_${widget.item.id}';
+
+  Future<void> _checkDownloadStatus() async {
+    final downloads = await DBHelper.getMediaDownloads();
+    final isDownloaded = downloads.any(
+      (d) => d['downloadKey']?.toString() == _downloadKey,
+    );
+    final activeTask = _downloadManager.taskFor(_downloadKey);
+    if (mounted) {
+      setState(() {
+        _isMovieDownloaded = isDownloaded && activeTask == null;
+      });
+    }
   }
 
   void _initializeYouTubePlayer(String url) {
@@ -170,23 +199,43 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
     }
   }
 
-  Future<void> _downloadMovie() async {
+  void _showQualitySelectionSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1E1E1E),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) {
+        return _QualitySelectionSheet(
+          title: widget.item.title,
+          tmdbId: widget.item.id,
+          onDownload: (quality, resolverTitle) {
+            _startDownload(resolverTitle: resolverTitle);
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _startDownload({String? resolverTitle}) async {
     if (_downloadingMovie) return;
     setState(() => _downloadingMovie = true);
     try {
       final found = await MediaDownloadManager.instance.resolveAndStart(
-        downloadKey: 'movie_${widget.item.id}',
+        downloadKey: _downloadKey,
         mediaId: widget.item.id,
         isMovie: true,
         title: widget.item.title,
         thumbnail: widget.item.thumbnail,
+        resolverTitle: resolverTitle,
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             found
-                ? '${widget.item.title} downloaded successfully'
+                ? '${widget.item.title} download started'
                 : 'No downloadable stream was found',
           ),
         ),
@@ -276,6 +325,10 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
   Widget buildSliverAppBar() {
     final backdropPath = details?['backdrop_path'] ?? widget.item.backdropPath;
     final posterPath = details?['poster_path'] ?? widget.item.posterPath;
+
+    // Check active download for progress
+    final activeTask = _downloadManager.taskFor(_downloadKey);
+    final isCurrentlyDownloading = activeTask != null;
 
     return SliverAppBar(
       expandedHeight: 350,
@@ -437,36 +490,47 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
                           ),
                           if (widget.mediaType == 'movie') ...[
                             const SizedBox(height: 8),
-                            SizedBox(
-                              width: double.infinity,
-                              height: 40,
-                              child: OutlinedButton.icon(
-                                onPressed: _downloadingMovie
-                                    ? null
-                                    : _downloadMovie,
-                                icon: _downloadingMovie
-                                    ? const SizedBox(
-                                        width: 18,
-                                        height: 18,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: Colors.white,
-                                        ),
-                                      )
-                                    : const Icon(
-                                        Icons.download_for_offline_outlined,
-                                      ),
-                                label: Text(
-                                  _downloadingMovie
-                                      ? 'Downloading...'
-                                      : 'Download',
+                            if (isCurrentlyDownloading)
+                              _buildDownloadProgressWidget(activeTask)
+                            else if (_isMovieDownloaded)
+                              SizedBox(
+                                width: double.infinity,
+                                height: 40,
+                                child: OutlinedButton.icon(
+                                  onPressed: null,
+                                  icon: const Icon(
+                                    Icons.check_circle,
+                                    color: Colors.green,
+                                  ),
+                                  label: const Text(
+                                    'Downloaded',
+                                    style: TextStyle(color: Colors.green),
+                                  ),
+                                  style: OutlinedButton.styleFrom(
+                                    side: const BorderSide(
+                                      color: Colors.green,
+                                    ),
+                                  ),
                                 ),
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: Colors.white,
-                                  side: const BorderSide(color: Colors.white54),
+                              )
+                            else
+                              SizedBox(
+                                width: double.infinity,
+                                height: 40,
+                                child: OutlinedButton.icon(
+                                  onPressed: _showQualitySelectionSheet,
+                                  icon: const Icon(
+                                    Icons.download_for_offline_outlined,
+                                  ),
+                                  label: const Text('Download'),
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: Colors.white,
+                                    side: const BorderSide(
+                                      color: Colors.white54,
+                                    ),
+                                  ),
                                 ),
                               ),
-                            ),
                           ],
                         ],
                       ),
@@ -478,6 +542,48 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildDownloadProgressWidget(ActiveMediaDownload task) {
+    final percent = (task.progress * 100).round().clamp(0, 100);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: LinearProgressIndicator(
+                value: task.progress,
+                minHeight: 6,
+                color: task.isPaused ? Colors.orange : Colors.red,
+                backgroundColor: Colors.white24,
+                borderRadius: BorderRadius.circular(3),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              '$percent%',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Text(
+          task.isPaused
+              ? 'Paused — ${task.sizeLabel}'
+              : 'Downloading — ${task.sizeLabel}',
+          style: TextStyle(
+            color: task.isPaused ? Colors.orange : Colors.white70,
+            fontSize: 11,
+          ),
+        ),
+      ],
     );
   }
 
@@ -925,6 +1031,239 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
           title: widget.item.title,
           tmdbId: widget.item.id.toString(),
           isMovie: widget.mediaType == 'movie',
+        ),
+      ),
+    );
+  }
+}
+
+/// Bottom sheet for quality selection before download.
+class _QualitySelectionSheet extends StatefulWidget {
+  final String title;
+  final String tmdbId;
+  final void Function(String quality, String? resolverTitle) onDownload;
+
+  const _QualitySelectionSheet({
+    required this.title,
+    required this.tmdbId,
+    required this.onDownload,
+  });
+
+  @override
+  State<_QualitySelectionSheet> createState() => _QualitySelectionSheetState();
+}
+
+class _QualitySelectionSheetState extends State<_QualitySelectionSheet> {
+  String _selectedQuality = 'auto';
+  bool _loadingStreams = true;
+  List<Map<String, dynamic>> _availableStreams = [];
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchAvailableStreams();
+  }
+
+  Future<void> _fetchAvailableStreams() async {
+    try {
+      final streams = await DirectM3u8Service.fetchAvailableStreams(
+        title: widget.title,
+        tmdbId: widget.tmdbId,
+        isMovie: true,
+      );
+      if (mounted) {
+        setState(() {
+          _availableStreams = streams;
+          _loadingStreams = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = e.toString();
+          _loadingStreams = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Handle bar
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey[600],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            'Select Quality',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            widget.title,
+            style: const TextStyle(color: Colors.grey, fontSize: 13),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 16),
+          if (_loadingStreams)
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.all(20),
+                child: CircularProgressIndicator(color: Colors.red),
+              ),
+            )
+          else if (_error != null)
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  children: [
+                    const Icon(Icons.error_outline, color: Colors.orange, size: 32),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Could not fetch stream info',
+                      style: const TextStyle(color: Colors.grey),
+                    ),
+                    const SizedBox(height: 16),
+                    // Still allow auto download
+                    _buildQualityOption(
+                      value: 'auto',
+                      label: 'Auto (Best Quality)',
+                      subtitle: 'Let the app choose the best quality',
+                      icon: Icons.auto_awesome,
+                    ),
+                  ],
+                ),
+              ),
+            )
+          else ...[
+            _buildQualityOption(
+              value: 'auto',
+              label: 'Auto (Best Quality)',
+              subtitle: _availableStreams.isNotEmpty
+                  ? '${_availableStreams.length} server(s) found'
+                  : 'Let the app choose the best quality',
+              icon: Icons.auto_awesome,
+            ),
+            const SizedBox(height: 8),
+            _buildQualityOption(
+              value: '720p',
+              label: '720p',
+              subtitle: 'Good quality, moderate size',
+              icon: Icons.high_quality,
+            ),
+            const SizedBox(height: 8),
+            _buildQualityOption(
+              value: '480p',
+              label: '480p',
+              subtitle: 'Lower quality, smaller size',
+              icon: Icons.hd,
+            ),
+          ],
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: ElevatedButton(
+              onPressed: () {
+                Navigator.pop(context);
+                widget.onDownload(_selectedQuality, widget.title);
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              child: const Text(
+                'Start Download',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildQualityOption({
+    required String value,
+    required String label,
+    required String subtitle,
+    required IconData icon,
+  }) {
+    final isSelected = _selectedQuality == value;
+    return GestureDetector(
+      onTap: () => setState(() => _selectedQuality = value),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? Colors.red.withValues(alpha: 0.15)
+              : const Color(0xFF2A2A2A),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: isSelected ? Colors.red : Colors.transparent,
+            width: 1.5,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              icon,
+              color: isSelected ? Colors.red : Colors.grey,
+              size: 24,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      color: isSelected ? Colors.white : Colors.white70,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      color: isSelected ? Colors.white60 : Colors.grey,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (isSelected)
+              const Icon(Icons.radio_button_checked, color: Colors.red, size: 20)
+            else
+              const Icon(Icons.radio_button_off, color: Colors.grey, size: 20),
+          ],
         ),
       ),
     );

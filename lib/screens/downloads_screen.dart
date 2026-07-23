@@ -126,6 +126,14 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
     await _loadDownloads();
   }
 
+  void _pauseDownload(String downloadKey) {
+    _downloadManager.pauseDownload(downloadKey);
+  }
+
+  void _resumeDownload(String downloadKey) {
+    _downloadManager.resumeDownload(downloadKey);
+  }
+
   @override
   Widget build(BuildContext context) {
     final movies = _downloads
@@ -237,6 +245,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
 
   Widget _activeDownloadTile(ActiveMediaDownload download) {
     final percent = (download.progress * 100).round().clamp(0, 100);
+    final isPaused = download.isPaused;
     return Card(
       color: const Color(0xFF1E1E1E),
       child: ListTile(
@@ -258,7 +267,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                     child: LinearProgressIndicator(
                       value: download.progress,
                       minHeight: 5,
-                      color: Colors.red,
+                      color: isPaused ? Colors.orange : Colors.red,
                       backgroundColor: Colors.white24,
                     ),
                   ),
@@ -271,11 +280,39 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
               ),
               const SizedBox(height: 5),
               Text(
-                download.sizeLabel,
-                style: const TextStyle(color: Colors.white54, fontSize: 12),
+                isPaused
+                    ? 'Paused — ${download.sizeLabel}'
+                    : download.sizeLabel,
+                style: TextStyle(
+                  color: isPaused ? Colors.orange : Colors.white54,
+                  fontSize: 12,
+                ),
               ),
             ],
           ),
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (isPaused)
+              IconButton(
+                tooltip: 'Resume download',
+                onPressed: () => _resumeDownload(download.downloadKey),
+                icon: const Icon(
+                  Icons.play_arrow_rounded,
+                  color: Colors.green,
+                ),
+              )
+            else
+              IconButton(
+                tooltip: 'Pause download',
+                onPressed: () => _pauseDownload(download.downloadKey),
+                icon: const Icon(
+                  Icons.pause_rounded,
+                  color: Colors.orange,
+                ),
+              ),
+          ],
         ),
       ),
     );

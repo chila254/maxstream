@@ -21,6 +21,7 @@ class ActiveMediaDownload {
     required this.progress,
     required this.downloadedBytes,
     required this.totalBytes,
+    required this.isPaused,
     this.service,
   });
 
@@ -31,6 +32,7 @@ class ActiveMediaDownload {
   final double progress;
   final int downloadedBytes;
   final int? totalBytes;
+  final bool isPaused;
   final MediaDownloadService? service;
 
   ActiveMediaDownload copyWith({
@@ -38,6 +40,7 @@ class ActiveMediaDownload {
     int? downloadedBytes,
     int? totalBytes,
     MediaDownloadService? service,
+    bool? isPaused,
   }) => ActiveMediaDownload(
     downloadKey: downloadKey,
     title: title,
@@ -47,6 +50,7 @@ class ActiveMediaDownload {
     downloadedBytes: downloadedBytes ?? this.downloadedBytes,
     totalBytes: totalBytes ?? this.totalBytes,
     service: service ?? this.service,
+    isPaused: isPaused ?? this.isPaused,
   );
 
   String get sizeLabel {
@@ -77,6 +81,22 @@ class MediaDownloadManager extends ChangeNotifier {
   int get completionVersion => _completionVersion;
 
   ActiveMediaDownload? taskFor(String downloadKey) => _active[downloadKey];
+
+  void pauseDownload(String downloadKey) {
+    final task = _active[downloadKey];
+    if (task == null) return;
+    task.service?.pause();
+    _active[downloadKey] = task.copyWith(isPaused: true);
+    notifyListeners();
+  }
+
+  void resumeDownload(String downloadKey) {
+    final task = _active[downloadKey];
+    if (task == null) return;
+    task.service?.resume();
+    _active[downloadKey] = task.copyWith(isPaused: false);
+    notifyListeners();
+  }
 
   Future<bool> resolveAndStart({
     required String downloadKey,
@@ -193,6 +213,7 @@ class MediaDownloadManager extends ChangeNotifier {
       downloadedBytes: 0,
       totalBytes: null,
       service: service,
+      isPaused: false,
     );
     notifyListeners();
 
@@ -261,6 +282,26 @@ class MediaDownloadManager extends ChangeNotifier {
         label: label,
       );
     } catch (error) {
+      // Connection-related errors: mark as paused
+      final isConnectionError =
+          error is SocketException ||
+          error is HttpException ||
+          error is TimeoutException ||
+          error.toString().contains('Connection reset') ||
+          error.toString().contains('Connection refused') ||
+          error.toString().contains('Connection closed') ||
+          error.toString().contains('Software caused connection abort');
+      if (isConnectionError && _active.containsKey(downloadKey)) {
+        service.pause();
+        _active[downloadKey] = _active[downloadKey]!.copyWith(isPaused: true);
+        notifyListeners();
+        await NotificationService().showDownloadFinished(
+          id: notificationId,
+          label: label,
+          error: 'Paused — connection lost',
+        );
+        return;
+      }
       await NotificationService().showDownloadFinished(
         id: notificationId,
         label: label,

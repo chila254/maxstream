@@ -28,12 +28,32 @@ class MediaDownloadService {
   final http.Client _client;
   final bool _ownsClient;
   bool _cancelled = false;
+  bool _paused = false;
+  Completer<void>? _pauseCompleter;
 
   static const int _maxRetries = 10;
   static const Duration _initialRetryDelay = Duration(seconds: 2);
   static const Duration _maxRetryDelay = Duration(seconds: 60);
 
   void cancel() => _cancelled = true;
+
+  void pause() {
+    _paused = true;
+  }
+
+  void resume() {
+    _paused = false;
+    _pauseCompleter?.complete();
+    _pauseCompleter = null;
+  }
+
+  bool get isPaused => _paused;
+
+  Future<void> _waitForResume() async {
+    if (!_paused) return;
+    _pauseCompleter = Completer<void>();
+    await _pauseCompleter!.future;
+  }
 
   Future<MediaDownloadResult> download({
     required String url,
@@ -156,6 +176,7 @@ class MediaDownloadService {
         try {
           await for (final bytes in response.stream) {
             if (_cancelled) break;
+            await _waitForResume();
             sink.add(bytes);
             received += bytes.length;
             if (total != null && total > 0) {
@@ -233,6 +254,7 @@ class MediaDownloadService {
     var downloadedBytes = 0;
     for (final entry in resources.entries) {
       if (_cancelled) break;
+      await _waitForResume();
       final file = File(p.join(directory.path, entry.value));
 
       // Skip already-downloaded segments.
@@ -303,6 +325,7 @@ class MediaDownloadService {
         await cleanup?.call();
         throw StateError('Download cancelled');
       }
+      await _waitForResume();
       try {
         final total = totalGetter != null ? await totalGetter() : null;
         await execute(total);
@@ -318,7 +341,12 @@ class MediaDownloadService {
             e.toString().contains('Connection refused') ||
             e.toString().contains('Connection closed');
 
-        if (!isRetryable || attempt == _maxRetries - 1) {
+        if (!isRetryable) {
+          await cleanup?.call();
+          rethrow;
+        }
+
+        if (attempt == _maxRetries - 1) {
           await cleanup?.call();
           rethrow;
         }
@@ -459,6 +487,8 @@ class MediaDownloadService {
 
   void dispose() {
     _cancelled = true;
+    _pauseCompleter?.complete();
+    _pauseCompleter = null;
     if (_ownsClient) _client.close();
   }
 }
