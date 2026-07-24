@@ -34,7 +34,7 @@ class GoodstreamExtractor {
         val m3u8Regex = Regex("""["'](https?://[^"']*\.m3u8[^"']*)["']""")
         val m3u8Match = m3u8Regex.find(html)
         if (m3u8Match != null) {
-            val streamUrl = m3u8Match.groupValues[1)
+            val streamUrl = m3u8Match.groupValues[1]
             android.util.Log.d(tag, "Found m3u8: $streamUrl")
 
             val headers = mapOf(
