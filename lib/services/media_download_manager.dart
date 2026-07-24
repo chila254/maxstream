@@ -23,6 +23,15 @@ class ActiveMediaDownload {
     required this.totalBytes,
     required this.isPaused,
     this.service,
+    this.url,
+    this.headers = const {},
+    this.isHls = false,
+    this.mediaId = '',
+    this.isMovie = false,
+    this.seriesId,
+    this.seasonNumber,
+    this.episodeNumber,
+    this.subtitles = const [],
   });
 
   final String downloadKey;
@@ -34,6 +43,15 @@ class ActiveMediaDownload {
   final int? totalBytes;
   final bool isPaused;
   final MediaDownloadService? service;
+  final String? url;
+  final Map<String, String> headers;
+  final bool isHls;
+  final String mediaId;
+  final bool isMovie;
+  final String? seriesId;
+  final int? seasonNumber;
+  final int? episodeNumber;
+  final List<Map<String, dynamic>> subtitles;
 
   ActiveMediaDownload copyWith({
     double? progress,
@@ -51,6 +69,15 @@ class ActiveMediaDownload {
     totalBytes: totalBytes ?? this.totalBytes,
     service: service ?? this.service,
     isPaused: isPaused ?? this.isPaused,
+    url: url,
+    headers: headers,
+    isHls: isHls,
+    mediaId: mediaId,
+    isMovie: isMovie,
+    seriesId: seriesId,
+    seasonNumber: seasonNumber,
+    episodeNumber: episodeNumber,
+    subtitles: subtitles,
   );
 
   String get sizeLabel {
@@ -92,10 +119,107 @@ class MediaDownloadManager extends ChangeNotifier {
 
   void resumeDownload(String downloadKey) {
     final task = _active[downloadKey];
-    if (task == null) return;
-    task.service?.resume();
+    if (task == null || task.url == null) return;
+
+    // Mark as not paused
     _active[downloadKey] = task.copyWith(isPaused: false);
     notifyListeners();
+
+    // Restart the download with a new service (partial file will be resumed)
+    _restartDownload(task);
+  }
+
+  Future<void> _restartDownload(ActiveMediaDownload task) async {
+    final service = MediaDownloadService();
+    _active[task.downloadKey] = _active[task.downloadKey]!.copyWith(service: service);
+    notifyListeners();
+
+    await _ensureForegroundService();
+
+    final notificationId = task.downloadKey.hashCode & 0x7fffffff;
+    var lastNotificationProgress = -1;
+
+    try {
+      final result = await service.download(
+        url: task.url!,
+        headers: task.headers,
+        downloadId: task.downloadKey,
+        hls: task.isHls,
+        onProgress: (progress) {
+          _active[task.downloadKey] = _active[task.downloadKey]!.copyWith(
+            progress: progress,
+          );
+          notifyListeners();
+          final percent = (progress * 100).round().clamp(0, 100);
+          if (percent != lastNotificationProgress) {
+            lastNotificationProgress = percent;
+            unawaited(
+              NotificationService().showDownloadProgress(
+                id: notificationId,
+                title: task.isMovie ? 'Downloading movie' : 'Downloading episode',
+                label: task.label,
+                progress: percent,
+                size: _active[task.downloadKey]!.sizeLabel,
+              ),
+            );
+          }
+        },
+        onBytesProgress: (downloadedBytes, totalBytes) {
+          _active[task.downloadKey] = _active[task.downloadKey]!.copyWith(
+            downloadedBytes: downloadedBytes,
+            totalBytes: totalBytes,
+          );
+          notifyListeners();
+        },
+      );
+      final localSubtitles = await _downloadSubtitles(
+        task.subtitles,
+        File(result.localPath).parent,
+        task.headers,
+      );
+      await DBHelper.insertMediaDownload(
+        downloadKey: task.downloadKey,
+        mediaId: task.mediaId,
+        mediaType: task.isMovie ? 'movie' : 'episode',
+        seriesId: task.seriesId,
+        seasonNumber: task.seasonNumber,
+        episodeNumber: task.episodeNumber,
+        title: task.title,
+        thumbnail: task.thumbnail,
+        localPath: result.localPath,
+        subtitles: localSubtitles,
+      );
+      _completionVersion++;
+      await NotificationService().showDownloadFinished(
+        id: notificationId,
+        label: task.label,
+      );
+    } catch (error) {
+      final isConnectionError =
+          error is SocketException ||
+          error is HttpException ||
+          error is TimeoutException ||
+          error.toString().contains('Connection reset') ||
+          error.toString().contains('Connection refused') ||
+          error.toString().contains('Connection closed');
+      if (isConnectionError && _active.containsKey(task.downloadKey)) {
+        service.pause();
+        _active[task.downloadKey] = _active[task.downloadKey]!.copyWith(isPaused: true);
+        notifyListeners();
+        return;
+      }
+      rethrow;
+    } finally {
+      final current = _active[task.downloadKey];
+      if (current != null && current.isPaused) {
+        notifyListeners();
+      } else {
+        service.dispose();
+        _active.remove(task.downloadKey);
+        notifyListeners();
+        await _updateOrStopForegroundService();
+      }
+    }
   }
 
   Future<bool> resolveAndStart({
@@ -214,6 +338,15 @@ class MediaDownloadManager extends ChangeNotifier {
       totalBytes: null,
       service: service,
       isPaused: false,
+      url: url,
+      headers: headers,
+      isHls: isHls,
+      mediaId: mediaId,
+      isMovie: isMovie,
+      seriesId: seriesId,
+      seasonNumber: seasonNumber,
+      episodeNumber: episodeNumber,
+      subtitles: subtitles,
     );
     notifyListeners();
 
@@ -309,10 +442,16 @@ class MediaDownloadManager extends ChangeNotifier {
       );
       rethrow;
     } finally {
-      service.dispose();
-      _active.remove(downloadKey);
-      notifyListeners();
-      await _updateOrStopForegroundService();
+      final task = _active[downloadKey];
+      if (task != null && task.isPaused) {
+        // Keep paused downloads in _active - don't dispose or remove
+        notifyListeners();
+      } else {
+        service.dispose();
+        _active.remove(downloadKey);
+        notifyListeners();
+        await _updateOrStopForegroundService();
+      }
     }
   }
 
