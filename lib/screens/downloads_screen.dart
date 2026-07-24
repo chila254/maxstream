@@ -36,7 +36,10 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
   void _handleDownloadManagerChanged() {
     if (_completionVersion != _downloadManager.completionVersion) {
       _completionVersion = _downloadManager.completionVersion;
-      _loadDownloads();
+      // Small delay to ensure files are fully written to disk
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (mounted) _loadDownloads();
+      });
     } else if (mounted) {
       setState(() {});
     }
@@ -47,7 +50,10 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
     final downloads = await DBHelper.getMediaDownloads();
     final existing = <Map<String, dynamic>>[];
     for (final download in downloads) {
-      if (await File(download['localPath']?.toString() ?? '').exists()) {
+      final path = download['localPath']?.toString() ?? '';
+      // Check file exists, but also include downloads that are still active
+      // (being downloaded) so they don't disappear from the list
+      if (path.isNotEmpty && (await File(path).exists() || _isStillDownloading(download))) {
         existing.add(download);
       }
     }
@@ -57,6 +63,11 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
         _loading = false;
       });
     }
+  }
+
+  bool _isStillDownloading(Map<String, dynamic> download) {
+    final key = download['downloadKey']?.toString() ?? '';
+    return _downloadManager.taskFor(key) != null;
   }
 
   Future<void> _play(Map<String, dynamic> download) async {
