@@ -89,7 +89,23 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
   void _createPlayer(web.HTMLDivElement container, String url, String type) {
     debugPrint('WebVideoPlayer: Creating player for $url (type=$type)');
 
-    // Direct HLS playback only. Provider pages are never embedded.
+    if (type == 'embed') {
+      // Load embed URL in iframe
+      _createAdBlockingCss(container);
+      final iframe = web.document.createElement('iframe') as web.HTMLIFrameElement;
+      iframe.src = url;
+      iframe.style
+        ..width = '100%'
+        ..height = '100%'
+        ..border = 'none'
+        ..backgroundColor = 'black';
+      iframe.setAttribute('allow', 'autoplay; fullscreen; encrypted-media; picture-in-picture');
+      iframe.setAttribute('allowfullscreen', 'true');
+      container.appendChild(iframe);
+      return;
+    }
+
+    // HLS or direct video
     final video = web.document.createElement('video') as web.HTMLVideoElement;
     video.style
       ..width = '100%'
@@ -106,6 +122,21 @@ class _WebVideoPlayerScreenState extends State<WebVideoPlayerScreen> {
     } else {
       video.src = url;
     }
+  }
+
+  void _createAdBlockingCss(web.HTMLDivElement container) {
+    final style = web.document.createElement('style') as web.HTMLStyleElement;
+    style.textContent = '''
+      .ad, .ads, .advert, .popup, .overlay-ad,
+      [class*="ad-"], [class*="advert"], [id*="ad-"],
+      [class*="popup"], [class*="modal"], [class*="interstitial"],
+      .video-ad, .player-ad, .skip-ad, .ad-container {
+        display: none !important;
+        visibility: hidden !important;
+        pointer-events: none !important;
+      }
+    ''';
+    container.appendChild(style);
   }
 
   void _loadHlsJs(web.HTMLVideoElement video, String url) {
