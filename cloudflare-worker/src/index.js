@@ -75,6 +75,7 @@ export default {
         if (server === "vixsrc") result = await this.extractVixSrc(tmdbId, isMovie, season, episode);
         else if (server === "vidlink") result = await this.extractVidLink(tmdbId, isMovie, season, episode);
         else if (server === "2embed") result = await this.extract2Embed(tmdbId, isMovie, season, episode);
+        else if (server === "goodstream") result = await this.extractGoodstream(tmdbId, isMovie, season, episode);
 
         if (result) {
           console.log(`${server} success: ${result.url}`);
@@ -135,6 +136,20 @@ export default {
       console.log(`2Embed failed: ${e.message}`);
     }
 
+    // Try Goodstream
+    try {
+      const result = await this.extractGoodstream(tmdbId, isMovie, season, episode);
+      if (result) {
+        console.log(`Goodstream success: ${result.url}`);
+        const publicResult = await this.createPublicResult(result, env, workerOrigin);
+        return new Response(JSON.stringify(publicResult), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    } catch (e) {
+      console.log(`Goodstream failed: ${e.message}`);
+    }
+
     return new Response(JSON.stringify({ error: "No stream found" }), {
       status: 404,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -161,6 +176,7 @@ export default {
     if (source === "VixSrc") return "vixsrc";
     if (source === "VidLink") return "vidlink";
     if (source === "2Embed") return "2embed";
+    if (source === "Goodstream") return "goodstream";
     throw new Error("Unsupported provider profile");
   },
 
@@ -175,6 +191,9 @@ export default {
     } else if (profile === "2embed") {
       headers.Referer = "https://www.2embed.cc/";
       headers.Origin = "https://www.2embed.cc";
+    } else if (profile === "goodstream") {
+      headers.Referer = "https://goodstream.one/";
+      headers.Origin = "https://goodstream.one";
     } else {
       throw new Error("Invalid provider profile");
     }
@@ -580,6 +599,101 @@ export default {
   },
 
   // === 2Embed Extractor ===
+  // === Goodstream Extractor ===
+  // Fetches page and looks for jwplayer sources with file: "url" pattern
+  async extractGoodstream(tmdbId, isMovie, season, episode) {
+    const pageUrl = isMovie
+      ? `https://goodstream.one/movie/${tmdbId}`
+      : `https://goodstream.one/tv/${tmdbId}/${season}/${episode}`;
+
+    console.log(`Goodstream page: ${pageUrl}`);
+
+    const resp = await fetch(pageUrl, {
+      headers: {
+        "User-Agent": USER_AGENT,
+        "Referer": "https://goodstream.one",
+      },
+      redirect: "follow",
+    });
+
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+    const html = await resp.text();
+
+    // Look for jwplayer sources: file: "url"
+    const fileMatch = html.match(/file\s*:\s*["']([^"']+)["']/);
+    if (fileMatch) {
+      const url = fileMatch[1];
+      if (url.includes(".m3u8")) {
+        return {
+          url: url.startsWith("http") ? url : `https://goodstream.one${url}`,
+          source: "Goodstream",
+          type: "hls",
+          referer: "https://goodstream.one",
+        };
+      }
+      return {
+        url: url.startsWith("http") ? url : `https://goodstream.one${url}`,
+        source: "Goodstream",
+        type: "direct",
+        referer: "https://goodstream.one",
+      };
+    }
+
+    // Fallback: look for m3u8 URLs
+    const m3u8Urls = this.extractUrls(html, /\.m3u8/);
+    if (m3u8Urls.length > 0) {
+      return {
+        url: m3u8Urls[0],
+        source: "Goodstream",
+        type: "hls",
+        referer: "https://goodstream.one",
+      };
+    }
+
+    // Look for iframes
+    const iframeMatch = html.match(/iframe[^>]+src=["']([^"']+)["']/i);
+    if (iframeMatch) {
+      let iframeUrl = iframeMatch[1];
+      if (!iframeUrl.startsWith("http")) {
+        iframeUrl = new URL(iframeUrl, pageUrl).href;
+      }
+
+      const iframeResp = await fetch(iframeUrl, {
+        headers: {
+          "User-Agent": USER_AGENT,
+          "Referer": "https://goodstream.one",
+        },
+      });
+
+      if (iframeResp.ok) {
+        const iframeHtml = await iframeResp.text();
+        const iframeFileMatch = iframeHtml.match(/file\s*:\s*["']([^"']+)["']/);
+        if (iframeFileMatch) {
+          const url = iframeFileMatch[1];
+          return {
+            url: url.startsWith("http") ? url : new URL(url, iframeUrl).href,
+            source: "Goodstream",
+            type: url.includes(".m3u8") ? "hls" : "direct",
+            referer: iframeUrl,
+          };
+        }
+
+        const iframeM3u8 = this.extractUrls(iframeHtml, /\.m3u8/);
+        if (iframeM3u8.length > 0) {
+          return {
+            url: iframeM3u8[0],
+            source: "Goodstream",
+            type: "hls",
+            referer: iframeUrl,
+          };
+        }
+      }
+    }
+
+    return null;
+  },
+
   async extract2Embed(tmdbId, isMovie, season, episode) {
     const pageUrl = isMovie
       ? `https://www.2embed.cc/embed/${tmdbId}`

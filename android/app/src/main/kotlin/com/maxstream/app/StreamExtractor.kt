@@ -204,6 +204,8 @@ class StreamExtractor(private val context: Context) {
         )
     }
 
+    private val goodstreamExtractor = GoodstreamExtractor()
+
     suspend fun resolveStream(
         tmdbId: String,
         isMovie: Boolean,
@@ -280,6 +282,46 @@ class StreamExtractor(private val context: Context) {
         }.awaitAll().flatten().distinctBy { it.url }
     }
 
+    private suspend fun extractGoodstream(server: StreamServer): StreamResult? {
+        return withContext(Dispatchers.IO) {
+            try {
+                val request = Request.Builder()
+                    .url(server.url)
+                    .header("User-Agent", userAgent)
+                    .header("Referer", "https://goodstream.one")
+                    .build()
+
+                val response = client.newCall(request).execute()
+                if (!response.isSuccessful) {
+                    Log.e(tag, "Goodstream HTTP ${response.code}")
+                    return@withContext null
+                }
+
+                val html = response.body?.string() ?: return@withContext null
+                val extractor = GoodstreamExtractor()
+                val result = extractor.extract(html, server.url)
+
+                if (result != null) {
+                    val url = result["url"] as String
+                    val headers = result["headers"] as? Map<String, String> ?: emptyMap()
+                    validateStream(
+                        StreamResult(
+                            url = url,
+                            source = "Goodstream",
+                            type = result["type"] as String? ?: "direct",
+                            headers = headers
+                        )
+                    )
+                } else {
+                    null
+                }
+            } catch (e: Exception) {
+                Log.e(tag, "Goodstream extraction failed: ${e.message}")
+                null
+            }
+        }
+    }
+
     private suspend fun extractServer(initialServer: StreamServer): StreamResult? {
         var server = initialServer
         val visited = mutableSetOf<String>()
@@ -288,6 +330,11 @@ class StreamExtractor(private val context: Context) {
             if (!visited.add(server.url)) {
                 Log.w(tag, "Extractor redirect loop for ${server.url}")
                 return null
+            }
+
+            // Handle Goodstream specially
+            if (server.name == "Goodstream") {
+                return extractGoodstream(server)
             }
 
             val extractor = extractorRegistry.firstOrNull { it.supports(server) }
@@ -404,6 +451,15 @@ class StreamExtractor(private val context: Context) {
                     "https://maxstream.video/movie/$id"
                 } else {
                     "https://maxstream.video/tv/$id/${request.season}/${request.episode}"
+                },
+            )
+
+            servers += StreamServer(
+                "Goodstream",
+                if (request.isMovie) {
+                    "https://goodstream.one/movie/$id"
+                } else {
+                    "https://goodstream.one/tv/$id/${request.season}/${request.episode}"
                 },
             )
 

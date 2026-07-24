@@ -29,6 +29,12 @@ class WebStreamService {
       'movieUrl': 'https://www.2embed.cc/embed/{id}',
       'tvUrl': 'https://www.2embed.cc/embedtv/{id}&s={season}&e={episode}',
     },
+    {
+      'name': 'Goodstream',
+      'id': 'goodstream',
+      'movieUrl': 'https://goodstream.one/movie/{id}',
+      'tvUrl': 'https://goodstream.one/tv/{id}/{season}/{episode}',
+    },
   ];
 
   /// Resolve a stream URL from a specific server.
