@@ -512,6 +512,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   final ValueNotifier<List<Subtitle>> _activeSubtitles =
       ValueNotifier<List<Subtitle>>(const []);
   final ValueNotifier<String> _selectedSubtitle = ValueNotifier<String>('Off');
+  double _subtitleOffsetMs = 0; // Subtitle timing offset in milliseconds
   String _statusMessage = 'Initializing...';
   Timer? _progressTimer;
   bool _isLeaving = false;
@@ -1451,39 +1452,126 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   }
 
   Future<void> _showSubtitlePicker() async {
-    if (!mounted || _subtitleTracks.isEmpty) return;
+    if (!mounted) return;
     await showModalBottomSheet<void>(
       context: context,
       backgroundColor: const Color(0xff202124),
       builder: (sheetContext) => SafeArea(
-        child: ListView(
-          shrinkWrap: true,
-          children: [
-            const ListTile(
-              leading: Icon(Icons.subtitles, color: Colors.white),
-              title: Text(
-                'Subtitles',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
+        child: StatefulBuilder(
+          builder: (context, setSheetState) => ListView(
+            shrinkWrap: true,
+            children: [
+              const ListTile(
+                leading: Icon(Icons.subtitles, color: Colors.white),
+                title: Text(
+                  'Subtitles',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
-            ),
-            RadioListTile<String>(
-              value: 'Off',
-              groupValue: _selectedSubtitle.value,
-              activeColor: Colors.red,
-              title: const Text('Off', style: TextStyle(color: Colors.white)),
-              onChanged: (_) {
-                Navigator.of(sheetContext).pop();
-                setState(() {
-                  _selectedSubtitle.value = 'Off';
-                  _activeSubtitles.value = const [];
-                });
-              },
-            ),
-            ..._buildGroupedSubtitleTiles(),
-          ],
+              RadioListTile<String>(
+                value: 'Off',
+                groupValue: _selectedSubtitle.value,
+                activeColor: Colors.red,
+                title: const Text('Off', style: TextStyle(color: Colors.white)),
+                onChanged: (_) {
+                  Navigator.of(sheetContext).pop();
+                  setState(() {
+                    _selectedSubtitle.value = 'Off';
+                    _activeSubtitles.value = const [];
+                  });
+                },
+              ),
+              // Subtitle offset adjustment
+              if (_selectedSubtitle.value != 'Off') ...[
+                const Divider(color: Colors.white24),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            'Subtitle Offset',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          Text(
+                            '${_subtitleOffsetMs.round()}ms',
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Adjust if subtitles are out of sync with video',
+                        style: TextStyle(color: Colors.white54, fontSize: 12),
+                      ),
+                      SliderTheme(
+                        data: SliderThemeData(
+                          activeTrackColor: Colors.red,
+                          inactiveTrackColor: Colors.white24,
+                          thumbColor: Colors.red,
+                          overlayColor: Colors.red.withOpacity(0.2),
+                        ),
+                        child: Slider(
+                          value: _subtitleOffsetMs.clamp(-5000, 5000),
+                          min: -5000,
+                          max: 5000,
+                          divisions: 100,
+                          onChanged: (value) {
+                            setSheetState(() {
+                              _subtitleOffsetMs = value;
+                            });
+                            setState(() {});
+                          },
+                        ),
+                      ),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          TextButton(
+                            onPressed: () {
+                              setSheetState(() {
+                                _subtitleOffsetMs = 0;
+                              });
+                              setState(() {});
+                            },
+                            child: const Text(
+                              'Reset',
+                              style: TextStyle(color: Colors.red),
+                            ),
+                          ),
+                          Text(
+                            _subtitleOffsetMs > 0
+                                ? 'Subtitles later'
+                                : _subtitleOffsetMs < 0
+                                    ? 'Subtitles earlier'
+                                    : 'Synced',
+                            style: const TextStyle(
+                              color: Colors.white54,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              const Divider(color: Colors.white24),
+              ..._buildGroupedSubtitleTiles(),
+            ],
+          ),
         ),
       ),
     );
@@ -2209,10 +2297,16 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
                   return ValueListenableBuilder<VideoPlayerValue>(
                     valueListenable: _videoPlayerController!,
                     builder: (context, value, _) {
+                      // Apply subtitle offset for sync adjustment
+                      final adjustedPosition = Duration(
+                        milliseconds:
+                            value.position.inMilliseconds +
+                            _subtitleOffsetMs.round(),
+                      );
                       final cues = subtitles.where(
                         (cue) =>
-                            value.position >= cue.start &&
-                            value.position <= cue.end,
+                            adjustedPosition >= cue.start &&
+                            adjustedPosition <= cue.end,
                       );
                       if (cues.isEmpty) return const SizedBox.shrink();
                       return Center(
