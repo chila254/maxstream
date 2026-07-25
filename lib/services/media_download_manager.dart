@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../database/db_helper.dart';
@@ -58,6 +60,7 @@ class ActiveMediaDownload {
     int? downloadedBytes,
     int? totalBytes,
     MediaDownloadService? service,
+    bool clearService = false,
     bool? isPaused,
   }) => ActiveMediaDownload(
     downloadKey: downloadKey,
@@ -67,7 +70,7 @@ class ActiveMediaDownload {
     progress: progress ?? this.progress,
     downloadedBytes: downloadedBytes ?? this.downloadedBytes,
     totalBytes: totalBytes ?? this.totalBytes,
-    service: service ?? this.service,
+    service: clearService ? null : service ?? this.service,
     isPaused: isPaused ?? this.isPaused,
     url: url,
     headers: headers,
@@ -93,15 +96,65 @@ class ActiveMediaDownload {
     if (bytes >= gb) return '${(bytes / gb).toStringAsFixed(2)} GB';
     return '${(bytes / mb).toStringAsFixed(1)} MB';
   }
+
+  Map<String, dynamic> toJson() => {
+    'downloadKey': downloadKey,
+    'title': title,
+    'label': label,
+    'thumbnail': thumbnail,
+    'progress': progress,
+    'downloadedBytes': downloadedBytes,
+    'totalBytes': totalBytes,
+    'url': url,
+    'headers': headers,
+    'isHls': isHls,
+    'mediaId': mediaId,
+    'isMovie': isMovie,
+    'seriesId': seriesId,
+    'seasonNumber': seasonNumber,
+    'episodeNumber': episodeNumber,
+    'subtitles': subtitles,
+  };
+
+  factory ActiveMediaDownload.fromJson(Map<String, dynamic> json) {
+    return ActiveMediaDownload(
+      downloadKey: json['downloadKey']?.toString() ?? '',
+      title: json['title']?.toString() ?? 'Download',
+      label: json['label']?.toString() ?? 'Download',
+      thumbnail: json['thumbnail']?.toString() ?? '',
+      progress: (json['progress'] as num?)?.toDouble() ?? 0,
+      downloadedBytes: (json['downloadedBytes'] as num?)?.toInt() ?? 0,
+      totalBytes: (json['totalBytes'] as num?)?.toInt(),
+      isPaused: true,
+      url: json['url']?.toString(),
+      headers: (json['headers'] as Map? ?? const {}).map(
+        (key, value) => MapEntry(key.toString(), value.toString()),
+      ),
+      isHls: json['isHls'] == true,
+      mediaId: json['mediaId']?.toString() ?? '',
+      isMovie: json['isMovie'] == true,
+      seriesId: json['seriesId']?.toString(),
+      seasonNumber: (json['seasonNumber'] as num?)?.toInt(),
+      episodeNumber: (json['episodeNumber'] as num?)?.toInt(),
+      subtitles: (json['subtitles'] as List? ?? const [])
+          .whereType<Map>()
+          .map(
+            (item) => item.map((key, value) => MapEntry(key.toString(), value)),
+          )
+          .toList(),
+    );
+  }
 }
 
 class MediaDownloadManager extends ChangeNotifier {
   MediaDownloadManager._();
 
   static final MediaDownloadManager instance = MediaDownloadManager._();
+  static const _pendingDownloadsKey = 'pending_media_downloads';
 
   final Map<String, ActiveMediaDownload> _active = {};
   int _completionVersion = 0;
+  bool _initialized = false;
 
   List<ActiveMediaDownload> get activeDownloads =>
       List.unmodifiable(_active.values);
@@ -109,29 +162,76 @@ class MediaDownloadManager extends ChangeNotifier {
 
   ActiveMediaDownload? taskFor(String downloadKey) => _active[downloadKey];
 
+  Future<void> initialize() async {
+    if (_initialized) return;
+    _initialized = true;
+    final preferences = await SharedPreferences.getInstance();
+    final encoded = preferences.getString(_pendingDownloadsKey);
+    if (encoded == null || encoded.isEmpty) return;
+    try {
+      final decoded = jsonDecode(encoded);
+      if (decoded is! List) throw const FormatException('Invalid downloads');
+      final pending = decoded;
+      for (final value in pending.whereType<Map>()) {
+        final task = ActiveMediaDownload.fromJson(
+          value.map((key, value) => MapEntry(key.toString(), value)),
+        );
+        if (task.downloadKey.isNotEmpty && task.url?.isNotEmpty == true) {
+          _active[task.downloadKey] = task;
+        }
+      }
+      notifyListeners();
+    } on FormatException {
+      await preferences.remove(_pendingDownloadsKey);
+    }
+  }
+
+  Future<void> _persistActiveDownloads() async {
+    final preferences = await SharedPreferences.getInstance();
+    if (_active.isEmpty) {
+      await preferences.remove(_pendingDownloadsKey);
+      return;
+    }
+    await preferences.setString(
+      _pendingDownloadsKey,
+      jsonEncode(_active.values.map((task) => task.toJson()).toList()),
+    );
+  }
+
   void pauseDownload(String downloadKey) {
     final task = _active[downloadKey];
     if (task == null) return;
     task.service?.pause();
     _active[downloadKey] = task.copyWith(isPaused: true);
     notifyListeners();
+    unawaited(_persistActiveDownloads());
+    unawaited(_updateOrStopForegroundService());
   }
 
   void resumeDownload(String downloadKey) {
     final task = _active[downloadKey];
     if (task == null || task.url == null) return;
 
-    // Mark as not paused
     _active[downloadKey] = task.copyWith(isPaused: false);
     notifyListeners();
+    unawaited(_persistActiveDownloads());
 
-    // Restart the download with a new service (partial file will be resumed)
-    _restartDownload(task);
+    final service = task.service;
+    if (service != null) {
+      service.resume();
+      unawaited(_ensureForegroundService());
+    } else {
+      // Restored and failed tasks have no running transfer. Start a new one;
+      // MediaDownloadService resumes its partial files from disk.
+      unawaited(_restartDownload(task));
+    }
   }
 
   Future<void> _restartDownload(ActiveMediaDownload task) async {
     final service = MediaDownloadService();
-    _active[task.downloadKey] = _active[task.downloadKey]!.copyWith(service: service);
+    _active[task.downloadKey] = _active[task.downloadKey]!.copyWith(
+      service: service,
+    );
     notifyListeners();
 
     await _ensureForegroundService();
@@ -153,10 +253,13 @@ class MediaDownloadManager extends ChangeNotifier {
           final percent = (progress * 100).round().clamp(0, 100);
           if (percent != lastNotificationProgress) {
             lastNotificationProgress = percent;
+            unawaited(_persistActiveDownloads());
             unawaited(
               NotificationService().showDownloadProgress(
                 id: notificationId,
-                title: task.isMovie ? 'Downloading movie' : 'Downloading episode',
+                title: task.isMovie
+                    ? 'Downloading movie'
+                    : 'Downloading episode',
                 label: task.label,
                 progress: percent,
                 size: _active[task.downloadKey]!.sizeLabel,
@@ -195,20 +298,23 @@ class MediaDownloadManager extends ChangeNotifier {
         label: task.label,
       );
     } catch (error) {
-      final isConnectionError =
-          error is SocketException ||
-          error is HttpException ||
-          error is TimeoutException ||
-          error.toString().contains('Connection reset') ||
-          error.toString().contains('Connection refused') ||
-          error.toString().contains('Connection closed');
-      if (isConnectionError && _active.containsKey(task.downloadKey)) {
+      if (_active.containsKey(task.downloadKey)) {
         service.pause();
-        _active[task.downloadKey] = _active[task.downloadKey]!.copyWith(isPaused: true);
+        service.dispose();
+        _active[task.downloadKey] = _active[task.downloadKey]!.copyWith(
+          isPaused: true,
+          clearService: true,
+        );
         notifyListeners();
+        await _persistActiveDownloads();
+        await _updateOrStopForegroundService();
+        await NotificationService().showDownloadFinished(
+          id: notificationId,
+          label: task.label,
+          error: 'Paused — ${error.toString()}',
+        );
         return;
       }
-      rethrow;
     } finally {
       final current = _active[task.downloadKey];
       if (current != null && current.isPaused) {
@@ -217,6 +323,7 @@ class MediaDownloadManager extends ChangeNotifier {
         service.dispose();
         _active.remove(task.downloadKey);
         notifyListeners();
+        await _persistActiveDownloads();
         await _updateOrStopForegroundService();
       }
     }
@@ -282,29 +389,24 @@ class MediaDownloadManager extends ChangeNotifier {
   }
 
   Future<void> _ensureForegroundService() async {
-    if (_active.isEmpty) {
-      await WakelockPlus.enable();
-      await DownloadServiceBridge.startForegroundService(
-        downloadCount: 1,
-        title: _active.values.first.title,
-      );
-    } else {
-      // Update count.
-      await DownloadServiceBridge.startForegroundService(
-        downloadCount: _active.length + 1,
-        title: _active.values.first.title,
-      );
-    }
+    final running = _active.values.where((task) => !task.isPaused).toList();
+    if (running.isEmpty) return;
+    await WakelockPlus.enable();
+    await DownloadServiceBridge.startForegroundService(
+      downloadCount: running.length,
+      title: running.first.title,
+    );
   }
 
   Future<void> _updateOrStopForegroundService() async {
-    if (_active.isEmpty) {
+    final running = _active.values.where((task) => !task.isPaused).toList();
+    if (running.isEmpty) {
       await DownloadServiceBridge.stopForegroundService();
       await WakelockPlus.disable();
     } else {
       await DownloadServiceBridge.startForegroundService(
-        downloadCount: _active.length,
-        title: _active.values.first.title,
+        downloadCount: running.length,
+        title: running.first.title,
       );
     }
   }
@@ -349,6 +451,7 @@ class MediaDownloadManager extends ChangeNotifier {
       subtitles: subtitles,
     );
     notifyListeners();
+    await _persistActiveDownloads();
 
     // Start foreground service and wakelock when first download begins.
     await _ensureForegroundService();
@@ -373,6 +476,7 @@ class MediaDownloadManager extends ChangeNotifier {
           final percent = (progress * 100).round().clamp(0, 100);
           if (percent != lastNotificationProgress) {
             lastNotificationProgress = percent;
+            unawaited(_persistActiveDownloads());
             unawaited(
               NotificationService().showDownloadProgress(
                 id: notificationId,
@@ -415,32 +519,23 @@ class MediaDownloadManager extends ChangeNotifier {
         label: label,
       );
     } catch (error) {
-      // Connection-related errors: mark as paused
-      final isConnectionError =
-          error is SocketException ||
-          error is HttpException ||
-          error is TimeoutException ||
-          error.toString().contains('Connection reset') ||
-          error.toString().contains('Connection refused') ||
-          error.toString().contains('Connection closed') ||
-          error.toString().contains('Software caused connection abort');
-      if (isConnectionError && _active.containsKey(downloadKey)) {
+      if (_active.containsKey(downloadKey)) {
         service.pause();
-        _active[downloadKey] = _active[downloadKey]!.copyWith(isPaused: true);
+        service.dispose();
+        _active[downloadKey] = _active[downloadKey]!.copyWith(
+          isPaused: true,
+          clearService: true,
+        );
         notifyListeners();
+        await _persistActiveDownloads();
+        await _updateOrStopForegroundService();
         await NotificationService().showDownloadFinished(
           id: notificationId,
           label: label,
-          error: 'Paused — connection lost',
+          error: 'Paused — ${error.toString()}',
         );
         return;
       }
-      await NotificationService().showDownloadFinished(
-        id: notificationId,
-        label: label,
-        error: error.toString(),
-      );
-      rethrow;
     } finally {
       final task = _active[downloadKey];
       if (task != null && task.isPaused) {
@@ -450,6 +545,7 @@ class MediaDownloadManager extends ChangeNotifier {
         service.dispose();
         _active.remove(downloadKey);
         notifyListeners();
+        await _persistActiveDownloads();
         await _updateOrStopForegroundService();
       }
     }

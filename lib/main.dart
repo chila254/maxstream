@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'screens/splash_screen.dart';
 import 'screens/maxstream_main_screen.dart';
 import 'services/notification_service.dart';
+import 'services/media_download_manager.dart';
 import 'services/theme_service.dart';
 
 void main() async {
@@ -18,6 +19,7 @@ void main() async {
     );
 
     if (!kIsWeb) await NotificationService().initialize();
+    if (!kIsWeb) await MediaDownloadManager.instance.initialize();
     await ThemeService.instance.loadTheme();
 
     // Check for updates after initialization
