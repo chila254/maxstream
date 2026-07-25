@@ -670,7 +670,8 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
             : 'Off';
 
         _showStatus('Stream found from $source! Initializing player...');
-        await _initializePlayer(
+        var discoveredServers = false;
+        var initialized = await _initializePlayer(
           url,
           headers: headers,
           source: source,
@@ -681,6 +682,44 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
               result['type'] == 'direct_m3u8' ||
               url.toLowerCase().contains('.m3u8'),
         );
+        if (!initialized) {
+          discoveredServers = true;
+          await _discoverAvailableServers(discoveryGeneration);
+          for (final server in _availableServers) {
+            final fallbackUrl = server['url']?.toString() ?? '';
+            if (fallbackUrl.isEmpty || fallbackUrl == url) continue;
+            final fallbackSource = server['source']?.toString() ?? 'Server';
+            final fallbackQualities = _parseQualities(server['qualities']);
+            _subtitleTracks = _parseSubtitleTracks(server['subtitles']);
+            _selectedSubtitle.value = 'Off';
+            _activeSubtitles.value = const [];
+            initialized = await _initializePlayer(
+              fallbackUrl,
+              headers: _parseStreamHeaders(server),
+              source: fallbackSource,
+              qualities: fallbackQualities,
+              selectedQuality: 'Auto',
+              position: resumePosition,
+              isHls:
+                  server['type'] == 'direct_m3u8' ||
+                  fallbackUrl.toLowerCase().contains('.m3u8'),
+            );
+            if (initialized) {
+              _selectedServerUrl = fallbackUrl;
+              break;
+            }
+          }
+        }
+        if (!initialized) {
+          if (mounted) {
+            setState(() {
+              _error =
+                  'None of the available servers could start playback. '
+                  'Please try again later.';
+            });
+          }
+          return;
+        }
         // Now that the new player is ready, allow the next-episode countdown
         // to function again. The cancel flag was held true during the episode
         // transition to prevent the old controller's listener from showing
@@ -690,7 +729,9 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
             _nextEpisodeCancelled = false;
           });
         }
-        unawaited(_discoverAvailableServers(discoveryGeneration));
+        if (!discoveredServers) {
+          unawaited(_discoverAvailableServers(discoveryGeneration));
+        }
         return;
       }
 
@@ -963,7 +1004,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     // It gets reset in _loadStream after the new player is initialized.
   }
 
-  Future<void> _initializePlayer(
+  Future<bool> _initializePlayer(
     String m3u8Url, {
     Map<String, String> headers = const {},
     String source = 'Unknown',
@@ -985,14 +1026,11 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         shouldPlay: true,
       );
       _showStatus('Playing from $source');
+      return true;
     } catch (e) {
       debugPrint('M3U8VideoPlayer: Error initializing player: $e');
       _showStatus('Player error: $e');
-      if (mounted) {
-        setState(() {
-          _error = 'Failed to initialize video player: $e';
-        });
-      }
+      return false;
     }
   }
 
@@ -1326,6 +1364,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
               final stream = entry.value;
               final url = stream['url']?.toString() ?? '';
               final source = stream['source']?.toString() ?? 'Server';
+              final server = stream['server']?.toString() ?? source;
               final selected = url == _selectedServerUrl;
               return ListTile(
                 leading: Icon(
@@ -1337,7 +1376,9 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
                   style: const TextStyle(color: Colors.white),
                 ),
                 subtitle: Text(
-                  'Server ${entry.key + 1}',
+                  server == source
+                      ? 'Server ${entry.key + 1}'
+                      : 'Via $server · Server ${entry.key + 1}',
                   style: const TextStyle(color: Colors.white54),
                 ),
                 enabled: !selected && !_isSwitchingServer,
@@ -1555,8 +1596,8 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
                             _subtitleOffsetMs > 0
                                 ? 'Subtitles later'
                                 : _subtitleOffsetMs < 0
-                                    ? 'Subtitles earlier'
-                                    : 'Synced',
+                                ? 'Subtitles earlier'
+                                : 'Synced',
                             style: const TextStyle(
                               color: Colors.white54,
                               fontSize: 12,

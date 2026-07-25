@@ -40,6 +40,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
   List<Map<String, dynamic>> _availableServers = [];
   bool _serversLoading = false;
   String? _selectedSource;
+  String? _selectedServerUrl;
   String? _currentTitle;
 
   // media_kit player
@@ -159,6 +160,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
 
         _availableServers = [result];
         _selectedSource = source;
+        _selectedServerUrl = url;
 
         _showStatus('Stream found from $source! Initializing player...');
         await _playUrl(url, headers: headers);
@@ -169,7 +171,8 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
       _showStatus('No stream found');
       if (mounted) {
         setState(() {
-          _error = 'No working streaming sources found.\n\n'
+          _error =
+              'No working streaming sources found.\n\n'
               'Check your internet connection\n'
               'Try again later\n'
               'Content might be unavailable';
@@ -201,12 +204,15 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
       _currentTitle = details['title']?.toString() ?? widget.title;
     } else {
       final seriesTitle = details['name']?.toString() ?? widget.title;
-      final episodes =
-          await TmdbApiService.getSeasonEpisodes(id, widget.season);
+      final episodes = await TmdbApiService.getSeasonEpisodes(
+        id,
+        widget.season,
+      );
       final currentEpisodeData = episodes
-          .where((e) =>
-              ((e['episode_number'] as num?)?.toInt() ?? 0) ==
-              widget.episode)
+          .where(
+            (e) =>
+                ((e['episode_number'] as num?)?.toInt() ?? 0) == widget.episode,
+          )
           .firstOrNull;
       final episodeName = currentEpisodeData?['name']?.toString() ?? '';
       _currentTitle = episodeName.isNotEmpty
@@ -215,7 +221,10 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
     }
   }
 
-  Future<void> _playUrl(String url, {Map<String, String> headers = const {}}) async {
+  Future<void> _playUrl(
+    String url, {
+    Map<String, String> headers = const {},
+  }) async {
     try {
       final media = Media(url, httpHeaders: headers);
       await _player.open(media);
@@ -261,9 +270,14 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
         episode: widget.episode,
       );
 
-      if (mounted && servers.isNotEmpty) {
+      if (mounted) {
+        final merged = <Map<String, dynamic>>[..._availableServers, ...servers];
+        final seen = <String>{};
         setState(() {
-          _availableServers = servers;
+          _availableServers = merged.where((server) {
+            final url = server['url']?.toString() ?? '';
+            return url.isNotEmpty && seen.add(url);
+          }).toList();
           _serversLoading = false;
         });
       }
@@ -292,6 +306,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
     _saveProgress();
     setState(() {
       _selectedSource = source;
+      _selectedServerUrl = url;
       _isLoading = true;
     });
 
@@ -367,7 +382,9 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
             else
               ..._availableServers.map((server) {
                 final source = server['source'] as String? ?? 'Unknown';
-                final isSelected = source == _selectedSource;
+                final route = server['server']?.toString() ?? source;
+                final url = server['url']?.toString() ?? '';
+                final isSelected = url.isNotEmpty && url == _selectedServerUrl;
                 return ListTile(
                   leading: Icon(
                     isSelected
@@ -381,6 +398,12 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
                       color: isSelected ? Colors.white : Colors.grey[300],
                     ),
                   ),
+                  subtitle: route == source
+                      ? null
+                      : Text(
+                          'Via $route',
+                          style: TextStyle(color: Colors.grey[500]),
+                        ),
                   onTap: () {
                     Navigator.pop(context);
                     if (!isSelected) _switchServer(server);
@@ -439,8 +462,8 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
           body: _error != null
               ? _buildErrorWidget()
               : _isLoading
-                  ? _buildLoadingWidget()
-                  : _buildPlayerWidget(),
+              ? _buildLoadingWidget()
+              : _buildPlayerWidget(),
         ),
       ),
     );
@@ -460,9 +483,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
           ),
           // Buffering indicator
           if (_isBuffering)
-            const Center(
-              child: CircularProgressIndicator(color: Colors.white),
-            ),
+            const Center(child: CircularProgressIndicator(color: Colors.white)),
           // Controls overlay
           if (_showControls) _buildControlsOverlay(),
         ],
@@ -471,15 +492,21 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
   }
 
   Widget _buildControlsOverlay() {
-    final progress =
-        _duration.inMilliseconds > 0 ? _position.inMilliseconds / _duration.inMilliseconds : 0.0;
+    final progress = _duration.inMilliseconds > 0
+        ? _position.inMilliseconds / _duration.inMilliseconds
+        : 0.0;
 
     return Container(
       decoration: const BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [Colors.black54, Colors.transparent, Colors.transparent, Colors.black54],
+          colors: [
+            Colors.black54,
+            Colors.transparent,
+            Colors.transparent,
+            Colors.black54,
+          ],
           stops: [0.0, 0.2, 0.8, 1.0],
         ),
       ),
@@ -499,7 +526,11 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
                         color: Colors.black.withOpacity(0.6),
                         borderRadius: BorderRadius.circular(8),
                       ),
-                      child: const Icon(Icons.arrow_back, color: Colors.white, size: 24),
+                      child: const Icon(
+                        Icons.arrow_back,
+                        color: Colors.white,
+                        size: 24,
+                      ),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -518,7 +549,10 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
                     GestureDetector(
                       onTap: _showServerPicker,
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 5,
+                        ),
                         decoration: BoxDecoration(
                           color: Colors.black.withOpacity(0.6),
                           borderRadius: BorderRadius.circular(8),
@@ -526,11 +560,18 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(Icons.dns, color: Colors.white70, size: 14),
+                            const Icon(
+                              Icons.dns,
+                              color: Colors.white70,
+                              size: 14,
+                            ),
                             const SizedBox(width: 5),
                             Text(
                               _selectedSource!,
-                              style: const TextStyle(color: Colors.white70, fontSize: 11),
+                              style: const TextStyle(
+                                color: Colors.white70,
+                                fontSize: 11,
+                              ),
                             ),
                           ],
                         ),
@@ -586,8 +627,12 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
                     activeTrackColor: Colors.red,
                     inactiveTrackColor: Colors.white24,
                     thumbColor: Colors.red,
-                    thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                    overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+                    thumbShape: const RoundSliderThumbShape(
+                      enabledThumbRadius: 6,
+                    ),
+                    overlayShape: const RoundSliderOverlayShape(
+                      overlayRadius: 12,
+                    ),
                     trackHeight: 3,
                     overlayColor: Colors.red.withOpacity(0.2),
                   ),
@@ -595,7 +640,8 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
                     value: progress.clamp(0.0, 1.0),
                     onChanged: (value) {
                       final pos = Duration(
-                        milliseconds: (value * _duration.inMilliseconds).toInt(),
+                        milliseconds: (value * _duration.inMilliseconds)
+                            .toInt(),
                       );
                       _seekTo(pos);
                     },
@@ -608,11 +654,17 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
                     children: [
                       Text(
                         _formatDuration(_position),
-                        style: const TextStyle(color: Colors.white70, fontSize: 12),
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 12,
+                        ),
                       ),
                       Text(
                         _formatDuration(_duration),
-                        style: const TextStyle(color: Colors.white70, fontSize: 12),
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 12,
+                        ),
                       ),
                     ],
                   ),
@@ -694,7 +746,9 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.red,
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 32, vertical: 12),
+                        horizontal: 32,
+                        vertical: 12,
+                      ),
                     ),
                     child: const Text(
                       'Retry',
@@ -711,7 +765,9 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.grey[700],
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 32, vertical: 12),
+                        horizontal: 32,
+                        vertical: 12,
+                      ),
                     ),
                     child: const Text(
                       'Go Back',
@@ -738,8 +794,11 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
                 color: Colors.black.withOpacity(0.7),
                 borderRadius: BorderRadius.circular(8),
               ),
-              child:
-                  const Icon(Icons.arrow_back, color: Colors.white, size: 24),
+              child: const Icon(
+                Icons.arrow_back,
+                color: Colors.white,
+                size: 24,
+              ),
             ),
           ),
         ),

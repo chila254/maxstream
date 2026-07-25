@@ -72,10 +72,12 @@ class StreamExtractor(private val context: Context) {
         val headers: Map<String, String> = emptyMap(),
         val qualities: List<QualityOption> = emptyList(),
         val subtitles: List<SubtitleOption> = emptyList(),
+        val server: String = source,
     ) {
         fun toMap(): Map<String, Any> = mapOf(
             "url" to url,
             "source" to source,
+            "server" to server,
             "type" to type,
             "headers" to headers,
             "referer" to (headers["Referer"] ?: ""),
@@ -353,7 +355,7 @@ class StreamExtractor(private val context: Context) {
 
             when (result) {
                 is ExtractionResult.Final -> {
-                    return validateStream(result.stream)
+                    return validateStream(result.stream.copy(server = initialServer.name))
                 }
                 is ExtractionResult.Redirect -> server = result.server
             }
@@ -1644,7 +1646,9 @@ class StreamExtractor(private val context: Context) {
             return HlsValidation(master.url, emptyList(), subtitles)
         }
 
-        // Validate all variants in parallel — skip per-variant segment checks
+        // A playlist can remain reachable after its signed media segments expire.
+        // Validate one segment from every variant so dead RPM/CDN routes never
+        // reach ExoPlayer as an apparently working server.
         val playableVariants = coroutineScope {
             variants.map { variant ->
                 async(Dispatchers.IO) {
@@ -1653,6 +1657,7 @@ class StreamExtractor(private val context: Context) {
                         require(playlist.body.startsWith("#EXTM3U")) {
                             "Variant ${variant.height}p is not a valid playlist"
                         }
+                        validateMediaPlaylist(playlist.url, playlist.body, headers)
                         variant.copy(url = playlist.url)
                     } catch (error: Exception) {
                         Log.w(tag, "Discarding ${variant.height}p HLS variant: ${error.message}")
