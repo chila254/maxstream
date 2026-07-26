@@ -65,10 +65,24 @@ class UpdateService {
       'https://api.github.com/repos/$githubOwner/$githubRepo/releases/latest';
 
   static _DownloadProgressDialogState? _progressDialogState;
-  static bool _hasNotifiedCurrentVersion = false;
+  static String? _notifiedVersion;
+  static Future<UpdateInfo?>? _inFlightCheck;
+  static final Set<String> _shownDialogVersions = {};
 
   /// Check GitHub for a newer release. Returns UpdateInfo if an update exists.
   static Future<UpdateInfo?> checkForUpdate() async {
+    final existing = _inFlightCheck;
+    if (existing != null) return existing;
+    final check = _performUpdateCheck();
+    _inFlightCheck = check;
+    try {
+      return await check;
+    } finally {
+      if (identical(_inFlightCheck, check)) _inFlightCheck = null;
+    }
+  }
+
+  static Future<UpdateInfo?> _performUpdateCheck() async {
     try {
       final packageInfo = await PackageInfo.fromPlatform();
       final currentVersion = packageInfo.version;
@@ -106,26 +120,32 @@ class UpdateService {
   }
 
   /// Check for updates and show a local notification if one is found.
-  static Future<void> checkAndNotify() async {
-    if (_hasNotifiedCurrentVersion) return;
+  static Future<void> checkAndNotify({UpdateInfo? info}) async {
+    final availableUpdate = info ?? await checkForUpdate();
+    if (availableUpdate == null) return;
+    if (_notifiedVersion == availableUpdate.version) return;
+    _notifiedVersion = availableUpdate.version;
 
-    final info = await checkForUpdate();
-    if (info == null) return;
+    try {
+      final packageInfo = await PackageInfo.fromPlatform();
+      final currentVersion = packageInfo.version;
 
-    final packageInfo = await PackageInfo.fromPlatform();
-    final currentVersion = packageInfo.version;
-
-    final notificationService = NotificationService();
-    await notificationService.showNotification(
-      id: 9999,
-      title: 'Update Available',
-      body:
-          'MaxStream ${info.version} is available (current: $currentVersion). Tap to download.',
-      payload: 'update:${info.downloadUrl}',
-    );
-
-    _hasNotifiedCurrentVersion = true;
+      final notificationService = NotificationService();
+      await notificationService.showNotification(
+        id: 9999,
+        title: 'Update Available',
+        body:
+            'MaxStream ${availableUpdate.version} is available (current: $currentVersion). Tap to download.',
+        payload: 'update:${availableUpdate.downloadUrl}',
+      );
+    } catch (_) {
+      if (_notifiedVersion == availableUpdate.version) _notifiedVersion = null;
+      rethrow;
+    }
   }
+
+  static bool reserveUpdateDialog(String version) =>
+      _shownDialogVersions.add(version);
 
   /// Download and install the APK from the given GitHub URL.
   static Future<void> downloadAndInstallUpdate(

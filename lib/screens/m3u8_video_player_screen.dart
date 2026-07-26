@@ -147,7 +147,8 @@ class _StablePlayerControlsState extends State<_StablePlayerControls> {
   void _restartHideTimer() {
     _hideTimer?.cancel();
     _hideTimer = Timer(const Duration(seconds: 4), () {
-      if (mounted && widget.controller.value.isPlaying) {
+      final value = widget.controller.value;
+      if (mounted && value.isPlaying && !value.isBuffering && !value.hasError) {
         setState(() => _visible = false);
       }
     });
@@ -327,15 +328,26 @@ class _StablePlayerControlsState extends State<_StablePlayerControls> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         if (value.isInitialized &&
-                            value.duration > Duration.zero)
-                          VideoProgressIndicator(
-                            widget.controller,
-                            allowScrubbing: true,
-                            padding: const EdgeInsets.symmetric(vertical: 10),
-                            colors: const VideoProgressColors(
-                              playedColor: Colors.red,
-                              bufferedColor: Colors.white54,
-                              backgroundColor: Colors.white24,
+                            displayedDuration > Duration.zero)
+                          SliderTheme(
+                            data: SliderTheme.of(context).copyWith(
+                              trackHeight: 4,
+                              activeTrackColor: Colors.red,
+                              inactiveTrackColor: Colors.white24,
+                              thumbColor: Colors.red,
+                              overlayColor: Colors.red.withOpacity(0.2),
+                            ),
+                            child: Slider(
+                              value: displayedPosition.inMilliseconds
+                                  .clamp(0, displayedDuration.inMilliseconds)
+                                  .toDouble(),
+                              max: displayedDuration.inMilliseconds.toDouble(),
+                              onChanged: (milliseconds) {
+                                widget.controller.seekTo(
+                                  Duration(milliseconds: milliseconds.round()),
+                                );
+                                _restartHideTimer();
+                              },
                             ),
                           )
                         else
@@ -765,7 +777,9 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       _serversLoading = false;
     });
     final file = File(path);
-    if (!await file.exists()) {
+    final exists = await file.exists();
+    if (!mounted) return;
+    if (!exists) {
       setState(() => _error = 'This downloaded video file no longer exists.');
       return;
     }
@@ -816,7 +830,14 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       _startProgressSaving();
     } catch (error) {
       await controller.dispose();
-      if (mounted) setState(() => _error = 'Could not play download: $error');
+      debugPrint('M3U8Player: Download playback failed: $error');
+      if (mounted) {
+        setState(() {
+          _error =
+              'This downloaded video is incomplete or damaged and cannot play. '
+              'Delete it and download it again.';
+        });
+      }
     }
   }
 
@@ -881,6 +902,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         seasonNumber: widget.isMovie ? null : _currentSeason,
         episodeNumber: widget.isMovie ? null : _currentEpisode,
         title: _currentTitle,
+        resolverTitle: _resolverTitle,
         thumbnail: _posterUrl,
       );
       if (mounted) {
@@ -1164,6 +1186,15 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     if (!mounted || controller == null) return;
     final value = controller.value;
     if (value.position > Duration.zero) _lastStablePosition = value.position;
+    if (value.hasError && _offlinePath != null && _error == null) {
+      controller.pause();
+      setState(() {
+        _error =
+            'This downloaded video is incomplete or damaged and cannot continue. '
+            'Delete it and download it again.';
+      });
+      return;
+    }
     if (value.hasError && !_recoveringPlayback && _playbackRetryCount < 2) {
       unawaited(_recoverPlayback());
     }

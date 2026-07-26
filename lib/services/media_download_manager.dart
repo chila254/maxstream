@@ -30,6 +30,7 @@ class ActiveMediaDownload {
     this.isHls = false,
     this.mediaId = '',
     this.isMovie = false,
+    this.resolverTitle = '',
     this.seriesId,
     this.seasonNumber,
     this.episodeNumber,
@@ -50,6 +51,7 @@ class ActiveMediaDownload {
   final bool isHls;
   final String mediaId;
   final bool isMovie;
+  final String resolverTitle;
   final String? seriesId;
   final int? seasonNumber;
   final int? episodeNumber;
@@ -62,6 +64,10 @@ class ActiveMediaDownload {
     MediaDownloadService? service,
     bool clearService = false,
     bool? isPaused,
+    String? url,
+    Map<String, String>? headers,
+    bool? isHls,
+    List<Map<String, dynamic>>? subtitles,
   }) => ActiveMediaDownload(
     downloadKey: downloadKey,
     title: title,
@@ -72,15 +78,16 @@ class ActiveMediaDownload {
     totalBytes: totalBytes ?? this.totalBytes,
     service: clearService ? null : service ?? this.service,
     isPaused: isPaused ?? this.isPaused,
-    url: url,
-    headers: headers,
-    isHls: isHls,
+    url: url ?? this.url,
+    headers: headers ?? this.headers,
+    isHls: isHls ?? this.isHls,
     mediaId: mediaId,
     isMovie: isMovie,
+    resolverTitle: resolverTitle,
     seriesId: seriesId,
     seasonNumber: seasonNumber,
     episodeNumber: episodeNumber,
-    subtitles: subtitles,
+    subtitles: subtitles ?? this.subtitles,
   );
 
   String get sizeLabel {
@@ -110,6 +117,7 @@ class ActiveMediaDownload {
     'isHls': isHls,
     'mediaId': mediaId,
     'isMovie': isMovie,
+    'resolverTitle': resolverTitle,
     'seriesId': seriesId,
     'seasonNumber': seasonNumber,
     'episodeNumber': episodeNumber,
@@ -133,6 +141,7 @@ class ActiveMediaDownload {
       isHls: json['isHls'] == true,
       mediaId: json['mediaId']?.toString() ?? '',
       isMovie: json['isMovie'] == true,
+      resolverTitle: json['resolverTitle']?.toString() ?? '',
       seriesId: json['seriesId']?.toString(),
       seasonNumber: (json['seasonNumber'] as num?)?.toInt(),
       episodeNumber: (json['episodeNumber'] as num?)?.toInt(),
@@ -209,6 +218,10 @@ class MediaDownloadManager extends ChangeNotifier {
   }
 
   void resumeDownload(String downloadKey) {
+    unawaited(_resumeDownload(downloadKey));
+  }
+
+  Future<void> _resumeDownload(String downloadKey) async {
     final task = _active[downloadKey];
     if (task == null || task.url == null) return;
 
@@ -219,11 +232,89 @@ class MediaDownloadManager extends ChangeNotifier {
     final service = task.service;
     if (service != null) {
       service.resume();
-      unawaited(_ensureForegroundService());
+      await _ensureForegroundService();
     } else {
-      // Restored and failed tasks have no running transfer. Start a new one;
-      // MediaDownloadService resumes its partial files from disk.
-      unawaited(_restartDownload(task));
+      try {
+        final refreshed = await _refreshStream(task);
+        if (!_active.containsKey(downloadKey)) return;
+        _active[downloadKey] = refreshed;
+        notifyListeners();
+        await _persistActiveDownloads();
+        await _restartDownload(refreshed);
+      } catch (error) {
+        final current = _active[downloadKey];
+        if (current == null) return;
+        _active[downloadKey] = current.copyWith(isPaused: true);
+        notifyListeners();
+        await _persistActiveDownloads();
+        await _updateOrStopForegroundService();
+        await NotificationService().showDownloadFinished(
+          id: downloadKey.hashCode & 0x7fffffff,
+          label: task.label,
+          error: 'Could not refresh stream — $error',
+        );
+      }
+    }
+  }
+
+  Future<ActiveMediaDownload> _refreshStream(ActiveMediaDownload task) async {
+    final stream = task.isMovie
+        ? await DirectM3u8Service.fetchMovieStreamUrl(
+            task.resolverTitle.isEmpty ? task.title : task.resolverTitle,
+            null,
+            task.mediaId,
+          )
+        : await DirectM3u8Service.fetchSeriesStreamUrl(
+            task.resolverTitle.isEmpty ? task.title : task.resolverTitle,
+            task.seasonNumber ?? 1,
+            task.episodeNumber ?? 1,
+            task.mediaId,
+          );
+    final url = stream?['url']?.toString() ?? '';
+    if (stream == null || url.isEmpty) {
+      throw StateError('No fresh downloadable stream was found');
+    }
+    final headers = <String, String>{};
+    if (stream['referer'] != null) {
+      headers['Referer'] = stream['referer'].toString();
+    }
+    if (stream['headers'] is Map) {
+      (stream['headers'] as Map).forEach((key, value) {
+        headers[key.toString()] = value.toString();
+      });
+    }
+    return task.copyWith(
+      clearService: true,
+      isPaused: false,
+      url: url,
+      headers: headers,
+      isHls:
+          stream['type'] == 'direct_m3u8' ||
+          url.toLowerCase().contains('.m3u8'),
+      subtitles: (stream['subtitles'] as List? ?? const [])
+          .whereType<Map>()
+          .map(
+            (track) =>
+                track.map((key, value) => MapEntry(key.toString(), value)),
+          )
+          .toList(),
+    );
+  }
+
+  Future<void> cancelDownload(String downloadKey) async {
+    final task = _active.remove(downloadKey);
+    if (task == null) return;
+    task.service?.cancel();
+    notifyListeners();
+    await _persistActiveDownloads();
+    await _updateOrStopForegroundService();
+    final cleanup = MediaDownloadService();
+    try {
+      await cleanup.discard(downloadKey);
+    } on FileSystemException {
+      // The running transfer also removes its partial directory on cancellation.
+    } finally {
+      cleanup.dispose();
     }
   }
 
@@ -293,6 +384,7 @@ class MediaDownloadManager extends ChangeNotifier {
         subtitles: localSubtitles,
       );
       _completionVersion++;
+      notifyListeners();
       await NotificationService().showDownloadFinished(
         id: notificationId,
         label: task.label,
@@ -373,6 +465,7 @@ class MediaDownloadManager extends ChangeNotifier {
       mediaId: mediaId,
       isMovie: isMovie,
       title: title,
+      resolverTitle: lookupTitle,
       thumbnail: thumbnail,
       seriesId: isMovie ? null : mediaId,
       seasonNumber: isMovie ? null : seasonNumber,
@@ -419,6 +512,7 @@ class MediaDownloadManager extends ChangeNotifier {
     required String mediaId,
     required bool isMovie,
     required String title,
+    String? resolverTitle,
     required String thumbnail,
     String? seriesId,
     int? seasonNumber,
@@ -445,6 +539,7 @@ class MediaDownloadManager extends ChangeNotifier {
       isHls: isHls,
       mediaId: mediaId,
       isMovie: isMovie,
+      resolverTitle: resolverTitle ?? title,
       seriesId: seriesId,
       seasonNumber: seasonNumber,
       episodeNumber: episodeNumber,
@@ -514,6 +609,7 @@ class MediaDownloadManager extends ChangeNotifier {
         subtitles: localSubtitles,
       );
       _completionVersion++;
+      notifyListeners();
       await NotificationService().showDownloadFinished(
         id: notificationId,
         label: label,
@@ -534,7 +630,7 @@ class MediaDownloadManager extends ChangeNotifier {
           label: label,
           error: 'Paused — ${error.toString()}',
         );
-        return;
+        rethrow;
       }
     } finally {
       final task = _active[downloadKey];

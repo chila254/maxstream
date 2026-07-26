@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -19,7 +21,8 @@ class MaxStreamMainScreen extends StatefulWidget {
 
 class _MaxStreamMainScreenState extends State<MaxStreamMainScreen> {
   int _currentIndex = 0;
-  bool _updateChecked = false;
+  Timer? _updateTimer;
+  bool _checkingForUpdate = false;
 
   void _onTabChange(int index) {
     setState(() {
@@ -34,6 +37,12 @@ class _MaxStreamMainScreenState extends State<MaxStreamMainScreen> {
       _initializeServices();
       _setupNotificationTap();
     }
+  }
+
+  @override
+  void dispose() {
+    _updateTimer?.cancel();
+    super.dispose();
   }
 
   void _setupNotificationTap() {
@@ -55,24 +64,35 @@ class _MaxStreamMainScreenState extends State<MaxStreamMainScreen> {
   }
 
   Future<void> _initializeServices() async {
-    _checkForUpdates();
+    unawaited(_checkForUpdates());
+    _updateTimer = Timer.periodic(
+      const Duration(hours: 1),
+      (_) => unawaited(_checkForUpdates()),
+    );
     _checkNotificationPermission();
     await ContentNotificationService.initialize();
     await ContentNotificationService.schedulePeriodicCheck();
   }
 
   Future<void> _checkForUpdates() async {
-    if (_updateChecked) return;
-
-    // Check and show notification — user taps notification to download
-    await UpdateService.checkAndNotify();
-
-    // Also check inline and show dialog with changelog
-    final info = await UpdateService.checkForUpdate();
-    if (info != null && mounted) {
-      _showUpdateDialog(info);
+    if (_checkingForUpdate) return;
+    _checkingForUpdate = true;
+    try {
+      final info = await UpdateService.checkForUpdate();
+      if (info == null) return;
+      try {
+        await UpdateService.checkAndNotify(info: info);
+      } catch (error) {
+        debugPrint('Could not show update notification: $error');
+      }
+      if (mounted && UpdateService.reserveUpdateDialog(info.version)) {
+        _showUpdateDialog(info);
+      }
+    } catch (error) {
+      debugPrint('Could not check for updates: $error');
+    } finally {
+      _checkingForUpdate = false;
     }
-    _updateChecked = true;
   }
 
   Future<void> _checkNotificationPermission() async {

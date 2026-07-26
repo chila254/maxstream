@@ -18,6 +18,14 @@ class MediaDownloadResult {
   final bool isHls;
 }
 
+class _ContentRange {
+  const _ContentRange(this.start, this.end, this.total);
+
+  final int start;
+  final int end;
+  final int total;
+}
+
 /// Downloads resolved, non-DRM media into the application's private storage.
 /// Supports retry with resume for both direct and HLS downloads.
 class MediaDownloadService {
@@ -35,7 +43,11 @@ class MediaDownloadService {
   static const Duration _initialRetryDelay = Duration(seconds: 2);
   static const Duration _maxRetryDelay = Duration(seconds: 60);
 
-  void cancel() => _cancelled = true;
+  void cancel() {
+    _cancelled = true;
+    _pauseCompleter?.complete();
+    _pauseCompleter = null;
+  }
 
   void pause() {
     _paused = true;
@@ -112,6 +124,9 @@ class MediaDownloadService {
         );
       }
 
+      await File(
+        p.join(partial.path, '.complete'),
+      ).writeAsString('ok', flush: true);
       await _deleteIfPresent(completed);
       await partial.rename(completed.path);
       onProgress?.call(1);
@@ -148,11 +163,13 @@ class MediaDownloadService {
     await _retryWithResume(
       description: 'direct download ${uri.path}',
       onProgress: onProgress,
-      totalGetter: () async {
-        final headResponse = await _client.head(uri, headers: headers);
-        return headResponse.contentLength;
-      },
+      totalGetter: () => _contentLength(uri, headers),
       execute: (total) async {
+        if (total != null && total > 0 && received == total) return;
+        if (total != null && total > 0 && received > total) {
+          received = 0;
+          await file.writeAsBytes(const []);
+        }
         final requestHeaders = Map<String, String>.from(headers);
         if (received > 0) {
           requestHeaders['Range'] = 'bytes=$received-';
@@ -160,31 +177,69 @@ class MediaDownloadService {
         final request = http.Request('GET', uri)
           ..headers.addAll(requestHeaders);
         final response = await _client.send(request);
+        final requestedOffset = received;
+        int? expectedTotal;
+        int? expectedResponseBytes;
 
         if (received > 0 && response.statusCode == 206) {
-          // Resuming — open file in append mode.
+          final range = _parseContentRange(response.headers);
+          if (range == null || range.start != requestedOffset) {
+            throw ClientException(
+              'Server returned the wrong byte range for resume',
+              uri,
+            );
+          }
+          expectedTotal = range.total;
+          expectedResponseBytes = range.end - range.start + 1;
         } else if (received > 0 && response.statusCode == 200) {
           // Server doesn't support range — restart from beginning.
           received = 0;
+          expectedTotal = response.contentLength;
+          expectedResponseBytes = response.contentLength;
         } else {
-          _checkResponse(response.statusCode, uri);
+          if (response.statusCode != 200) {
+            throw HttpException(
+              'HTTP ${response.statusCode} while downloading $uri',
+              uri: uri,
+            );
+          }
+          expectedTotal = response.contentLength ?? total;
+          expectedResponseBytes = response.contentLength;
         }
 
         final sink = file.openWrite(
           mode: received > 0 ? FileMode.append : FileMode.write,
         );
+        var responseBytes = 0;
         try {
           await for (final bytes in response.stream) {
-            if (_cancelled) break;
+            if (_cancelled) throw StateError('Download cancelled');
             await _waitForResume();
             sink.add(bytes);
             received += bytes.length;
-            if (total != null && total > 0) {
-              onProgress?.call((received / total).clamp(0, 1));
+            responseBytes += bytes.length;
+            if (expectedTotal != null && expectedTotal > 0) {
+              onProgress?.call((received / expectedTotal).clamp(0, 1));
             }
-            onBytesProgress?.call(received, total);
+            onBytesProgress?.call(received, expectedTotal);
           }
           await sink.flush();
+          if (expectedResponseBytes != null &&
+              responseBytes != expectedResponseBytes) {
+            throw ClientException(
+              'Download response ended early '
+              '($responseBytes of $expectedResponseBytes bytes)',
+              uri,
+            );
+          }
+          if (expectedTotal != null &&
+              expectedTotal > 0 &&
+              received != expectedTotal) {
+            throw ClientException(
+              'Download ended early ($received of $expectedTotal bytes)',
+              uri,
+            );
+          }
         } finally {
           await sink.close();
         }
@@ -216,6 +271,29 @@ class MediaDownloadService {
     if (_isMaster(playlist)) {
       throw const FormatException('Too many nested HLS master playlists');
     }
+    if (!playlist.contains('#EXT-X-ENDLIST')) {
+      throw const FormatException(
+        'This HLS stream is not a complete video and cannot be downloaded yet',
+      );
+    }
+    final hasMediaSegment = const LineSplitter()
+        .convert(playlist)
+        .any((line) => line.trim().isNotEmpty && !line.trim().startsWith('#'));
+    if (!hasMediaSegment) {
+      throw const FormatException('HLS playlist contains no media segments');
+    }
+
+    final sourceFile = File(p.join(directory.path, '.playlist_source'));
+    final source = playlistUri.replace(query: '', fragment: '').toString();
+    if (await sourceFile.exists() &&
+        await sourceFile.readAsString() != source) {
+      await for (final entity in directory.list()) {
+        if (entity is File && p.basename(entity.path).startsWith('resource_')) {
+          await entity.delete();
+        }
+      }
+    }
+    await sourceFile.writeAsString(source, flush: true);
 
     final lines = const LineSplitter().convert(playlist);
     final resources = <Uri, String>{};
@@ -253,17 +331,25 @@ class MediaDownloadService {
     var done = 0;
     var downloadedBytes = 0;
     for (final entry in resources.entries) {
-      if (_cancelled) break;
+      if (_cancelled) throw StateError('Download cancelled');
       await _waitForResume();
       final file = File(p.join(directory.path, entry.value));
+      final marker = File('${file.path}.complete');
 
       // Skip already-downloaded segments.
       if (await file.exists() && await file.length() > 0) {
-        downloadedBytes += await file.length();
-        onBytesProgress?.call(downloadedBytes, null);
-        done++;
-        onProgress?.call(done / (resources.length + 1));
-        continue;
+        final expectedLength = await _contentLength(entry.key, headers);
+        final existingLength = await file.length();
+        if (await marker.exists() ||
+            (expectedLength != null && existingLength == expectedLength)) {
+          downloadedBytes += existingLength;
+          onBytesProgress?.call(downloadedBytes, null);
+          done++;
+          onProgress?.call(done / (resources.length + 1));
+          continue;
+        }
+        await file.delete();
+        if (await marker.exists()) await marker.delete();
       }
 
       var currentResourceBytes = 0;
@@ -278,6 +364,7 @@ class MediaDownloadService {
           });
         },
       );
+      await marker.writeAsString('ok', flush: true);
       downloadedBytes += currentResourceBytes;
       done++;
       onProgress?.call(done / (resources.length + 1));
@@ -298,17 +385,39 @@ class MediaDownloadService {
   ) async {
     final request = http.Request('GET', uri)..headers.addAll(headers);
     final response = await _client.send(request);
-    _checkResponse(response.statusCode, uri);
-    final sink = file.openWrite();
+    if (response.statusCode != 200) {
+      throw HttpException(
+        'HTTP ${response.statusCode} while downloading $uri',
+        uri: uri,
+      );
+    }
+    final partial = File('${file.path}.part');
+    if (await partial.exists()) await partial.delete();
+    final sink = partial.openWrite();
+    var received = 0;
     try {
       await for (final bytes in response.stream) {
+        if (_cancelled) throw StateError('Download cancelled');
         sink.add(bytes);
+        received += bytes.length;
         onBytes?.call(bytes.length);
       }
       await sink.flush();
+      if (received == 0) {
+        throw ClientException('HLS resource was empty', uri);
+      }
+      final expected = response.contentLength;
+      if (expected != null && expected > 0 && received != expected) {
+        throw ClientException(
+          'HLS segment ended early ($received of $expected bytes)',
+          uri,
+        );
+      }
     } finally {
       await sink.close();
     }
+    if (await file.exists()) await file.delete();
+    await partial.rename(file.path);
   }
 
   /// Retries an operation with exponential backoff.
@@ -376,6 +485,7 @@ class MediaDownloadService {
   }
 
   Future<String?> _findExistingOutput(Directory dir) async {
+    if (!await File(p.join(dir.path, '.complete')).exists()) return null;
     if (await dir.exists()) {
       await for (final entity in dir.list()) {
         if (entity is File) {
@@ -391,8 +501,51 @@ class MediaDownloadService {
 
   Future<String> _getText(Uri uri, Map<String, String> headers) async {
     final response = await _client.get(uri, headers: headers);
-    _checkResponse(response.statusCode, uri);
-    return utf8.decode(response.bodyBytes);
+    if (response.statusCode != 200) {
+      throw HttpException(
+        'HTTP ${response.statusCode} while downloading $uri',
+        uri: uri,
+      );
+    }
+    final body = utf8.decode(response.bodyBytes);
+    if (!body.trimLeft().startsWith('#EXTM3U')) {
+      throw const FormatException('HLS endpoint returned an invalid playlist');
+    }
+    return body;
+  }
+
+  Future<int?> _contentLength(Uri uri, Map<String, String> headers) async {
+    try {
+      final response = await _client.head(uri, headers: headers);
+      if (response.statusCode < 200 || response.statusCode >= 300) return null;
+      final length = response.contentLength;
+      return length != null && length > 0 ? length : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  _ContentRange? _parseContentRange(Map<String, String> headers) {
+    final value = headers['content-range'];
+    if (value == null) return null;
+    final match = RegExp(r'^bytes (\d+)-(\d+)/(\d+)$').firstMatch(value);
+    if (match == null) return null;
+    final start = int.tryParse(match.group(1)!);
+    final end = int.tryParse(match.group(2)!);
+    final total = int.tryParse(match.group(3)!);
+    if (start == null || end == null || total == null || end < start) {
+      return null;
+    }
+    return _ContentRange(start, end, total);
+  }
+
+  Future<void> discard(String downloadId) async {
+    final root = Directory(
+      p.join((await getApplicationSupportDirectory()).path, 'media_downloads'),
+    );
+    await _deleteIfPresent(
+      Directory(p.join(root.path, '.${_safeName(downloadId)}.partial')),
+    );
   }
 
   bool _isMaster(String playlist) => playlist.contains('#EXT-X-STREAM-INF:');
@@ -468,12 +621,6 @@ class MediaDownloadService {
     ).firstMatch(line.substring(line.indexOf(':') + 1));
     final value = match?.group(1);
     return value?.startsWith('"') == true ? match?.group(2) : value;
-  }
-
-  void _checkResponse(int statusCode, Uri uri) {
-    if (statusCode < 200 || statusCode >= 300) {
-      throw HttpException('HTTP $statusCode while downloading $uri', uri: uri);
-    }
   }
 
   String _safeName(String value) {

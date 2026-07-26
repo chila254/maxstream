@@ -18,6 +18,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
   bool _loading = true;
   final MediaDownloadManager _downloadManager = MediaDownloadManager.instance;
   late int _completionVersion;
+  int _loadGeneration = 0;
 
   @override
   void initState() {
@@ -36,16 +37,14 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
   void _handleDownloadManagerChanged() {
     if (_completionVersion != _downloadManager.completionVersion) {
       _completionVersion = _downloadManager.completionVersion;
-      // Small delay to ensure files are fully written to disk
-      Future.delayed(const Duration(milliseconds: 500), () {
-        if (mounted) _loadDownloads();
-      });
+      _loadDownloads();
     } else if (mounted) {
       setState(() {});
     }
   }
 
   Future<void> _loadDownloads() async {
+    final generation = ++_loadGeneration;
     if (mounted) setState(() => _loading = true);
     final downloads = await DBHelper.getMediaDownloads();
     final existing = <Map<String, dynamic>>[];
@@ -53,11 +52,12 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
       final path = download['localPath']?.toString() ?? '';
       // Check file exists, but also include downloads that are still active
       // (being downloaded) so they don't disappear from the list
-      if (path.isNotEmpty && (await File(path).exists() || _isStillDownloading(download))) {
+      if (path.isNotEmpty &&
+          (await File(path).exists() || _isStillDownloading(download))) {
         existing.add(download);
       }
     }
-    if (mounted) {
+    if (mounted && generation == _loadGeneration) {
       setState(() {
         _downloads = existing;
         _loading = false;
@@ -143,6 +143,31 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
 
   void _resumeDownload(String downloadKey) {
     _downloadManager.resumeDownload(downloadKey);
+  }
+
+  Future<void> _cancelDownload(ActiveMediaDownload download) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Cancel download?'),
+        content: Text(
+          '${download.label} and its partial files will be removed.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Keep'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Cancel download'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await _downloadManager.cancelDownload(download.downloadKey);
+    }
   }
 
   @override
@@ -309,20 +334,19 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
               IconButton(
                 tooltip: 'Resume download',
                 onPressed: () => _resumeDownload(download.downloadKey),
-                icon: const Icon(
-                  Icons.play_arrow_rounded,
-                  color: Colors.green,
-                ),
+                icon: const Icon(Icons.play_arrow_rounded, color: Colors.green),
               )
             else
               IconButton(
                 tooltip: 'Pause download',
                 onPressed: () => _pauseDownload(download.downloadKey),
-                icon: const Icon(
-                  Icons.pause_rounded,
-                  color: Colors.orange,
-                ),
+                icon: const Icon(Icons.pause_rounded, color: Colors.orange),
               ),
+            IconButton(
+              tooltip: 'Cancel download',
+              onPressed: () => _cancelDownload(download),
+              icon: const Icon(Icons.close_rounded, color: Colors.redAccent),
+            ),
           ],
         ),
       ),
