@@ -328,6 +328,18 @@ class _StablePlayerControlsState extends State<_StablePlayerControls> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         if (value.isInitialized &&
+                            value.duration > Duration.zero)
+                          VideoProgressIndicator(
+                            widget.controller,
+                            allowScrubbing: true,
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            colors: const VideoProgressColors(
+                              playedColor: Colors.red,
+                              bufferedColor: Colors.white54,
+                              backgroundColor: Colors.white24,
+                            ),
+                          )
+                        else if (value.isInitialized &&
                             displayedDuration > Duration.zero)
                           SliderTheme(
                             data: SliderTheme.of(context).copyWith(
