@@ -1,9 +1,68 @@
 # Changelog
 
+## 1.4.0+6
+
 > [!NOTE]
-> This release was built faster for a streamlined UX for the user and the download functionality. Download support is now available for movies and series. We are still working to improve streaming functionality.
+> This release makes downloads significantly more reliable with persistent pause and resume support, expired-link recovery, file integrity checks, cancellation controls, offline subtitles, and clearer player status indicators.
+
+### What's New
+- Stream movies and series in the browser with platform-aware web player routing and refreshed MaxStream web branding
+- Play web streams without provider ads through a Cloudflare Worker that extracts and proxies signed HLS media
+- Use the redesigned TV experience with a modern sidebar, content-focused screens, improved remote focus navigation, and a `media_kit` player
+- Download movies, individual episodes, or complete seasons with background processing and MB/GB progress tracking
+- Watch downloaded series continuously with offline subtitles and automatic next-episode playback
+
+### Features
+- Select VixSrc, VidLink, 2Embed, or Goodstream from the web player's server menu
+- Switch web servers without stale iframe or platform-view state carrying over between streams
+- Proxy HLS master playlists, variants, segments, encryption keys, and provider headers through signed, CORS-safe Worker URLs
+- Fall back to browser-compatible VidLink embeds when direct Worker extraction is unavailable
+- Block popup ads at the parent page and suppress embed overlays without sandbox restrictions that break playback
+- Select download quality from movie and episode screens
+- View download percentage and transferred size in MB or GB
+- Pause, resume, persist, and recover partial movie and episode downloads across connection loss and app restarts
+- Cancel individual movie or episode downloads and remove their partial files
+- Refresh expired signed stream URLs and request headers before resuming paused downloads
+- Download subtitles for offline viewing and preserve subtitle metadata in the downloads database
+- Adjust subtitle timing offsets when captions are out of sync between providers
+- Show download status on movie and episode screens and a green completed checkmark in player controls
+- Check GitHub hourly for new releases while preventing duplicate requests, dialogs, and notifications
+- Enable Android release minification and resource shrinking with updated ProGuard rules
+- Align Flutter and Android release metadata for version-code 5 builds
+- Add web deployment configuration and platform-specific native/web video player exports
+
+### Bug Fixes
+- Fix TV build errors, default focus, D-pad navigation, and focus traversal across details, genre, search, series, and watchlist screens
+- Fix Continue Watching so browser sessions open the web streaming player
+- Fix web builds with conditional player imports and browser-safe DOM APIs
+- Fix CORS-blocked browser stream checks and add clearer extraction diagnostics
+- Fix embedded HLS playback blocked by iframe sandbox and referrer restrictions
+- Fix stale web stream URLs, popup handling, reused view types, and unreliable iframe replacement during server changes
+- Fix indefinite web loading by using a browser-compatible HTTP client and embed fallback
+- Fix the Cloudflare Worker deployment URL and route requests through `maxstream-extractor.maxstream123.workers.dev`
+- Fix VixSrc web extraction by resolving API, embed, JavaScript, and playlist stages correctly
+- Fix browser playback with signed media URLs and recursive rewriting of HLS playlists and media resources
+- Fix web source API build errors after replacing `getEmbedSources()` with the server catalog
+- Fix embed-type web results and add CSS ad suppression for fallback embeds
+- Fix Goodstream extraction support and correct the Android extractor syntax error
+- Fix downloads disappearing after connection errors by retaining them as paused tasks
+- Fix downloads disappearing during refresh or completion by retaining active items and rejecting stale asynchronous reloads
+- Fix interrupted downloads disappearing after app restarts by persisting pending task metadata
+- Fix paused downloads unnecessarily keeping foreground services and wakelocks active
+- Fix expired CDN links returning HTTP 403 or 410 by resolving a fresh server URL before resume
+- Fix truncated direct files, invalid byte ranges, incomplete HLS playlists, empty or partial segments, and damaged media being marked complete
+- Fix corrupted offline playback freezing silently by showing a clear damaged-download error
+- Fix fallback server labels so the player shows the actual extractor and originating route
+- Fix dead HLS variants reaching the player by validating media segments before playback
+- Fix player initialization failures by automatically trying another validated server
+- Fix subtitle synchronization controls and keep adjusted captions reactive during playback
+- Fix online playback controls so played, buffered, and unbuffered progress are visible while scrubbing remains available
+- Fix completed downloads still showing an actionable download button in player controls
 
 ## 1.3.0+5
+
+> [!NOTE]
+> This release was built faster for a streamlined UX for the user and the download functionality. Download support is now available for movies and series. We are still working to improve streaming functionality.
 
 ### What's New
 - Download movies directly from the movie details screen
