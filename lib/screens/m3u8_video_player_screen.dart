@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:video_player/video_player.dart';
+import '../database/db_helper.dart';
 import '../services/direct_m3u8_service.dart';
 import '../services/media_download_manager.dart';
 import '../services/native_stream_extractor.dart';
@@ -98,6 +99,7 @@ class _StablePlayerControls extends StatefulWidget {
     required this.onDownload,
     required this.showDownload,
     required this.downloadProgress,
+    required this.downloadCompleted,
   });
 
   final VideoPlayerController controller;
@@ -118,6 +120,7 @@ class _StablePlayerControls extends StatefulWidget {
   final VoidCallback onDownload;
   final bool showDownload;
   final double? downloadProgress;
+  final bool downloadCompleted;
 
   @override
   State<_StablePlayerControls> createState() => _StablePlayerControlsState();
@@ -391,13 +394,22 @@ class _StablePlayerControlsState extends State<_StablePlayerControls> {
                             const Spacer(),
                             if (widget.showDownload)
                               IconButton(
-                                tooltip: widget.downloadProgress == null
+                                tooltip: widget.downloadCompleted
+                                    ? 'Downloaded'
+                                    : widget.downloadProgress == null
                                     ? 'Download for offline viewing'
                                     : 'Downloading',
-                                onPressed: widget.downloadProgress == null
+                                onPressed:
+                                    !widget.downloadCompleted &&
+                                        widget.downloadProgress == null
                                     ? widget.onDownload
                                     : null,
-                                icon: widget.downloadProgress == null
+                                icon: widget.downloadCompleted
+                                    ? const Icon(
+                                        Icons.check_circle,
+                                        color: Colors.green,
+                                      )
+                                    : widget.downloadProgress == null
                                     ? const Icon(
                                         Icons.download_for_offline_outlined,
                                         color: Colors.white,
@@ -558,6 +570,8 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   bool _recoveringPlayback = false;
   int _playbackRetryCount = 0;
   double? _downloadProgress;
+  bool _downloadCompleted = false;
+  late int _downloadCompletionVersion;
   String? _offlinePath;
   List<Map<String, dynamic>> _offlineSubtitles = const [];
   List<Map<String, dynamic>> _availableServers = const [];
@@ -574,7 +588,10 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     _resolverTitle = widget.title;
     _offlinePath = widget.offlinePath;
     _offlineSubtitles = widget.offlineSubtitles;
+    _downloadCompletionVersion =
+        MediaDownloadManager.instance.completionVersion;
     MediaDownloadManager.instance.addListener(_handleDownloadChanged);
+    unawaited(_refreshDownloadStatus());
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
@@ -935,13 +952,29 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       ? 'movie_${widget.tmdbId}'
       : 'series_${widget.tmdbId}_s${_currentSeason}_e$_currentEpisode';
 
+  Future<void> _refreshDownloadStatus() async {
+    final key = _currentDownloadKey;
+    final downloads = await DBHelper.getMediaDownloads();
+    final downloaded = downloads.any(
+      (item) => item['downloadKey']?.toString() == key,
+    );
+    if (mounted &&
+        key == _currentDownloadKey &&
+        downloaded != _downloadCompleted) {
+      setState(() => _downloadCompleted = downloaded);
+    }
+  }
+
   void _handleDownloadChanged() {
     if (!mounted) return;
-    final progress = MediaDownloadManager.instance
-        .taskFor(_currentDownloadKey)
-        ?.progress;
+    final manager = MediaDownloadManager.instance;
+    final progress = manager.taskFor(_currentDownloadKey)?.progress;
     if (progress != _downloadProgress) {
       setState(() => _downloadProgress = progress);
+    }
+    if (_downloadCompletionVersion != manager.completionVersion) {
+      _downloadCompletionVersion = manager.completionVersion;
+      unawaited(_refreshDownloadStatus());
     }
   }
 
@@ -1293,6 +1326,8 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     _currentEpisode = (next['episode'] as num).toInt();
     _currentTitle =
         '${next['seriesTitle']} - S${_currentSeason}E$_currentEpisode: ${next['name']}';
+    _downloadCompleted = false;
+    unawaited(_refreshDownloadStatus());
     if (_offlinePath != null) {
       _offlinePath = next['offlinePath']?.toString();
       _offlineSubtitles = (next['subtitles'] as List? ?? const [])
@@ -2364,8 +2399,9 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
             onAspectRatio: _cycleAspectRatio,
             aspectRatioLabel: _aspectRatioLabel,
             onDownload: _downloadCurrentStream,
-            showDownload: widget.offlinePath == null,
+            showDownload: widget.offlinePath == null || _downloadCompleted,
             downloadProgress: _downloadProgress,
+            downloadCompleted: _downloadCompleted,
           ),
         ),
         if (_videoPlayerController != null)
