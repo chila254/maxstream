@@ -199,6 +199,7 @@ class StreamExtractor(private val context: Context) {
             MoflixExtractor(),
             VidLinkExtractor(),
             MaxstreamVideoExtractor(),
+            Mov2DayExtractor(),
             RpmExtractor(),
             VixSrcExtractor(),
             CommunityExtractor(),
@@ -717,8 +718,13 @@ class StreamExtractor(private val context: Context) {
                     )
                 }
             }.orEmpty()
+            val targetName = if (URI(videoUrl).rawFragment.isNullOrBlank()) {
+                "Vidflix host"
+            } else {
+                "RPM video"
+            }
             return ExtractionResult.Redirect(
-                StreamServer("RPM video", videoUrl, subtitles = subtitles),
+                StreamServer(targetName, videoUrl, subtitles = subtitles),
             )
         }
     }
@@ -941,6 +947,80 @@ class StreamExtractor(private val context: Context) {
                     }
                 }
             }
+        }
+    }
+
+    private inner class Mov2DayExtractor : HostExtractor {
+        override val name = "Mov2Day"
+
+        override fun supports(server: StreamServer): Boolean {
+            return host(server.url).endsWith("mov2day.xyz")
+        }
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            val landingHtml = httpGet(server.url, refererHeaders("https://vidflix.club/"))
+            val embedBase = Regex(
+                """const\s+EMBED_BASE\s*=\s*["']([^"']+)["']""",
+                RegexOption.IGNORE_CASE,
+            ).find(landingHtml)?.groupValues?.get(1)
+                ?: throw IllegalStateException("Alternate Vidflix embed base was not found")
+
+            val mediaPath = URI(server.url).rawPath.orEmpty()
+            require(mediaPath.isNotBlank()) { "Alternate Vidflix media path was not found" }
+            val embedUrl = "${embedBase.trimEnd('/')}/${mediaPath.trimStart('/')}"
+            val embedHtml = httpGet(embedUrl, refererHeaders(server.url))
+            val framePath = Regex(
+                """<iframe[^>]+src\s*=\s*["']([^"']+)["']""",
+                setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL),
+            ).find(embedHtml)?.groupValues?.get(1)
+                ?: throw IllegalStateException("Alternate Vidflix player frame was not found")
+            val frameUrl = resolveUrl(embedUrl, framePath.replace("&amp;", "&"))
+
+            val playerHtml = httpGet(frameUrl, refererHeaders(embedUrl))
+            val configPayload = Regex(
+                """const\s+CONFIG\s*=\s*(\{.*?\});""",
+                setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL),
+            ).find(playerHtml)?.groupValues?.get(1)
+                ?: throw IllegalStateException("Alternate Vidflix player configuration was not found")
+            val config = JSONObject(configPayload)
+            val apiBase = config.optString("streamDataApiUrl")
+            val mediaId = config.optString("mediaId")
+            val mediaKind = config.optString("mediaType")
+            require(apiBase.isNotBlank() && mediaId.isNotBlank() && mediaKind.isNotBlank()) {
+                "Alternate Vidflix player configuration was incomplete"
+            }
+
+            val apiUrl = apiBase.toHttpUrl().newBuilder().apply {
+                addQueryParameter(if (config.optString("idType") == "imdb") "imdb" else "tmdb", mediaId)
+                addQueryParameter("type", mediaKind)
+                if (mediaKind.equals("tv", true)) {
+                    addQueryParameter("season", config.optInt("season", 1).toString())
+                    addQueryParameter("episode", config.optInt("episode", 1).toString())
+                }
+            }.build().toString()
+            val response = getJson(apiUrl, refererHeaders(frameUrl))
+            val streams = response.optJSONObject("data")?.optJSONArray("stream_urls")
+                ?: throw IllegalStateException("Alternate Vidflix source returned no stream list")
+            val frameOrigin = URI(frameUrl).let { "${it.scheme}://${it.host}" }
+            val headers = refererHeaders(frameUrl) + mapOf("Origin" to frameOrigin)
+
+            for (index in 0 until streams.length()) {
+                val streamUrl = streams.optString(index)
+                if (streamUrl.isBlank()) continue
+                val candidate = StreamResult(
+                    streamUrl,
+                    name,
+                    mediaType(streamUrl),
+                    headers,
+                    subtitles = server.subtitles.distinctBy { it.url },
+                )
+                try {
+                    return ExtractionResult.Final(validateStream(candidate))
+                } catch (error: Exception) {
+                    Log.w(tag, "Alternate Vidflix route failed: ${error.message}")
+                }
+            }
+            throw IllegalStateException("Alternate Vidflix source returned no playable route")
         }
     }
 
