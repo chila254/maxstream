@@ -2301,6 +2301,11 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     final size = controller.value.size;
     final videoWidth = size.width > 0 ? size.width : 1920.0;
     final videoHeight = size.height > 0 ? size.height : 1080.0;
+    final playerHeight = MediaQuery.sizeOf(context).height;
+    final compactPlayer = playerHeight < 430;
+    final subtitleBottom = compactPlayer
+        ? (playerHeight * 0.06).clamp(18.0, 32.0)
+        : 92.0;
     final videoWidget = switch (_aspectRatioMode) {
       _AspectRatioMode.fit => Center(
         child: AspectRatio(
@@ -2333,24 +2338,28 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       children: [
         ColoredBox(color: Colors.black, child: videoWidget),
         if (!_videoInitialized)
-          const Positioned.fill(
+          Positioned.fill(
             child: ColoredBox(
               color: Colors.black,
-              child: Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    CircularProgressIndicator(
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  SizedBox(
+                    width: 72,
+                    height: 72,
+                    child: CircularProgressIndicator(
                       color: Colors.red,
                       strokeWidth: 3,
                     ),
-                    SizedBox(height: 16),
-                    Text(
+                  ),
+                  Transform.translate(
+                    offset: Offset(0, 58),
+                    child: Text(
                       'Preparing video...',
                       style: TextStyle(color: Colors.white70, fontSize: 14),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -2358,25 +2367,29 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
             _isBuffering &&
             !_isSwitchingQuality &&
             !_isSwitchingServer)
-          const Positioned.fill(
+          Positioned.fill(
             child: IgnorePointer(
               child: ColoredBox(
                 color: Colors.black26,
-                child: Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      CircularProgressIndicator(
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    SizedBox(
+                      width: 72,
+                      height: 72,
+                      child: CircularProgressIndicator(
                         color: Colors.red,
                         strokeWidth: 3,
                       ),
-                      SizedBox(height: 12),
-                      Text(
+                    ),
+                    Transform.translate(
+                      offset: Offset(0, 58),
+                      child: Text(
                         'Loading video...',
                         style: TextStyle(color: Colors.white70, fontSize: 14),
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -2406,9 +2419,9 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         ),
         if (_videoPlayerController != null)
           Positioned(
-            left: 24,
-            right: 24,
-            bottom: 92,
+            left: compactPlayer ? 16 : 24,
+            right: compactPlayer ? 16 : 24,
+            bottom: subtitleBottom,
             child: IgnorePointer(
               child: ValueListenableBuilder<List<Subtitle>>(
                 valueListenable: _activeSubtitles,
@@ -2442,9 +2455,9 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
                           child: Text(
                             cues.map((cue) => cue.text.toString()).join('\n'),
                             textAlign: TextAlign.center,
-                            style: const TextStyle(
+                            style: TextStyle(
                               color: Colors.white,
-                              fontSize: 18,
+                              fontSize: compactPlayer ? 16 : 18,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
