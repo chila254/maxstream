@@ -13,6 +13,7 @@ import 'direct_m3u8_service.dart';
 import 'download_service_bridge.dart';
 import 'media_download_service.dart';
 import 'notification_service.dart';
+import 'stream_security.dart';
 
 class ActiveMediaDownload {
   const ActiveMediaDownload({
@@ -135,9 +136,7 @@ class ActiveMediaDownload {
       totalBytes: (json['totalBytes'] as num?)?.toInt(),
       isPaused: true,
       url: json['url']?.toString(),
-      headers: (json['headers'] as Map? ?? const {}).map(
-        (key, value) => MapEntry(key.toString(), value.toString()),
-      ),
+      headers: StreamSecurity.sanitizeHeaders(json['headers'] as Map?),
       isHls: json['isHls'] == true,
       mediaId: json['mediaId']?.toString() ?? '',
       isMovie: json['isMovie'] == true,
@@ -160,6 +159,7 @@ class MediaDownloadManager extends ChangeNotifier {
 
   static final MediaDownloadManager instance = MediaDownloadManager._();
   static const _pendingDownloadsKey = 'pending_media_downloads';
+  static const int maxSubtitleBytes = 5 * 1024 * 1024;
 
   final Map<String, ActiveMediaDownload> _active = {};
   int _completionVersion = 0;
@@ -185,7 +185,8 @@ class MediaDownloadManager extends ChangeNotifier {
         final task = ActiveMediaDownload.fromJson(
           value.map((key, value) => MapEntry(key.toString(), value)),
         );
-        if (task.downloadKey.isNotEmpty && task.url?.isNotEmpty == true) {
+        if (task.downloadKey.isNotEmpty &&
+            StreamSecurity.isSafeNetworkUrl(task.url)) {
           _active[task.downloadKey] = task;
         }
       }
@@ -520,6 +521,13 @@ class MediaDownloadManager extends ChangeNotifier {
     List<Map<String, dynamic>> subtitles = const [],
   }) async {
     if (_active.containsKey(downloadKey)) return;
+    if (!StreamSecurity.isSafeNetworkUrl(url)) {
+      throw const FormatException('Unsafe media URL');
+    }
+    headers = StreamSecurity.sanitizeHeaders(headers);
+    subtitles = subtitles
+        .where((track) => StreamSecurity.isSafeNetworkUrl(track['url']))
+        .toList();
     final label = title;
     final notificationId = downloadKey.hashCode & 0x7fffffff;
     var lastNotificationProgress = -1;
@@ -670,7 +678,10 @@ class MediaDownloadManager extends ChangeNotifier {
             .timeout(const Duration(seconds: 15));
         if (response.statusCode < 200 ||
             response.statusCode >= 300 ||
-            response.bodyBytes.isEmpty) {
+            response.bodyBytes.isEmpty ||
+            response.bodyBytes.length > maxSubtitleBytes ||
+            (response.contentLength != null &&
+                response.contentLength! > maxSubtitleBytes)) {
           continue;
         }
         var extension = p.extension(uri.path).toLowerCase();

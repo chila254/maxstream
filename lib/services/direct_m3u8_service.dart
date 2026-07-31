@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'native_stream_extractor.dart';
 import 'web_stream_service.dart';
+import 'stream_security.dart';
 
 /// Stream extraction service.
 /// On mobile: delegates to native Android Kotlin extractors via platform channel.
@@ -31,7 +32,7 @@ class DirectM3u8Service {
       title: title,
     );
 
-    return result;
+    return StreamSecurity.sanitizeResolverResult(result);
   }
 
   static Future<Map<String, dynamic>?> fetchSeriesStreamUrl(
@@ -62,7 +63,7 @@ class DirectM3u8Service {
       title: title,
     );
 
-    return result;
+    return StreamSecurity.sanitizeResolverResult(result);
   }
 
   static Future<List<Map<String, dynamic>>> fetchAvailableStreams({
@@ -79,9 +80,9 @@ class DirectM3u8Service {
         final url = isMovie
             ? source['movieUrl']!.replaceAll('{id}', tmdbId)
             : source['tvUrl']!
-                .replaceAll('{id}', tmdbId)
-                .replaceAll('{season}', season.toString())
-                .replaceAll('{episode}', episode.toString());
+                  .replaceAll('{id}', tmdbId)
+                  .replaceAll('{season}', season.toString())
+                  .replaceAll('{episode}', episode.toString());
         return {
           'url': url,
           'source': source['name'],
@@ -91,13 +92,17 @@ class DirectM3u8Service {
       }).toList();
     }
 
-    return NativeStreamExtractor.resolveStreams(
+    final streams = await NativeStreamExtractor.resolveStreams(
       tmdbId: tmdbId,
       isMovie: isMovie,
       season: season,
       episode: episode,
       title: title,
     );
+    return streams
+        .map(StreamSecurity.sanitizeResolverResult)
+        .whereType<Map<String, dynamic>>()
+        .toList();
   }
 
   /// Embed URLs for VidLinkExtractor fallback.

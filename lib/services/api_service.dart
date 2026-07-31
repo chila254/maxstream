@@ -11,9 +11,13 @@ class ApiService {
 
   // Movie APIs
   static Future<List> fetchTrendingMovies({int page = 1}) async {
-    final response = await http.get(
-      Uri.parse('$_baseUrl/trending/movie/week?api_key=$_apiKey&page=$page'),
-    ).timeout(_timeout);
+    final response = await http
+        .get(
+          Uri.parse(
+            '$_baseUrl/trending/movie/week?api_key=$_apiKey&page=$page',
+          ),
+        )
+        .timeout(_timeout);
     if (response.statusCode == 200) {
       final data = json.decode(response.body);
       return data['results'];
@@ -45,7 +49,8 @@ class ApiService {
       throw Exception('Failed to load top-rated movies');
     }
   }
-static Future<List> fetchUpcomingMovies({int page = 1}) async {
+
+  static Future<List> fetchUpcomingMovies({int page = 1}) async {
     final response = await http.get(
       Uri.parse('$_baseUrl/movie/upcoming?api_key=$_apiKey&page=$page'),
     );
@@ -96,7 +101,9 @@ static Future<List> fetchUpcomingMovies({int page = 1}) async {
     );
     if (response.statusCode == 200) {
       final data = json.decode(response.body);
-      return (data['results'] as List).map((item) => Movie.fromJson(item)).toList();
+      return (data['results'] as List)
+          .map((item) => Movie.fromJson(item))
+          .toList();
     } else {
       throw Exception('Failed to load popular series');
     }
@@ -108,7 +115,9 @@ static Future<List> fetchUpcomingMovies({int page = 1}) async {
     );
     if (response.statusCode == 200) {
       final data = json.decode(response.body);
-      return (data['results'] as List).map((item) => Movie.fromJson(item)).toList();
+      return (data['results'] as List)
+          .map((item) => Movie.fromJson(item))
+          .toList();
     } else {
       throw Exception('Failed to load trending series');
     }
@@ -120,7 +129,9 @@ static Future<List> fetchUpcomingMovies({int page = 1}) async {
     );
     if (response.statusCode == 200) {
       final data = json.decode(response.body);
-      return (data['results'] as List).map((item) => Movie.fromJson(item)).toList();
+      return (data['results'] as List)
+          .map((item) => Movie.fromJson(item))
+          .toList();
     } else {
       throw Exception('Failed to load top-rated series');
     }
@@ -184,7 +195,9 @@ static Future<List> fetchUpcomingMovies({int page = 1}) async {
 
   static Future<Series> fetchSeriesDetails(int seriesId) async {
     final response = await http.get(
-      Uri.parse('$_baseUrl/tv/$seriesId?api_key=$_apiKey&append_to_response=season_details'),
+      Uri.parse(
+        '$_baseUrl/tv/$seriesId?api_key=$_apiKey&append_to_response=season_details',
+      ),
     );
     if (response.statusCode == 200) {
       return Series.fromJson(json.decode(response.body));
@@ -193,7 +206,10 @@ static Future<List> fetchUpcomingMovies({int page = 1}) async {
     }
   }
 
-  static Future<List<Episode>> fetchSeasonEpisodes(int seriesId, int seasonNumber) async {
+  static Future<List<Episode>> fetchSeasonEpisodes(
+    int seriesId,
+    int seasonNumber,
+  ) async {
     final response = await http.get(
       Uri.parse('$_baseUrl/tv/$seriesId/season/$seasonNumber?api_key=$_apiKey'),
     );
@@ -208,7 +224,9 @@ static Future<List> fetchUpcomingMovies({int page = 1}) async {
   }
 
   /// Get series seasons
-  static Future<List<Map<String, dynamic>>> getSeriesSeasons(int seriesId) async {
+  static Future<List<Map<String, dynamic>>> getSeriesSeasons(
+    int seriesId,
+  ) async {
     try {
       final response = await http.get(
         Uri.parse('$_baseUrl/tv/$seriesId?api_key=$_apiKey'),
@@ -226,7 +244,9 @@ static Future<List> fetchUpcomingMovies({int page = 1}) async {
   }
 
   /// Get series trailers
-  static Future<List<Map<String, dynamic>>> getSeriesTrailers(int seriesId) async {
+  static Future<List<Map<String, dynamic>>> getSeriesTrailers(
+    int seriesId,
+  ) async {
     try {
       final response = await http.get(
         Uri.parse('$_baseUrl/tv/$seriesId/videos?api_key=$_apiKey'),
@@ -285,7 +305,9 @@ static Future<List> fetchUpcomingMovies({int page = 1}) async {
   static Future<List> fetchSeriesByGenre(int genreId, {int page = 1}) async {
     try {
       final response = await http.get(
-        Uri.parse('$_baseUrl/discover/tv?api_key=$_apiKey&with_genres=$genreId&page=$page'),
+        Uri.parse(
+          '$_baseUrl/discover/tv?api_key=$_apiKey&with_genres=$genreId&page=$page',
+        ),
       );
 
       if (response.statusCode == 200) {
@@ -299,9 +321,14 @@ static Future<List> fetchUpcomingMovies({int page = 1}) async {
   }
 
   // Actor search methods for OnStream-like functionality
-  static Future<List<Map<String, dynamic>>> searchActors(String query, {int page = 1}) async {
+  static Future<List<Map<String, dynamic>>> searchActors(
+    String query, {
+    int page = 1,
+  }) async {
     final response = await http.get(
-      Uri.parse('$_baseUrl/search/person?api_key=$_apiKey&query=$query&page=$page'),
+      Uri.parse(
+        '$_baseUrl/search/person?api_key=$_apiKey&query=$query&page=$page',
+      ),
     );
     if (response.statusCode == 200) {
       final data = json.decode(response.body);
@@ -324,7 +351,9 @@ static Future<List> fetchUpcomingMovies({int page = 1}) async {
   }
 
   // Get actor movie credits
-  static Future<List<Map<String, dynamic>>> getActorMovieCredits(int actorId) async {
+  static Future<List<Map<String, dynamic>>> getActorMovieCredits(
+    int actorId,
+  ) async {
     final response = await http.get(
       Uri.parse('$_baseUrl/person/$actorId/movie_credits?api_key=$_apiKey'),
     );
@@ -337,7 +366,9 @@ static Future<List> fetchUpcomingMovies({int page = 1}) async {
   }
 
   // Get actor TV credits
-  static Future<List<Map<String, dynamic>>> getActorTvCredits(int actorId) async {
+  static Future<List<Map<String, dynamic>>> getActorTvCredits(
+    int actorId,
+  ) async {
     final response = await http.get(
       Uri.parse('$_baseUrl/person/$actorId/tv_credits?api_key=$_apiKey'),
     );

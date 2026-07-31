@@ -86,9 +86,9 @@ class BiometricService {
   static Future<bool> authenticateForDeviceCode() async {
     try {
       final biometrics = await getAvailableBiometrics();
-      
+
       String reason = 'Verify your identity to complete TV login';
-      
+
       // Customize message based on available biometrics
       if (biometrics.contains(BiometricType.face)) {
         reason = 'Scan your face to complete TV login';
@@ -121,7 +121,7 @@ class BiometricService {
   static Future<String> getBiometricTypeString() async {
     try {
       final biometrics = await getAvailableBiometrics();
-      
+
       if (biometrics.contains(BiometricType.face)) {
         return 'Face Recognition';
       } else if (biometrics.contains(BiometricType.fingerprint)) {
@@ -129,7 +129,7 @@ class BiometricService {
       } else if (biometrics.contains(BiometricType.iris)) {
         return 'Iris Scan';
       }
-      
+
       return 'Biometric';
     } catch (e) {
       print('Error getting biometric type: $e');

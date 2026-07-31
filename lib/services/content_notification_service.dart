@@ -5,24 +5,24 @@ import 'tmdb_api_service.dart';
 import '../database/db_helper.dart';
 
 class ContentNotificationService {
-  static final FlutterLocalNotificationsPlugin _flutterLocalNotificationsPlugin =
-      FlutterLocalNotificationsPlugin();
+  static final FlutterLocalNotificationsPlugin
+  _flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
 
   static Future<void> initialize() async {
     const AndroidInitializationSettings androidInitializationSettings =
         AndroidInitializationSettings('@mipmap/launcher_icon');
     const DarwinInitializationSettings darwinInitializationSettings =
         DarwinInitializationSettings(
-      requestAlertPermission: false,
-      requestBadgePermission: false,
-      requestSoundPermission: false,
-    );
+          requestAlertPermission: false,
+          requestBadgePermission: false,
+          requestSoundPermission: false,
+        );
 
     const InitializationSettings initializationSettings =
         InitializationSettings(
-      android: androidInitializationSettings,
-      iOS: darwinInitializationSettings,
-    );
+          android: androidInitializationSettings,
+          iOS: darwinInitializationSettings,
+        );
 
     await _flutterLocalNotificationsPlugin.initialize(
       initializationSettings,
@@ -41,8 +41,7 @@ class ContentNotificationService {
       debugPrint('ContentNotificationService: Checking for new content...');
 
       // Get preferred providers
-      final preferredProviders =
-          await DBHelper.getPreferredProviders();
+      final preferredProviders = await DBHelper.getPreferredProviders();
 
       if (preferredProviders.isEmpty) {
         debugPrint('ContentNotificationService: No preferred providers');
@@ -79,7 +78,9 @@ class ContentNotificationService {
       );
 
       if (movies.isEmpty) {
-        debugPrint('ContentNotificationService: No movies found for $providerName');
+        debugPrint(
+          'ContentNotificationService: No movies found for $providerName',
+        );
         return;
       }
 
@@ -87,9 +88,11 @@ class ContentNotificationService {
       final previousMovieIds = _getStoredIds(prefs, lastCheckedKey);
 
       final newMovies = movies
-          .where((movie) =>
-              !(previousMovieIds.contains(movie['id'] as int?)) &&
-              movie['poster_path'] != null)
+          .where(
+            (movie) =>
+                !(previousMovieIds.contains(movie['id'] as int?)) &&
+                movie['poster_path'] != null,
+          )
           .toList();
 
       if (newMovies.isNotEmpty) {
@@ -135,7 +138,9 @@ class ContentNotificationService {
       );
 
       if (shows.isEmpty) {
-        debugPrint('ContentNotificationService: No shows found for $providerName');
+        debugPrint(
+          'ContentNotificationService: No shows found for $providerName',
+        );
         return;
       }
 
@@ -143,9 +148,11 @@ class ContentNotificationService {
       final previousShowIds = _getStoredIds(prefs, lastCheckedKey);
 
       final newShows = shows
-          .where((show) =>
-              !(previousShowIds.contains(show['id'] as int?)) &&
-              show['poster_path'] != null)
+          .where(
+            (show) =>
+                !(previousShowIds.contains(show['id'] as int?)) &&
+                show['poster_path'] != null,
+          )
           .toList();
 
       if (newShows.isNotEmpty) {
@@ -175,7 +182,10 @@ class ContentNotificationService {
 
   static Set<int> _getStoredIds(SharedPreferences prefs, String key) {
     final stored = prefs.getStringList(key) ?? [];
-    return stored.map((id) => int.tryParse(id) ?? 0).where((id) => id != 0).toSet();
+    return stored
+        .map((id) => int.tryParse(id) ?? 0)
+        .where((id) => id != 0)
+        .toSet();
   }
 
   static Future<void> _sendNewContentNotification({
@@ -185,7 +195,8 @@ class ContentNotificationService {
     required List<Map<String, dynamic>> newContent,
   }) async {
     try {
-      final title = '$newContentCount new ${contentType == 'movie' ? 'movies' : 'shows'} on $providerName';
+      final title =
+          '$newContentCount new ${contentType == 'movie' ? 'movies' : 'shows'} on $providerName';
       final firstContent = newContent.isNotEmpty
           ? newContent[0]['title'] ?? newContent[0]['name'] ?? 'New Content'
           : 'New Content';
@@ -196,21 +207,22 @@ class ContentNotificationService {
 
       const AndroidNotificationDetails androidNotificationDetails =
           AndroidNotificationDetails(
-        'maxstream_content_channel',
-        'New Content Notifications',
-        channelDescription: 'Notifications for new content on your favorite providers',
-        importance: Importance.max,
-        priority: Priority.high,
-        showProgress: false,
-        autoCancel: true,
-      );
+            'maxstream_content_channel',
+            'New Content Notifications',
+            channelDescription:
+                'Notifications for new content on your favorite providers',
+            importance: Importance.max,
+            priority: Priority.high,
+            showProgress: false,
+            autoCancel: true,
+          );
 
       const DarwinNotificationDetails darwinNotificationDetails =
           DarwinNotificationDetails(
-        presentAlert: true,
-        presentBadge: true,
-        presentSound: true,
-      );
+            presentAlert: true,
+            presentBadge: true,
+            presentSound: true,
+          );
 
       const NotificationDetails notificationDetails = NotificationDetails(
         android: androidNotificationDetails,

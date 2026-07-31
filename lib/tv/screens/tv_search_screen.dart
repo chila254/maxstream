@@ -31,6 +31,7 @@ class _TvSearchScreenState extends State<TvSearchScreen> {
   List<Map<String, dynamic>> _topRatedResults = [];
   bool _isLoading = false;
   bool _showNoResults = false;
+  int _searchGeneration = 0;
   late TvKeyboardFocusManager _focusManager;
   late ScrollController _contentScrollController;
   static const int _columnsPerRow = 4;
@@ -114,6 +115,8 @@ class _TvSearchScreenState extends State<TvSearchScreen> {
   }
 
   Future<void> _performSearch(String query) async {
+    final generation = ++_searchGeneration;
+    if (!mounted) return;
     setState(() {
       _searchQuery = query;
       _showNoResults = false;
@@ -132,7 +135,7 @@ class _TvSearchScreenState extends State<TvSearchScreen> {
 
     try {
       final results = await TmdbApiService.searchAll(query);
-      if (mounted) {
+      if (mounted && generation == _searchGeneration) {
         // Separate movies and series
         final movies = results
             .where((item) => item['media_type'] == 'movie')
@@ -151,7 +154,7 @@ class _TvSearchScreenState extends State<TvSearchScreen> {
       }
     } catch (e) {
       debugPrint('Search error: $e');
-      if (mounted) {
+      if (mounted && generation == _searchGeneration) {
         setState(() {
           _isLoading = false;
           _showNoResults = true;
@@ -247,9 +250,8 @@ class _TvSearchScreenState extends State<TvSearchScreen> {
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (context) => TvSeriesScreen(
-            seriesItem: Movie.fromJson(item),
-          ),
+          builder: (context) =>
+              TvSeriesScreen(seriesItem: Movie.fromJson(item)),
         ),
       );
     }

@@ -145,15 +145,15 @@ class DeviceCodeAuthService {
 
       // Step 2: Check if biometric is available
       final isBioAvailable = await BiometricService.canUseBiometric();
-      
+
       if (!isBioAvailable) {
         throw Exception('Biometric not available on this device');
       }
 
       // Step 3: Prompt for biometric authentication
-      final isBioAuthenticated = 
+      final isBioAuthenticated =
           await BiometricService.authenticateForDeviceCode();
-      
+
       if (!isBioAuthenticated) {
         throw Exception('Biometric authentication failed');
       }
@@ -162,7 +162,7 @@ class DeviceCodeAuthService {
       // Password must be provided - this is a limitation of this approach
       // as we don't have the user's password from the code
       final user = await AuthService.signInWithEmail(email ?? '', password);
-      
+
       if (user != null) {
         // Record biometric-assisted login
         await _recordBiometricLogin(userInfo['userId'] ?? '', email ?? '');
@@ -192,36 +192,38 @@ class DeviceCodeAuthService {
 
       // Step 2: Check if biometric is available
       final isBioAvailable = await BiometricService.canUseBiometric();
-      
+
       if (!isBioAvailable) {
         throw Exception('Biometric not available on this device');
       }
 
       // Step 3: Prompt for biometric authentication
-      final isBioAuthenticated = 
+      final isBioAuthenticated =
           await BiometricService.authenticateForDeviceCode();
-      
+
       if (!isBioAuthenticated) {
         throw Exception('Biometric authentication failed');
       }
 
       // Step 4: Retrieve saved password
       final savedPassword = await SecurePasswordService.getPassword(email);
-      
+
       if (savedPassword == null || savedPassword.isEmpty) {
-        throw Exception('No saved password found. Please sign in with password first.');
+        throw Exception(
+          'No saved password found. Please sign in with password first.',
+        );
       }
 
       // Step 5: Auto-sign in with email and saved password
       final user = await AuthService.signInWithEmail(email, savedPassword);
-      
+
       if (user != null) {
         // Create authenticated session
         await _createBiometricSession(userId ?? '', email);
 
         // Record successful passwordless biometric login
         await _recordBiometricLogin(userId ?? '', email);
-        
+
         print('Auto-logged in with biometric for: $email');
       }
 
@@ -252,10 +254,7 @@ class DeviceCodeAuthService {
   }
 
   /// Record biometric login for analytics/security
-  static Future<void> _recordBiometricLogin(
-    String userId,
-    String email,
-  ) async {
+  static Future<void> _recordBiometricLogin(String userId, String email) async {
     try {
       await _firestore.collection('login_audits').add({
         'userId': userId,

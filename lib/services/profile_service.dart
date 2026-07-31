@@ -18,7 +18,9 @@ class ProfileService {
       if (!file.existsSync()) throw Exception('File does not exist');
 
       // Upload to Firebase Storage with user ID as path
-      final storageRef = _storage.ref().child('profile_pictures/${user.uid}.jpg');
+      final storageRef = _storage.ref().child(
+        'profile_pictures/${user.uid}.jpg',
+      );
       final uploadTask = storageRef.putFile(file);
 
       // Wait for upload to complete
@@ -28,15 +30,12 @@ class ProfileService {
       final downloadUrl = await snapshot.ref.getDownloadURL();
 
       // Save URL to Firestore
-      await _firestore.collection('users').doc(user.uid).set(
-        {
-          'profilePictureUrl': downloadUrl,
-          'email': user.email,
-          'displayName': user.displayName,
-          'updatedAt': FieldValue.serverTimestamp(),
-        },
-        SetOptions(merge: true),
-      );
+      await _firestore.collection('users').doc(user.uid).set({
+        'profilePictureUrl': downloadUrl,
+        'email': user.email,
+        'displayName': user.displayName,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
 
       return downloadUrl;
     } catch (e) {
@@ -75,10 +74,9 @@ class ProfileService {
       }
 
       // Remove from Firestore
-      await _firestore.collection('users').doc(user.uid).set(
-        {'profilePictureUrl': null},
-        SetOptions(merge: true),
-      );
+      await _firestore.collection('users').doc(user.uid).set({
+        'profilePictureUrl': null,
+      }, SetOptions(merge: true));
     } catch (e) {
       print('Error deleting profile picture: $e');
       rethrow;

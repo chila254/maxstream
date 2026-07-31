@@ -133,7 +133,11 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
     final watchlist = await DBHelper.getWatchlistItems();
     if (mounted) {
       setState(() {
-        isSaved = watchlist.any((item) => item.id == widget.item.id);
+        isSaved = watchlist.any(
+          (item) =>
+              item.id == widget.item.id &&
+              item.mediaType == widget.item.mediaType,
+        );
       });
     }
   }
@@ -143,7 +147,10 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
       final wasAdded = !isSaved; // Store the action before state changes
 
       if (isSaved) {
-        await DBHelper.removeFromWatchlist(widget.item.id);
+        await DBHelper.removeFromWatchlist(
+          widget.item.id,
+          widget.item.mediaType,
+        );
       } else {
         await DBHelper.addToWatchlist(widget.item);
       }
@@ -507,9 +514,7 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
                                     style: TextStyle(color: Colors.green),
                                   ),
                                   style: OutlinedButton.styleFrom(
-                                    side: const BorderSide(
-                                      color: Colors.green,
-                                    ),
+                                    side: const BorderSide(color: Colors.green),
                                   ),
                                 ),
                               )
@@ -1137,7 +1142,11 @@ class _QualitySelectionSheetState extends State<_QualitySelectionSheet> {
                 padding: const EdgeInsets.all(20),
                 child: Column(
                   children: [
-                    const Icon(Icons.error_outline, color: Colors.orange, size: 32),
+                    const Icon(
+                      Icons.error_outline,
+                      color: Colors.orange,
+                      size: 32,
+                    ),
                     const SizedBox(height: 8),
                     Text(
                       'Could not fetch stream info',
@@ -1230,11 +1239,7 @@ class _QualitySelectionSheetState extends State<_QualitySelectionSheet> {
         ),
         child: Row(
           children: [
-            Icon(
-              icon,
-              color: isSelected ? Colors.red : Colors.grey,
-              size: 24,
-            ),
+            Icon(icon, color: isSelected ? Colors.red : Colors.grey, size: 24),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
@@ -1260,7 +1265,11 @@ class _QualitySelectionSheetState extends State<_QualitySelectionSheet> {
               ),
             ),
             if (isSelected)
-              const Icon(Icons.radio_button_checked, color: Colors.red, size: 20)
+              const Icon(
+                Icons.radio_button_checked,
+                color: Colors.red,
+                size: 20,
+              )
             else
               const Icon(Icons.radio_button_off, color: Colors.grey, size: 20),
           ],

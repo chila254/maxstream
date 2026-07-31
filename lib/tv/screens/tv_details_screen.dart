@@ -99,7 +99,11 @@ class _TvDetailsScreenState extends State<TvDetailsScreen> {
     final watchlist = await DBHelper.getWatchlistItems();
     if (mounted) {
       setState(() {
-        isSaved = watchlist.any((item) => item.id == widget.item.id);
+        isSaved = watchlist.any(
+          (item) =>
+              item.id == widget.item.id &&
+              item.mediaType == widget.item.mediaType,
+        );
       });
     }
   }
@@ -131,7 +135,10 @@ class _TvDetailsScreenState extends State<TvDetailsScreen> {
       final wasAdded = !isSaved;
 
       if (isSaved) {
-        await DBHelper.removeFromWatchlist(widget.item.id);
+        await DBHelper.removeFromWatchlist(
+          widget.item.id,
+          widget.item.mediaType,
+        );
       } else {
         await DBHelper.addToWatchlist(widget.item);
       }
@@ -153,8 +160,9 @@ class _TvDetailsScreenState extends State<TvDetailsScreen> {
                 ),
               ],
             ),
-            backgroundColor:
-                wasAdded ? Colors.green.shade600 : Colors.red.shade600,
+            backgroundColor: wasAdded
+                ? Colors.green.shade600
+                : Colors.red.shade600,
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
@@ -249,10 +257,7 @@ class _TvDetailsScreenState extends State<TvDetailsScreen> {
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
-                colors: [
-                  Colors.transparent,
-                  Color(0xF00F0F0F),
-                ],
+                colors: [Colors.transparent, Color(0xF00F0F0F)],
                 stops: [0.3, 0.7],
               ),
             ),
@@ -273,8 +278,7 @@ class _TvDetailsScreenState extends State<TvDetailsScreen> {
             if (isTvSeries && currentEpisodes.isNotEmpty)
               SliverToBoxAdapter(child: _buildEpisodesRow()),
             // Cast section
-            if (cast.isNotEmpty)
-              SliverToBoxAdapter(child: _buildCastSection()),
+            if (cast.isNotEmpty) SliverToBoxAdapter(child: _buildCastSection()),
             // More Like This
             if (recommendations.isNotEmpty)
               SliverToBoxAdapter(child: _buildRecommendations()),
@@ -296,8 +300,11 @@ class _TvDetailsScreenState extends State<TvDetailsScreen> {
                 color: Colors.black.withOpacity(0.6),
                 borderRadius: BorderRadius.circular(8),
               ),
-              child:
-                  const Icon(Icons.arrow_back, color: Colors.white, size: 24),
+              child: const Icon(
+                Icons.arrow_back,
+                color: Colors.white,
+                size: 24,
+              ),
             ),
           ),
         ),
@@ -357,7 +364,11 @@ class _TvDetailsScreenState extends State<TvDetailsScreen> {
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(Icons.star, color: Colors.amber, size: 14),
+                            const Icon(
+                              Icons.star,
+                              color: Colors.amber,
+                              size: 14,
+                            ),
                             const SizedBox(width: 4),
                             Text(
                               rating.toStringAsFixed(1),
@@ -468,7 +479,9 @@ class _TvDetailsScreenState extends State<TvDetailsScreen> {
                     child: AnimatedContainer(
                       duration: const Duration(milliseconds: 200),
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 8),
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
                       decoration: BoxDecoration(
                         color: isSelected
                             ? Colors.red
@@ -486,8 +499,9 @@ class _TvDetailsScreenState extends State<TvDetailsScreen> {
                         style: TextStyle(
                           color: isSelected ? Colors.white : Colors.grey[300],
                           fontSize: 14,
-                          fontWeight:
-                              isSelected ? FontWeight.w600 : FontWeight.w400,
+                          fontWeight: isSelected
+                              ? FontWeight.w600
+                              : FontWeight.w400,
                         ),
                       ),
                     ),
@@ -598,7 +612,8 @@ class _TvDetailsScreenState extends State<TvDetailsScreen> {
                         child: member['profile_path'] != null
                             ? Image.network(
                                 TmdbApiService.getProfileUrl(
-                                    member['profile_path']),
+                                  member['profile_path'],
+                                ),
                                 width: 80,
                                 height: 80,
                                 fit: BoxFit.cover,
@@ -607,8 +622,11 @@ class _TvDetailsScreenState extends State<TvDetailsScreen> {
                                 width: 80,
                                 height: 80,
                                 color: Colors.grey[800],
-                                child: const Icon(Icons.person,
-                                    color: Colors.grey, size: 36),
+                                child: const Icon(
+                                  Icons.person,
+                                  color: Colors.grey,
+                                  size: 36,
+                                ),
                               ),
                       ),
                       const SizedBox(height: 8),
@@ -666,23 +684,23 @@ class _TvDetailsScreenState extends State<TvDetailsScreen> {
                 final year = releaseDate != null && releaseDate.length >= 4
                     ? releaseDate.substring(0, 4)
                     : firstAirDate != null && firstAirDate.length >= 4
-                        ? firstAirDate.substring(0, 4)
-                        : null;
+                    ? firstAirDate.substring(0, 4)
+                    : null;
 
                 return _RecommendationCard(
                   posterUrl: posterUrl,
                   title: itemTitle,
                   year: year,
                   onTap: () {
-                    final type = item['media_type'] ??
+                    final type =
+                        item['media_type'] ??
                         (item['first_air_date'] != null ? 'tv' : 'movie');
                     if (type == 'tv') {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (context) => TvSeriesScreen(
-                            seriesItem: Movie.fromJson(item),
-                          ),
+                          builder: (context) =>
+                              TvSeriesScreen(seriesItem: Movie.fromJson(item)),
                         ),
                       );
                     } else {
@@ -739,16 +757,23 @@ class _TvDetailsScreenState extends State<TvDetailsScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Container(height: 32, width: 300, color: Colors.grey[800]),
+                      Container(
+                        height: 32,
+                        width: 300,
+                        color: Colors.grey[800],
+                      ),
                       const SizedBox(height: 16),
-                      Container(height: 20, width: 150, color: Colors.grey[800]),
+                      Container(
+                        height: 20,
+                        width: 150,
+                        color: Colors.grey[800],
+                      ),
                       const SizedBox(height: 16),
                       ...List.generate(
                         4,
                         (i) => Padding(
                           padding: const EdgeInsets.only(bottom: 8),
-                          child:
-                              Container(height: 14, color: Colors.grey[800]),
+                          child: Container(height: 14, color: Colors.grey[800]),
                         ),
                       ),
                     ],
@@ -776,12 +801,10 @@ class _Badge extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.1),
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(
-          color: Colors.white.withOpacity(0.15),
-          width: 1,
-        ),
+        border: Border.all(color: Colors.white.withOpacity(0.15), width: 1),
       ),
-      child: child ??
+      child:
+          child ??
           Text(
             label ?? '',
             style: const TextStyle(
@@ -835,8 +858,8 @@ class _ActionButtonState extends State<_ActionButton> {
             color: widget.primary
                 ? Colors.red
                 : _isFocused
-                    ? Colors.white.withOpacity(0.2)
-                    : Colors.white.withOpacity(0.1),
+                ? Colors.white.withOpacity(0.2)
+                : Colors.white.withOpacity(0.1),
             borderRadius: BorderRadius.circular(8),
             border: _isFocused
                 ? Border.all(color: Colors.white.withOpacity(0.3), width: 1)
@@ -905,9 +928,7 @@ class _EpisodeCardState extends State<_EpisodeCard> {
           decoration: BoxDecoration(
             color: const Color(0xFF1A1A1A),
             borderRadius: BorderRadius.circular(10),
-            border: _isFocused
-                ? Border.all(color: Colors.red, width: 2)
-                : null,
+            border: _isFocused ? Border.all(color: Colors.red, width: 2) : null,
           ),
           clipBehavior: Clip.antiAlias,
           child: Column(
@@ -925,14 +946,20 @@ class _EpisodeCardState extends State<_EpisodeCard> {
                             fit: BoxFit.cover,
                             errorBuilder: (_, __, ___) => Container(
                               color: Colors.grey[800],
-                              child: const Icon(Icons.play_circle_outline,
-                                  color: Colors.white54, size: 40),
+                              child: const Icon(
+                                Icons.play_circle_outline,
+                                color: Colors.white54,
+                                size: 40,
+                              ),
                             ),
                           )
                         : Container(
                             color: Colors.grey[800],
-                            child: const Icon(Icons.play_circle_outline,
-                                color: Colors.white54, size: 40),
+                            child: const Icon(
+                              Icons.play_circle_outline,
+                              color: Colors.white54,
+                              size: 40,
+                            ),
                           ),
                   ),
                   if (_isFocused)
@@ -940,8 +967,11 @@ class _EpisodeCardState extends State<_EpisodeCard> {
                       child: Container(
                         color: Colors.black.withOpacity(0.4),
                         child: const Center(
-                          child: Icon(Icons.play_arrow,
-                              color: Colors.white, size: 36),
+                          child: Icon(
+                            Icons.play_arrow,
+                            color: Colors.white,
+                            size: 36,
+                          ),
                         ),
                       ),
                     ),
@@ -968,8 +998,9 @@ class _EpisodeCardState extends State<_EpisodeCard> {
                           child: Text(
                             widget.title,
                             style: TextStyle(
-                              color:
-                                  _isFocused ? Colors.white : Colors.grey[300],
+                              color: _isFocused
+                                  ? Colors.white
+                                  : Colors.grey[300],
                               fontSize: 13,
                               fontWeight: FontWeight.w500,
                             ),
@@ -983,10 +1014,7 @@ class _EpisodeCardState extends State<_EpisodeCard> {
                       const SizedBox(height: 4),
                       Text(
                         widget.overview,
-                        style: TextStyle(
-                          color: Colors.grey[500],
-                          fontSize: 11,
-                        ),
+                        style: TextStyle(color: Colors.grey[500], fontSize: 11),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -1044,24 +1072,29 @@ class _RecommendationCardState extends State<_RecommendationCard> {
             width: 130,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(8),
-              border:
-                  _isFocused ? Border.all(color: Colors.red, width: 2) : null,
+              border: _isFocused
+                  ? Border.all(color: Colors.red, width: 2)
+                  : null,
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
                   child: ClipRRect(
-                    borderRadius:
-                        const BorderRadius.vertical(top: Radius.circular(8)),
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(8),
+                    ),
                     child: Image.network(
                       widget.posterUrl,
                       fit: BoxFit.cover,
                       width: 130,
                       errorBuilder: (_, __, ___) => Container(
                         color: Colors.grey[800],
-                        child: const Icon(Icons.movie,
-                            color: Colors.grey, size: 40),
+                        child: const Icon(
+                          Icons.movie,
+                          color: Colors.grey,
+                          size: 40,
+                        ),
                       ),
                     ),
                   ),
@@ -1070,8 +1103,9 @@ class _RecommendationCardState extends State<_RecommendationCard> {
                   padding: const EdgeInsets.fromLTRB(8, 8, 8, 6),
                   decoration: const BoxDecoration(
                     color: Color(0xFF1A1A1A),
-                    borderRadius:
-                        BorderRadius.vertical(bottom: Radius.circular(8)),
+                    borderRadius: BorderRadius.vertical(
+                      bottom: Radius.circular(8),
+                    ),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -1079,8 +1113,7 @@ class _RecommendationCardState extends State<_RecommendationCard> {
                       Text(
                         widget.title,
                         style: TextStyle(
-                          color:
-                              _isFocused ? Colors.white : Colors.grey[300],
+                          color: _isFocused ? Colors.white : Colors.grey[300],
                           fontSize: 12,
                           fontWeight: FontWeight.w500,
                         ),

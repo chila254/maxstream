@@ -9,7 +9,8 @@ class MaxStreamWatchlistScreen extends StatefulWidget {
   const MaxStreamWatchlistScreen({super.key});
 
   @override
-  State<MaxStreamWatchlistScreen> createState() => _MaxStreamWatchlistScreenState();
+  State<MaxStreamWatchlistScreen> createState() =>
+      _MaxStreamWatchlistScreenState();
 }
 
 class _MaxStreamWatchlistScreenState extends State<MaxStreamWatchlistScreen>
@@ -51,14 +52,18 @@ class _MaxStreamWatchlistScreenState extends State<MaxStreamWatchlistScreen>
 
   Future<void> _removeFromWatchlist(Movie item) async {
     try {
-      await DBHelper.removeFromWatchlist(item.id);
+      await DBHelper.removeFromWatchlist(item.id, item.mediaType);
       await _loadWatchlist();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Row(
               children: [
-                const Icon(Icons.favorite_border, color: Colors.white, size: 20),
+                const Icon(
+                  Icons.favorite_border,
+                  color: Colors.white,
+                  size: 20,
+                ),
                 const SizedBox(width: 8),
                 Text('${item.title} removed from watchlist'),
               ],
@@ -123,13 +128,21 @@ class _MaxStreamWatchlistScreenState extends State<MaxStreamWatchlistScreen>
         ),
       ),
       body: isLoading
-          ? const Center(child: MovieLoadingWidget(text: 'Loading watchlist...'))
+          ? const Center(
+              child: MovieLoadingWidget(text: 'Loading watchlist...'),
+            )
           : TabBarView(
               controller: _tabController,
               children: [
-                watchlistItems.isEmpty ? _buildEmptyState() : _buildWatchlistGrid(watchlistItems),
-                movies.isEmpty ? _buildEmptyState() : _buildWatchlistGrid(movies),
-                series.isEmpty ? _buildEmptyState() : _buildWatchlistGrid(series),
+                watchlistItems.isEmpty
+                    ? _buildEmptyState()
+                    : _buildWatchlistGrid(watchlistItems),
+                movies.isEmpty
+                    ? _buildEmptyState()
+                    : _buildWatchlistGrid(movies),
+                series.isEmpty
+                    ? _buildEmptyState()
+                    : _buildWatchlistGrid(series),
               ],
             ),
     );
@@ -153,10 +166,7 @@ class _MaxStreamWatchlistScreenState extends State<MaxStreamWatchlistScreen>
           SizedBox(height: 8),
           Text(
             'Add movies and TV shows to keep track of what you want to watch',
-            style: TextStyle(
-              color: Colors.grey,
-              fontSize: 14,
-            ),
+            style: TextStyle(color: Colors.grey, fontSize: 14),
             textAlign: TextAlign.center,
           ),
         ],
@@ -190,23 +200,24 @@ class _MaxStreamWatchlistScreenState extends State<MaxStreamWatchlistScreen>
           PageRouteBuilder(
             pageBuilder: (context, animation, secondaryAnimation) =>
                 item.mediaType == 'tv'
-                    ? MaxStreamSeriesScreen(seriesItem: item)
-                    : MaxStreamDetailsScreen(
-                        item: item,
-                        mediaType: item.mediaType,
-                      ),
-            transitionsBuilder: (context, animation, secondaryAnimation, child) {
-              return SlideTransition(
-                position: Tween<Offset>(
-                  begin: const Offset(1.0, 0.0),
-                  end: Offset.zero,
-                ).animate(CurvedAnimation(
-                  parent: animation,
-                  curve: Curves.fastOutSlowIn,
-                )),
-                child: child,
-              );
-            },
+                ? MaxStreamSeriesScreen(seriesItem: item)
+                : MaxStreamDetailsScreen(item: item, mediaType: item.mediaType),
+            transitionsBuilder:
+                (context, animation, secondaryAnimation, child) {
+                  return SlideTransition(
+                    position:
+                        Tween<Offset>(
+                          begin: const Offset(1.0, 0.0),
+                          end: Offset.zero,
+                        ).animate(
+                          CurvedAnimation(
+                            parent: animation,
+                            curve: Curves.fastOutSlowIn,
+                          ),
+                        ),
+                    child: child,
+                  );
+                },
             transitionDuration: const Duration(milliseconds: 250),
           ),
         );
@@ -225,10 +236,14 @@ class _MaxStreamWatchlistScreenState extends State<MaxStreamWatchlistScreen>
                           width: double.infinity,
                           height: double.infinity,
                           fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) => Container(
-                            color: Colors.grey[800],
-                            child: const Icon(Icons.movie, color: Colors.grey),
-                          ),
+                          errorBuilder: (context, error, stackTrace) =>
+                              Container(
+                                color: Colors.grey[800],
+                                child: const Icon(
+                                  Icons.movie,
+                                  color: Colors.grey,
+                                ),
+                              ),
                         )
                       : Container(
                           width: double.infinity,
@@ -261,7 +276,10 @@ class _MaxStreamWatchlistScreenState extends State<MaxStreamWatchlistScreen>
                     bottom: 4,
                     left: 4,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 4,
+                        vertical: 2,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.black.withValues(alpha: 0.7),
                         borderRadius: BorderRadius.circular(4),
@@ -300,14 +318,10 @@ class _MaxStreamWatchlistScreenState extends State<MaxStreamWatchlistScreen>
           if (item.year.isNotEmpty)
             Text(
               item.year,
-              style: const TextStyle(
-                color: Colors.grey,
-                fontSize: 10,
-              ),
+              style: const TextStyle(color: Colors.grey, fontSize: 10),
             ),
         ],
       ),
     );
   }
 }
-

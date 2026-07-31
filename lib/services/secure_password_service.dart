@@ -5,7 +5,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 class SecurePasswordService {
   static const String _passwordKeyPrefix = 'tv_login_password_';
   static const String _emailKeyPrefix = 'tv_login_email_';
-  
+
   static const FlutterSecureStorage _storage = FlutterSecureStorage();
 
   /// Save password securely for a user email
@@ -14,13 +14,13 @@ class SecurePasswordService {
     try {
       final emailKey = _emailKeyPrefix + email;
       final passwordKey = _passwordKeyPrefix + email;
-      
+
       // Store both email and password
       await Future.wait([
         _storage.write(key: emailKey, value: email),
         _storage.write(key: passwordKey, value: password),
       ]);
-      
+
       print('Password saved securely for: $email');
       return true;
     } catch (e) {
@@ -34,11 +34,11 @@ class SecurePasswordService {
     try {
       final passwordKey = _passwordKeyPrefix + email;
       final password = await _storage.read(key: passwordKey);
-      
+
       if (password != null) {
         print('Retrieved saved password for: $email');
       }
-      
+
       return password;
     } catch (e) {
       print('Error retrieving password: $e');
@@ -62,12 +62,12 @@ class SecurePasswordService {
     try {
       final emailKey = _emailKeyPrefix + email;
       final passwordKey = _passwordKeyPrefix + email;
-      
+
       await Future.wait([
         _storage.delete(key: emailKey),
         _storage.delete(key: passwordKey),
       ]);
-      
+
       print('Password deleted for: $email');
       return true;
     } catch (e) {
@@ -81,7 +81,7 @@ class SecurePasswordService {
     try {
       final allEntries = await _storage.readAll();
       final savedEmails = <String>[];
-      
+
       for (var key in allEntries.keys) {
         if (key.startsWith(_emailKeyPrefix)) {
           final email = allEntries[key];
@@ -90,7 +90,7 @@ class SecurePasswordService {
           }
         }
       }
-      
+
       return savedEmails;
     } catch (e) {
       print('Error getting saved emails: $e');

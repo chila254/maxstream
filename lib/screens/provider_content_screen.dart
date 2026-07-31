@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shimmer/shimmer.dart';
 import '../models/movie.dart';
 import '../services/tmdb_api_service.dart';
+import '../utils/tmdb_list_utils.dart';
 import '../widgets/custom_loading_widget.dart';
 import 'maxstream_details_screen.dart';
 import 'maxstream_series_screen.dart';
@@ -35,6 +36,8 @@ class _ProviderContentScreenState extends State<ProviderContentScreen> {
   late ScrollController _showScrollController;
   bool _isLoadingMoreMovies = false;
   bool _isLoadingMoreShows = false;
+  bool _hasMoreMovies = true;
+  bool _hasMoreShows = true;
 
   @override
   void initState() {
@@ -63,6 +66,7 @@ class _ProviderContentScreenState extends State<ProviderContentScreen> {
         setState(() {
           _moviesPage1 = movies;
           _moviePage = 1;
+          _hasMoreMovies = true;
           _isLoadingMovies = false;
         });
       }
@@ -86,6 +90,7 @@ class _ProviderContentScreenState extends State<ProviderContentScreen> {
         setState(() {
           _seriesPage1 = shows;
           _showPage = 1;
+          _hasMoreShows = true;
           _isLoadingShows = false;
         });
       }
@@ -101,6 +106,7 @@ class _ProviderContentScreenState extends State<ProviderContentScreen> {
     if (_movieScrollController.position.pixels ==
             _movieScrollController.position.maxScrollExtent &&
         !_isLoadingMoreMovies &&
+        _hasMoreMovies &&
         _moviesPage1.isNotEmpty) {
       _loadMoreMovies();
     }
@@ -110,13 +116,14 @@ class _ProviderContentScreenState extends State<ProviderContentScreen> {
     if (_showScrollController.position.pixels ==
             _showScrollController.position.maxScrollExtent &&
         !_isLoadingMoreShows &&
+        _hasMoreShows &&
         _seriesPage1.isNotEmpty) {
       _loadMoreShows();
     }
   }
 
   Future<void> _loadMoreMovies() async {
-    if (_isLoadingMoreMovies) return;
+    if (_isLoadingMoreMovies || !_hasMoreMovies) return;
     setState(() => _isLoadingMoreMovies = true);
     try {
       final nextPage = _moviePage + 1;
@@ -124,14 +131,14 @@ class _ProviderContentScreenState extends State<ProviderContentScreen> {
         widget.providerId,
         page: nextPage,
       );
-      if (newMovies.isNotEmpty && mounted) {
+      if (mounted) {
+        final merged = uniqueTmdbItems(_moviesPage1, newMovies, 'movie');
         setState(() {
-          _moviesPage1.addAll(newMovies);
-          _moviePage = nextPage;
+          _hasMoreMovies = merged.length > _moviesPage1.length;
+          _moviesPage1 = merged;
+          if (_hasMoreMovies) _moviePage = nextPage;
           _isLoadingMoreMovies = false;
         });
-      } else if (mounted) {
-        setState(() => _isLoadingMoreMovies = false);
       }
     } catch (e) {
       // Error loading more movies
@@ -142,7 +149,7 @@ class _ProviderContentScreenState extends State<ProviderContentScreen> {
   }
 
   Future<void> _loadMoreShows() async {
-    if (_isLoadingMoreShows) return;
+    if (_isLoadingMoreShows || !_hasMoreShows) return;
     setState(() => _isLoadingMoreShows = true);
     try {
       final nextPage = _showPage + 1;
@@ -150,14 +157,14 @@ class _ProviderContentScreenState extends State<ProviderContentScreen> {
         widget.providerId,
         page: nextPage,
       );
-      if (newShows.isNotEmpty && mounted) {
+      if (mounted) {
+        final merged = uniqueTmdbItems(_seriesPage1, newShows, 'tv');
         setState(() {
-          _seriesPage1.addAll(newShows);
-          _showPage = nextPage;
+          _hasMoreShows = merged.length > _seriesPage1.length;
+          _seriesPage1 = merged;
+          if (_hasMoreShows) _showPage = nextPage;
           _isLoadingMoreShows = false;
         });
-      } else if (mounted) {
-        setState(() => _isLoadingMoreShows = false);
       }
     } catch (e) {
       // Error loading more shows
@@ -333,6 +340,7 @@ class _ProviderContentScreenState extends State<ProviderContentScreen> {
 
         final movie = _moviesPage1[index];
         return GestureDetector(
+          key: ValueKey(tmdbItemKey(movie, 'movie')),
           onTap: () {
             Navigator.push(
               context,
@@ -478,6 +486,7 @@ class _ProviderContentScreenState extends State<ProviderContentScreen> {
 
         final show = _seriesPage1[index];
         return GestureDetector(
+          key: ValueKey(tmdbItemKey(show, 'tv')),
           onTap: () {
             Navigator.push(
               context,

@@ -8,11 +8,7 @@ class MovieSlider extends StatefulWidget {
   final String title;
   final Future<List<Movie>> Function({int page}) apiCall;
 
-  const MovieSlider({
-    super.key,
-    required this.title,
-    required this.apiCall,
-  });
+  const MovieSlider({super.key, required this.title, required this.apiCall});
 
   @override
   State<MovieSlider> createState() => _MovieSliderState();
@@ -38,18 +34,25 @@ class _MovieSliderState extends State<MovieSlider> {
 
     try {
       final newItems = await widget.apiCall(page: page);
+      if (!mounted) return;
       setState(() {
-        if (newItems.isEmpty) {
+        final keys = items
+            .map((item) => '${item.mediaType}:${item.id}')
+            .toSet();
+        final uniqueItems = newItems
+            .where((item) => keys.add('${item.mediaType}:${item.id}'))
+            .toList();
+        if (uniqueItems.isEmpty) {
           hasMore = false;
         } else {
-          items.addAll(newItems);
+          items.addAll(uniqueItems);
           page++;
         }
       });
     } catch (e) {
       print('Error fetching ${widget.title}: $e');
     } finally {
-      setState(() => isLoading = false);
+      if (mounted) setState(() => isLoading = false);
     }
   }
 
@@ -128,6 +131,7 @@ class _MovieSliderState extends State<MovieSlider> {
               final cardHeight = ResponsiveUtils.getCardHeight(context);
 
               return GestureDetector(
+                key: ValueKey('${item.mediaType}:${item.id}'),
                 onTap: () => _navigateToDetails(item),
                 child: Container(
                   width: cardWidth,
@@ -141,7 +145,10 @@ class _MovieSliderState extends State<MovieSlider> {
                         children: [
                           ClipRRect(
                             borderRadius: BorderRadius.circular(
-                              ResponsiveUtils.isTablet(context) || ResponsiveUtils.isDesktop(context) ? 12 : 8,
+                              ResponsiveUtils.isTablet(context) ||
+                                      ResponsiveUtils.isDesktop(context)
+                                  ? 12
+                                  : 8,
                             ),
                             child: Image.network(
                               imageUrl,
@@ -163,14 +170,19 @@ class _MovieSliderState extends State<MovieSlider> {
                           // All content is streamable
                         ],
                       ),
-                      SizedBox(height: ResponsiveUtils.getSpacing(context, mobile: 4)),
+                      SizedBox(
+                        height: ResponsiveUtils.getSpacing(context, mobile: 4),
+                      ),
                       Text(
                         title,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           color: Colors.white,
-                          fontSize: ResponsiveUtils.getFontSize(context, mobile: 12),
+                          fontSize: ResponsiveUtils.getFontSize(
+                            context,
+                            mobile: 12,
+                          ),
                         ),
                       ),
                     ],

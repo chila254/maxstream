@@ -70,7 +70,11 @@ class _HeroBannerState extends State<HeroBanner> {
   Future<void> _loadWatchlistIds() async {
     final watchlist = await DBHelper.getWatchlist();
     setState(() {
-      _watchlistIds.addAll(watchlist.map((item) => int.parse(item.id)));
+      _watchlistIds.addAll(
+        watchlist
+            .where((item) => item.mediaType == 'movie')
+            .map((item) => int.parse(item.id)),
+      );
     });
   }
 
@@ -96,7 +100,7 @@ class _HeroBannerState extends State<HeroBanner> {
       final wasInWatchlist = _watchlistIds.contains(int.parse(item.id));
 
       if (wasInWatchlist) {
-        await DBHelper.removeMovie(int.parse(item.id));
+        await DBHelper.removeMovie(item.id, item.mediaType);
         setState(() => _watchlistIds.remove(int.parse(item.id)));
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(

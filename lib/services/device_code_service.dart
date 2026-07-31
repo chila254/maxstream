@@ -18,49 +18,60 @@ class DeviceCodeService {
       // Generate random 6-digit code
       final code = (100000 + Random().nextInt(900000)).toString();
       print('Generated code: $code');
-      
+
       // Save to Firestore with 15-minute expiry
       final expiresAt = DateTime.now().add(const Duration(minutes: 15));
-      
+
       print('Writing to Firestore collection: device_codes');
-      
+
       // Use exponential backoff retry logic
       int retryCount = 0;
       const maxRetries = 3;
       const baseDelay = Duration(milliseconds: 500);
-      
+
       while (retryCount < maxRetries) {
         try {
-          await _firestore.collection('device_codes').doc(code).set({
-            'code': code,
-            'userId': user.uid,
-            'email': user.email,
-            'displayName': user.displayName,
-            'createdAt': FieldValue.serverTimestamp(),
-            'expiresAt': Timestamp.fromDate(expiresAt),
-            'isUsed': false,
-          }).timeout(
-            const Duration(seconds: 30), // Increased from 10 to 30 seconds
-            onTimeout: () {
-              throw TimeoutException('Firestore write operation timed out after 30 seconds');
-            },
-          );
-          
+          await _firestore
+              .collection('device_codes')
+              .doc(code)
+              .set({
+                'code': code,
+                'userId': user.uid,
+                'email': user.email,
+                'displayName': user.displayName,
+                'createdAt': FieldValue.serverTimestamp(),
+                'expiresAt': Timestamp.fromDate(expiresAt),
+                'isUsed': false,
+              })
+              .timeout(
+                const Duration(seconds: 30), // Increased from 10 to 30 seconds
+                onTimeout: () {
+                  throw TimeoutException(
+                    'Firestore write operation timed out after 30 seconds',
+                  );
+                },
+              );
+
           print('Successfully saved device code: $code');
           return code;
         } on TimeoutException {
           retryCount++;
           if (retryCount < maxRetries) {
-            final delay = baseDelay * (1 << (retryCount - 1)); // Exponential backoff
-            print('Timeout on attempt $retryCount, retrying in ${delay.inMilliseconds}ms...');
+            final delay =
+                baseDelay * (1 << (retryCount - 1)); // Exponential backoff
+            print(
+              'Timeout on attempt $retryCount, retrying in ${delay.inMilliseconds}ms...',
+            );
             await Future.delayed(delay);
           } else {
             print('Max retries reached. Failed to save device code.');
-            throw TimeoutException('Failed to generate pairing code after $maxRetries attempts. Please check your internet connection and try again.');
+            throw TimeoutException(
+              'Failed to generate pairing code after $maxRetries attempts. Please check your internet connection and try again.',
+            );
           }
         }
       }
-      
+
       throw Exception('Failed to generate device code');
     } on TimeoutException catch (e) {
       print('Timeout error: $e');
@@ -78,7 +89,7 @@ class DeviceCodeService {
   static Future<Map<String, String>> validateDeviceCode(String code) async {
     try {
       final doc = await _firestore.collection('device_codes').doc(code).get();
-      
+
       if (!doc.exists) {
         throw Exception('Invalid code');
       }
@@ -127,10 +138,7 @@ class DeviceCodeService {
           .get();
 
       return snapshot.docs
-          .map((doc) => {
-            'code': doc['code'],
-            'expiresAt': doc['expiresAt'],
-          })
+          .map((doc) => {'code': doc['code'], 'expiresAt': doc['expiresAt']})
           .toList();
     } catch (e) {
       print('Error fetching codes: $e');

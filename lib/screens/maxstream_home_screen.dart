@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:shimmer/shimmer.dart';
 import '../models/movie.dart';
 import '../services/tmdb_api_service.dart';
+import '../utils/tmdb_list_utils.dart';
 import '../services/watch_history_service.dart';
 import '../widgets/hero_banner.dart';
 import '../widgets/custom_loading_widget.dart';
@@ -656,6 +657,7 @@ class _FullListScreenState extends State<_FullListScreen> {
   List<Map<String, dynamic>> _allItems = [];
   bool _isLoading = false;
   int _currentPage = 1;
+  bool _hasMore = true;
   final ScrollController _scrollController = ScrollController();
 
   @override
@@ -712,51 +714,52 @@ class _FullListScreenState extends State<_FullListScreen> {
   void _scrollListener() {
     if (_scrollController.position.pixels ==
             _scrollController.position.maxScrollExtent &&
-        !_isLoading) {
+        !_isLoading &&
+        _hasMore) {
       _loadMoreItems();
     }
   }
 
   Future<void> _loadMoreItems() async {
-    if (_isLoading) return;
+    if (_isLoading || !_hasMore) return;
 
     setState(() {
       _isLoading = true;
     });
 
     try {
-      _currentPage++;
+      final nextPage = _currentPage + 1;
       List<Map<String, dynamic>> newItems = [];
 
       if (widget.title.contains('Trending') && widget.mediaType == 'movie') {
-        newItems = await TmdbApiService.fetchTrendingMovies(page: _currentPage);
+        newItems = await TmdbApiService.fetchTrendingMovies(page: nextPage);
       } else if (widget.title.contains('Popular') &&
           widget.mediaType == 'movie') {
-        newItems = await TmdbApiService.fetchPopularMovies(page: _currentPage);
+        newItems = await TmdbApiService.fetchPopularMovies(page: nextPage);
       } else if (widget.title.contains('Top Rated') &&
           widget.mediaType == 'movie') {
-        newItems = await TmdbApiService.fetchTopRatedMovies(page: _currentPage);
+        newItems = await TmdbApiService.fetchTopRatedMovies(page: nextPage);
       } else if (widget.title.contains('Trending') &&
           widget.mediaType == 'tv') {
-        newItems = await TmdbApiService.fetchTrendingSeries(page: _currentPage);
+        newItems = await TmdbApiService.fetchTrendingSeries(page: nextPage);
       } else if (widget.title.contains('Popular') && widget.mediaType == 'tv') {
-        newItems = await TmdbApiService.fetchPopularSeries(page: _currentPage);
+        newItems = await TmdbApiService.fetchPopularSeries(page: nextPage);
       } else if (widget.title.contains('Top Rated') &&
           widget.mediaType == 'tv') {
-        newItems = await TmdbApiService.fetchTopRatedSeries(page: _currentPage);
+        newItems = await TmdbApiService.fetchTopRatedSeries(page: nextPage);
       }
 
-      if (newItems.isNotEmpty) {
-        setState(() {
-          _allItems.addAll(newItems);
-        });
-      }
+      if (!mounted) return;
+      final merged = uniqueTmdbItems(_allItems, newItems, widget.mediaType);
+      setState(() {
+        _hasMore = merged.length > _allItems.length;
+        _allItems = merged;
+        if (_hasMore) _currentPage = nextPage;
+      });
     } catch (e) {
       // Error loading more items
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -786,6 +789,7 @@ class _FullListScreenState extends State<_FullListScreen> {
               itemBuilder: (context, index) {
                 final item = _allItems[index];
                 return GestureDetector(
+                  key: ValueKey(tmdbItemKey(item, widget.mediaType)),
                   onTap: () {
                     Navigator.push(
                       context,

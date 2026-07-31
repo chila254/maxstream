@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 class ThemeService extends ChangeNotifier {
   static ThemeService? _instance;
   static ThemeService get instance => _instance ??= ThemeService._();
-  
+
   ThemeService._();
 
   Future<void> loadTheme() async {
@@ -44,7 +44,9 @@ class ThemeService extends ChangeNotifier {
     cardTheme: const CardThemeData(
       color: Color(0xFF1E1E1E),
       elevation: 4,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.all(Radius.circular(12))),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.all(Radius.circular(12)),
+      ),
     ),
     textTheme: const TextTheme(
       bodyLarge: TextStyle(color: Colors.white),

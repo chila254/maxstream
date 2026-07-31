@@ -80,7 +80,7 @@ class _TvWatchlistScreenState extends State<TvWatchlistScreen>
 
   Future<void> _removeFromWatchlist(Movie item) async {
     try {
-      await DBHelper.removeFromWatchlist(item.id);
+      await DBHelper.removeFromWatchlist(item.id, item.mediaType);
       await _loadWatchlist();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

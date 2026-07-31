@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:shimmer/shimmer.dart';
 import '../models/movie.dart';
 import '../services/tmdb_api_service.dart';
+import '../utils/tmdb_list_utils.dart';
 import '../database/db_helper.dart';
 import '../widgets/custom_loading_widget.dart';
 import 'maxstream_series_screen.dart';
@@ -94,6 +95,7 @@ class _CnSeriesByProviderScreenState extends State<CnSeriesByProviderScreen> {
   late Map<int, bool> isPreferredMap;
   late Map<int, bool> isLoadingMoreMap;
   late Map<int, int> pageMap;
+  late Map<int, bool> hasMoreMap;
   late Map<int, ScrollController> scrollControllerMap;
   int selectedProviderIndex = 0;
 
@@ -105,6 +107,7 @@ class _CnSeriesByProviderScreenState extends State<CnSeriesByProviderScreen> {
     isPreferredMap = {};
     isLoadingMoreMap = {};
     pageMap = {};
+    hasMoreMap = {};
     scrollControllerMap = {};
     for (var provider in providers) {
       seriesByProvider[provider.id] = [];
@@ -112,6 +115,7 @@ class _CnSeriesByProviderScreenState extends State<CnSeriesByProviderScreen> {
       isPreferredMap[provider.id] = false;
       isLoadingMoreMap[provider.id] = false;
       pageMap[provider.id] = 1;
+      hasMoreMap[provider.id] = true;
       scrollControllerMap[provider.id] = ScrollController();
       scrollControllerMap[provider.id]!.addListener(
         () => _onScroll(provider.id),
@@ -146,6 +150,7 @@ class _CnSeriesByProviderScreenState extends State<CnSeriesByProviderScreen> {
       selectedProviderIndex = index;
       isLoadingMap[provider.id] = true;
       pageMap[provider.id] = 1;
+      hasMoreMap[provider.id] = true;
     });
 
     try {
@@ -179,13 +184,14 @@ class _CnSeriesByProviderScreenState extends State<CnSeriesByProviderScreen> {
         scrollController.position.pixels ==
             scrollController.position.maxScrollExtent &&
         !isLoadingMoreMap[providerId]! &&
+        hasMoreMap[providerId]! &&
         seriesByProvider[providerId]!.isNotEmpty) {
       _loadMoreSeries(providerId);
     }
   }
 
   Future<void> _loadMoreSeries(int providerId) async {
-    if (isLoadingMoreMap[providerId]!) return;
+    if (isLoadingMoreMap[providerId]! || !hasMoreMap[providerId]!) return;
 
     setState(() {
       isLoadingMoreMap[providerId] = true;
@@ -198,14 +204,13 @@ class _CnSeriesByProviderScreenState extends State<CnSeriesByProviderScreen> {
         page: nextPage,
       );
 
-      if (newSeries.isNotEmpty && mounted) {
+      if (mounted) {
+        final current = seriesByProvider[providerId]!;
+        final merged = uniqueTmdbItems(current, newSeries, 'tv');
         setState(() {
-          seriesByProvider[providerId]!.addAll(newSeries);
-          pageMap[providerId] = nextPage;
-          isLoadingMoreMap[providerId] = false;
-        });
-      } else if (mounted) {
-        setState(() {
+          hasMoreMap[providerId] = merged.length > current.length;
+          seriesByProvider[providerId] = merged;
+          if (hasMoreMap[providerId]!) pageMap[providerId] = nextPage;
           isLoadingMoreMap[providerId] = false;
         });
       }
@@ -359,6 +364,7 @@ class _CnSeriesByProviderScreenState extends State<CnSeriesByProviderScreen> {
         }
         final item = allSeries[index];
         return GestureDetector(
+          key: ValueKey(tmdbItemKey(item, 'tv')),
           onTap: () {
             Navigator.push(
               context,

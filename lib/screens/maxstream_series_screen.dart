@@ -176,7 +176,9 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
     if (mounted) {
       setState(() {
         isInWatchlist = watchlist.any(
-          (item) => item.id == widget.seriesItem.id,
+          (item) =>
+              item.id == widget.seriesItem.id &&
+              item.mediaType == widget.seriesItem.mediaType,
         );
       });
     }
@@ -187,7 +189,10 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
       final wasAdded = !isInWatchlist;
 
       if (isInWatchlist) {
-        await DBHelper.removeFromWatchlist(widget.seriesItem.id);
+        await DBHelper.removeFromWatchlist(
+          widget.seriesItem.id,
+          widget.seriesItem.mediaType,
+        );
       } else {
         await DBHelper.addToWatchlist(widget.seriesItem);
       }
@@ -966,9 +971,7 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
             ),
           )
         else if (currentEpisodes.isNotEmpty)
-          ...currentEpisodes.map(
-            (episode) => _buildEpisodeTile(episode),
-          )
+          ...currentEpisodes.map((episode) => _buildEpisodeTile(episode))
         else
           const Center(
             child: Padding(
@@ -1080,13 +1083,13 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
                   tooltip: isDownloaded
                       ? 'Downloaded'
                       : isCurrentlyDownloading
-                          ? 'Downloading'
-                          : 'Download episode',
+                      ? 'Downloading'
+                      : 'Download episode',
                   onPressed: isDownloading || isCurrentlyDownloading
                       ? null
                       : isDownloaded
-                          ? null
-                          : () => _showEpisodeQualitySheet(episode),
+                      ? null
+                      : () => _showEpisodeQualitySheet(episode),
                   icon: isDownloading || isCurrentlyDownloading
                       ? const SizedBox(
                           width: 20,
@@ -1097,14 +1100,11 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
                           ),
                         )
                       : isDownloaded
-                          ? const Icon(
-                              Icons.check_circle,
-                              color: Colors.green,
-                            )
-                          : const Icon(
-                              Icons.download_for_offline_outlined,
-                              color: Colors.red,
-                            ),
+                      ? const Icon(Icons.check_circle, color: Colors.green)
+                      : const Icon(
+                          Icons.download_for_offline_outlined,
+                          color: Colors.red,
+                        ),
                 ),
               ),
             ],
@@ -1430,11 +1430,7 @@ class _EpisodeQualitySheetState extends State<_EpisodeQualitySheet> {
         ),
         child: Row(
           children: [
-            Icon(
-              icon,
-              color: isSelected ? Colors.red : Colors.grey,
-              size: 24,
-            ),
+            Icon(icon, color: isSelected ? Colors.red : Colors.grey, size: 24),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
@@ -1460,7 +1456,11 @@ class _EpisodeQualitySheetState extends State<_EpisodeQualitySheet> {
               ),
             ),
             if (isSelected)
-              const Icon(Icons.radio_button_checked, color: Colors.red, size: 20)
+              const Icon(
+                Icons.radio_button_checked,
+                color: Colors.red,
+                size: 20,
+              )
             else
               const Icon(Icons.radio_button_off, color: Colors.grey, size: 20),
           ],

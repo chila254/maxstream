@@ -30,6 +30,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.dnsoverhttps.DnsOverHttps
 import org.json.JSONObject
+import java.net.InetAddress
 import java.net.URI
 import java.net.URLEncoder
 import java.security.MessageDigest
@@ -164,6 +165,15 @@ class StreamExtractor(private val context: Context) {
         .followSslRedirects(true)
         .cookieJar(MemoryCookieJar())
         .dns(dns)
+        .addInterceptor { chain ->
+            requireSafeOutboundUrl(chain.request().url.toString())
+            chain.proceed(chain.request())
+        }
+        // Network interceptors run again for each automatic redirect.
+        .addNetworkInterceptor { chain ->
+            requireSafeOutboundUrl(chain.request().url.toString())
+            chain.proceed(chain.request())
+        }
         .build()
 
     private val noRedirectClient = client.newBuilder()
@@ -174,6 +184,7 @@ class StreamExtractor(private val context: Context) {
     private val serverProviders: List<ServerProvider> by lazy {
         listOf(
             StaticTmdbProvider(),
+            MoflixProvider(),
             CommunityServerProvider(),
             VidrockServerProvider(),
             VidzeeServerProvider(),
@@ -185,6 +196,7 @@ class StreamExtractor(private val context: Context) {
     private val extractorRegistry: List<HostExtractor> by lazy {
         listOf(
             VidflixExtractor(),
+            MoflixExtractor(),
             VidLinkExtractor(),
             MaxstreamVideoExtractor(),
             RpmExtractor(),
@@ -231,7 +243,7 @@ class StreamExtractor(private val context: Context) {
                     return@withContext stream.toMap()
                 }
             } catch (error: Exception) {
-                Log.e(tag, "Server ${server.name} failed at ${server.url}", error)
+                Log.e(tag, "Server ${server.name} failed", error)
             }
         }
 
@@ -287,6 +299,7 @@ class StreamExtractor(private val context: Context) {
     private suspend fun extractGoodstream(server: StreamServer): StreamResult? {
         return withContext(Dispatchers.IO) {
             try {
+                requireSafeOutboundUrl(server.url)
                 val request = Request.Builder()
                     .url(server.url)
                     .header("User-Agent", userAgent)
@@ -330,7 +343,7 @@ class StreamExtractor(private val context: Context) {
 
         repeat(5) {
             if (!visited.add(server.url)) {
-                Log.w(tag, "Extractor redirect loop for ${server.url}")
+                Log.w(tag, "Extractor redirect loop for ${server.name}")
                 return null
             }
 
@@ -341,7 +354,7 @@ class StreamExtractor(private val context: Context) {
 
             val extractor = extractorRegistry.firstOrNull { it.supports(server) }
             if (extractor == null) {
-                Log.w(tag, "No extractor for ${server.name}: ${server.url}")
+                Log.w(tag, "No extractor for ${server.name}")
                 return null
             }
             Log.d(tag, "Dispatching ${server.name} to ${extractor.name}")
@@ -466,6 +479,52 @@ class StreamExtractor(private val context: Context) {
             )
 
             return servers
+        }
+    }
+
+    private inner class MoflixProvider : ServerProvider {
+        override val name = "Moflix"
+        private val origin = "https://moflix-stream.xyz"
+
+        override suspend fun getServers(request: MediaRequest): List<StreamServer> {
+            val kind = if (request.isMovie) "movie" else "series"
+            val externalId = Base64.encodeToString(
+                "tmdb|$kind|${request.tmdbId}".toByteArray(),
+                Base64.NO_WRAP,
+            )
+            val headers = refererHeaders(origin) + mapOf("Accept" to "application/json")
+            val response = if (request.isMovie) {
+                getJson("$origin/api/v1/titles/${encode(externalId)}?loader=titlePage", headers)
+            } else {
+                val titleResponse = getJson(
+                    "$origin/api/v1/titles/${encode(externalId)}?loader=titlePage",
+                    headers,
+                )
+                val titleId = titleResponse.optJSONObject("title")?.optString("id")
+                    .orEmpty().ifBlank { externalId }
+                getJson(
+                    "$origin/api/v1/titles/${encode(titleId)}/seasons/${request.season}/episodes/${request.episode}?loader=episodePage",
+                    headers,
+                )
+            }
+
+            val videos = response.optJSONArray("videos")
+                ?: response.optJSONObject("title")?.optJSONArray("videos")
+                ?: response.optJSONObject("episode")?.optJSONArray("videos")
+                ?: return emptyList()
+            return (0 until videos.length()).mapNotNull { index ->
+                val video = videos.optJSONObject(index) ?: return@mapNotNull null
+                if (video.optBoolean("premium_locked")) return@mapNotNull null
+                val source = video.optString("src")
+                val playback = video.optString("playback_resolve_url")
+                val url = when {
+                    playback.isNotBlank() -> resolveUrl("$origin/api/v1/", playback)
+                    source.isNotBlank() -> source
+                    else -> return@mapNotNull null
+                }
+                val label = video.optString("name", "Mirror").ifBlank { "Mirror" }
+                StreamServer("Moflix - $label", url, headers)
+            }
         }
     }
 
@@ -611,6 +670,24 @@ class StreamExtractor(private val context: Context) {
                 Log.w(tag, "Frembed provider failed: ${e.message}")
                 emptyList()
             }
+        }
+    }
+
+    private inner class MoflixExtractor : HostExtractor {
+        override val name = "Moflix"
+        private val origin = "https://moflix-stream.xyz"
+
+        override fun supports(server: StreamServer) = host(server.url).endsWith("moflix-stream.xyz")
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            if (!server.url.contains("/playback", true)) {
+                return GenericMediaExtractor().extract(server)
+            }
+            val videoId = server.url.substringAfter("videos/", "").substringBefore('/')
+            val headers = server.headers + refererHeaders("$origin/watch/$videoId")
+            val source = getJson(server.url, headers).optString("src")
+            require(source.isNotBlank()) { "Moflix returned no playback source" }
+            return ExtractionResult.Final(StreamResult(source, name, mediaType(source), headers))
         }
     }
 
@@ -1343,6 +1420,7 @@ class StreamExtractor(private val context: Context) {
         override fun supports(server: StreamServer) = host(server.url).endsWith("frembed.click")
 
         override suspend fun extract(server: StreamServer): ExtractionResult {
+            requireSafeOutboundUrl(server.url)
             val response = noRedirectClient.newCall(
                 Request.Builder().url(server.url)
                     .header("User-Agent", userAgent)
@@ -1354,8 +1432,9 @@ class StreamExtractor(private val context: Context) {
             response.close()
 
             if (location.isNotBlank()) {
-                val resolved = if (location.startsWith("//")) "https:$location" else location
-                Log.d(tag, "Frembed redirect: ${server.url} -> $resolved")
+                val resolved = resolveUrl(server.url, location)
+                requireSafeOutboundUrl(resolved)
+                Log.d(tag, "Frembed supplied an outbound redirect")
                 return ExtractionResult.Redirect(
                     StreamServer(server.name, resolved, refererHeaders("https://frembed.click/")),
                 )
@@ -1569,22 +1648,24 @@ class StreamExtractor(private val context: Context) {
     }
 
     private fun httpGet(url: String, headers: Map<String, String> = emptyMap()): String {
+        requireSafeOutboundUrl(url)
         val request = Request.Builder().url(url).apply {
             header("User-Agent", userAgent)
             header("Accept", "*/*")
-            headers.forEach { (name, value) -> header(name, value) }
+            safeHeaders(headers).forEach { (name, value) -> header(name, value) }
         }.build()
 
         client.newCall(request).execute().use { response ->
             val body = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
-                throw IllegalStateException("HTTP ${response.code} for $url: ${body.take(160)}")
+                throw IllegalStateException("HTTP ${response.code} from ${host(url)}")
             }
             return body
         }
     }
 
     private fun postJson(url: String, json: String): String {
+        requireSafeOutboundUrl(url)
         val request = Request.Builder()
             .url(url)
             .header("User-Agent", userAgent)
@@ -1592,7 +1673,7 @@ class StreamExtractor(private val context: Context) {
             .build()
         client.newCall(request).execute().use { response ->
             val body = response.body?.string().orEmpty()
-            if (!response.isSuccessful) throw IllegalStateException("HTTP ${response.code} for $url")
+            if (!response.isSuccessful) throw IllegalStateException("HTTP ${response.code} from ${host(url)}")
             return body
         }
     }
@@ -1604,24 +1685,27 @@ class StreamExtractor(private val context: Context) {
         org.json.JSONArray(httpGet(url, headers))
 
     private fun followRedirect(url: String): String {
+        requireSafeOutboundUrl(url)
         val request = Request.Builder().url(url).header("User-Agent", userAgent).build()
         noRedirectClient.newCall(request).execute().use { response ->
-            return response.header("Location")?.let { resolveUrl(url, it) }
+            return response.header("Location")?.let { resolveUrl(url, it).also(::requireSafeOutboundUrl) }
                 ?: response.request.url.toString()
         }
     }
 
     private suspend fun validateStream(stream: StreamResult): StreamResult {
+        requireSafeOutboundUrl(stream.url)
+        val sanitizedStream = stream.copy(headers = safeHeaders(stream.headers))
         if (stream.type != "direct_m3u8" && !stream.url.contains(".m3u8", true)) {
-            validateMediaRequest(stream.url, stream.headers)
-            return stream
+            validateMediaRequest(sanitizedStream.url, sanitizedStream.headers)
+            return sanitizedStream
         }
 
-        val validation = validateHls(stream.url, stream.headers)
-        return stream.copy(
+        val validation = validateHls(sanitizedStream.url, sanitizedStream.headers)
+        return sanitizedStream.copy(
             url = validation.playbackUrl,
             qualities = validation.qualities,
-            subtitles = (stream.subtitles + validation.subtitles).distinctBy { it.url },
+            subtitles = (sanitizedStream.subtitles + validation.subtitles).distinctBy { it.url },
         )
     }
 
@@ -1744,13 +1828,14 @@ class StreamExtractor(private val context: Context) {
     )
 
     private fun getValidationResponse(url: String, headers: Map<String, String>): ValidationResponse {
+        requireSafeOutboundUrl(url)
         val request = Request.Builder().url(url).apply {
             header("User-Agent", userAgent)
-            headers.forEach { (name, value) -> header(name, value) }
+            safeHeaders(headers).forEach { (name, value) -> header(name, value) }
         }.build()
         client.newCall(request).execute().use { response ->
             val body = response.body?.string().orEmpty()
-            require(response.isSuccessful) { "HTTP ${response.code} while validating $url" }
+            require(response.isSuccessful) { "HTTP ${response.code} while validating stream" }
             return ValidationResponse(
                 response.request.url.toString(),
                 body,
@@ -1760,10 +1845,11 @@ class StreamExtractor(private val context: Context) {
     }
 
     private fun validateMediaRequest(url: String, headers: Map<String, String>) {
+        requireSafeOutboundUrl(url)
         val request = Request.Builder().url(url).apply {
             header("User-Agent", userAgent)
             header("Range", "bytes=0-1023")
-            headers.forEach { (name, value) -> header(name, value) }
+            safeHeaders(headers).forEach { (name, value) -> header(name, value) }
         }.build()
         client.newCall(request).execute().use { response ->
             require(response.isSuccessful) { "HTTP ${response.code} while validating media data" }
@@ -1781,6 +1867,48 @@ class StreamExtractor(private val context: Context) {
         "Cookie" to "language=en",
         "X-Requested-With" to "XMLHttpRequest",
     )
+
+    private fun safeHeaders(headers: Map<String, String>): Map<String, String> {
+        val allowed = setOf(
+            "user-agent", "referer", "origin", "cookie", "accept", "accept-language",
+            "range", "if-range", "x-requested-with",
+        )
+        return headers.filter { (name, value) ->
+            require(!name.contains('\r') && !name.contains('\n') &&
+                !value.contains('\r') && !value.contains('\n')) { "Invalid outbound header" }
+            name.lowercase() in allowed
+        }
+    }
+
+    private fun requireSafeOutboundUrl(url: String) {
+        val uri = try {
+            URI(url.substringBefore('#'))
+        } catch (_: Exception) {
+            throw IllegalArgumentException("Invalid outbound URL")
+        }
+        require(uri.scheme.equals("http", true) || uri.scheme.equals("https", true)) {
+            "Only HTTP(S) outbound URLs are allowed"
+        }
+        require(uri.rawUserInfo == null) { "Outbound URL credentials are not allowed" }
+        val hostname = uri.host?.lowercase().orEmpty()
+        require(hostname.isNotBlank()) { "Outbound URL hostname is required" }
+        require(hostname != "localhost" && !hostname.endsWith(".localhost")) {
+            "Localhost outbound URLs are not allowed"
+        }
+
+        val isIpv4Literal = hostname.matches(Regex("""\d{1,3}(?:\.\d{1,3}){3}"""))
+        val isIpv6Literal = hostname.contains(':')
+        if (isIpv4Literal || isIpv6Literal) {
+            val address = runCatching { InetAddress.getByName(hostname) }
+                .getOrElse { throw IllegalArgumentException("Invalid IP literal") }
+            val bytes = address.address
+            val uniqueLocalV6 = bytes.size == 16 && (bytes[0].toInt() and 0xfe) == 0xfc
+            require(!address.isAnyLocalAddress && !address.isLoopbackAddress &&
+                !address.isLinkLocalAddress && !address.isSiteLocalAddress && !uniqueLocalV6) {
+                "Non-public IP literals are not allowed"
+            }
+        }
+    }
 
     private fun normalizeTitle(value: String) = value.lowercase().filter(Char::isLetterOrDigit)
 

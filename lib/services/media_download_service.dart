@@ -6,6 +6,7 @@ import 'package:http/http.dart' show ClientException;
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'stream_security.dart';
 
 typedef DownloadProgress = void Function(double progress);
 typedef DownloadBytesProgress =
@@ -29,9 +30,24 @@ class _ContentRange {
 /// Downloads resolved, non-DRM media into the application's private storage.
 /// Supports retry with resume for both direct and HLS downloads.
 class MediaDownloadService {
-  MediaDownloadService({http.Client? client})
-    : _client = client ?? http.Client(),
-      _ownsClient = client == null;
+  MediaDownloadService({
+    http.Client? client,
+    this.maxDownloadBytes = defaultMaxDownloadBytes,
+    this.maxHlsResources = defaultMaxHlsResources,
+    this.maxHlsResourceBytes = defaultMaxHlsResourceBytes,
+    this.maxPlaylistBytes = defaultMaxPlaylistBytes,
+  }) : _client = client ?? http.Client(),
+       _ownsClient = client == null;
+
+  static const int defaultMaxDownloadBytes = 8 * 1024 * 1024 * 1024;
+  static const int defaultMaxHlsResources = 20000;
+  static const int defaultMaxHlsResourceBytes = 32 * 1024 * 1024;
+  static const int defaultMaxPlaylistBytes = 2 * 1024 * 1024;
+
+  final int maxDownloadBytes;
+  final int maxHlsResources;
+  final int maxHlsResourceBytes;
+  final int maxPlaylistBytes;
 
   final http.Client _client;
   final bool _ownsClient;
@@ -100,7 +116,9 @@ class MediaDownloadService {
     }
     onProgress?.call(0);
     try {
-      final uri = Uri.parse(url);
+      final uri = StreamSecurity.safeNetworkUri(url);
+      if (uri == null) throw const FormatException('Unsafe media URL');
+      headers = StreamSecurity.sanitizeHeaders(headers);
       final isHls =
           hls ??
           uri.path.toLowerCase().endsWith('.m3u8') ||
@@ -159,6 +177,7 @@ class MediaDownloadService {
     if (await file.exists()) {
       received = await file.length();
     }
+    _checkTotalBytes(received);
 
     await _retryWithResume(
       description: 'direct download ${uri.path}',
@@ -166,6 +185,7 @@ class MediaDownloadService {
       totalGetter: () => _contentLength(uri, headers),
       execute: (total) async {
         if (total != null && total > 0 && received == total) return;
+        if (total != null) _checkTotalBytes(total);
         if (total != null && total > 0 && received > total) {
           received = 0;
           await file.writeAsBytes(const []);
@@ -176,7 +196,7 @@ class MediaDownloadService {
         }
         final request = http.Request('GET', uri)
           ..headers.addAll(requestHeaders);
-        final response = await _client.send(request);
+        final response = await _sendSafely(request);
         final requestedOffset = received;
         int? expectedTotal;
         int? expectedResponseBytes;
@@ -186,11 +206,11 @@ class MediaDownloadService {
           if (range == null || range.start != requestedOffset) {
             throw ClientException(
               'Server returned the wrong byte range for resume',
-              uri,
             );
           }
           expectedTotal = range.total;
           expectedResponseBytes = range.end - range.start + 1;
+          _checkTotalBytes(expectedTotal);
         } else if (received > 0 && response.statusCode == 200) {
           // Server doesn't support range — restart from beginning.
           received = 0;
@@ -199,8 +219,7 @@ class MediaDownloadService {
         } else {
           if (response.statusCode != 200) {
             throw HttpException(
-              'HTTP ${response.statusCode} while downloading $uri',
-              uri: uri,
+              'HTTP ${response.statusCode} while downloading media',
             );
           }
           expectedTotal = response.contentLength ?? total;
@@ -217,6 +236,7 @@ class MediaDownloadService {
             await _waitForResume();
             sink.add(bytes);
             received += bytes.length;
+            _checkTotalBytes(received);
             responseBytes += bytes.length;
             if (expectedTotal != null && expectedTotal > 0) {
               onProgress?.call((received / expectedTotal).clamp(0, 1));
@@ -229,7 +249,6 @@ class MediaDownloadService {
             throw ClientException(
               'Download response ended early '
               '($responseBytes of $expectedResponseBytes bytes)',
-              uri,
             );
           }
           if (expectedTotal != null &&
@@ -237,7 +256,6 @@ class MediaDownloadService {
               received != expectedTotal) {
             throw ClientException(
               'Download ended early ($received of $expectedTotal bytes)',
-              uri,
             );
           }
         } finally {
@@ -265,6 +283,7 @@ class MediaDownloadService {
     _validateEncryption(playlist);
     for (var depth = 0; _isMaster(playlist) && depth < 5; depth++) {
       playlistUri = playlistUri.resolve(_highestVariant(playlist));
+      _requireSafeUri(playlistUri);
       playlist = await _getText(playlistUri, headers);
       _validateEncryption(playlist);
     }
@@ -299,6 +318,7 @@ class MediaDownloadService {
     final resources = <Uri, String>{};
     var resourceIndex = 0;
     String localName(Uri uri) {
+      _requireSafeUri(uri);
       return resources.putIfAbsent(uri, () {
         final extension = p.extension(uri.path);
         return 'resource_${resourceIndex++}${extension.isEmpty ? '.bin' : extension}';
@@ -327,6 +347,9 @@ class MediaDownloadService {
         rewritten.add(line);
       }
     }
+    if (resources.length > maxHlsResources) {
+      throw StateError('HLS resource limit exceeded');
+    }
 
     var done = 0;
     var downloadedBytes = 0;
@@ -343,6 +366,7 @@ class MediaDownloadService {
         if (await marker.exists() ||
             (expectedLength != null && existingLength == expectedLength)) {
           downloadedBytes += existingLength;
+          _checkTotalBytes(downloadedBytes);
           onBytesProgress?.call(downloadedBytes, null);
           done++;
           onProgress?.call(done / (resources.length + 1));
@@ -360,6 +384,7 @@ class MediaDownloadService {
           currentResourceBytes = 0;
           await _downloadResource(entry.key, file, headers, (bytes) {
             currentResourceBytes += bytes;
+            _checkTotalBytes(downloadedBytes + currentResourceBytes);
             onBytesProgress?.call(downloadedBytes + currentResourceBytes, null);
           });
         },
@@ -383,13 +408,17 @@ class MediaDownloadService {
     Map<String, String> headers,
     void Function(int bytes)? onBytes,
   ) async {
+    _requireSafeUri(uri);
     final request = http.Request('GET', uri)..headers.addAll(headers);
-    final response = await _client.send(request);
+    final response = await _sendSafely(request);
     if (response.statusCode != 200) {
       throw HttpException(
-        'HTTP ${response.statusCode} while downloading $uri',
-        uri: uri,
+        'HTTP ${response.statusCode} while downloading HLS resource',
       );
+    }
+    if (response.contentLength != null &&
+        response.contentLength! > maxHlsResourceBytes) {
+      throw StateError('HLS resource size limit exceeded');
     }
     final partial = File('${file.path}.part');
     if (await partial.exists()) await partial.delete();
@@ -400,17 +429,19 @@ class MediaDownloadService {
         if (_cancelled) throw StateError('Download cancelled');
         sink.add(bytes);
         received += bytes.length;
+        if (received > maxHlsResourceBytes) {
+          throw StateError('HLS resource size limit exceeded');
+        }
         onBytes?.call(bytes.length);
       }
       await sink.flush();
       if (received == 0) {
-        throw ClientException('HLS resource was empty', uri);
+        throw ClientException('HLS resource was empty');
       }
       final expected = response.contentLength;
       if (expected != null && expected > 0 && received != expected) {
         throw ClientException(
           'HLS segment ended early ($received of $expected bytes)',
-          uri,
         );
       }
     } finally {
@@ -500,14 +531,26 @@ class MediaDownloadService {
   }
 
   Future<String> _getText(Uri uri, Map<String, String> headers) async {
-    final response = await _client.get(uri, headers: headers);
+    _requireSafeUri(uri);
+    final request = http.Request('GET', uri)..headers.addAll(headers);
+    final response = await _sendSafely(request);
     if (response.statusCode != 200) {
       throw HttpException(
-        'HTTP ${response.statusCode} while downloading $uri',
-        uri: uri,
+        'HTTP ${response.statusCode} while downloading HLS playlist',
       );
     }
-    final body = utf8.decode(response.bodyBytes);
+    if (response.contentLength != null &&
+        response.contentLength! > maxPlaylistBytes) {
+      throw StateError('HLS playlist size limit exceeded');
+    }
+    final bytes = <int>[];
+    await for (final chunk in response.stream) {
+      bytes.addAll(chunk);
+      if (bytes.length > maxPlaylistBytes) {
+        throw StateError('HLS playlist size limit exceeded');
+      }
+    }
+    final body = utf8.decode(bytes);
     if (!body.trimLeft().startsWith('#EXTM3U')) {
       throw const FormatException('HLS endpoint returned an invalid playlist');
     }
@@ -516,13 +559,52 @@ class MediaDownloadService {
 
   Future<int?> _contentLength(Uri uri, Map<String, String> headers) async {
     try {
-      final response = await _client.head(uri, headers: headers);
+      _requireSafeUri(uri);
+      final request = http.Request('HEAD', uri)..headers.addAll(headers);
+      final response = await _sendSafely(request);
       if (response.statusCode < 200 || response.statusCode >= 300) return null;
       final length = response.contentLength;
       return length != null && length > 0 ? length : null;
     } catch (_) {
       return null;
     }
+  }
+
+  void _checkTotalBytes(int bytes) {
+    if (bytes > maxDownloadBytes) {
+      throw StateError('Media download size limit exceeded');
+    }
+  }
+
+  void _requireSafeUri(Uri uri) {
+    if (!StreamSecurity.isSafeNetworkUrl(uri)) {
+      throw const FormatException('Unsafe media resource URL');
+    }
+  }
+
+  Future<http.StreamedResponse> _sendSafely(
+    http.Request request, [
+    int redirects = 0,
+  ]) async {
+    _requireSafeUri(request.url);
+    request.followRedirects = false;
+    final response = await _client.send(request);
+    if (response.isRedirect) {
+      if (redirects >= 5) throw StateError('Too many media redirects');
+      final location = response.headers['location'];
+      final redirected = StreamSecurity.safeNetworkUri(
+        location,
+        base: request.url,
+      );
+      if (redirected == null) {
+        throw const FormatException('Unsafe media redirect');
+      }
+      await response.stream.drain<void>();
+      final next = http.Request(request.method, redirected)
+        ..headers.addAll(request.headers);
+      return _sendSafely(next, redirects + 1);
+    }
+    return response;
   }
 
   _ContentRange? _parseContentRange(Map<String, String> headers) {

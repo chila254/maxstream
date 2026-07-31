@@ -17,13 +17,14 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
   final TextEditingController _searchController = TextEditingController();
-  
+
   bool isLoading = false;
   List<Map<String, dynamic>> searchResults = [];
   List<Map<String, dynamic>> actorResults = [];
-  
+
   final List<String> _searchTabs = ['All', 'Movies', 'TV Shows', 'Actors'];
   int _currentTabIndex = 0;
+  int _searchGeneration = 0;
 
   @override
   void initState() {
@@ -49,7 +50,10 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
   }
 
   Future<void> _performSearch(String query) async {
-    if (query.trim().isEmpty) {
+    final generation = ++_searchGeneration;
+    final trimmedQuery = query.trim();
+    if (trimmedQuery.isEmpty) {
+      if (!mounted) return;
       setState(() {
         searchResults = [];
         actorResults = [];
@@ -62,28 +66,34 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
     try {
       switch (_currentTabIndex) {
         case 0: // All
-          final results = await TmdbApiService.searchAll(query);
+          final results = await TmdbApiService.searchAll(trimmedQuery);
+          if (!mounted || generation != _searchGeneration) return;
           setState(() {
             searchResults = results;
-            actorResults = results.where((item) => item['media_type'] == 'person').toList();
+            actorResults = results
+                .where((item) => item['media_type'] == 'person')
+                .toList();
           });
           break;
         case 1: // Movies
-          final results = await TmdbApiService.searchMovies(query);
+          final results = await TmdbApiService.searchMovies(trimmedQuery);
+          if (!mounted || generation != _searchGeneration) return;
           setState(() {
             searchResults = results;
             actorResults = [];
           });
           break;
         case 2: // TV Shows
-          final results = await TmdbApiService.searchSeries(query);
+          final results = await TmdbApiService.searchSeries(trimmedQuery);
+          if (!mounted || generation != _searchGeneration) return;
           setState(() {
             searchResults = results;
             actorResults = [];
           });
           break;
         case 3: // Actors
-          final results = await TmdbApiService.searchActors(query);
+          final results = await TmdbApiService.searchActors(trimmedQuery);
+          if (!mounted || generation != _searchGeneration) return;
           setState(() {
             searchResults = [];
             actorResults = results;
@@ -93,7 +103,9 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
     } catch (e) {
       // Error searching
     } finally {
-      setState(() => isLoading = false);
+      if (mounted && generation == _searchGeneration) {
+        setState(() => isLoading = false);
+      }
     }
   }
 
@@ -145,17 +157,18 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
           hintStyle: const TextStyle(color: Colors.grey),
           prefixIcon: const Icon(Icons.search, color: Colors.grey),
           suffixIcon: _searchController.text.isNotEmpty
-          ? IconButton(
-          onPressed: () {
-          _searchController.clear();
-          setState(() {
-            searchResults = [];
-          actorResults = [];
-          });
-          },
-          icon: const Icon(Icons.clear, color: Colors.grey),
-          )
-          : null,
+              ? IconButton(
+                  onPressed: () {
+                    _searchGeneration++;
+                    _searchController.clear();
+                    setState(() {
+                      searchResults = [];
+                      actorResults = [];
+                    });
+                  },
+                  icon: const Icon(Icons.clear, color: Colors.grey),
+                )
+              : null,
           filled: true,
           fillColor: const Color(0xFF2A2A2A),
           border: OutlineInputBorder(
@@ -168,6 +181,7 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
           if (value.length >= 2) {
             _performSearch(value);
           } else {
+            _searchGeneration++;
             setState(() {
               searchResults = [];
               actorResults = [];
@@ -180,13 +194,21 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
 
   Widget _buildAllResults() {
     if (isLoading) return _buildLoadingIndicator();
-    if (searchResults.isEmpty && actorResults.isEmpty && _searchController.text.isNotEmpty) {
+    if (searchResults.isEmpty &&
+        actorResults.isEmpty &&
+        _searchController.text.isNotEmpty) {
       return _buildNoResults();
     }
 
-    final movies = searchResults.where((item) => item['media_type'] == 'movie').toList();
-    final tvShows = searchResults.where((item) => item['media_type'] == 'tv').toList();
-    final actors = searchResults.where((item) => item['media_type'] == 'person').toList();
+    final movies = searchResults
+        .where((item) => item['media_type'] == 'movie')
+        .toList();
+    final tvShows = searchResults
+        .where((item) => item['media_type'] == 'tv')
+        .toList();
+    final actors = searchResults
+        .where((item) => item['media_type'] == 'person')
+        .toList();
 
     return SingleChildScrollView(
       child: Column(
@@ -208,9 +230,7 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
     if (searchResults.isEmpty && _searchController.text.isNotEmpty) {
       return _buildNoResults();
     }
-    return SingleChildScrollView(
-      child: _buildMovieGrid(searchResults),
-    );
+    return SingleChildScrollView(child: _buildMovieGrid(searchResults));
   }
 
   Widget _buildTVResults() {
@@ -218,9 +238,7 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
     if (searchResults.isEmpty && _searchController.text.isNotEmpty) {
       return _buildNoResults();
     }
-    return SingleChildScrollView(
-      child: _buildMovieGrid(searchResults),
-    );
+    return SingleChildScrollView(child: _buildMovieGrid(searchResults));
   }
 
   Widget _buildActorResults() {
@@ -228,9 +246,7 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
     if (actorResults.isEmpty && _searchController.text.isNotEmpty) {
       return _buildNoResults();
     }
-    return SingleChildScrollView(
-      child: _buildActorGrid(actorResults),
-    );
+    return SingleChildScrollView(child: _buildActorGrid(actorResults));
   }
 
   Widget _buildSectionHeader(String title) {
@@ -289,30 +305,35 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
     return GestureDetector(
       onTap: () {
         if (!mounted) return;
-        final mediaType = item['media_type'] ?? 
-                          (item['first_air_date'] != null ? 'tv' : 'movie');
+        final mediaType =
+            item['media_type'] ??
+            (item['first_air_date'] != null ? 'tv' : 'movie');
         Navigator.push(
           context,
           PageRouteBuilder(
             pageBuilder: (context, animation, secondaryAnimation) =>
                 mediaType == 'tv'
-                    ? MaxStreamSeriesScreen(seriesItem: Movie.fromJson(item))
-                    : MaxStreamDetailsScreen(
-                        item: Movie.fromJson(item),
-                        mediaType: mediaType,
-                      ),
-            transitionsBuilder: (context, animation, secondaryAnimation, child) {
-              return SlideTransition(
-                position: Tween<Offset>(
-                  begin: const Offset(1.0, 0.0),
-                  end: Offset.zero,
-                ).animate(CurvedAnimation(
-                  parent: animation,
-                  curve: Curves.easeInOut,
-                )),
-                child: child,
-              );
-            },
+                ? MaxStreamSeriesScreen(seriesItem: Movie.fromJson(item))
+                : MaxStreamDetailsScreen(
+                    item: Movie.fromJson(item),
+                    mediaType: mediaType,
+                  ),
+            transitionsBuilder:
+                (context, animation, secondaryAnimation, child) {
+                  return SlideTransition(
+                    position:
+                        Tween<Offset>(
+                          begin: const Offset(1.0, 0.0),
+                          end: Offset.zero,
+                        ).animate(
+                          CurvedAnimation(
+                            parent: animation,
+                            curve: Curves.easeInOut,
+                          ),
+                        ),
+                    child: child,
+                  );
+                },
             transitionDuration: const Duration(milliseconds: 300),
           ),
         );
@@ -343,7 +364,10 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
                       top: 4,
                       right: 4,
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 4,
+                          vertical: 2,
+                        ),
                         decoration: BoxDecoration(
                           color: Colors.black.withValues(alpha: 0.7),
                           borderRadius: BorderRadius.circular(4),
@@ -351,7 +375,11 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(Icons.star, color: Colors.amber, size: 10),
+                            const Icon(
+                              Icons.star,
+                              color: Colors.amber,
+                              size: 10,
+                            ),
                             const SizedBox(width: 2),
                             Text(
                               item['vote_average'].toStringAsFixed(1),
@@ -394,18 +422,22 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
           PageRouteBuilder(
             pageBuilder: (context, animation, secondaryAnimation) =>
                 ActorDetailsScreen(actorId: actor['id']),
-            transitionsBuilder: (context, animation, secondaryAnimation, child) {
-              return SlideTransition(
-                position: Tween<Offset>(
-                  begin: const Offset(1.0, 0.0),
-                  end: Offset.zero,
-                ).animate(CurvedAnimation(
-                  parent: animation,
-                  curve: Curves.easeInOut,
-                )),
-                child: child,
-              );
-            },
+            transitionsBuilder:
+                (context, animation, secondaryAnimation, child) {
+                  return SlideTransition(
+                    position:
+                        Tween<Offset>(
+                          begin: const Offset(1.0, 0.0),
+                          end: Offset.zero,
+                        ).animate(
+                          CurvedAnimation(
+                            parent: animation,
+                            curve: Curves.easeInOut,
+                          ),
+                        ),
+                    child: child,
+                  );
+                },
             transitionDuration: const Duration(milliseconds: 300),
           ),
         );
@@ -426,7 +458,11 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
                       width: double.infinity,
                       height: double.infinity,
                       color: Colors.grey[800],
-                      child: const Icon(Icons.person, color: Colors.grey, size: 40),
+                      child: const Icon(
+                        Icons.person,
+                        color: Colors.grey,
+                        size: 40,
+                      ),
                     ),
             ),
           ),
@@ -445,10 +481,7 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
           if (actor['known_for_department'] != null)
             Text(
               actor['known_for_department'],
-              style: const TextStyle(
-                color: Colors.grey,
-                fontSize: 12,
-              ),
+              style: const TextStyle(color: Colors.grey, fontSize: 12),
               textAlign: TextAlign.center,
             ),
         ],
@@ -457,9 +490,7 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
   }
 
   Widget _buildLoadingIndicator() {
-    return const Center(
-      child: SearchLoadingWidget(),
-    );
+    return const Center(child: SearchLoadingWidget());
   }
 
   Widget _buildNoResults() {
@@ -480,14 +511,10 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
           SizedBox(height: 8),
           Text(
             'Try searching with different keywords',
-            style: TextStyle(
-              color: Colors.grey,
-              fontSize: 14,
-            ),
+            style: TextStyle(color: Colors.grey, fontSize: 14),
           ),
         ],
       ),
     );
   }
 }
-

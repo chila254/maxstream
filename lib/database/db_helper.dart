@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import '../models/movie.dart';
+import '../services/user_scope.dart';
 
 class DBHelper {
   static Database? _db;
@@ -16,7 +17,7 @@ class DBHelper {
     final path = join(await getDatabasesPath(), 'watchlist.db');
     return openDatabase(
       path,
-      version: 9,
+      version: 10,
       onCreate: _createDb,
       onUpgrade: _upgradeDb,
     );
@@ -25,7 +26,8 @@ class DBHelper {
   static Future<void> _createDb(Database db, int version) async {
     await db.execute('''
       CREATE TABLE watchlist (
-        id INTEGER PRIMARY KEY,
+        ownerId TEXT NOT NULL,
+        id TEXT NOT NULL,
         title TEXT,
         description TEXT,
         thumbnail TEXT,
@@ -35,9 +37,10 @@ class DBHelper {
         releaseDate TEXT,
         year TEXT,
         rating REAL,
-        mediaType TEXT,
+        mediaType TEXT NOT NULL,
         isDownloaded INTEGER DEFAULT 0,
-        offlinePath TEXT
+        offlinePath TEXT,
+        PRIMARY KEY (ownerId, id, mediaType)
       )
     ''');
 
@@ -140,6 +143,41 @@ class DBHelper {
         "ALTER TABLE media_downloads ADD COLUMN subtitles TEXT NOT NULL DEFAULT '[]'",
       );
     }
+    if (oldVersion < 10) {
+      await db.execute('ALTER TABLE watchlist RENAME TO watchlist_legacy');
+      await db.execute('''
+        CREATE TABLE watchlist (
+          ownerId TEXT NOT NULL,
+          id TEXT NOT NULL,
+          title TEXT,
+          description TEXT,
+          thumbnail TEXT,
+          videoUrl TEXT,
+          trailerUrl TEXT,
+          genres TEXT,
+          releaseDate TEXT,
+          year TEXT,
+          rating REAL,
+          mediaType TEXT NOT NULL,
+          isDownloaded INTEGER DEFAULT 0,
+          offlinePath TEXT,
+          PRIMARY KEY (ownerId, id, mediaType)
+        )
+      ''');
+      await db.rawInsert(
+        '''
+        INSERT INTO watchlist
+          (ownerId, id, title, description, thumbnail, videoUrl, trailerUrl,
+           genres, releaseDate, year, rating, mediaType, isDownloaded, offlinePath)
+        SELECT ?, CAST(id AS TEXT), title, description, thumbnail, videoUrl,
+          trailerUrl, genres, releaseDate, year, rating,
+          COALESCE(NULLIF(mediaType, ''), 'movie'), isDownloaded, offlinePath
+        FROM watchlist_legacy
+      ''',
+        [UserScope.legacyOwner],
+      );
+      await db.execute('DROP TABLE watchlist_legacy');
+    }
   }
 
   static Future<void> _createMediaDownloadsTable(Database db) async {
@@ -224,7 +262,8 @@ class DBHelper {
   static Future<void> addToWatchlist(Movie movie) async {
     final db = await database;
     await db.insert('watchlist', {
-      'id': int.tryParse(movie.id) ?? movie.id,
+      'ownerId': UserScope.currentOwner,
+      'id': movie.id,
       'title': movie.title,
       'description': movie.description,
       'thumbnail': movie.thumbnail,
@@ -254,22 +293,26 @@ class DBHelper {
         'rating': movie.rating,
         'mediaType': movie.mediaType,
       },
-      where: 'id = ?',
-      whereArgs: [movie.id],
+      where: 'ownerId = ? AND id = ? AND mediaType = ?',
+      whereArgs: [UserScope.currentOwner, movie.id, movie.mediaType],
     );
   }
 
-  static Future<void> removeMovie(int id) async {
+  static Future<void> removeMovie(dynamic id, String mediaType) async {
     final db = await database;
-    await db.delete('watchlist', where: 'id = ?', whereArgs: [id]);
+    await db.delete(
+      'watchlist',
+      where: 'ownerId = ? AND id = ? AND mediaType = ?',
+      whereArgs: [UserScope.currentOwner, id.toString(), mediaType],
+    );
   }
 
-  static Future<bool> isInWatchlist(int id) async {
+  static Future<bool> isInWatchlist(dynamic id, String mediaType) async {
     final db = await database;
     final result = await db.query(
       'watchlist',
-      where: 'id = ?',
-      whereArgs: [id],
+      where: 'ownerId = ? AND id = ? AND mediaType = ?',
+      whereArgs: [UserScope.currentOwner, id.toString(), mediaType],
     );
     return result.isNotEmpty;
   }
@@ -278,7 +321,12 @@ class DBHelper {
     String? orderBy = 'releaseDate DESC',
   }) async {
     final db = await database;
-    final result = await db.query('watchlist', orderBy: orderBy);
+    final result = await db.query(
+      'watchlist',
+      where: 'ownerId = ?',
+      whereArgs: [UserScope.currentOwner],
+      orderBy: orderBy,
+    );
 
     // Fix 1: Always convert id to String in mapping
     return result.map((json) {
@@ -303,7 +351,11 @@ class DBHelper {
 
   static Future<List<Movie>> getDownloads() async {
     final db = await database;
-    final result = await db.query('watchlist', where: 'isDownloaded = 1');
+    final result = await db.query(
+      'watchlist',
+      where: 'ownerId = ? AND isDownloaded = 1',
+      whereArgs: [UserScope.currentOwner],
+    );
 
     return result.map((json) {
       return Movie(
@@ -329,8 +381,8 @@ class DBHelper {
     final db = await database;
     final result = await db.query(
       'watchlist',
-      where: 'title LIKE ? OR description LIKE ?',
-      whereArgs: ['%$keyword%', '%$keyword%'],
+      where: 'ownerId = ? AND (title LIKE ? OR description LIKE ?)',
+      whereArgs: [UserScope.currentOwner, '%$keyword%', '%$keyword%'],
     );
 
     return result.map((json) {
@@ -416,12 +468,15 @@ class DBHelper {
     await DBHelper.addToWatchlist(movie);
   }
 
-  static Future<void> removeFromWatchlist(dynamic id) async {
-    await removeMovie(id is int ? id : int.tryParse(id.toString()) ?? id);
+  static Future<void> removeFromWatchlist(dynamic id, String mediaType) async {
+    await removeMovie(id, mediaType);
   }
 
-  static Future<bool> isMovieInWatchlist(String id) async {
-    return await isInWatchlist(int.parse(id));
+  static Future<bool> isMovieInWatchlist(
+    String id, [
+    String mediaType = 'movie',
+  ]) async {
+    return await isInWatchlist(id, mediaType);
   }
 
   // Provider Preferences methods

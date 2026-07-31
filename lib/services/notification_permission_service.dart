@@ -117,10 +117,7 @@ class NotificationPermissionService {
             },
             child: Text(
               'Not Now',
-              style: TextStyle(
-                color: Colors.grey[400],
-                fontSize: 14,
-              ),
+              style: TextStyle(color: Colors.grey[400], fontSize: 14),
             ),
           ),
           ElevatedButton(

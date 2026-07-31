@@ -54,7 +54,7 @@ class NativeStreamExtractor {
       if (result == null) return null;
 
       final map = _normalizeStream(result);
-      debugPrint('NativeExtractor: Success - ${map["source"]}: ${map["url"]}');
+      debugPrint('NativeExtractor: Successfully resolved ${map["source"]}');
       return map;
     } on PlatformException catch (e) {
       debugPrint('NativeExtractor: Platform error: ${e.message}');

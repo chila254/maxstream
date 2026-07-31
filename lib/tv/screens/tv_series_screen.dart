@@ -116,7 +116,9 @@ class _TvSeriesScreenState extends State<TvSeriesScreen> {
     if (mounted) {
       setState(() {
         isInWatchlist = watchlist.any(
-          (item) => item.id == widget.seriesItem.id,
+          (item) =>
+              item.id == widget.seriesItem.id &&
+              item.mediaType == widget.seriesItem.mediaType,
         );
       });
     }
@@ -127,7 +129,10 @@ class _TvSeriesScreenState extends State<TvSeriesScreen> {
       final wasAdded = !isInWatchlist;
 
       if (isInWatchlist) {
-        await DBHelper.removeFromWatchlist(widget.seriesItem.id);
+        await DBHelper.removeFromWatchlist(
+          widget.seriesItem.id,
+          widget.seriesItem.mediaType,
+        );
       } else {
         await DBHelper.addToWatchlist(widget.seriesItem);
       }

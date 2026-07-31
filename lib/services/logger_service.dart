@@ -21,7 +21,11 @@ class LoggerService {
   }
 
   /// Log error message
-  static void error(String message, [dynamic exception, StackTrace? stackTrace]) {
+  static void error(
+    String message, [
+    dynamic exception,
+    StackTrace? stackTrace,
+  ]) {
     debugLog('ERROR', message);
     if (exception != null) {
       debugLog('ERROR', 'Exception: $exception');

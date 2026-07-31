@@ -12,7 +12,7 @@ class AuthService {
         email: email,
         password: password,
       );
-      
+
       // Save password to Google Password Manager after successful signup
       if (result.user != null) {
         final passwordManager = PasswordManagerService();
@@ -22,7 +22,7 @@ class AuthService {
           displayName: result.user!.displayName ?? 'MaxStream Account',
         );
       }
-      
+
       return result.user;
     } catch (e) {
       print('Email sign-up error: $e');
@@ -36,7 +36,7 @@ class AuthService {
         email: email,
         password: password,
       );
-      
+
       // Save password to Google Password Manager after successful signin
       // (in case it wasn't saved before)
       if (result.user != null) {
@@ -47,7 +47,7 @@ class AuthService {
           displayName: result.user!.displayName ?? 'MaxStream Account',
         );
       }
-      
+
       return result.user;
     } catch (e) {
       print('Email sign-in error: $e');
@@ -171,7 +171,7 @@ class AuthService {
         email: email,
         password: password,
       );
-      
+
       // Save password to Google Password Manager after successful signin
       if (result.user != null) {
         final passwordManager = PasswordManagerService();
@@ -181,7 +181,7 @@ class AuthService {
           displayName: result.user!.displayName ?? 'MaxStream Account',
         );
       }
-      
+
       return result.user;
     } catch (e) {
       print('Enhanced email sign-in error: $e');

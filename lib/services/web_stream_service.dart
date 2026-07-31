@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'stream_security.dart';
 
 /// Web stream resolution service.
 /// Calls Cloudflare Worker API to extract actual .m3u8 URLs server-side.
@@ -56,13 +57,9 @@ class WebStreamService {
           '&episode=$episode'
           '&server=$serverId';
 
-      debugPrint('$_tag: Calling worker: $url');
-
       final response = await http
           .get(Uri.parse(url), headers: const {'Accept': 'application/json'})
           .timeout(const Duration(seconds: 20));
-      debugPrint('$_tag: Worker response: ${response.body}');
-
       if (response.statusCode == 200) {
         final data = json.decode(response.body) as Map<String, dynamic>;
         final streamUrl = data['url']?.toString() ?? '';
@@ -76,12 +73,12 @@ class WebStreamService {
             streamUri.queryParameters.containsKey('token') &&
             streamUri.queryParameters.containsKey('sig');
         if (isWorkerMediaUrl && data['type'] == 'hls') {
-          return {
+          return StreamSecurity.sanitizeResolverResult({
             'url': streamUrl,
             'source': data['source'] as String? ?? serverId,
             'type': 'hls',
             'headers': <String, String>{},
-          };
+          });
         }
         debugPrint(
           '$_tag: Worker returned an unsafe or unsupported stream URL',

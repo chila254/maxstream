@@ -1,28 +1,25 @@
 import 'package:logger/logger.dart';
 
 /// Password Manager Service for Google Password Manager Integration
-/// 
+///
 /// This service manages password credential saving and updating with
 /// Google Password Manager via Android's native autofill framework.
-/// 
+///
 /// The service uses a singleton pattern to ensure single instance throughout
 /// the app lifecycle.
 class PasswordManagerService {
-  static final PasswordManagerService _instance = PasswordManagerService._internal();
-  
+  static final PasswordManagerService _instance =
+      PasswordManagerService._internal();
+
   /// Logger instance for debugging
   late final Logger _logger;
-  
+
   /// Track whether autofill has been initialized
   bool _initialized = false;
 
   PasswordManagerService._internal() {
     _logger = Logger(
-      printer: PrettyPrinter(
-        methodCount: 0,
-        colors: true,
-        printEmojis: true,
-      ),
+      printer: PrettyPrinter(methodCount: 0, colors: true, printEmojis: true),
     );
   }
 
@@ -35,7 +32,7 @@ class PasswordManagerService {
   /// Call this once in app startup if needed for advanced features
   Future<void> initialize() async {
     if (_initialized) return;
-    
+
     try {
       _log('Initializing PasswordManager service...');
       // Future: Add initialization logic if needed
@@ -47,21 +44,21 @@ class PasswordManagerService {
   }
 
   /// Save password credentials to Google Password Manager
-  /// 
+  ///
   /// This method logs the credential save intent. The actual credential saving
   /// is handled automatically by Android's autofill framework when:
   /// 1. User successfully authenticates with email/password
   /// 2. TextFormFields have proper autofillHints set
   /// 3. OS displays "Save password?" prompt
   /// 4. User accepts the save prompt
-  /// 
+  ///
   /// Parameters:
   /// - email: User's email address (required)
   /// - password: User's password (required)
   /// - displayName: Optional display name for the credential in Password Manager
-  /// 
+  ///
   /// Returns: Completes when logging is done (actual save is async by OS)
-  /// 
+  ///
   /// Example:
   /// ```dart
   /// final passwordManager = PasswordManagerService();
@@ -79,51 +76,44 @@ class PasswordManagerService {
     try {
       // Validate inputs
       if (email.isEmpty || password.isEmpty) {
-        _log('Invalid credentials: email or password is empty', LogLevel.warning);
+        _log(
+          'Invalid credentials: email or password is empty',
+          LogLevel.warning,
+        );
         return;
       }
 
       final accountName = displayName ?? 'MaxStream Account';
-      
-      _log(
-        'Credential save triggered for: $email',
-        LogLevel.info,
-      );
-      _log(
-        'Account name: $accountName',
-        LogLevel.debug,
-      );
+
+      _log('Credential save triggered for: $email', LogLevel.info);
+      _log('Account name: $accountName', LogLevel.debug);
 
       // Note: The actual credential saving is handled by Android's autofill framework.
       // This service method ensures proper logging and validation before the OS
       // takes over. The framework will automatically show a "Save password?" dialog
       // after successful authentication.
-      
+
       _log(
         'Android autofill framework will display save prompt',
         LogLevel.debug,
       );
-      
     } catch (e) {
-      _log(
-        'Error processing credential save request: $e',
-        LogLevel.error,
-      );
+      _log('Error processing credential save request: $e', LogLevel.error);
     }
   }
 
   /// Update an existing password credential in Google Password Manager
-  /// 
+  ///
   /// Call this method when a user successfully changes their password.
   /// The OS will display an "Update password?" prompt to the user.
-  /// 
+  ///
   /// Parameters:
   /// - email: User's email address (required)
   /// - newPassword: The new password (required)
   /// - displayName: Optional display name for the credential
-  /// 
+  ///
   /// Returns: Completes when logging is done (actual update is async by OS)
-  /// 
+  ///
   /// Example:
   /// ```dart
   /// final passwordManager = PasswordManagerService();
@@ -149,34 +139,24 @@ class PasswordManagerService {
       }
 
       final accountName = displayName ?? 'MaxStream Account';
-      
-      _log(
-        'Credential update triggered for: $email',
-        LogLevel.info,
-      );
-      _log(
-        'Account name: $accountName',
-        LogLevel.debug,
-      );
+
+      _log('Credential update triggered for: $email', LogLevel.info);
+      _log('Account name: $accountName', LogLevel.debug);
 
       // Note: The actual credential update is handled by Android's autofill framework.
       // After a password change, the framework will show an update prompt.
-      
+
       _log(
         'Android autofill framework will display update prompt',
         LogLevel.debug,
       );
-      
     } catch (e) {
-      _log(
-        'Error processing credential update request: $e',
-        LogLevel.error,
-      );
+      _log('Error processing credential update request: $e', LogLevel.error);
     }
   }
 
   /// Clear cached data (future enhancement for credential cleanup)
-  /// 
+  ///
   /// This method can be used for future enhancements like clearing
   /// cached password manager state without removing saved credentials
   /// from the system Password Manager.
@@ -190,12 +170,12 @@ class PasswordManagerService {
   }
 
   /// Get service status
-  /// 
+  ///
   /// Returns: True if service is initialized, false otherwise
   bool get isInitialized => _initialized;
 
   /// Log messages with appropriate log levels
-  /// 
+  ///
   /// Parameters:
   /// - message: Message to log
   /// - level: Log level (defaults to info)
@@ -219,9 +199,4 @@ class PasswordManagerService {
 }
 
 /// Log level enum for better logging control
-enum LogLevel {
-  debug,
-  info,
-  warning,
-  error,
-}
+enum LogLevel { debug, info, warning, error }
