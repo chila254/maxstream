@@ -10,6 +10,9 @@ class TvKeyboard extends StatefulWidget {
   final VoidCallback onSubmit;
   final String initialText;
   final TvKeyboardFocusManager? focusManager;
+  final FocusNode? focusNode;
+  final VoidCallback? onMoveRight;
+  final VoidCallback? onMoveLeft;
 
   const TvKeyboard({
     super.key,
@@ -17,6 +20,9 @@ class TvKeyboard extends StatefulWidget {
     required this.onSubmit,
     this.initialText = '',
     this.focusManager,
+    this.focusNode,
+    this.onMoveRight,
+    this.onMoveLeft,
   });
 
   @override
@@ -37,7 +43,7 @@ class _TvKeyboardState extends State<TvKeyboard> {
     super.initState();
     _input = widget.initialText;
     _initializeKeyboard();
-    _keyboardFocusNode = FocusNode();
+    _keyboardFocusNode = widget.focusNode ?? FocusNode();
 
     // Activate keyboard focus on init
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -48,7 +54,7 @@ class _TvKeyboardState extends State<TvKeyboard> {
 
   @override
   void dispose() {
-    _keyboardFocusNode.dispose();
+    if (widget.focusNode == null) _keyboardFocusNode.dispose();
     widget.focusManager?.deactivateKeyboard();
     super.dispose();
   }
@@ -91,6 +97,10 @@ class _TvKeyboardState extends State<TvKeyboard> {
         );
       });
     } else if (event.isKeyPressed(LogicalKeyboardKey.arrowLeft)) {
+      if (_selectedCol == 0) {
+        widget.onMoveLeft?.call();
+        return;
+      }
       setState(() {
         _selectedCol = (_selectedCol - 1).clamp(
           0,
@@ -98,6 +108,10 @@ class _TvKeyboardState extends State<TvKeyboard> {
         );
       });
     } else if (event.isKeyPressed(LogicalKeyboardKey.arrowRight)) {
+      if (_selectedCol == _keyboardLayout[_selectedRow].length - 1) {
+        widget.onMoveRight?.call();
+        return;
+      }
       setState(() {
         _selectedCol = (_selectedCol + 1).clamp(
           0,

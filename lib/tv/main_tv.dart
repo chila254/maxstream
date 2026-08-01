@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:media_kit/media_kit.dart';
 import '../firebase_options.dart';
 import 'screens/tv_splash_screen.dart';
 import 'screens/tv_login_screen.dart';
@@ -9,6 +10,7 @@ import '../services/notification_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  MediaKit.ensureInitialized();
 
   try {
     await Firebase.initializeApp(

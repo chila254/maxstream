@@ -3,7 +3,6 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:shimmer/shimmer.dart';
 import '../../models/movie.dart';
-import '../../models/series.dart';
 import '../../services/tmdb_api_service.dart';
 import '../../services/logger_service.dart';
 import '../providers/tv_navigation_provider.dart';
@@ -105,9 +104,7 @@ class _TvSeriesListScreenState extends State<TvSeriesListScreen> {
             slivers: [
               // Featured section - first trending series as big card
               if (!isLoading && trendingSeries.isNotEmpty)
-                SliverToBoxAdapter(
-                  child: _buildFeaturedSection(),
-                ),
+                SliverToBoxAdapter(child: _buildFeaturedSection()),
               if (isLoading)
                 SliverToBoxAdapter(child: _buildLoadingShimmer())
               else ...[
@@ -143,8 +140,9 @@ class _TvSeriesListScreenState extends State<TvSeriesListScreen> {
     final title = series['name'] ?? 'Unknown';
     final rating = (series['vote_average'] as num?)?.toDouble() ?? 0.0;
     final overview = series['overview'] ?? '';
-    final year = (series['first_air_date'] as String?)?.isNotEmpty == true
-        && (series['first_air_date'] as String).length >= 4
+    final year =
+        (series['first_air_date'] as String?)?.isNotEmpty == true &&
+            (series['first_air_date'] as String).length >= 4
         ? (series['first_air_date'] as String).substring(0, 4)
         : null;
     final seasons = series['number_of_seasons'] as int?;
@@ -156,9 +154,8 @@ class _TvSeriesListScreenState extends State<TvSeriesListScreen> {
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (context) => TvSeriesScreen(
-                seriesItem: Movie.fromJson(series),
-              ),
+              builder: (context) =>
+                  TvSeriesScreen(seriesItem: Movie.fromJson(series)),
             ),
           );
         },
@@ -183,7 +180,7 @@ class _TvSeriesListScreenState extends State<TvSeriesListScreen> {
                 Image.network(
                   backdropUrl,
                   fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => Container(
+                  errorBuilder: (_, _, _) => Container(
                     color: Colors.grey[900],
                     child: const Icon(Icons.tv, color: Colors.grey, size: 60),
                   ),
@@ -227,7 +224,11 @@ class _TvSeriesListScreenState extends State<TvSeriesListScreen> {
                       Row(
                         children: [
                           if (rating > 0) ...[
-                            const Icon(Icons.star, color: Colors.amber, size: 18),
+                            const Icon(
+                              Icons.star,
+                              color: Colors.amber,
+                              size: 18,
+                            ),
                             const SizedBox(width: 4),
                             Text(
                               rating.toStringAsFixed(1),
@@ -242,13 +243,19 @@ class _TvSeriesListScreenState extends State<TvSeriesListScreen> {
                           if (year != null)
                             Text(
                               year,
-                              style: TextStyle(color: Colors.grey[400], fontSize: 14),
+                              style: TextStyle(
+                                color: Colors.grey[400],
+                                fontSize: 14,
+                              ),
                             ),
                           if (seasons != null) ...[
                             const SizedBox(width: 12),
                             Text(
                               '$seasons Seasons',
-                              style: TextStyle(color: Colors.grey[400], fontSize: 14),
+                              style: TextStyle(
+                                color: Colors.grey[400],
+                                fontSize: 14,
+                              ),
                             ),
                           ],
                         ],
@@ -256,7 +263,11 @@ class _TvSeriesListScreenState extends State<TvSeriesListScreen> {
                       const SizedBox(height: 8),
                       Text(
                         overview,
-                        style: TextStyle(color: Colors.grey[300], fontSize: 13, height: 1.4),
+                        style: TextStyle(
+                          color: Colors.grey[300],
+                          fontSize: 13,
+                          height: 1.4,
+                        ),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -298,7 +309,10 @@ class _TvSeriesListScreenState extends State<TvSeriesListScreen> {
   }
 
   Widget _buildContentRow(String title, List<Map<String, dynamic>> items) {
-    if (items.isEmpty) return const SliverToBoxAdapter(child: SizedBox.shrink());
+    if (items.isEmpty) {
+      return const SliverToBoxAdapter(child: SizedBox.shrink());
+    }
+    final rowId = 'series:$title';
 
     return SliverToBoxAdapter(
       child: Padding(
@@ -331,32 +345,56 @@ class _TvSeriesListScreenState extends State<TvSeriesListScreen> {
                   );
                   final itemTitle = item['name'] ?? 'Unknown';
                   final rating = (item['vote_average'] as num?)?.toDouble();
-                  final year = (item['first_air_date'] as String?)?.isNotEmpty == true
-                      && (item['first_air_date'] as String).length >= 4
+                  final year =
+                      (item['first_air_date'] as String?)?.isNotEmpty == true &&
+                          (item['first_air_date'] as String).length >= 4
                       ? int.tryParse(
-                          (item['first_air_date'] as String).substring(0, 4))
+                          (item['first_air_date'] as String).substring(0, 4),
+                        )
                       : null;
                   final numberOfSeasons = item['number_of_seasons'] as int?;
 
-                  return _ContentRowItem(
-                    posterUrl: posterUrl,
-                    title: itemTitle,
-                    year: year,
-                    rating: rating,
-                    subtitle: numberOfSeasons != null
-                        ? '$numberOfSeasons Seasons'
-                        : null,
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => TvSeriesScreen(
-                            seriesItem: Movie.fromJson(item),
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 12),
+                    child: TvContentCard(
+                      posterUrl: posterUrl,
+                      title: itemTitle,
+                      year: year,
+                      rating: rating,
+                      duration: numberOfSeasons != null
+                          ? '$numberOfSeasons Seasons'
+                          : null,
+                      width: 130,
+                      height: 228,
+                      contentType: ContentType.series,
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => TvSeriesScreen(
+                              seriesItem: Movie.fromJson(item),
+                            ),
                           ),
-                        ),
-                      );
-                    },
-                    onPlay: () => _playSeries(item),
+                        );
+                      },
+                      onSelect: () => _playSeries(item),
+                      autofocus:
+                          index ==
+                          context
+                              .read<TvNavigationProvider>()
+                              .getRowFocusedIndex(rowId),
+                      onFocusChanged: (focused) {
+                        if (!focused) return;
+                        context
+                            .read<TvNavigationProvider>()
+                            .saveRowFocusedIndex(rowId, index);
+                        Scrollable.ensureVisible(
+                          context,
+                          duration: const Duration(milliseconds: 180),
+                          alignment: 0.5,
+                        );
+                      },
+                    ),
                   );
                 },
               ),
@@ -406,185 +444,14 @@ class _TvSeriesListScreenState extends State<TvSeriesListScreen> {
                 (index) => Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(
-                      height: 20,
-                      width: 180,
-                      color: Colors.grey[800],
-                    ),
+                    Container(height: 20, width: 180, color: Colors.grey[800]),
                     const SizedBox(height: 12),
-                    Container(
-                      height: 240,
-                      color: Colors.grey[800],
-                    ),
+                    Container(height: 240, color: Colors.grey[800]),
                     const SizedBox(height: 24),
                   ],
                 ),
               ),
             ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ContentRowItem extends StatefulWidget {
-  final String posterUrl;
-  final String title;
-  final int? year;
-  final double? rating;
-  final String? subtitle;
-  final VoidCallback onTap;
-  final VoidCallback onPlay;
-
-  const _ContentRowItem({
-    required this.posterUrl,
-    required this.title,
-    this.year,
-    this.rating,
-    this.subtitle,
-    required this.onTap,
-    required this.onPlay,
-  });
-
-  @override
-  State<_ContentRowItem> createState() => _ContentRowItemState();
-}
-
-class _ContentRowItemState extends State<_ContentRowItem> {
-  bool _isFocused = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(right: 10),
-      child: Focus(
-        onKey: (node, event) {
-          if (event is KeyDownEvent) {
-            if (event.logicalKey == LogicalKeyboardKey.select) {
-              widget.onTap();
-              return KeyEventResult.handled;
-            }
-          }
-          return KeyEventResult.ignored;
-        },
-        onFocusChange: (focused) => setState(() => _isFocused = focused),
-        child: GestureDetector(
-          onTap: widget.onTap,
-          child: AnimatedScale(
-            scale: _isFocused ? 1.08 : 1.0,
-            duration: const Duration(milliseconds: 200),
-            curve: Curves.easeOutCubic,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              width: 130,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(8),
-                border: _isFocused
-                    ? Border.all(color: Colors.red, width: 2)
-                    : null,
-                boxShadow: _isFocused
-                    ? [
-                        BoxShadow(
-                          color: Colors.red.withOpacity(0.3),
-                          blurRadius: 12,
-                          spreadRadius: 2,
-                        ),
-                      ]
-                    : null,
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: ClipRRect(
-                      borderRadius:
-                          const BorderRadius.vertical(top: Radius.circular(8)),
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          Image.network(
-                            widget.posterUrl,
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) => Container(
-                              color: Colors.grey[800],
-                              child: const Icon(Icons.tv,
-                                  color: Colors.grey, size: 40),
-                            ),
-                          ),
-                          if (_isFocused)
-                            Positioned.fill(
-                              child: Container(
-                                decoration: BoxDecoration(
-                                  gradient: LinearGradient(
-                                    begin: Alignment.topCenter,
-                                    end: Alignment.bottomCenter,
-                                    colors: [
-                                      Colors.transparent,
-                                      Colors.black.withOpacity(0.8),
-                                    ],
-                                  ),
-                                ),
-                                child: Align(
-                                  alignment: Alignment.center,
-                                  child: GestureDetector(
-                                    onTap: widget.onPlay,
-                                    child: Container(
-                                      width: 44,
-                                      height: 44,
-                                      decoration: const BoxDecoration(
-                                        color: Colors.red,
-                                        shape: BoxShape.circle,
-                                      ),
-                                      child: const Icon(Icons.play_arrow,
-                                          color: Colors.white, size: 28),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.fromLTRB(8, 8, 8, 6),
-                    decoration: const BoxDecoration(
-                      color: Color(0xFF1A1A1A),
-                      borderRadius:
-                          BorderRadius.vertical(bottom: Radius.circular(8)),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          widget.title,
-                          style: TextStyle(
-                            color:
-                                _isFocused ? Colors.white : Colors.grey[300],
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                          ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        if (widget.year != null || widget.subtitle != null) ...[
-                          const SizedBox(height: 2),
-                          Text(
-                            widget.subtitle ??
-                                widget.year.toString(),
-                            style: TextStyle(
-                              color: Colors.grey[500],
-                              fontSize: 11,
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
           ),
         ),
       ),
@@ -607,28 +474,39 @@ class _ActionChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        decoration: BoxDecoration(
-          color: primary ? Colors.red : Colors.white.withOpacity(0.15),
-          borderRadius: BorderRadius.circular(6),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, color: Colors.white, size: 18),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
+    return Focus(
+      onKeyEvent: (node, event) {
+        if (event is KeyDownEvent &&
+            (event.logicalKey == LogicalKeyboardKey.select ||
+                event.logicalKey == LogicalKeyboardKey.enter)) {
+          onTap();
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      },
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          decoration: BoxDecoration(
+            color: primary ? Colors.red : Colors.white.withOpacity(0.15),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, color: Colors.white, size: 18),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

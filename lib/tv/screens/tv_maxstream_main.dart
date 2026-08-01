@@ -11,8 +11,7 @@ import 'tv_series_list_screen.dart';
 import 'tv_watchlist_screen.dart';
 import 'tv_more_screen.dart';
 
-/// Custom action for handling directional focus intents in TV navigation
-/// Implements Netflix-style LEFT navigation with sidebar focus restoration
+/// Handles directional focus between the persistent navigation and content.
 class TvDirectionalFocusAction extends Action<DirectionalFocusIntent> {
   final TvNavigationProvider navProvider;
   final FocusNode sidebarFocusNode;
@@ -43,7 +42,6 @@ class TvDirectionalFocusAction extends Action<DirectionalFocusIntent> {
         // From content to sidebar - uses TvNavigation for consistent handling
         if (!navProvider.focusOnSidebar) {
           navProvider.setFocusOnSidebar(true);
-          // Use TvFocusManager to restore last focused sidebar item (Netflix pattern)
           TvFocusManager.focusSidebar();
         } else {
           // Within sidebar, let default traversal handle it
@@ -66,24 +64,23 @@ class TvNavigationObserver extends NavigatorObserver {
   final TvNavigationProvider provider;
 
   TvNavigationObserver(this.provider);
+  int _depth = 0;
 
   @override
   void didPush(Route route, Route? previousRoute) {
-    // Mark deep navigation when pushing new routes
-    provider.setDeepNavigating(true);
+    _depth++;
+    provider.setDeepNavigating(_depth > 1);
   }
 
   @override
   void didPop(Route route, Route? previousRoute) {
-    // Return focus to sidebar when popping back to main screen
-    if (previousRoute != null && route.settings.name != null) {
-      provider.setDeepNavigating(false);
-      provider.setFocusOnSidebar(true);
-    }
+    _depth = (_depth - 1).clamp(0, 1 << 20);
+    provider.setDeepNavigating(_depth > 1);
+    if (_depth <= 1) provider.setFocusOnSidebar(false);
   }
 }
 
-/// MaxStream Netflix-style TV UI
+/// MaxStream TV shell.
 /// Features:
 /// - Left sidebar navigation
 /// - Clean screen switching without friction
@@ -139,7 +136,6 @@ class _TvMaxStreamMainState extends State<TvMaxStreamMain> {
       contentFocusNode: _contentFocusNode,
     );
 
-    // Netflix-style: Start with content focused (Home screen hero/first card)
     // Sidebar is secondary navigation - only LEFT moves to it
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _navProvider.setFocusOnSidebar(false);
@@ -161,17 +157,27 @@ class _TvMaxStreamMainState extends State<TvMaxStreamMain> {
     setState(() => _sidebarFocused = false);
   }
 
+  void _focusContent() {
+    _navProvider.setFocusOnSidebar(false);
+    _contentFocusNode.requestFocus();
+  }
+
+  void _focusSidebar() {
+    _navProvider.setFocusOnSidebar(true);
+    TvFocusManager.focusSidebar();
+  }
+
   List<Widget> _buildScreens() {
     return [
       TvHomeScreen(
-        onReturnToSidebar: () => _onNavItemSelected(0),
+        onReturnToSidebar: _focusSidebar,
         navigatorKey: _navigatorKey,
       ),
-      TvSearchScreen(onReturnToSidebar: () => _onNavItemSelected(1)),
-      TvGenreScreen(onReturnToSidebar: () => _onNavItemSelected(2)),
-      TvSeriesListScreen(onReturnToSidebar: () => _onNavItemSelected(3)),
-      TvWatchlistScreen(onReturnToSidebar: () => _onNavItemSelected(4)),
-      TvMoreScreen(onReturnToSidebar: () => _onNavItemSelected(5)),
+      TvSearchScreen(onReturnToSidebar: _focusSidebar),
+      TvGenreScreen(onReturnToSidebar: _focusSidebar),
+      TvSeriesListScreen(onReturnToSidebar: _focusSidebar),
+      TvWatchlistScreen(onReturnToSidebar: _focusSidebar),
+      TvMoreScreen(onReturnToSidebar: _focusSidebar),
     ];
   }
 
@@ -179,88 +185,105 @@ class _TvMaxStreamMainState extends State<TvMaxStreamMain> {
   Widget build(BuildContext context) {
     return ChangeNotifierProvider<TvNavigationProvider>.value(
       value: _navProvider,
-      child: Scaffold(
-        backgroundColor: const Color(0xFF0F0F0F),
-        body: Shortcuts(
-          shortcuts: {
-            LogicalKeySet(LogicalKeyboardKey.arrowLeft):
-                const DirectionalFocusIntent(TraversalDirection.left),
-            LogicalKeySet(LogicalKeyboardKey.arrowRight):
-                const DirectionalFocusIntent(TraversalDirection.right),
-            LogicalKeySet(LogicalKeyboardKey.arrowUp):
-                const DirectionalFocusIntent(TraversalDirection.up),
-            LogicalKeySet(LogicalKeyboardKey.arrowDown):
-                const DirectionalFocusIntent(TraversalDirection.down),
-          },
-          child: Actions(
-            actions: {
-              DirectionalFocusIntent: TvDirectionalFocusAction(
-                navProvider: _navProvider,
-                sidebarFocusNode: _sidebarFocusNode,
-                contentFocusNode: _contentFocusNode,
-              ),
+      child: PopScope(
+        canPop: false,
+        onPopInvokedWithResult: (didPop, result) {
+          if (didPop) return;
+          final navigator = _navigatorKey.currentState;
+          if (navigator != null && navigator.canPop()) {
+            navigator.pop();
+          } else if (!_navProvider.focusOnSidebar) {
+            _navProvider.setFocusOnSidebar(true);
+            TvFocusManager.focusSidebar();
+          } else {
+            SystemNavigator.pop();
+          }
+        },
+        child: Scaffold(
+          backgroundColor: const Color(0xFF0F0F0F),
+          body: Shortcuts(
+            shortcuts: {
+              LogicalKeySet(LogicalKeyboardKey.arrowLeft):
+                  const DirectionalFocusIntent(TraversalDirection.left),
+              LogicalKeySet(LogicalKeyboardKey.arrowRight):
+                  const DirectionalFocusIntent(TraversalDirection.right),
+              LogicalKeySet(LogicalKeyboardKey.arrowUp):
+                  const DirectionalFocusIntent(TraversalDirection.up),
+              LogicalKeySet(LogicalKeyboardKey.arrowDown):
+                  const DirectionalFocusIntent(TraversalDirection.down),
             },
-            child: Consumer<TvNavigationProvider>(
-              builder: (context, navProvider, _) {
-                // Sync _sidebarFocused with provider's focusOnSidebar
-                if (_sidebarFocused != navProvider.focusOnSidebar) {
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (mounted) {
-                      setState(
-                        () => _sidebarFocused = navProvider.focusOnSidebar,
-                      );
-                    }
-                  });
-                }
+            child: Actions(
+              actions: {
+                DirectionalFocusIntent: TvDirectionalFocusAction(
+                  navProvider: _navProvider,
+                  sidebarFocusNode: _sidebarFocusNode,
+                  contentFocusNode: _contentFocusNode,
+                ),
+              },
+              child: Consumer<TvNavigationProvider>(
+                builder: (context, navProvider, _) {
+                  // Sync _sidebarFocused with provider's focusOnSidebar
+                  if (_sidebarFocused != navProvider.focusOnSidebar) {
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (mounted) {
+                        setState(
+                          () => _sidebarFocused = navProvider.focusOnSidebar,
+                        );
+                      }
+                    });
+                  }
 
-                return Row(
-                  children: [
-                    // Left Sidebar Navigation
-                    FocusTraversalGroup(
-                      policy: ReadingOrderTraversalPolicy(),
-                      child: Focus(
-                        focusNode: _sidebarFocusNode,
-                        onFocusChange: (hasFocus) {
-                          if (hasFocus) {
-                            setState(() => _sidebarFocused = true);
-                            _navProvider.setFocusOnSidebar(true);
-                          }
-                        },
-                        child: TvSidebarNavigation(
-                          selectedIndex: navProvider.selectedTab,
-                          titles: _navTitles,
-                          icons: _navIcons,
-                          onItemSelected: _onNavItemSelected,
-                        ),
-                      ),
-                    ),
-                    // Content Screen - Expanded and Clean
-                    Expanded(
-                      child: FocusTraversalGroup(
+                  return Row(
+                    children: [
+                      // Left Sidebar Navigation
+                      FocusTraversalGroup(
                         policy: ReadingOrderTraversalPolicy(),
                         child: Focus(
-                          focusNode: _contentFocusNode,
+                          focusNode: _sidebarFocusNode,
                           onFocusChange: (hasFocus) {
                             if (hasFocus) {
-                              setState(() => _sidebarFocused = false);
-                              _navProvider.setFocusOnSidebar(false);
+                              setState(() => _sidebarFocused = true);
+                              _navProvider.setFocusOnSidebar(true);
                             }
                           },
-                          child: Navigator(
-                            key: _navigatorKey,
-                            observers: [TvNavigationObserver(_navProvider)],
-                            onGenerateRoute: (settings) {
-                              return MaterialPageRoute(
-                                builder: (context) => _buildCurrentScreen(),
-                              );
-                            },
+                          child: TvSidebarNavigation(
+                            selectedIndex: navProvider.selectedTab,
+                            titles: _navTitles,
+                            icons: _navIcons,
+                            onItemSelected: _onNavItemSelected,
+                            onExitToContent: _focusContent,
+                            active: navProvider.focusOnSidebar,
                           ),
                         ),
                       ),
-                    ),
-                  ],
-                );
-              },
+                      // Content Screen - Expanded and Clean
+                      Expanded(
+                        child: FocusTraversalGroup(
+                          policy: ReadingOrderTraversalPolicy(),
+                          child: Focus(
+                            focusNode: _contentFocusNode,
+                            onFocusChange: (hasFocus) {
+                              if (hasFocus) {
+                                setState(() => _sidebarFocused = false);
+                                _navProvider.setFocusOnSidebar(false);
+                              }
+                            },
+                            child: Navigator(
+                              key: _navigatorKey,
+                              observers: [TvNavigationObserver(_navProvider)],
+                              onGenerateRoute: (settings) {
+                                return MaterialPageRoute(
+                                  builder: (context) => _buildCurrentScreen(),
+                                );
+                              },
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
             ),
           ),
         ),

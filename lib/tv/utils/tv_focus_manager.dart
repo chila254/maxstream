@@ -3,19 +3,15 @@ import 'package:flutter/material.dart';
 /// Centralized focus management for TV navigation
 /// Handles focus switching between sidebar and content areas
 /// Provides hierarchical focus control for grid-based navigation
-/// Integrates with Netflix-style sidebar focus restoration
 class TvFocusManager {
   // Global reference to sidebar focus node
   static FocusNode? _sidebarFocusNode;
-  
+
   // Global reference to content focus node
   static FocusNode? _contentFocusNode;
-  
+
   // Track which area has focus
   static bool _isSidebarFocused = true;
-
-  // Track last focused sidebar item for restoration (Netflix-style)
-  static FocusNode? _lastSidebarItemFocusNode;
 
   /// Initialize the focus manager with sidebar and content focus nodes
   static void initialize({
@@ -32,9 +28,7 @@ class TvFocusManager {
   /// Request focus to shift to sidebar
   static void focusSidebar() {
     _isSidebarFocused = true;
-    // Restore last focused sidebar item (Netflix pattern)
-    final targetNode = _lastSidebarItemFocusNode ?? _sidebarFocusNode;
-    targetNode?.requestFocus();
+    _sidebarFocusNode?.requestFocus();
   }
 
   /// Request focus to shift to content area
@@ -52,21 +46,9 @@ class TvFocusManager {
     }
   }
 
-  /// Save the last focused sidebar menu item for restoration
-  /// Call this when a sidebar item receives focus
-  static void saveSidebarItemFocus(FocusNode focusNode) {
-    _lastSidebarItemFocusNode = focusNode;
-  }
-
-  /// Get the last focused sidebar item or fallback to default
-  static FocusNode? getLastSidebarItemFocus() {
-    return _lastSidebarItemFocusNode;
-  }
-
   /// Dispose resources
   static void dispose() {
     _sidebarFocusNode = null;
     _contentFocusNode = null;
-    _lastSidebarItemFocusNode = null;
   }
 }

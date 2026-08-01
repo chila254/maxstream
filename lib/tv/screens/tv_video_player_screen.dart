@@ -7,7 +7,6 @@ import 'package:provider/provider.dart';
 import '../providers/tv_navigation_provider.dart';
 import '../utils/index.dart';
 import '../../services/direct_m3u8_service.dart';
-import '../../services/native_stream_extractor.dart';
 import '../../services/tmdb_api_service.dart';
 import '../../services/watch_history_service.dart';
 
@@ -740,7 +739,6 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
                 children: [
                   ElevatedButton(
                     onPressed: () {
-                      _retryCount = 0;
                       _loadStream();
                     },
                     style: ElevatedButton.styleFrom(
@@ -805,8 +803,6 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
       ],
     );
   }
-
-  int _retryCount = 0;
 }
 
 class _ControlButton extends StatelessWidget {

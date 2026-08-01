@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
-/// Netflix-style TV navigation state management
+/// TV navigation state management.
 /// Handles instant UI updates with async data loading
 /// Persists scroll positions and focus state across navigation
-/// 
+///
 /// Focus Convention:
 /// - Home screen starts on content (hero banner), NOT sidebar
 /// - Sidebar is secondary navigation
@@ -19,6 +19,8 @@ class TvNavigationProvider extends ChangeNotifier {
   final Map<int, double> _tabScrollOffsets = {};
   final Map<int, int> _tabFocusedIndices = {};
   final Map<int, int> _sectionFocusIndices = {};
+  final Map<String, int> _rowFocusedIndices = {};
+  final Map<int, String> _activeRowIds = {};
 
   // Store ScrollControllers for restoration
   final Map<int, ScrollController> _tabScrollControllers = {};
@@ -119,6 +121,21 @@ class TvNavigationProvider extends ChangeNotifier {
     return _sectionFocusIndices[tabIndex] ?? 0;
   }
 
+  /// Saves the focused item for a stable row identifier.
+  void saveRowFocusedIndex(String rowId, int index) {
+    _rowFocusedIndices[rowId] = index;
+  }
+
+  /// Returns the last focused item for a stable row identifier.
+  int getRowFocusedIndex(String rowId) => _rowFocusedIndices[rowId] ?? 0;
+
+  /// Remembers which stable rail had focus on a tab.
+  void saveActiveRowId(int tabIndex, String rowId) {
+    _activeRowIds[tabIndex] = rowId;
+  }
+
+  String? getActiveRowId(int tabIndex) => _activeRowIds[tabIndex];
+
   /// Return to sidebar and restore scroll position
   void returnToSidebar() {
     _focusOnSidebar = true;
@@ -138,6 +155,8 @@ class TvNavigationProvider extends ChangeNotifier {
     _tabScrollOffsets.clear();
     _tabFocusedIndices.clear();
     _sectionFocusIndices.clear();
+    _rowFocusedIndices.clear();
+    _activeRowIds.clear();
     notifyListeners();
   }
 }

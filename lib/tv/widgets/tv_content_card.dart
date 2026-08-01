@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'dart:ui' as ui;
+import 'package:flutter/services.dart';
 import '../utils/tv_image_cache_util.dart';
 
 /// Enum to define content type
@@ -23,6 +23,12 @@ class TvContentCard extends StatefulWidget {
   final double? width;
   final double? height;
   final Duration animationDuration;
+  final FocusNode? focusNode;
+  final bool autofocus;
+  final ValueChanged<bool>? onFocusChanged;
+  final VoidCallback? onSelect;
+  final double? progress;
+  final FocusOnKeyEventCallback? onKeyEvent;
 
   const TvContentCard({
     super.key,
@@ -35,7 +41,13 @@ class TvContentCard extends StatefulWidget {
     required this.onTap,
     this.width,
     this.height,
-    this.animationDuration = const Duration(milliseconds: 300),
+    this.animationDuration = const Duration(milliseconds: 180),
+    this.focusNode,
+    this.autofocus = false,
+    this.onFocusChanged,
+    this.onSelect,
+    this.progress,
+    this.onKeyEvent,
   });
 
   @override
@@ -48,20 +60,20 @@ class _TvContentCardState extends State<TvContentCard>
   late Animation<double> _scaleAnimation;
   late Animation<double> _shadowAnimation;
   late Animation<double> _overlayAnimation;
-  late FocusNode _focusNode;
+  FocusNode? _internalFocusNode;
   bool _isHovered = false;
 
   @override
   void initState() {
     super.initState();
-    _focusNode = FocusNode();
+    if (widget.focusNode == null) _internalFocusNode = FocusNode();
 
     _animationController = AnimationController(
       duration: widget.animationDuration,
       vsync: this,
     );
 
-    _scaleAnimation = Tween<double>(begin: 1.0, end: 1.08).animate(
+    _scaleAnimation = Tween<double>(begin: 1.0, end: 1.03).animate(
       CurvedAnimation(parent: _animationController, curve: Curves.easeOutCubic),
     );
 
@@ -77,11 +89,17 @@ class _TvContentCardState extends State<TvContentCard>
   @override
   void didUpdateWidget(TvContentCard oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.focusNode == null && widget.focusNode != null) {
+      _internalFocusNode?.dispose();
+      _internalFocusNode = null;
+    } else if (oldWidget.focusNode != null && widget.focusNode == null) {
+      _internalFocusNode = FocusNode();
+    }
   }
 
   @override
   void dispose() {
-    _focusNode.dispose();
+    _internalFocusNode?.dispose();
     _animationController.dispose();
     super.dispose();
   }
@@ -92,6 +110,7 @@ class _TvContentCardState extends State<TvContentCard>
     } else {
       _animationController.reverse();
     }
+    widget.onFocusChanged?.call(isFocused);
   }
 
   String _getContentTypeLabel() {
@@ -123,7 +142,7 @@ class _TvContentCardState extends State<TvContentCard>
   Color _getContentTypeColor() {
     switch (widget.contentType) {
       case ContentType.movie:
-        return const Color(0xFFE50914); // Netflix Red
+        return const Color(0xFFE50914);
       case ContentType.series:
         return const Color(0xFF564D4D); // Dark Purple
       case ContentType.documentary:
@@ -135,11 +154,24 @@ class _TvContentCardState extends State<TvContentCard>
 
   @override
   Widget build(BuildContext context) {
+    final focusNode = widget.focusNode ?? _internalFocusNode!;
     final cardWidth = widget.width ?? 180.0;
     final posterHeight = widget.height ?? 270.0;
 
     return Focus(
-      focusNode: _focusNode,
+      focusNode: focusNode,
+      autofocus: widget.autofocus,
+      onKeyEvent: (node, event) {
+        final result = widget.onKeyEvent?.call(node, event);
+        if (result != null && result != KeyEventResult.ignored) return result;
+        if (event is KeyDownEvent &&
+            (event.logicalKey == LogicalKeyboardKey.select ||
+                event.logicalKey == LogicalKeyboardKey.enter)) {
+          (widget.onSelect ?? widget.onTap).call();
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      },
       onFocusChange: _onFocusChange,
       child: GestureDetector(
         onTap: widget.onTap,
@@ -167,25 +199,22 @@ class _TvContentCardState extends State<TvContentCard>
                     height: posterHeight,
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(16),
+                      border: focusNode.hasFocus
+                          ? Border.all(color: Colors.white, width: 2)
+                          : null,
                       boxShadow: [
                         // Main shadow
                         BoxShadow(
                           color: Colors.black.withValues(
-                            alpha: 0.4 * (_focusNode.hasFocus ? 1.0 : 0.6),
+                            alpha: 0.4 * (focusNode.hasFocus ? 1.0 : 0.6),
                           ),
                           blurRadius: _shadowAnimation.value,
-                          spreadRadius: _focusNode.hasFocus ? 4 : 2,
-                          offset: Offset(0, _focusNode.hasFocus ? 8 : 4),
+                          spreadRadius: focusNode.hasFocus ? 2 : 1,
+                          offset: Offset(0, focusNode.hasFocus ? 6 : 4),
                         ),
                         // Secondary glow shadow
-                        if (_focusNode.hasFocus)
-                          BoxShadow(
-                            color: _getContentTypeColor().withValues(
-                              alpha: 0.3,
-                            ),
-                            blurRadius: 16,
-                            spreadRadius: 2,
-                          ),
+                        if (focusNode.hasFocus)
+                          const BoxShadow(color: Colors.white24, blurRadius: 6),
                       ],
                     ),
                     child: Stack(
@@ -215,35 +244,8 @@ class _TvContentCardState extends State<TvContentCard>
                                     ),
                               ),
                               // Hover/Focus Gradient Overlay
-                              if (_focusNode.hasFocus || _isHovered)
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(16),
-                                  child: BackdropFilter(
-                                    filter: ui.ImageFilter.blur(
-                                      sigmaX: 2.0,
-                                      sigmaY: 2.0,
-                                    ),
-                                    child: Container(
-                                      decoration: BoxDecoration(
-                                        gradient: LinearGradient(
-                                          begin: Alignment.topLeft,
-                                          end: Alignment.bottomRight,
-                                          colors: [
-                                            Colors.white.withValues(
-                                              alpha:
-                                                  0.1 * _overlayAnimation.value,
-                                            ),
-                                            Colors.cyan.withValues(
-                                              alpha:
-                                                  0.15 *
-                                                  _overlayAnimation.value,
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
+                              if (focusNode.hasFocus || _isHovered)
+                                Container(color: Colors.black26),
                             ],
                           ),
                         ),
@@ -261,7 +263,7 @@ class _TvContentCardState extends State<TvContentCard>
                             child: _buildRatingBadge(),
                           ),
                         // Play Button on Hover/Focus
-                        if ((_focusNode.hasFocus || _isHovered) &&
+                        if ((focusNode.hasFocus || _isHovered) &&
                             _overlayAnimation.value > 0.5)
                           Positioned.fill(
                             child: Center(
@@ -300,6 +302,18 @@ class _TvContentCardState extends State<TvContentCard>
                                   ),
                                 ),
                               ),
+                            ),
+                          ),
+                        if (widget.progress != null)
+                          Positioned(
+                            left: 8,
+                            right: 8,
+                            bottom: 8,
+                            child: LinearProgressIndicator(
+                              value: widget.progress!.clamp(0.0, 1.0),
+                              minHeight: 4,
+                              backgroundColor: Colors.white24,
+                              color: const Color(0xFFE50914),
                             ),
                           ),
                       ],

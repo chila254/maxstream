@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../utils/tv_focus_manager.dart';
 
 class TvSidebarNavigation extends StatefulWidget {
   final int selectedIndex;
   final List<String> titles;
   final List<IconData> icons;
   final Function(int) onItemSelected;
+  final VoidCallback? onExitToContent;
+  final bool active;
 
   const TvSidebarNavigation({
     super.key,
@@ -14,6 +15,8 @@ class TvSidebarNavigation extends StatefulWidget {
     required this.titles,
     required this.icons,
     required this.onItemSelected,
+    this.onExitToContent,
+    this.active = false,
   });
 
   @override
@@ -26,12 +29,6 @@ class _TvSidebarNavigationState extends State<TvSidebarNavigation>
   late List<FocusNode> _menuItemFocusNodes;
   int _focusedIndex = -1;
 
-  static const _panelColor = Color(0xFF141414);
-  static const _selectedBackground = Color(0xFFE50914);
-  static const _focusBackground = Color(0x18FFFFFF);
-  static const _iconCircleDefault = Color(0xFF222222);
-  static const _iconCircleSelected = Color(0x28FFFFFF);
-
   @override
   void initState() {
     super.initState();
@@ -39,22 +36,19 @@ class _TvSidebarNavigationState extends State<TvSidebarNavigation>
 
     _menuItemFocusNodes = List.generate(
       widget.titles.length,
-      (index) => FocusNode(onKey: (node, event) => _handleKeyEvent(event, index)),
+      (index) =>
+          FocusNode(onKey: (node, event) => _handleKeyEvent(event, index)),
     );
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final lastFocused = TvFocusManager.getLastSidebarItemFocus();
-      if (lastFocused != null && _menuItemFocusNodes.contains(lastFocused)) {
-        lastFocused.requestFocus();
-      } else {
-        _menuItemFocusNodes[widget.selectedIndex].requestFocus();
-      }
-    });
   }
 
   @override
   void didUpdateWidget(TvSidebarNavigation oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.active && !oldWidget.active) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _menuItemFocusNodes[widget.selectedIndex].requestFocus();
+      });
+    }
     if (widget.selectedIndex != oldWidget.selectedIndex) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToSelected());
     }
@@ -65,11 +59,11 @@ class _TvSidebarNavigationState extends State<TvSidebarNavigation>
     final itemHeight = 52.0;
     final maxScroll = _scrollController.position.maxScrollExtent;
     final offset = (widget.selectedIndex * itemHeight).clamp(0.0, maxScroll);
-    _scrollController.animateTo(offset, duration: const Duration(milliseconds: 250), curve: Curves.easeOutCubic);
-  }
-
-  void _saveFocusedItem(int index) {
-    TvFocusManager.saveSidebarItemFocus(_menuItemFocusNodes[index]);
+    _scrollController.animateTo(
+      offset,
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeOutCubic,
+    );
   }
 
   @override
@@ -94,8 +88,11 @@ class _TvSidebarNavigationState extends State<TvSidebarNavigation>
         _menuItemFocusNodes[itemIndex - 1].requestFocus();
         return KeyEventResult.handled;
       }
-    } else if (event.logicalKey == LogicalKeyboardKey.select) {
+    } else if (event.logicalKey == LogicalKeyboardKey.select ||
+        event.logicalKey == LogicalKeyboardKey.enter ||
+        event.logicalKey == LogicalKeyboardKey.arrowRight) {
       widget.onItemSelected(itemIndex);
+      widget.onExitToContent?.call();
       return KeyEventResult.handled;
     }
 
@@ -104,22 +101,22 @@ class _TvSidebarNavigationState extends State<TvSidebarNavigation>
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 120,
+    final expanded = _focusedIndex >= 0;
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 380),
+      curve: Curves.easeOutCubic,
+      width: expanded ? 220 : 76,
       decoration: const BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: [Color(0xFF1A1A1A), Color(0xFF111111)],
         ),
-        border: Border(
-          right: BorderSide(color: Color(0x18FFFFFF), width: 1),
-        ),
+        border: Border(right: BorderSide(color: Color(0x18FFFFFF), width: 1)),
       ),
       child: Column(
         children: [
           const SizedBox(height: 28),
-          // App logo/icon
           Container(
             width: 40,
             height: 40,
@@ -129,10 +126,13 @@ class _TvSidebarNavigationState extends State<TvSidebarNavigation>
               ),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 24),
+            child: const Icon(
+              Icons.play_arrow_rounded,
+              color: Colors.white,
+              size: 24,
+            ),
           ),
           const SizedBox(height: 28),
-          // Navigation items - vertically centered with compact spacing
           Expanded(
             child: Center(
               child: Column(
@@ -149,8 +149,6 @@ class _TvSidebarNavigationState extends State<TvSidebarNavigation>
                       onFocusChanged: (focused) {
                         if (focused) {
                           setState(() => _focusedIndex = index);
-                          _saveFocusedItem(index);
-                          widget.onItemSelected(index);
                         } else {
                           if (_focusedIndex == index) {
                             setState(() => _focusedIndex = -1);
@@ -158,6 +156,7 @@ class _TvSidebarNavigationState extends State<TvSidebarNavigation>
                         }
                       },
                       onTap: () => widget.onItemSelected(index),
+                      expanded: expanded,
                     ),
                   );
                 }),
@@ -179,6 +178,7 @@ class _NavPillItem extends StatefulWidget {
   final bool isFocused;
   final ValueChanged<bool> onFocusChanged;
   final VoidCallback onTap;
+  final bool expanded;
 
   const _NavPillItem({
     required this.focusNode,
@@ -188,6 +188,7 @@ class _NavPillItem extends StatefulWidget {
     required this.isFocused,
     required this.onFocusChanged,
     required this.onTap,
+    required this.expanded,
   });
 
   @override
@@ -206,9 +207,10 @@ class _NavPillItemState extends State<_NavPillItem>
       duration: const Duration(milliseconds: 200),
       vsync: this,
     );
-    _scaleAnimation = Tween<double>(begin: 1.0, end: 1.05).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic),
-    );
+    _scaleAnimation = Tween<double>(
+      begin: 1.0,
+      end: 1.05,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
   }
 
   @override
@@ -232,8 +234,8 @@ class _NavPillItemState extends State<_NavPillItem>
     final bgColor = widget.isSelected
         ? const Color(0x38FFFFFF)
         : widget.isFocused
-            ? const Color(0x14FFFFFF)
-            : Colors.transparent;
+        ? const Color(0x14FFFFFF)
+        : Colors.transparent;
     final borderColor = widget.isFocused
         ? const Color(0x30FFFFFF)
         : Colors.transparent;
@@ -248,7 +250,7 @@ class _NavPillItemState extends State<_NavPillItem>
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 200),
             curve: Curves.easeOutCubic,
-            width: 104,
+            width: widget.expanded ? 196 : 56,
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             decoration: BoxDecoration(
               color: bgColor,
@@ -273,27 +275,31 @@ class _NavPillItemState extends State<_NavPillItem>
                     color: widget.isSelected
                         ? Colors.white
                         : widget.isFocused
-                            ? Colors.white
-                            : const Color(0xFF999999),
+                        ? Colors.white
+                        : const Color(0xFF999999),
                     size: 18,
                   ),
                 ),
-                const SizedBox(width: 8),
-                // Label
-                Flexible(
-                  child: Text(
-                    widget.label,
-                    style: TextStyle(
-                      color: widget.isSelected || widget.isFocused
-                          ? Colors.white
-                          : const Color(0xFF999999),
-                      fontSize: 13,
-                      fontWeight:
-                          widget.isSelected ? FontWeight.w600 : FontWeight.w400,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                AnimatedSize(
+                  duration: const Duration(milliseconds: 380),
+                  curve: Curves.easeOutCubic,
+                  child: widget.expanded
+                      ? Padding(
+                          padding: const EdgeInsets.only(left: 12),
+                          child: Text(
+                            widget.label,
+                            style: TextStyle(
+                              color: widget.isSelected || widget.isFocused
+                                  ? Colors.white
+                                  : const Color(0xFF999999),
+                              fontSize: 14,
+                              fontWeight: widget.isSelected
+                                  ? FontWeight.w600
+                                  : FontWeight.w400,
+                            ),
+                          ),
+                        )
+                      : const SizedBox.shrink(),
                 ),
               ],
             ),
