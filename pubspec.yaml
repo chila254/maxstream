@@ -53,9 +53,12 @@ dependencies:
   wakelock_plus: ^1.2.1
   web: ^1.1.1
 
+patches:
+  better_player:
+    - path: patches/better_player_namespace.patch
+
 dev_dependencies:
   flutter_test:
-
     sdk: flutter
   flutter_lints: ^6.0.0
 

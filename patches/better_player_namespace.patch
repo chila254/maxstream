@@ -1,0 +1,10 @@
+--- a/android/build.gradle
++++ b/android/build.gradle
+@@ -33,6 +33,7 @@ apply plugin: 'com.android.library'
+ 
+ android {
+     compileSdkVersion 31
++    namespace 'com.homlala.better_player'
+ 
+     compileOptions {
+         sourceCompatibility JavaVersion.VERSION_1_8
