@@ -10,6 +10,40 @@ import '../../services/direct_m3u8_service.dart';
 import '../../services/tmdb_api_service.dart';
 import '../../services/watch_history_service.dart';
 
+enum _PlayerOverlay { none, servers, audio, subtitles, video }
+
+class _StreamCandidate {
+  const _StreamCandidate({
+    required this.url,
+    required this.source,
+    required this.headers,
+    this.route,
+  });
+
+  final String url;
+  final String source;
+  final Map<String, String> headers;
+  final String? route;
+
+  factory _StreamCandidate.fromMap(Map<String, dynamic> value) {
+    final headers = <String, String>{};
+    if (value['referer'] != null) {
+      headers['Referer'] = value['referer'].toString();
+    }
+    if (value['headers'] is Map) {
+      (value['headers'] as Map).forEach((key, header) {
+        headers[key.toString()] = header.toString();
+      });
+    }
+    return _StreamCandidate(
+      url: value['url']?.toString() ?? '',
+      source: value['source']?.toString() ?? 'Unknown',
+      route: value['server']?.toString(),
+      headers: headers,
+    );
+  }
+}
+
 class TvVideoPlayerScreen extends StatefulWidget {
   final String title;
   final String tmdbId;
@@ -30,13 +64,14 @@ class TvVideoPlayerScreen extends StatefulWidget {
   State<TvVideoPlayerScreen> createState() => _TvVideoPlayerScreenState();
 }
 
-class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
+class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
+    with WidgetsBindingObserver {
   bool _isLoading = true;
   String? _error;
   String _statusMessage = '';
 
   // Server discovery
-  List<Map<String, dynamic>> _availableServers = [];
+  List<_StreamCandidate> _availableServers = [];
   bool _serversLoading = false;
   String? _selectedSource;
   String? _selectedServerUrl;
@@ -50,10 +85,37 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
   bool _isBuffering = false;
+  Tracks _tracks = const Tracks();
+  Track _selectedTrack = const Track();
+  _PlayerOverlay _overlay = _PlayerOverlay.none;
+  final List<StreamSubscription<dynamic>> _subscriptions = [];
+  Timer? _hideTimer;
+  Timer? _progressTimer;
+  Timer? _seekFeedbackTimer;
+  String? _seekFeedback;
+  int _operationGeneration = 0;
+  bool _switchingServer = false;
+  bool _disposed = false;
+  bool _exiting = false;
+
+  final FocusNode _surfaceNode = FocusNode(debugLabel: 'Player surface');
+  final FocusNode _backNode = FocusNode(debugLabel: 'Player back');
+  final FocusNode _serverNode = FocusNode(debugLabel: 'Player server');
+  final FocusNode _rewindNode = FocusNode(debugLabel: 'Player rewind');
+  final FocusNode _playNode = FocusNode(debugLabel: 'Player play pause');
+  final FocusNode _forwardNode = FocusNode(debugLabel: 'Player forward');
+  final FocusNode _seekNode = FocusNode(debugLabel: 'Player seek');
+  final FocusNode _audioNode = FocusNode(debugLabel: 'Player audio');
+  final FocusNode _subtitleNode = FocusNode(debugLabel: 'Player subtitles');
+  final FocusNode _videoNode = FocusNode(debugLabel: 'Player quality');
+  final FocusNode _retryNode = FocusNode(debugLabel: 'Player retry');
+  final FocusNode _errorBackNode = FocusNode(debugLabel: 'Player error back');
+  final List<FocusNode> _overlayNodes = [];
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _player = Player();
     _videoController = VideoController(_player);
 
@@ -63,17 +125,9 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
     ]);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
 
-    _player.stream.playing.listen((playing) {
-      if (mounted) setState(() => _isPlaying = playing);
-    });
-    _player.stream.position.listen((position) {
-      if (mounted) setState(() => _position = position);
-    });
-    _player.stream.duration.listen((duration) {
-      if (mounted) setState(() => _duration = duration);
-    });
-    _player.stream.buffering.listen((buffering) {
-      if (mounted) setState(() => _isBuffering = buffering);
+    _bindPlayerStreams();
+    _progressTimer = Timer.periodic(const Duration(seconds: 25), (_) {
+      _saveProgress();
     });
 
     _loadStream();
@@ -81,17 +135,82 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
 
   @override
   void dispose() {
+    _disposed = true;
+    _operationGeneration++;
+    WidgetsBinding.instance.removeObserver(this);
+    _hideTimer?.cancel();
+    _progressTimer?.cancel();
+    _seekFeedbackTimer?.cancel();
     _saveProgress();
+    for (final subscription in _subscriptions) {
+      subscription.cancel();
+    }
+    for (final node in [
+      _surfaceNode,
+      _backNode,
+      _serverNode,
+      _rewindNode,
+      _playNode,
+      _forwardNode,
+      _seekNode,
+      _audioNode,
+      _subtitleNode,
+      _videoNode,
+      _retryNode,
+      _errorBackNode,
+      ..._overlayNodes,
+    ]) {
+      node.dispose();
+    }
     _player.dispose();
-    SystemChrome.setPreferredOrientations([
-      DeviceOrientation.portraitUp,
-      DeviceOrientation.portraitDown,
-    ]);
-    SystemChrome.setEnabledSystemUIMode(
-      SystemUiMode.manual,
-      overlays: SystemUiOverlay.values,
-    );
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     super.dispose();
+  }
+
+  void _bindPlayerStreams() {
+    _subscriptions.addAll([
+      _player.stream.playing.listen((playing) {
+        if (!_disposed && mounted) setState(() => _isPlaying = playing);
+        if (!playing) _saveProgress();
+      }),
+      _player.stream.position.listen((position) {
+        if (!_disposed && mounted) setState(() => _position = position);
+      }),
+      _player.stream.duration.listen((duration) {
+        if (!_disposed && mounted) setState(() => _duration = duration);
+      }),
+      _player.stream.buffering.listen((buffering) {
+        if (!_disposed && mounted) setState(() => _isBuffering = buffering);
+      }),
+      _player.stream.completed.listen((completed) {
+        if (completed) _saveProgress();
+      }),
+      _player.stream.error.listen((message) {
+        if (_disposed || !mounted || message.trim().isEmpty) return;
+        setState(() {
+          _error = 'Playback error: $message';
+          _isLoading = false;
+          _showControls = true;
+        });
+        _focusAfterFrames(_retryNode);
+      }),
+      _player.stream.tracks.listen((tracks) {
+        if (!_disposed && mounted) setState(() => _tracks = tracks);
+      }),
+      _player.stream.track.listen((track) {
+        if (!_disposed && mounted) setState(() => _selectedTrack = track);
+      }),
+    ]);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.detached) {
+      _saveProgress();
+      _player.pause();
+    }
   }
 
   void _saveProgress() {
@@ -114,7 +233,8 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
   }
 
   Future<void> _loadStream() async {
-    if (!mounted) return;
+    if (!mounted || _disposed) return;
+    final generation = ++_operationGeneration;
 
     setState(() {
       _isLoading = true;
@@ -145,25 +265,23 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
       if (!mounted) return;
 
       if (result != null && result['url'] != null) {
-        final url = result['url'] as String;
-        final source = result['source'] as String? ?? 'Unknown';
-        final headers = <String, String>{};
-        if (result['referer'] != null) {
-          headers['Referer'] = result['referer'].toString();
-        }
-        if (result['headers'] != null && result['headers'] is Map) {
-          (result['headers'] as Map).forEach((k, v) {
-            headers[k.toString()] = v.toString();
-          });
-        }
-
-        _availableServers = [result];
-        _selectedSource = source;
-        _selectedServerUrl = url;
-
-        _showStatus('Stream found from $source! Initializing player...');
-        await _playUrl(url, headers: headers);
-        _discoverAvailableServers();
+        if (!_isCurrent(generation)) return;
+        final candidate = _StreamCandidate.fromMap(result);
+        _availableServers = [candidate];
+        _showStatus(
+          'Stream found from ${candidate.source}. Initializing player...',
+        );
+        final opened = await _playCandidate(
+          candidate,
+          generation: generation,
+          resumePosition: null,
+        );
+        if (!opened || !_isCurrent(generation)) return;
+        setState(() {
+          _selectedSource = candidate.source;
+          _selectedServerUrl = candidate.url;
+        });
+        _discoverAvailableServers(generation);
         return;
       }
 
@@ -179,6 +297,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
         });
       }
     } catch (e) {
+      if (!_isCurrent(generation)) return;
       debugPrint('TvVideoPlayer: Error loading stream: $e');
       if (mounted) {
         setState(() {
@@ -220,44 +339,59 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
     }
   }
 
-  Future<void> _playUrl(
-    String url, {
-    Map<String, String> headers = const {},
+  bool _isCurrent(int generation) =>
+      !_disposed && mounted && generation == _operationGeneration;
+
+  Future<bool> _playCandidate(
+    _StreamCandidate candidate, {
+    required int generation,
+    required Duration? resumePosition,
   }) async {
     try {
-      final media = Media(url, httpHeaders: headers);
+      final media = Media(candidate.url, httpHeaders: candidate.headers);
       await _player.open(media);
+      if (!_isCurrent(generation)) return false;
 
-      // Resume from saved position
-      final savedPosition = await WatchHistoryService.loadWatchPosition(
-        widget.tmdbId,
-        widget.isMovie,
-        widget.season,
-        widget.episode,
-      );
-      if (savedPosition > Duration.zero) {
-        await _player.seek(savedPosition);
+      final target = resumePosition ??
+          await WatchHistoryService.loadWatchPosition(
+            widget.tmdbId,
+            widget.isMovie,
+            widget.season,
+            widget.episode,
+          );
+      if (!_isCurrent(generation)) return false;
+      if (target > Duration.zero) {
+        await _player.seek(target);
+        if (!_isCurrent(generation)) return false;
       }
 
-      if (mounted) {
+      if (_isCurrent(generation)) {
         setState(() {
           _isLoading = false;
+          _error = null;
           _statusMessage = '';
+          _tracks = _player.state.tracks;
+          _selectedTrack = _player.state.track;
         });
+        _showControlsAndFocus(_playNode);
       }
+      return true;
     } catch (e) {
+      if (!_isCurrent(generation)) return false;
       debugPrint('TvVideoPlayer: Error playing: $e');
-      if (mounted) {
+      if (_isCurrent(generation)) {
         setState(() {
           _error = 'Failed to play video: $e';
           _isLoading = false;
         });
+        _focusAfterFrames(_retryNode);
       }
+      return false;
     }
   }
 
-  Future<void> _discoverAvailableServers() async {
-    if (!mounted) return;
+  Future<void> _discoverAvailableServers(int generation) async {
+    if (!_isCurrent(generation)) return;
     setState(() => _serversLoading = true);
 
     try {
@@ -269,48 +403,49 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
         episode: widget.episode,
       );
 
-      if (mounted) {
-        final merged = <Map<String, dynamic>>[..._availableServers, ...servers];
+      if (_isCurrent(generation)) {
+        final merged = <_StreamCandidate>[
+          ..._availableServers,
+          ...servers.map(_StreamCandidate.fromMap),
+        ];
         final seen = <String>{};
         setState(() {
           _availableServers = merged.where((server) {
-            final url = server['url']?.toString() ?? '';
-            return url.isNotEmpty && seen.add(url);
+            return server.url.isNotEmpty && seen.add(server.url);
           }).toList();
           _serversLoading = false;
         });
       }
     } catch (e) {
       debugPrint('TvVideoPlayer: Server discovery error: $e');
-      if (mounted) setState(() => _serversLoading = false);
+      if (_isCurrent(generation)) setState(() => _serversLoading = false);
     }
   }
 
-  Future<void> _switchServer(Map<String, dynamic> server) async {
-    if (!mounted) return;
-    final url = server['url'] as String?;
-    if (url == null) return;
-
-    final source = server['source'] as String? ?? 'Unknown';
-    final headers = <String, String>{};
-    if (server['referer'] != null) {
-      headers['Referer'] = server['referer'].toString();
-    }
-    if (server['headers'] != null && server['headers'] is Map) {
-      (server['headers'] as Map).forEach((k, v) {
-        headers[k.toString()] = v.toString();
-      });
-    }
-
+  Future<void> _switchServer(_StreamCandidate server) async {
+    if (!mounted || _disposed || _switchingServer) return;
+    final generation = ++_operationGeneration;
+    final livePosition = _position;
     _saveProgress();
     setState(() {
-      _selectedSource = source;
-      _selectedServerUrl = url;
+      _switchingServer = true;
       _isLoading = true;
     });
 
-    _showStatus('Switching to $source...');
-    await _playUrl(url, headers: headers);
+    _showStatus('Switching to ${server.source}...');
+    final opened = await _playCandidate(
+      server,
+      generation: generation,
+      resumePosition: livePosition,
+    );
+    if (!_isCurrent(generation)) return;
+    setState(() {
+      _switchingServer = false;
+      if (opened) {
+        _selectedSource = server.source;
+        _selectedServerUrl = server.url;
+      }
+    });
   }
 
   void _togglePlayPause() {
@@ -333,12 +468,26 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
     _resetHideTimer();
   }
 
-  Timer? _hideTimer;
   void _resetHideTimer() {
     _hideTimer?.cancel();
     _hideTimer = Timer(const Duration(seconds: 4), () {
       if (mounted && _isPlaying) {
         setState(() => _showControls = false);
+      }
+    });
+  }
+
+  void _showControlsAndFocus(FocusNode node) {
+    setState(() => _showControls = true);
+    _resetHideTimer();
+    _focusAfterFrames(node);
+  }
+
+  void _focusAfterFrames(FocusNode node) {
+    if (_disposed || !mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_disposed && mounted) {
+        node.requestFocus();
       }
     });
   }
@@ -380,9 +529,9 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen> {
               )
             else
               ..._availableServers.map((server) {
-                final source = server['source'] as String? ?? 'Unknown';
-                final route = server['server']?.toString() ?? source;
-                final url = server['url']?.toString() ?? '';
+                final source = server.source;
+                final route = server.route ?? source;
+                final url = server.url;
                 final isSelected = url.isNotEmpty && url == _selectedServerUrl;
                 return ListTile(
                   leading: Icon(
