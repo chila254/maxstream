@@ -16,5 +16,11 @@
 -dontwarn kotlin.**
 -dontwarn kotlin.Metadata
 
+# WorkManager
+-keep class androidx.work.** { *; }
+-keep interface androidx.work.** { *; }
+-dontwarn androidx.work.**
+-keepclassmembers class androidx.work.** { *; }
+
 # Keep line numbers for debugging
 -keepattributes SourceFile,LineNumberTable
