@@ -739,25 +739,13 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
           context.read<TvNavigationProvider>().setDeepNavigating(false);
         }
       },
-      child: KeyboardListener(
-        focusNode: FocusNode(),
-        autofocus: false,
-        onKeyEvent: (event) {
-          if (event is KeyDownEvent) {
-            if (event.logicalKey == LogicalKeyboardKey.escape ||
-                event.logicalKey == LogicalKeyboardKey.goBack) {
-              _handleBackNavigation();
-            }
-          }
-        },
-        child: Scaffold(
-          backgroundColor: Colors.black,
-          body: _error != null
-              ? _buildErrorWidget()
-              : _isLoading
-                  ? _buildLoadingWidget()
-                  : _buildPlayerWidget(),
-        ),
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        body: _error != null
+            ? _buildErrorWidget()
+            : _isLoading
+                ? _buildLoadingWidget()
+                : _buildPlayerWidget(),
       ),
     );
   }
@@ -767,6 +755,15 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     return Focus(
       focusNode: _surfaceNode,
       canRequestFocus: true,
+        onKeyEvent: (node, event) {
+          if (event is KeyDownEvent &&
+              (event.logicalKey == LogicalKeyboardKey.escape ||
+                  event.logicalKey == LogicalKeyboardKey.goBack)) {
+            _handleBackNavigation();
+            return KeyEventResult.handled;
+          }
+          return KeyEventResult.ignored;
+        },
       child: GestureDetector(
         onTap: _toggleControls,
         child: Stack(
@@ -803,10 +800,14 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       child: Focus(
         focusNode: _controlsFocusNode,
         canRequestFocus: true,
-        onFocusChange: (focused) {
-          if (!focused && _showControls) {
-            _resetHideTimer();
+        onKeyEvent: (node, event) {
+          if (event is KeyDownEvent &&
+              (event.logicalKey == LogicalKeyboardKey.escape ||
+                  event.logicalKey == LogicalKeyboardKey.goBack)) {
+            _handleBackNavigation();
+            return KeyEventResult.handled;
           }
+          return KeyEventResult.ignored;
         },
         child: Container(
           decoration: const BoxDecoration(

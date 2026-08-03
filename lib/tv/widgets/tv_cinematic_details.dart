@@ -192,15 +192,18 @@ class _TvCinematicDetailsState extends State<TvCinematicDetails>
   Widget build(BuildContext context) {
     return PopScope(
       canPop: true,
-      child: KeyboardListener(
+      child: Focus(
         focusNode: _backNode,
-        onKeyEvent: (event) {
-          if (event is KeyDownEvent &&
-              (event.logicalKey == LogicalKeyboardKey.escape ||
-                  event.logicalKey == LogicalKeyboardKey.goBack)) {
-            Navigator.maybePop(context);
-          }
-        },
+        canRequestFocus: true,
+                      onKeyEvent: (node, event) {
+                        if (event is KeyDownEvent &&
+                            (event.logicalKey == LogicalKeyboardKey.escape ||
+                                event.logicalKey == LogicalKeyboardKey.goBack)) {
+                          Navigator.maybePop(context);
+                          return KeyEventResult.handled;
+                        }
+                        return KeyEventResult.ignored;
+                      },
         child: Scaffold(
           backgroundColor: const Color(0xff090909),
           body: _loading
