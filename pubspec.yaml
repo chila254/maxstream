@@ -10,6 +10,7 @@ dependencies:
   flutter:
     sdk: flutter
   video_player: ^2.8.2
+  better_player: ^0.0.84
   media_kit: ^1.1.11
   media_kit_video: ^1.2.5
   media_kit_libs_video: ^1.0.5

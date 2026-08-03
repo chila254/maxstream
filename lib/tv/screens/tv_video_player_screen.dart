@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:video_player/video_player.dart';
+import 'package:better_player/better_player.dart';
 import '../providers/tv_navigation_provider.dart';
 import '../../services/direct_m3u8_service.dart';
 import '../../services/tmdb_api_service.dart';
@@ -74,7 +74,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
   String? _currentTitle;
   String? _currentStreamUrl;
 
-  VideoPlayerController? _controller;
+  BetterPlayerController? _controller;
   bool _showControls = true;
   bool _isPlaying = false;
   Duration _position = Duration.zero;
@@ -126,7 +126,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     _hideTimer?.cancel();
     _progressTimer?.cancel();
     _saveProgress();
-    _controller?.removeListener(_handlePlaybackChanged);
+    _controller?.removeEventsListener(_handlePlayerEvent);
     _controller?.dispose();
     for (final node in [
       _surfaceNode,
@@ -179,6 +179,42 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
 
   bool _isCurrent(int generation) =>
       !_disposed && mounted && generation == _operationGeneration;
+
+  BetterPlayerConfiguration _playerConfiguration(String url) {
+    return BetterPlayerConfiguration(
+      aspectRatio: 16 / 9,
+      autoPlay: true,
+      errorBuilder: (context, errorMessage) {
+        return _buildPlayerErrorWidget();
+      },
+      eventListener: _handlePlayerEvent,
+      deviceOrientationsOnFullScreen: const [
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ],
+      deviceOrientationsAfterFullScreen: const [
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ],
+      handleLifecycle: true,
+      autoDispose: true,
+      expandToFill: true,
+      controlsConfiguration: const BetterPlayerControlsConfiguration(),
+    );
+  }
+
+  BetterPlayerDataSource _playerDataSource(
+    String url,
+    Map<String, String> headers,
+  ) {
+    return BetterPlayerDataSource.network(
+      url,
+      headers: headers,
+      videoFormat: url.toLowerCase().contains('.m3u8')
+          ? BetterPlayerVideoFormat.hls
+          : BetterPlayerVideoFormat.other,
+    );
+  }
 
   Future<void> _loadStream() async {
     if (!mounted || _disposed) return;
@@ -294,22 +330,15 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
   }) async {
     final previousController = _controller;
     final url = candidate.url;
-    final isHls = url.toLowerCase().contains('.m3u8');
-    final controller = VideoPlayerController.networkUrl(
-      Uri.parse(url),
-      httpHeaders: candidate.headers,
-      formatHint: isHls ? VideoFormat.hls : null,
-      videoPlayerOptions: VideoPlayerOptions(
-        backBufferDurationMs: 60000,
-        allowBackgroundPlayback: false,
-      ),
-    );
+    final dataSource = _playerDataSource(url, candidate.headers);
+    final configuration = _playerConfiguration(url);
+    final controller = BetterPlayerController(configuration);
 
     try {
       _showStatus('Loading video...');
-      await controller.initialize();
+      controller.setupDataSource(dataSource);
       if (!_isCurrent(generation)) {
-        await controller.dispose();
+        controller.dispose();
         return false;
       }
 
@@ -321,41 +350,41 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
             widget.episode,
           );
       if (!_isCurrent(generation)) {
-        await controller.dispose();
+        controller.dispose();
         return false;
       }
       if (target > Duration.zero) {
-        await controller.seekTo(target);
+        controller.seekTo(target);
         if (!_isCurrent(generation)) {
-          await controller.dispose();
+          controller.dispose();
           return false;
         }
       }
 
-      await controller.play();
+      controller.play();
       if (!_isCurrent(generation)) {
-        await controller.dispose();
+        controller.dispose();
         return false;
       }
 
-      controller.addListener(_handlePlaybackChanged);
+      controller.addEventsListener(_handlePlayerEvent);
       setState(() {
         _controller = controller;
         _currentStreamUrl = url;
         _isLoading = false;
         _error = null;
         _statusMessage = '';
-        _isBuffering = controller.value.isBuffering;
+        _isBuffering = false;
         _playbackRetryCount = 0;
       });
 
-      previousController?.removeListener(_handlePlaybackChanged);
-      await previousController?.dispose();
+      previousController?.removeEventsListener(_handlePlayerEvent);
+      previousController?.dispose();
       _startProgressSaving();
       _showControlsAndFocus(_playNode);
       return true;
     } on PlatformException catch (e) {
-      await controller.dispose();
+      controller.dispose();
       debugPrint('TvVideoPlayer: PlatformException: ${e.message}');
       if (_isCurrent(generation)) {
         final codecError = e.message?.contains('MediaCodec') == true ||
@@ -376,7 +405,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       }
       return false;
     } catch (e) {
-      await controller.dispose();
+      controller.dispose();
       debugPrint('TvVideoPlayer: Error initializing player: $e');
       if (_isCurrent(generation)) {
         setState(() {
@@ -389,37 +418,51 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     }
   }
 
-  Future<void> _switchToNextServer(int generation) async {
-    if (_availableServers.length <= 1) return;
-    final currentIndex = _availableServers
-        .indexWhere((s) => s.url == _currentStreamUrl);
-    final nextIndex = currentIndex < 0 ? 0 : currentIndex + 1;
-    final next = _availableServers[nextIndex % _availableServers.length];
-    if (next.url.isEmpty || next.url == _currentStreamUrl) return;
-    _showStatus('Trying ${next.source}...');
-    await _initializePlayer(
-      next,
-      generation: generation,
-      resumePosition: _lastStablePosition,
-    );
-  }
+  void _handlePlayerEvent(BetterPlayerEvent event) {
+    if (_disposed || !mounted) return;
+    final parameters = event.parameters;
 
-  void _handlePlaybackChanged() {
-    final controller = _controller;
-    if (!mounted || controller == null || _disposed) return;
-    final value = controller.value;
-    if (value.position > Duration.zero) _lastStablePosition = value.position;
-    if (value.hasError && !_recoveringPlayback && _playbackRetryCount < 2) {
-      unawaited(_recoverPlayback());
+    switch (event.betterPlayerEventType) {
+      case BetterPlayerEventType.progress:
+        final progress = parameters?['progress'] as Duration?;
+        if (progress != null) {
+          _position = progress;
+          _duration = parameters?['duration'] as Duration? ?? _duration;
+        }
+        break;
+      case BetterPlayerEventType.play:
+        _isPlaying = true;
+        break;
+      case BetterPlayerEventType.pause:
+        _isPlaying = false;
+        _saveProgress();
+        break;
+      case BetterPlayerEventType.finished:
+        _saveProgress();
+        break;
+      case BetterPlayerEventType.bufferingStart:
+        _isBuffering = true;
+        break;
+      case BetterPlayerEventType.bufferingEnd:
+        _isBuffering = false;
+        break;
+      case BetterPlayerEventType.exception:
+        final errorMessage =
+            parameters?['exception'] as String? ?? 'Playback error';
+        if (!_recoveringPlayback && _playbackRetryCount < 2) {
+          unawaited(_recoverPlayback());
+        } else if (mounted) {
+          setState(() {
+            _error = 'Playback error: $errorMessage';
+            _isLoading = false;
+            _showControls = true;
+          });
+          _focusAfterFrames(_retryNode);
+        }
+        break;
+      default:
+        break;
     }
-    final isBuffering = value.isBuffering;
-    var shouldRebuild = isBuffering != _isBuffering;
-    _isBuffering = isBuffering;
-
-    if (value.isInitialized) {
-      shouldRebuild = true;
-    }
-    if (shouldRebuild) setState(() {});
   }
 
   Future<void> _recoverPlayback() async {
@@ -456,6 +499,21 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     } finally {
       _recoveringPlayback = false;
     }
+  }
+
+  Future<void> _switchToNextServer(int generation) async {
+    if (_availableServers.length <= 1) return;
+    final currentIndex = _availableServers
+        .indexWhere((s) => s.url == _currentStreamUrl);
+    final nextIndex = currentIndex < 0 ? 0 : currentIndex + 1;
+    final next = _availableServers[nextIndex % _availableServers.length];
+    if (next.url.isEmpty || next.url == _currentStreamUrl) return;
+    _showStatus('Trying ${next.source}...');
+    await _initializePlayer(
+      next,
+      generation: generation,
+      resumePosition: _lastStablePosition,
+    );
   }
 
   Future<void> _discoverAvailableServers(int generation) async {
@@ -519,7 +577,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
   void _togglePlayPause() {
     final controller = _controller;
     if (controller == null) return;
-    if (controller.value.isPlaying) {
+    if (_isPlaying) {
       controller.pause();
     } else {
       controller.play();
@@ -530,7 +588,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
 
   void _seekBy(Duration offset) {
     final controller = _controller;
-    if (controller == null || !controller.value.isInitialized) return;
+    if (controller == null) return;
     var target = _position + offset;
     if (target < Duration.zero) target = Duration.zero;
     if (_duration > Duration.zero && target > _duration) target = _duration;
@@ -707,19 +765,23 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       onTap: _toggleControls,
       child: Stack(
         children: [
-          if (controller != null && controller.value.isInitialized)
-            Center(
-              child: AspectRatio(
-                aspectRatio: controller.value.aspectRatio,
-                child: VideoPlayer(controller),
-              ),
-            )
+          if (controller != null)
+            BetterPlayer(controller: controller)
           else
             Container(color: Colors.black),
           if (_isBuffering)
             const Center(child: CircularProgressIndicator(color: Colors.white)),
           if (_showControls) _buildControlsOverlay(),
         ],
+      ),
+    );
+  }
+
+  Widget _buildPlayerErrorWidget() {
+    return Container(
+      color: Colors.black,
+      child: const Center(
+        child: Icon(Icons.error_outline, color: Colors.red, size: 48),
       ),
     );
   }
