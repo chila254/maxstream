@@ -97,7 +97,7 @@ class _TvHomeScreenState extends State<TvHomeScreen>
         TmdbApiService.fetchTrendingSeries(),
         TmdbApiService.fetchPopularMovies(),
         TmdbApiService.fetchTopRatedMovies(),
-        WatchHistoryService.getWatchHistory(),
+        WatchHistoryService.getContinueWatching(),
       ]);
       if (!mounted) return;
       setState(() {
@@ -133,13 +133,15 @@ class _TvHomeScreenState extends State<TvHomeScreen>
           );
         }
         final rowId = navigation.getActiveRowId(0);
-        final index = rowId == null
-            ? null
-            : navigation.getRowFocusedIndex(rowId);
-        final cardNode = index == null
-            ? null
-            : _cardFocusNodes['$rowId:$index'];
-        (cardNode ?? _playFocusNode).requestFocus();
+        final index = rowId == null ? null : navigation.getRowFocusedIndex(rowId);
+        if (rowId != null && index != null) {
+          _revealCard(rowId, index);
+        }
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          final cardNode = index == null ? null : _cardFocusNodes['$rowId:$index'];
+          (cardNode ?? _playFocusNode).requestFocus();
+        });
       });
     });
   }
@@ -374,6 +376,38 @@ class _TvHomeScreenState extends State<TvHomeScreen>
     );
   }
 
+  String _getPosterUrl(Map<String, dynamic> item) {
+    final posterPath = item['poster_path']?.toString();
+    if (posterPath != null && posterPath.isNotEmpty) {
+      return TmdbApiService.getPosterUrl(posterPath);
+    }
+    return item['posterUrl']?.toString() ?? '';
+  }
+
+  Map<String, dynamic> _normalizeItem(Map<String, dynamic> item) {
+    final normalized = Map<String, dynamic>.from(item);
+    if (normalized['tmdbId'] != null && normalized['id'] == null) {
+      normalized['id'] = normalized['tmdbId'];
+    }
+    if (normalized['posterUrl'] != null && normalized['poster_path'] == null) {
+      final posterUrl = normalized['posterUrl'].toString();
+      final baseUrl = 'https://image.tmdb.org/t/p/w500';
+      if (posterUrl.startsWith(baseUrl)) {
+        normalized['poster_path'] = posterUrl.substring(baseUrl.length);
+      } else {
+        normalized['poster_path'] = posterUrl;
+      }
+    }
+    normalized['backdrop_path'] ??= '';
+    normalized['overview'] ??= 'No description available.';
+    normalized['vote_average'] ??= 0.0;
+    normalized['release_date'] ??= '';
+    normalized['first_air_date'] ??= '';
+    normalized['genre_ids'] ??= [];
+    normalized['trailerUrl'] ??= '';
+    return normalized;
+  }
+
   SliverToBoxAdapter _buildContentRow(
     String title,
     List<Map<String, dynamic>> items, {
@@ -430,9 +464,7 @@ class _TvHomeScreenState extends State<TvHomeScreen>
                     padding: const EdgeInsets.only(right: 14),
                     child: TvContentCard(
                       focusNode: node,
-                      posterUrl: TmdbApiService.getPosterUrl(
-                        item['poster_path'] ?? '',
-                      ),
+                      posterUrl: _getPosterUrl(item),
                       title:
                           item[isSeries ? 'name' : 'title'] ??
                           item['title'] ??
@@ -638,11 +670,13 @@ class _TvHomeScreenState extends State<TvHomeScreen>
   }
 
   Future<void> _openDetails(Map<String, dynamic> item, String type) async {
-    if (type == 'series') {
+    final normalized = _normalizeItem(item);
+    final resolvedType = _itemType(normalized, type);
+    if (resolvedType == 'series') {
       await Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (_) => TvSeriesScreen(seriesItem: Movie.fromJson(item)),
+          builder: (_) => TvSeriesScreen(seriesItem: Movie.fromJson(normalized)),
         ),
       );
     } else {
@@ -650,7 +684,7 @@ class _TvHomeScreenState extends State<TvHomeScreen>
         context,
         MaterialPageRoute(
           builder: (_) =>
-              TvDetailsScreen(item: Movie.fromJson(item), mediaType: 'movie'),
+              TvDetailsScreen(item: Movie.fromJson(normalized), mediaType: 'movie'),
         ),
       );
     }
@@ -658,8 +692,10 @@ class _TvHomeScreenState extends State<TvHomeScreen>
   }
 
   Future<void> _play(Map<String, dynamic> item, String type) async {
-    final media = Movie.fromJson(item);
-    final isMovie = type != 'series';
+    final normalized = _normalizeItem(item);
+    final resolvedType = _itemType(normalized, type);
+    final media = Movie.fromJson(normalized);
+    final isMovie = resolvedType != 'series';
     await Navigator.push(
       context,
       MaterialPageRoute(
