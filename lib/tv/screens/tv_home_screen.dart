@@ -28,7 +28,12 @@ class _TvHomeScreenState extends State<TvHomeScreen>
     with SingleTickerProviderStateMixin {
   final ScrollController _scrollController = ScrollController();
   final FocusNode _playFocusNode = FocusNode(debugLabel: 'Home hero play');
+  final FocusNode _detailsFocusNode = FocusNode(
+    debugLabel: 'Home hero details',
+  );
   final Map<String, FocusNode> _cardFocusNodes = {};
+  final Map<String, ScrollController> _rowControllers = {};
+  final Map<String, GlobalKey> _rowKeys = {};
   late final AnimationController _entryController;
   Timer? _heroDebounce;
   bool _isLoading = true;
@@ -73,8 +78,12 @@ class _TvHomeScreenState extends State<TvHomeScreen>
     _scrollController.removeListener(_saveScrollOffset);
     _scrollController.dispose();
     _playFocusNode.dispose();
+    _detailsFocusNode.dispose();
     for (final node in _cardFocusNodes.values) {
       node.dispose();
+    }
+    for (final controller in _rowControllers.values) {
+      controller.dispose();
     }
     _entryController.dispose();
     super.dispose();
@@ -180,37 +189,44 @@ class _TvHomeScreenState extends State<TvHomeScreen>
               height: heroHeight,
               child: _buildHero(),
             ),
-            RefreshIndicator(
-              onRefresh: _loadContent,
-              child: CustomScrollView(
-                controller: _scrollController,
-                slivers: [
-                  SliverToBoxAdapter(child: SizedBox(height: heroHeight - 66)),
-                  if (continueWatching.isNotEmpty)
-                    _buildContentRow(
-                      'Continue Watching',
-                      continueWatching,
-                      showProgress: true,
-                    ),
-                  _buildContentRow(
-                    'Trending Movies',
-                    trendingMovies.take(15).toList(),
+            Positioned(
+              top: heroHeight - 4,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: ClipRect(
+                child: RefreshIndicator(
+                  onRefresh: _loadContent,
+                  child: CustomScrollView(
+                    controller: _scrollController,
+                    slivers: [
+                      if (continueWatching.isNotEmpty)
+                        _buildContentRow(
+                          'Continue Watching',
+                          continueWatching,
+                          showProgress: true,
+                        ),
+                      _buildContentRow(
+                        'Trending Movies',
+                        trendingMovies.take(15).toList(),
+                      ),
+                      _buildContentRow(
+                        'Trending Series',
+                        trendingSeries.take(15).toList(),
+                        contentType: 'series',
+                      ),
+                      _buildContentRow(
+                        'Popular Movies',
+                        popularMovies.take(15).toList(),
+                      ),
+                      _buildContentRow(
+                        'Top Rated',
+                        topRatedMovies.take(15).toList(),
+                      ),
+                      const SliverToBoxAdapter(child: SizedBox(height: 56)),
+                    ],
                   ),
-                  _buildContentRow(
-                    'Trending Series',
-                    trendingSeries.take(15).toList(),
-                    contentType: 'series',
-                  ),
-                  _buildContentRow(
-                    'Popular Movies',
-                    popularMovies.take(15).toList(),
-                  ),
-                  _buildContentRow(
-                    'Top Rated',
-                    topRatedMovies.take(15).toList(),
-                  ),
-                  const SliverToBoxAdapter(child: SizedBox(height: 56)),
-                ],
+                ),
               ),
             ),
           ],
@@ -336,12 +352,15 @@ class _TvHomeScreenState extends State<TvHomeScreen>
                           label: 'Play',
                           primary: true,
                           onPressed: () => _play(item, _heroType),
+                          onKeyEvent: (_, event) => _onHeroKey(0, event),
                         ),
                         const SizedBox(width: 12),
                         _HeroButton(
+                          focusNode: _detailsFocusNode,
                           icon: Icons.info_outline_rounded,
                           label: 'Details',
                           onPressed: () => _openDetails(item, _heroType),
+                          onKeyEvent: (_, event) => _onHeroKey(1, event),
                         ),
                       ],
                     ),
@@ -362,8 +381,14 @@ class _TvHomeScreenState extends State<TvHomeScreen>
     bool showProgress = false,
   }) {
     final rowId = 'home:$title';
+    final rowController = _rowControllers.putIfAbsent(
+      rowId,
+      () => ScrollController(),
+    );
+    final rowKey = _rowKeys.putIfAbsent(rowId, GlobalKey.new);
     return SliverToBoxAdapter(
       child: Padding(
+        key: rowKey,
         padding: const EdgeInsets.only(top: 20, bottom: 10),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -381,8 +406,10 @@ class _TvHomeScreenState extends State<TvHomeScreen>
             ),
             const SizedBox(height: 12),
             SizedBox(
-              height: 242,
+              height: 220,
               child: ListView.builder(
+                controller: rowController,
+                clipBehavior: Clip.none,
                 scrollDirection: Axis.horizontal,
                 padding: const EdgeInsets.symmetric(
                   horizontal: 48,
@@ -428,14 +455,11 @@ class _TvHomeScreenState extends State<TvHomeScreen>
                         final navigation = context.read<TvNavigationProvider>();
                         navigation.saveRowFocusedIndex(rowId, index);
                         navigation.saveActiveRowId(0, rowId);
-                        Scrollable.ensureVisible(
-                          itemContext,
-                          alignment: .5,
-                          duration: const Duration(milliseconds: 220),
-                          curve: Curves.easeOutCubic,
-                        );
+                        _revealCard(rowId, index);
                         _queueHero(item, type);
                       },
+                      onKeyEvent: (_, event) =>
+                          _onCardKey(rowId, index, items.length, event),
                     ),
                   );
                 },
@@ -445,6 +469,139 @@ class _TvHomeScreenState extends State<TvHomeScreen>
         ),
       ),
     );
+  }
+
+  List<String> get _visibleRows => [
+    if (continueWatching.isNotEmpty) 'home:Continue Watching',
+    if (trendingMovies.isNotEmpty) 'home:Trending Movies',
+    if (trendingSeries.isNotEmpty) 'home:Trending Series',
+    if (popularMovies.isNotEmpty) 'home:Popular Movies',
+    if (topRatedMovies.isNotEmpty) 'home:Top Rated',
+  ];
+
+  int _rowLength(String rowId) {
+    switch (rowId) {
+      case 'home:Continue Watching':
+        return continueWatching.length;
+      case 'home:Trending Movies':
+        return trendingMovies.take(15).length;
+      case 'home:Trending Series':
+        return trendingSeries.take(15).length;
+      case 'home:Popular Movies':
+        return popularMovies.take(15).length;
+      case 'home:Top Rated':
+        return topRatedMovies.take(15).length;
+    }
+    return 0;
+  }
+
+  KeyEventResult _onHeroKey(int action, KeyEvent event) {
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+      return KeyEventResult.ignored;
+    }
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.arrowLeft) {
+      if (action == 0) {
+        widget.onReturnToSidebar?.call();
+      } else {
+        _playFocusNode.requestFocus();
+      }
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.arrowRight) {
+      if (action == 0) _detailsFocusNode.requestFocus();
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.arrowDown && _visibleRows.isNotEmpty) {
+      final rowId = _visibleRows.first;
+      _focusCard(
+        rowId,
+        context.read<TvNavigationProvider>().getRowFocusedIndex(rowId),
+      );
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.arrowUp) return KeyEventResult.handled;
+    return KeyEventResult.ignored;
+  }
+
+  KeyEventResult _onCardKey(
+    String rowId,
+    int index,
+    int itemCount,
+    KeyEvent event,
+  ) {
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+      return KeyEventResult.ignored;
+    }
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.arrowLeft) {
+      if (index > 0) {
+        _focusCard(rowId, index - 1);
+      } else {
+        widget.onReturnToSidebar?.call();
+      }
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.arrowRight) {
+      if (index + 1 < itemCount) _focusCard(rowId, index + 1);
+      return KeyEventResult.handled;
+    }
+    final rows = _visibleRows;
+    final rowIndex = rows.indexOf(rowId);
+    if (key == LogicalKeyboardKey.arrowUp) {
+      if (rowIndex <= 0) {
+        _playFocusNode.requestFocus();
+      } else {
+        final target = rows[rowIndex - 1];
+        _focusCard(target, index.clamp(0, _rowLength(target) - 1));
+      }
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.arrowDown) {
+      if (rowIndex >= 0 && rowIndex + 1 < rows.length) {
+        final target = rows[rowIndex + 1];
+        _focusCard(target, index.clamp(0, _rowLength(target) - 1));
+      }
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
+
+  void _focusCard(String rowId, int requestedIndex) {
+    final length = _rowLength(rowId);
+    if (length == 0) return;
+    final index = requestedIndex.clamp(0, length - 1);
+    context.read<TvNavigationProvider>()
+      ..saveActiveRowId(0, rowId)
+      ..saveRowFocusedIndex(rowId, index);
+    _revealCard(rowId, index);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _cardFocusNodes['$rowId:$index']?.requestFocus();
+    });
+  }
+
+  void _revealCard(String rowId, int index) {
+    final horizontal = _rowControllers[rowId];
+    if (horizontal?.hasClients == true) {
+      final target = (index * 160.0 - 48).clamp(
+        0.0,
+        horizontal!.position.maxScrollExtent,
+      );
+      horizontal.animateTo(
+        target,
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOutCubic,
+      );
+    }
+    final rowContext = _rowKeys[rowId]?.currentContext;
+    if (rowContext != null) {
+      Scrollable.ensureVisible(
+        rowContext,
+        alignment: 0,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+      );
+    }
   }
 
   String _itemType(Map<String, dynamic> item, String fallback) {
@@ -563,6 +720,7 @@ class _HeroButton extends StatefulWidget {
     required this.onPressed,
     this.focusNode,
     this.primary = false,
+    this.onKeyEvent,
   });
 
   final IconData icon;
@@ -570,6 +728,7 @@ class _HeroButton extends StatefulWidget {
   final VoidCallback onPressed;
   final FocusNode? focusNode;
   final bool primary;
+  final FocusOnKeyEventCallback? onKeyEvent;
 
   @override
   State<_HeroButton> createState() => _HeroButtonState();
@@ -584,7 +743,9 @@ class _HeroButtonState extends State<_HeroButton> {
     return Focus(
       focusNode: widget.focusNode,
       onFocusChange: (focused) => setState(() => _focused = focused),
-      onKeyEvent: (_, event) {
+      onKeyEvent: (node, event) {
+        final result = widget.onKeyEvent?.call(node, event);
+        if (result != null && result != KeyEventResult.ignored) return result;
         if (event is KeyDownEvent &&
             (event.logicalKey == LogicalKeyboardKey.select ||
                 event.logicalKey == LogicalKeyboardKey.enter)) {

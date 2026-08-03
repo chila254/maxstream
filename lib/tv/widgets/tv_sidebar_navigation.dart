@@ -36,8 +36,10 @@ class _TvSidebarNavigationState extends State<TvSidebarNavigation>
 
     _menuItemFocusNodes = List.generate(
       widget.titles.length,
-      (index) =>
-          FocusNode(onKey: (node, event) => _handleKeyEvent(event, index)),
+      (index) => FocusNode(
+        debugLabel: 'Sidebar ${widget.titles[index]}',
+        onKeyEvent: (node, event) => _handleKeyEvent(event, index),
+      ),
     );
   }
 
@@ -75,28 +77,33 @@ class _TvSidebarNavigationState extends State<TvSidebarNavigation>
     super.dispose();
   }
 
-  KeyEventResult _handleKeyEvent(RawKeyEvent event, int itemIndex) {
-    if (event is! RawKeyDownEvent) return KeyEventResult.ignored;
+  KeyEventResult _handleKeyEvent(KeyEvent event, int itemIndex) {
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+      return KeyEventResult.handled;
+    }
 
     if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
       if (itemIndex < _menuItemFocusNodes.length - 1) {
         _menuItemFocusNodes[itemIndex + 1].requestFocus();
-        return KeyEventResult.handled;
       }
+      return KeyEventResult.handled;
     } else if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
       if (itemIndex > 0) {
         _menuItemFocusNodes[itemIndex - 1].requestFocus();
-        return KeyEventResult.handled;
       }
+      return KeyEventResult.handled;
     } else if (event.logicalKey == LogicalKeyboardKey.select ||
         event.logicalKey == LogicalKeyboardKey.enter ||
         event.logicalKey == LogicalKeyboardKey.arrowRight) {
+      if (event is KeyRepeatEvent) return KeyEventResult.handled;
       widget.onItemSelected(itemIndex);
       widget.onExitToContent?.call();
       return KeyEventResult.handled;
+    } else if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+      return KeyEventResult.handled;
     }
 
-    return KeyEventResult.ignored;
+    return KeyEventResult.handled;
   }
 
   @override
@@ -155,7 +162,10 @@ class _TvSidebarNavigationState extends State<TvSidebarNavigation>
                           }
                         }
                       },
-                      onTap: () => widget.onItemSelected(index),
+                      onTap: () {
+                        widget.onItemSelected(index);
+                        widget.onExitToContent?.call();
+                      },
                       expanded: expanded,
                     ),
                   );

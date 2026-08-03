@@ -58,8 +58,6 @@ class _TvContentCardState extends State<TvContentCard>
     with SingleTickerProviderStateMixin {
   late AnimationController _animationController;
   late Animation<double> _scaleAnimation;
-  late Animation<double> _shadowAnimation;
-  late Animation<double> _overlayAnimation;
   FocusNode? _internalFocusNode;
   bool _isHovered = false;
 
@@ -73,16 +71,8 @@ class _TvContentCardState extends State<TvContentCard>
       vsync: this,
     );
 
-    _scaleAnimation = Tween<double>(begin: 1.0, end: 1.03).animate(
+    _scaleAnimation = Tween<double>(begin: 1.0, end: 1.02).animate(
       CurvedAnimation(parent: _animationController, curve: Curves.easeOutCubic),
-    );
-
-    _shadowAnimation = Tween<double>(begin: 8.0, end: 24.0).animate(
-      CurvedAnimation(parent: _animationController, curve: Curves.easeOutCubic),
-    );
-
-    _overlayAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _animationController, curve: Curves.easeInOut),
     );
   }
 
@@ -123,19 +113,6 @@ class _TvContentCardState extends State<TvContentCard>
         return 'DOCUMENTARY';
       case ContentType.special:
         return 'SPECIAL';
-    }
-  }
-
-  IconData _getContentTypeIcon() {
-    switch (widget.contentType) {
-      case ContentType.movie:
-        return Icons.movie;
-      case ContentType.series:
-        return Icons.tv;
-      case ContentType.documentary:
-        return Icons.description;
-      case ContentType.special:
-        return Icons.star;
     }
   }
 
@@ -182,133 +159,72 @@ class _TvContentCardState extends State<TvContentCard>
           onEnter: (_) => setState(() => _isHovered = true),
           onExit: (_) => setState(() => _isHovered = false),
           child: AnimatedBuilder(
-            animation: Listenable.merge([
-              _scaleAnimation,
-              _shadowAnimation,
-              _overlayAnimation,
-            ]),
-            builder: (context, child) => Transform.scale(
-              scale: _scaleAnimation.value,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Poster Image - Full card
-                  Container(
+            animation: _scaleAnimation,
+            builder: (context, child) => SizedBox(
+              width: cardWidth + 16,
+              height: posterHeight + 20,
+              child: Center(
+                child: Transform.scale(
+                  scale: _scaleAnimation.value,
+                  child: Container(
                     width: cardWidth,
                     height: posterHeight,
                     decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(16),
-                      border: focusNode.hasFocus
-                          ? Border.all(color: Colors.white, width: 2)
-                          : null,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: focusNode.hasFocus
+                            ? Colors.white
+                            : Colors.transparent,
+                        width: 2,
+                      ),
                       boxShadow: [
-                        // Main shadow
                         BoxShadow(
                           color: Colors.black.withValues(
-                            alpha: 0.4 * (focusNode.hasFocus ? 1.0 : 0.6),
+                            alpha: focusNode.hasFocus ? 0.42 : 0.24,
                           ),
-                          blurRadius: _shadowAnimation.value,
-                          spreadRadius: focusNode.hasFocus ? 2 : 1,
-                          offset: Offset(0, focusNode.hasFocus ? 6 : 4),
+                          blurRadius: focusNode.hasFocus ? 10 : 6,
+                          offset: const Offset(0, 3),
                         ),
-                        // Secondary glow shadow
-                        if (focusNode.hasFocus)
-                          const BoxShadow(color: Colors.white24, blurRadius: 6),
                       ],
                     ),
+                    clipBehavior: Clip.antiAlias,
                     child: Stack(
+                      fit: StackFit.expand,
                       children: [
-                        // Poster Image
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(16),
-                          child: Stack(
-                            children: [
-                              // Background Image - with caching
-                              Image(
-                                image: TvImageCacheUtil.getCachedImage(
-                                  widget.posterUrl,
-                                  cacheType: ImageCacheType.poster,
-                                ),
-                                width: double.infinity,
-                                height: double.infinity,
-                                fit: BoxFit.cover,
-                                errorBuilder: (context, error, stackTrace) =>
-                                    Container(
-                                      color: Colors.grey[900],
-                                      child: const Icon(
-                                        Icons.broken_image,
-                                        color: Colors.grey,
-                                        size: 48,
-                                      ),
-                                    ),
-                              ),
-                              // Hover/Focus Gradient Overlay
-                              if (focusNode.hasFocus || _isHovered)
-                                Container(color: Colors.black26),
-                            ],
+                        Image(
+                          image: TvImageCacheUtil.getCachedImage(
+                            widget.posterUrl,
+                            cacheType: ImageCacheType.poster,
                           ),
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) =>
+                              Container(
+                                color: Colors.grey[900],
+                                child: const Icon(
+                                  Icons.broken_image,
+                                  color: Colors.grey,
+                                  size: 48,
+                                ),
+                              ),
                         ),
-                        // Content Badge - Top Left
+                        if (focusNode.hasFocus || _isHovered)
+                          Container(color: Colors.black12),
                         Positioned(
-                          top: 8,
-                          left: 8,
+                          top: 7,
+                          left: 7,
                           child: _buildContentTypeBadge(),
                         ),
-                        // Rating Badge - Top Right
                         if (widget.rating != null)
                           Positioned(
-                            top: 8,
-                            right: 8,
+                            top: 7,
+                            right: 7,
                             child: _buildRatingBadge(),
-                          ),
-                        // Play Button on Hover/Focus
-                        if ((focusNode.hasFocus || _isHovered) &&
-                            _overlayAnimation.value > 0.5)
-                          Positioned.fill(
-                            child: Center(
-                              child: ScaleTransition(
-                                scale: Tween<double>(begin: 0.8, end: 1.0)
-                                    .animate(
-                                      CurvedAnimation(
-                                        parent: _animationController,
-                                        curve: const Interval(
-                                          0.5,
-                                          1.0,
-                                          curve: Curves.easeOut,
-                                        ),
-                                      ),
-                                    ),
-                                child: Container(
-                                  width: 56,
-                                  height: 56,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: Colors.white.withValues(alpha: 0.9),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: Colors.black.withValues(
-                                          alpha: 0.3,
-                                        ),
-                                        blurRadius: 12,
-                                        spreadRadius: 2,
-                                      ),
-                                    ],
-                                  ),
-                                  child: const Icon(
-                                    Icons.play_arrow,
-                                    color: Colors.black,
-                                    size: 32,
-                                  ),
-                                ),
-                              ),
-                            ),
                           ),
                         if (widget.progress != null)
                           Positioned(
-                            left: 8,
-                            right: 8,
-                            bottom: 8,
+                            left: 7,
+                            right: 7,
+                            bottom: 7,
                             child: LinearProgressIndicator(
                               value: widget.progress!.clamp(0.0, 1.0),
                               minHeight: 4,
@@ -319,7 +235,7 @@ class _TvContentCardState extends State<TvContentCard>
                       ],
                     ),
                   ),
-                ],
+                ),
               ),
             ),
           ),
@@ -332,31 +248,17 @@ class _TvContentCardState extends State<TvContentCard>
     return Container(
       decoration: BoxDecoration(
         color: _getContentTypeColor(),
-        borderRadius: BorderRadius.circular(8),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.3),
-            blurRadius: 6,
-            spreadRadius: 1,
-          ),
-        ],
+        borderRadius: BorderRadius.circular(5),
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(_getContentTypeIcon(), color: Colors.white, size: 14),
-          const SizedBox(width: 4),
-          Text(
-            _getContentTypeLabel(),
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 10,
-              fontWeight: FontWeight.bold,
-              letterSpacing: 0.5,
-            ),
-          ),
-        ],
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+      child: Text(
+        _getContentTypeLabel(),
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 8,
+          fontWeight: FontWeight.bold,
+          letterSpacing: 0.3,
+        ),
       ),
     );
   }
@@ -368,7 +270,7 @@ class _TvContentCardState extends State<TvContentCard>
       rating.toStringAsFixed(1),
       style: const TextStyle(
         color: Colors.white,
-        fontSize: 18,
+        fontSize: 13,
         fontWeight: FontWeight.bold,
         shadows: [
           Shadow(offset: Offset(1, 1), blurRadius: 3, color: Colors.black54),
