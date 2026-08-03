@@ -90,6 +90,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
   Duration _lastStablePosition = Duration.zero;
 
   final FocusNode _surfaceNode = FocusNode(debugLabel: 'Player surface');
+  final FocusNode _controlsFocusNode = FocusNode(debugLabel: 'Player controls');
   final FocusNode _backNode = FocusNode(debugLabel: 'Player back');
   final FocusNode _serverNode = FocusNode(debugLabel: 'Player server');
   final FocusNode _rewindNode = FocusNode(debugLabel: 'Player rewind');
@@ -130,6 +131,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     _controller?.dispose();
     for (final node in [
       _surfaceNode,
+      _controlsFocusNode,
       _backNode,
       _serverNode,
       _rewindNode,
@@ -199,7 +201,9 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       handleLifecycle: true,
       autoDispose: true,
       expandToFill: true,
-      controlsConfiguration: const BetterPlayerControlsConfiguration(),
+      controlsConfiguration: const BetterPlayerControlsConfiguration(
+        showControls: false,
+      ),
     );
   }
 
@@ -607,6 +611,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     _hideTimer = Timer(const Duration(seconds: 4), () {
       if (mounted && _isPlaying) {
         setState(() => _showControls = false);
+        _surfaceNode.requestFocus();
       }
     });
   }
@@ -614,7 +619,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
   void _showControlsAndFocus(FocusNode node) {
     setState(() => _showControls = true);
     _resetHideTimer();
-    _focusAfterFrames(node);
+    _focusAfterFrames(_controlsFocusNode);
   }
 
   void _focusAfterFrames(FocusNode node) {
@@ -628,7 +633,12 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
 
   void _toggleControls() {
     setState(() => _showControls = !_showControls);
-    if (_showControls) _resetHideTimer();
+    if (_showControls) {
+      _resetHideTimer();
+      _focusAfterFrames(_backNode);
+    } else {
+      _surfaceNode.requestFocus();
+    }
   }
 
   void _showServerPicker() {
@@ -731,19 +741,12 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       },
       child: KeyboardListener(
         focusNode: FocusNode(),
-        autofocus: true,
+        autofocus: false,
         onKeyEvent: (event) {
           if (event is KeyDownEvent) {
             if (event.logicalKey == LogicalKeyboardKey.escape ||
                 event.logicalKey == LogicalKeyboardKey.goBack) {
               _handleBackNavigation();
-            } else if (event.logicalKey == LogicalKeyboardKey.select ||
-                event.logicalKey == LogicalKeyboardKey.space) {
-              _togglePlayPause();
-            } else if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
-              _seekBy(const Duration(seconds: -10));
-            } else if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
-              _seekBy(const Duration(seconds: 10));
             }
           }
         },
@@ -761,18 +764,22 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
 
   Widget _buildPlayerWidget() {
     final controller = _controller;
-    return GestureDetector(
-      onTap: _toggleControls,
-      child: Stack(
-        children: [
-          if (controller != null)
-            BetterPlayer(controller: controller)
-          else
-            Container(color: Colors.black),
-          if (_isBuffering)
-            const Center(child: CircularProgressIndicator(color: Colors.white)),
-          if (_showControls) _buildControlsOverlay(),
-        ],
+    return Focus(
+      focusNode: _surfaceNode,
+      canRequestFocus: true,
+      child: GestureDetector(
+        onTap: _toggleControls,
+        child: Stack(
+          children: [
+            if (controller != null)
+              BetterPlayer(controller: controller)
+            else
+              Container(color: Colors.black),
+            if (_isBuffering)
+              const Center(child: CircularProgressIndicator(color: Colors.white)),
+            if (_showControls) _buildControlsOverlay(),
+          ],
+        ),
       ),
     );
   }
@@ -791,159 +798,175 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         ? _position.inMilliseconds / _duration.inMilliseconds
         : 0.0;
 
-    return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            Colors.black54,
-            Colors.transparent,
-            Colors.transparent,
-            Colors.black54,
-          ],
-          stops: [0.0, 0.2, 0.8, 1.0],
-        ),
-      ),
-      child: Column(
-        children: [
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Row(
-                children: [
-                  _ControlButton(
-                    icon: Icons.arrow_back,
-                    size: 24,
-                    onTap: _handleBackNavigation,
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      _currentTitle ?? widget.title,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500,
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  if (_selectedSource != null)
-                    GestureDetector(
-                      onTap: _showServerPicker,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 5,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.6),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(
-                              Icons.dns,
-                              color: Colors.white70,
-                              size: 14,
-                            ),
-                            const SizedBox(width: 5),
-                            Text(
-                              _selectedSource!,
-                              style: const TextStyle(
-                                color: Colors.white70,
-                                fontSize: 11,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                ],
-              ),
+    return FocusTraversalGroup(
+      policy: OrderedTraversalPolicy(),
+      child: Focus(
+        focusNode: _controlsFocusNode,
+        canRequestFocus: true,
+        onFocusChange: (focused) {
+          if (!focused && _showControls) {
+            _resetHideTimer();
+          }
+        },
+        child: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Colors.black54,
+                Colors.transparent,
+                Colors.transparent,
+                Colors.black54,
+              ],
+              stops: [0.0, 0.2, 0.8, 1.0],
             ),
           ),
-          const Spacer(),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+          child: Column(
             children: [
-              _ControlButton(
-                icon: Icons.replay_10,
-                size: 40,
-                onTap: () => _seekBy(const Duration(seconds: -10)),
-              ),
-              const SizedBox(width: 24),
-              _ControlButton(
-                icon: _isPlaying ? Icons.pause : Icons.play_arrow,
-                size: 40,
-                onTap: _togglePlayPause,
-              ),
-              const SizedBox(width: 24),
-              _ControlButton(
-                icon: Icons.forward_10,
-                size: 40,
-                onTap: () => _seekBy(const Duration(seconds: 10)),
-              ),
-            ],
-          ),
-          const Spacer(),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-            child: Column(
-              children: [
-                SliderTheme(
-                  data: SliderThemeData(
-                    activeTrackColor: Colors.red,
-                    inactiveTrackColor: Colors.white24,
-                    thumbColor: Colors.red,
-                    thumbShape: const RoundSliderThumbShape(
-                      enabledThumbRadius: 6,
-                    ),
-                    overlayShape: const RoundSliderOverlayShape(
-                      overlayRadius: 12,
-                    ),
-                    trackHeight: 3,
-                    overlayColor: Colors.red.withOpacity(0.2),
-                  ),
-                  child: Slider(
-                    value: progress.clamp(0.0, 1.0),
-                    onChanged: (value) {
-                      final pos = Duration(
-                        milliseconds: (value * _duration.inMilliseconds)
-                            .toInt(),
-                      );
-                      _seekTo(pos);
-                    },
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
+              SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(
-                        _formatDuration(_position),
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 12,
+                      _ControlButton(
+                        icon: Icons.arrow_back,
+                        size: 24,
+                        focusNode: _backNode,
+                        onTap: _handleBackNavigation,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          _currentTitle ?? widget.title,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                          ),
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                      Text(
-                        _formatDuration(_duration),
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 12,
+                      if (_selectedSource != null)
+                        GestureDetector(
+                          onTap: _showServerPicker,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 5,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withOpacity(0.6),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(
+                                  Icons.dns,
+                                  color: Colors.white70,
+                                  size: 14,
+                                ),
+                                const SizedBox(width: 5),
+                                Text(
+                                  _selectedSource!,
+                                  style: const TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                         ),
-                      ),
                     ],
                   ),
                 ),
-              ],
-            ),
+              ),
+              const Spacer(),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _ControlButton(
+                    icon: Icons.replay_10,
+                    size: 40,
+                    focusNode: _rewindNode,
+                    onTap: () => _seekBy(const Duration(seconds: -10)),
+                  ),
+                  const SizedBox(width: 24),
+                  _ControlButton(
+                    icon: _isPlaying ? Icons.pause : Icons.play_arrow,
+                    size: 40,
+                    focusNode: _playNode,
+                    onTap: _togglePlayPause,
+                  ),
+                  const SizedBox(width: 24),
+                  _ControlButton(
+                    icon: Icons.forward_10,
+                    size: 40,
+                    focusNode: _forwardNode,
+                    onTap: () => _seekBy(const Duration(seconds: 10)),
+                  ),
+                ],
+              ),
+              const Spacer(),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: Column(
+                  children: [
+                    SliderTheme(
+                      data: SliderThemeData(
+                        activeTrackColor: Colors.red,
+                        inactiveTrackColor: Colors.white24,
+                        thumbColor: Colors.red,
+                        thumbShape: const RoundSliderThumbShape(
+                          enabledThumbRadius: 6,
+                        ),
+                        overlayShape: const RoundSliderOverlayShape(
+                          overlayRadius: 12,
+                        ),
+                        trackHeight: 3,
+                        overlayColor: Colors.red.withOpacity(0.2),
+                      ),
+                      child: Slider(
+                        value: progress.clamp(0.0, 1.0),
+                        onChanged: (value) {
+                          final pos = Duration(
+                            milliseconds: (value * _duration.inMilliseconds)
+                                .toInt(),
+                          );
+                          _seekTo(pos);
+                        },
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            _formatDuration(_position),
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 12,
+                            ),
+                          ),
+                          Text(
+                            _formatDuration(_duration),
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -1075,17 +1098,19 @@ class _ControlButton extends StatelessWidget {
   final IconData icon;
   final double size;
   final VoidCallback onTap;
+  final FocusNode? focusNode;
 
   const _ControlButton({
     required this.icon,
     required this.size,
     required this.onTap,
+    this.focusNode,
   });
 
   @override
   Widget build(BuildContext context) {
     return Focus(
-      focusNode: FocusNode(debugLabel: 'Control $icon'),
+      focusNode: focusNode ?? FocusNode(debugLabel: 'Control $icon'),
       onKeyEvent: (node, event) {
         if (event is KeyDownEvent &&
             (event.logicalKey == LogicalKeyboardKey.select ||
