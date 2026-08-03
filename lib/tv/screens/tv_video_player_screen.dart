@@ -354,6 +354,27 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       _startProgressSaving();
       _showControlsAndFocus(_playNode);
       return true;
+    } on PlatformException catch (e) {
+      await controller.dispose();
+      debugPrint('TvVideoPlayer: PlatformException: ${e.message}');
+      if (_isCurrent(generation)) {
+        final codecError = e.message?.contains('MediaCodec') == true ||
+            e.message?.contains('VideoRenderer') == true;
+        if (codecError && _playbackRetryCount < 1) {
+          _playbackRetryCount++;
+          _showStatus('Decoder error, trying fallback...');
+          await _switchToNextServer(generation);
+          return false;
+        }
+        setState(() {
+          _error = 'Playback failed on this device.\n'
+              'The stream format may not be supported.\n\n'
+              'Try switching to another server from the server picker.';
+          _isLoading = false;
+        });
+        _focusAfterFrames(_retryNode);
+      }
+      return false;
     } catch (e) {
       await controller.dispose();
       debugPrint('TvVideoPlayer: Error initializing player: $e');
@@ -366,6 +387,21 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       }
       return false;
     }
+  }
+
+  Future<void> _switchToNextServer(int generation) async {
+    if (_availableServers.length <= 1) return;
+    final currentIndex = _availableServers
+        .indexWhere((s) => s.url == _currentStreamUrl);
+    final nextIndex = currentIndex < 0 ? 0 : currentIndex + 1;
+    final next = _availableServers[nextIndex % _availableServers.length];
+    if (next.url.isEmpty || next.url == _currentStreamUrl) return;
+    _showStatus('Trying ${next.source}...');
+    await _initializePlayer(
+      next,
+      generation: generation,
+      resumePosition: _lastStablePosition,
+    );
   }
 
   void _handlePlaybackChanged() {
