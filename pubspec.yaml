@@ -10,7 +10,8 @@ dependencies:
   flutter:
     sdk: flutter
   video_player: ^2.8.2
-  better_player: ^0.0.84
+  better_player:
+    path: third_party/better_player
   media_kit: ^1.1.11
   media_kit_video: ^1.2.5
   media_kit_libs_video: ^1.0.5
@@ -52,10 +53,6 @@ dependencies:
   google_fonts: ^6.1.0
   wakelock_plus: ^1.2.1
   web: ^1.1.1
-
-patches:
-  better_player:
-    - path: patches/better_player_namespace.patch
 
 dev_dependencies:
   flutter_test:
