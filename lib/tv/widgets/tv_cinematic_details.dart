@@ -27,6 +27,7 @@ class _TvCinematicDetailsState extends State<TvCinematicDetails>
     with SingleTickerProviderStateMixin {
   static const _red = Color(0xffe50914);
   final _scroll = ScrollController();
+  final FocusNode _backNode = FocusNode(debugLabel: 'details back');
   final _playNode = FocusNode(debugLabel: 'details play');
   final _watchlistNode = FocusNode(debugLabel: 'details watchlist');
   final Map<String, FocusNode> _nodes = {};
@@ -41,6 +42,7 @@ class _TvCinematicDetailsState extends State<TvCinematicDetails>
   bool _loading = true;
   bool _loadingEpisodes = false;
   bool _saved = false;
+  FocusNode? _lastPlayerFocus;
 
   bool get _isSeries => widget.mediaType == 'tv';
   FocusNode _node(String key) =>
@@ -59,6 +61,7 @@ class _TvCinematicDetailsState extends State<TvCinematicDetails>
   @override
   void dispose() {
     _scroll.dispose();
+    _backNode.dispose();
     _playNode.dispose();
     _watchlistNode.dispose();
     for (final node in _nodes.values) {
@@ -158,6 +161,9 @@ class _TvCinematicDetailsState extends State<TvCinematicDetails>
   Future<void> _play([Episode? episode]) async {
     if (_isSeries && (episode == null || _loadingEpisodes)) return;
     final season = _isSeries ? _seasons[_seasonIndex].seasonNumber : null;
+    _lastPlayerFocus = episode == null
+        ? _playNode
+        : _nodes['episode:${_episodes.indexOf(episode)}'];
     await Navigator.push(
       context,
       MaterialPageRoute(
@@ -173,52 +179,65 @@ class _TvCinematicDetailsState extends State<TvCinematicDetails>
       ),
     );
     if (!mounted) return;
-    (episode == null
-            ? _playNode
-            : _nodes['episode:${_episodes.indexOf(episode)}'])
-        ?.requestFocus();
+    final target = _lastPlayerFocus;
+    _lastPlayerFocus = null;
+    if (target != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) target.requestFocus();
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return PopScope(
       canPop: true,
-      child: Scaffold(
-        backgroundColor: const Color(0xff090909),
-        body: _loading
-            ? const Center(child: CircularProgressIndicator(color: _red))
-            : FadeTransition(
-                opacity: CurvedAnimation(parent: _entry, curve: Curves.easeOut),
-                child: SlideTransition(
-                  position:
-                      Tween(
-                        begin: const Offset(0, .025),
-                        end: Offset.zero,
-                      ).animate(
-                        CurvedAnimation(
-                          parent: _entry,
-                          curve: Curves.easeOutCubic,
+      child: KeyboardListener(
+        focusNode: _backNode,
+        onKeyEvent: (event) {
+          if (event is KeyDownEvent &&
+              (event.logicalKey == LogicalKeyboardKey.escape ||
+                  event.logicalKey == LogicalKeyboardKey.goBack)) {
+            Navigator.maybePop(context);
+          }
+        },
+        child: Scaffold(
+          backgroundColor: const Color(0xff090909),
+          body: _loading
+              ? const Center(child: CircularProgressIndicator(color: _red))
+              : FadeTransition(
+                  opacity: CurvedAnimation(parent: _entry, curve: Curves.easeOut),
+                  child: SlideTransition(
+                    position:
+                        Tween(
+                          begin: const Offset(0, .025),
+                          end: Offset.zero,
+                        ).animate(
+                          CurvedAnimation(
+                            parent: _entry,
+                            curve: Curves.easeOutCubic,
+                          ),
                         ),
+                    child: FocusTraversalGroup(
+                      policy: OrderedTraversalPolicy(),
+                      child: CustomScrollView(
+                        controller: _scroll,
+                        slivers: [
+                          SliverToBoxAdapter(child: _hero()),
+                          if (_isSeries && _seasons.isNotEmpty)
+                            SliverToBoxAdapter(child: _seasonRow()),
+                          if (_isSeries) SliverToBoxAdapter(child: _episodeRow()),
+                          if (_cast.isNotEmpty)
+                            SliverToBoxAdapter(child: _castRow()),
+                          if (_recommendations.isNotEmpty)
+                            SliverToBoxAdapter(child: _recommendationRow()),
+                          const SliverToBoxAdapter(child: SizedBox(height: 64)),
+                        ],
                       ),
-                  child: FocusTraversalGroup(
-                    policy: OrderedTraversalPolicy(),
-                    child: CustomScrollView(
-                      controller: _scroll,
-                      slivers: [
-                        SliverToBoxAdapter(child: _hero()),
-                        if (_isSeries && _seasons.isNotEmpty)
-                          SliverToBoxAdapter(child: _seasonRow()),
-                        if (_isSeries) SliverToBoxAdapter(child: _episodeRow()),
-                        if (_cast.isNotEmpty)
-                          SliverToBoxAdapter(child: _castRow()),
-                        if (_recommendations.isNotEmpty)
-                          SliverToBoxAdapter(child: _recommendationRow()),
-                        const SliverToBoxAdapter(child: SizedBox(height: 64)),
-                      ],
                     ),
                   ),
                 ),
-              ),
+        ),
       ),
     );
   }
