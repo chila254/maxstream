@@ -10,9 +10,6 @@ dependencies:
   flutter:
     sdk: flutter
   video_player: ^2.8.2
-  media_kit: ^1.2.6
-  media_kit_video: ^2.0.1
-  media_kit_libs_video: ^1.0.7
   cupertino_icons: ^1.0.8
   flutter_inappwebview: ^6.2.0-beta.3
   http: ^1.4.0
@@ -56,6 +53,13 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+
+dependency_overrides:
+  # Local fork that enables ExoPlayer software-decoder fallback (fixes
+  # MediaCodecVideoRenderer errors on Android TV devices whose hardware
+  # decoders fail at runtime for streams they claim to support).
+  video_player_android:
+    path: third_party/video_player_android
 
 flutter:
   uses-material-design: true
