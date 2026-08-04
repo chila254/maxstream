@@ -77,7 +77,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
 
   late final Player _player;
   late final VideoController _videoController;
-  bool _showControls = true;
+  bool _showControls = false;
   bool _isPlaying = false;
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
@@ -133,6 +133,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
           }
         });
         if (playing) {
+          _isLoading = false;
           _showControlsAndFocus(_playNode);
         }
       }),
@@ -152,6 +153,9 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       _player.stream.buffering.listen((buffering) {
         if (_disposed || !mounted) return;
         setState(() => _isBuffering = buffering);
+        if (!buffering) {
+          _resetHideTimer();
+        }
       }),
       _player.stream.completed.listen((completed) {
         if (_disposed || !mounted) return;
@@ -417,7 +421,6 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       _initTimeout?.cancel();
       setState(() {
         _currentCandidate = candidate;
-        _isLoading = false;
         _error = null;
         _statusMessage = '';
         _isBuffering = false;
@@ -557,8 +560,11 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
 
   void _resetHideTimer() {
     _hideTimer?.cancel();
+    if (!_isPlaying || _isLoading || _isBuffering) {
+      return;
+    }
     _hideTimer = Timer(const Duration(seconds: 4), () {
-      if (mounted && _isPlaying) {
+      if (mounted && _isPlaying && !_isLoading && !_isBuffering) {
         setState(() => _showControls = false);
         _surfaceNode.requestFocus();
       }
@@ -684,11 +690,39 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
           focusNode: _surfaceNode,
           canRequestFocus: true,
           onKeyEvent: (node, event) {
-            if (event is KeyDownEvent &&
-                (event.logicalKey == LogicalKeyboardKey.escape ||
-                    event.logicalKey == LogicalKeyboardKey.goBack)) {
-              _handleBackNavigation();
-              return KeyEventResult.handled;
+            if (event is KeyDownEvent) {
+              final key = event.logicalKey;
+              if (key == LogicalKeyboardKey.escape ||
+                  key == LogicalKeyboardKey.goBack) {
+                if (_showControls) {
+                  setState(() => _showControls = false);
+                  _resetHideTimer();
+                  return KeyEventResult.handled;
+                }
+                _handleBackNavigation();
+                return KeyEventResult.handled;
+              }
+              if (!_showControls) {
+                if (key == LogicalKeyboardKey.select ||
+                    key == LogicalKeyboardKey.enter) {
+                  _togglePlayPause();
+                  _showControlsAndFocus(_playNode);
+                  return KeyEventResult.handled;
+                }
+                if (key == LogicalKeyboardKey.arrowUp ||
+                    key == LogicalKeyboardKey.arrowDown) {
+                  _showControlsAndFocus(_playNode);
+                  return KeyEventResult.handled;
+                }
+                if (key == LogicalKeyboardKey.arrowLeft) {
+                  _seekBy(const Duration(seconds: -10));
+                  return KeyEventResult.handled;
+                }
+                if (key == LogicalKeyboardKey.arrowRight) {
+                  _seekBy(const Duration(seconds: 10));
+                  return KeyEventResult.handled;
+                }
+              }
             }
             return KeyEventResult.ignored;
           },
@@ -723,11 +757,14 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         focusNode: _controlsFocusNode,
         canRequestFocus: true,
         onKeyEvent: (node, event) {
-          if (event is KeyDownEvent &&
-              (event.logicalKey == LogicalKeyboardKey.escape ||
-                  event.logicalKey == LogicalKeyboardKey.goBack)) {
-            _handleBackNavigation();
-            return KeyEventResult.handled;
+          if (event is KeyDownEvent) {
+            final key = event.logicalKey;
+            if (key == LogicalKeyboardKey.escape ||
+                key == LogicalKeyboardKey.goBack) {
+              setState(() => _showControls = false);
+              _resetHideTimer();
+              return KeyEventResult.handled;
+            }
           }
           return KeyEventResult.ignored;
         },
