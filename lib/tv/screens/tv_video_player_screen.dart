@@ -195,16 +195,13 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
   bool _isCurrent(int generation) =>
       !_disposed && mounted && generation == _operationGeneration;
 
-  BetterPlayerConfiguration _playerConfiguration(
-    void Function(BetterPlayerEvent) eventListener,
-  ) {
+  BetterPlayerConfiguration _playerConfiguration(String url) {
     return BetterPlayerConfiguration(
       aspectRatio: 16 / 9,
       autoPlay: true,
       errorBuilder: (context, errorMessage) {
         return _buildPlayerErrorWidget();
       },
-      eventListener: eventListener,
       deviceOrientationsOnFullScreen: const [
         DeviceOrientation.landscapeLeft,
         DeviceOrientation.landscapeRight,
@@ -351,23 +348,18 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     final previousController = _controller;
     final url = candidate.url;
     final dataSource = _playerDataSource(url, candidate.headers);
-    late final BetterPlayerController controller;
-    controller = BetterPlayerController(
-      _playerConfiguration((event) {
-        if (_isCurrent(generation) && identical(_controller, controller)) {
-          _handlePlayerEvent(event);
-        }
-      }),
-    );
+    final controller = BetterPlayerController(_playerConfiguration(url));
 
     try {
       _showStatus('Loading video...');
+      controller.addEventsListener(_handlePlayerEvent);
       setState(() {
         _controller = controller;
         _currentStreamUrl = url;
         _currentCandidate = candidate;
       });
-      previousController?.dispose(forceDispose: true);
+      previousController?.removeEventsListener(_handlePlayerEvent);
+      previousController?.dispose();
       _initTimeout?.cancel();
       _initTimeout = Timer(const Duration(seconds: 8), () {
         if (_isLoading && mounted && _isCurrent(generation)) {
@@ -378,7 +370,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
           .setupDataSource(dataSource)
           .timeout(const Duration(seconds: 30));
       if (!_isCurrent(generation)) {
-        controller.dispose(forceDispose: true);
+        controller.dispose();
         return false;
       }
 
@@ -391,13 +383,13 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
             widget.episode,
           );
       if (!_isCurrent(generation)) {
-        controller.dispose(forceDispose: true);
+        controller.dispose();
         return false;
       }
       if (target > Duration.zero) {
         await controller.seekTo(target);
         if (!_isCurrent(generation)) {
-          controller.dispose(forceDispose: true);
+          controller.dispose();
           return false;
         }
       }
@@ -416,7 +408,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     } on PlatformException catch (e) {
       _initTimeout?.cancel();
       if (identical(_controller, controller)) _controller = null;
-      controller.dispose(forceDispose: true);
+      controller.dispose();
       debugPrint('TvVideoPlayer: PlatformException: ${e.message}');
       if (_isCurrent(generation)) {
         final codecError =
@@ -441,7 +433,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     } on TimeoutException {
       _initTimeout?.cancel();
       if (identical(_controller, controller)) _controller = null;
-      controller.dispose(forceDispose: true);
+      controller.dispose();
       if (_isCurrent(generation)) {
         setState(() {
           _error =
@@ -455,7 +447,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     } catch (e) {
       _initTimeout?.cancel();
       if (identical(_controller, controller)) _controller = null;
-      controller.dispose(forceDispose: true);
+      controller.dispose();
       debugPrint('TvVideoPlayer: Error initializing player: $e');
       if (_isCurrent(generation)) {
         setState(() {
