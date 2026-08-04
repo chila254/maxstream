@@ -418,7 +418,7 @@ class _TvHomeScreenState extends State<TvHomeScreen>
           ),
         ],
       ),
-    );
+    ));
   }
 
   String _getPosterUrl(Map<String, dynamic> item) {
