@@ -301,10 +301,25 @@ class _TvHomeScreenState extends State<TvHomeScreen>
           ),
         ),
       ),
-      child: Stack(
-        key: ValueKey(id),
-        fit: StackFit.expand,
-        children: [
+      child: Focus(
+        onKeyEvent: (node, event) {
+          if (event is KeyDownEvent &&
+              event.logicalKey == LogicalKeyboardKey.arrowDown) {
+            if (_visibleRows.isNotEmpty) {
+              final rowId = _visibleRows.first;
+              _focusCard(
+                rowId,
+                context.read<TvNavigationProvider>().getRowFocusedIndex(rowId),
+              );
+            }
+            return KeyEventResult.handled;
+          }
+          return KeyEventResult.ignored;
+        },
+        child: Stack(
+          key: ValueKey(id),
+          fit: StackFit.expand,
+          children: [
           Image.network(
             heroBackdropUrl,
             fit: BoxFit.cover,
