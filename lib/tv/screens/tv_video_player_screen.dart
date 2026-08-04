@@ -129,12 +129,12 @@ class _StreamCandidate {
 /// screen).
 enum _Pc {
   back(0, 0),
+  playPause(1, 0),
+  rewind(2, 0),
+  forward(3, 0),
   subtitles(4, 0),
   quality(5, 0),
   server(6, 0),
-  rewind(1, 1),
-  play(2, 1),
-  forward(3, 1),
   volume(4, 1),
   slider(0, 2);
 
@@ -192,6 +192,9 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
   bool _recoveringPlayback = false;
   int _playbackRetryCount = 0;
   Duration _lastStablePosition = Duration.zero;
+  int _rebufferCount = 0;
+  DateTime? _lastRebufferTime;
+  bool _wasBufferingAtLastCheck = false;
 
   List<_QualityOption> _qualities = const [];
   List<_SubtitleTrack> _subtitleTracks = const [];
@@ -199,7 +202,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
   final ValueNotifier<String> _subtitleText = ValueNotifier<String>('');
   String _selectedSubtitleLabel = 'Off';
 
-  _Pc _currentControl = _Pc.play;
+  _Pc _currentControl = _Pc.playPause;
 
   bool _subtitleMenuOpen = false;
   bool _qualityMenuOpen = false;
@@ -658,6 +661,9 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         _isBuffering = controller.value.isBuffering;
         _isLoading = false;
         _playbackRetryCount = 0;
+        _rebufferCount = 0;
+        _lastRebufferTime = null;
+        _wasBufferingAtLastCheck = controller.value.isBuffering;
       });
 
       previous?.removeListener(_handlePlaybackChanged);
@@ -717,11 +723,18 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       _subtitleText.value = newText;
     }
 
+    final isBuffering = value.isBuffering;
+    if (isBuffering && !_wasBufferingAtLastCheck) {
+      _rebufferCount++;
+      _lastRebufferTime = DateTime.now();
+    }
+    _wasBufferingAtLastCheck = isBuffering;
+
     if (_showControls && (value.isPlaying || _isBuffering)) {
       setState(() {});
     }
 
-    if (_isNearEnd(value) && !_loadingNext) {
+    if (_isNearEnd(value) && !_loadingNext && !_isBuffering) {
       unawaited(_playNextEpisode());
     }
   }
@@ -730,7 +743,16 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     if (_duration <= Duration.zero) return false;
     final remainingMs =
         (_duration - value.position).inMilliseconds.clamp(0, 3000);
-    return value.isPlaying && remainingMs <= 1500;
+    if (remainingMs > 1500) return false;
+    if (!_isPlaying && !_isBuffering) return false;
+    if (_rebufferCount > 0) {
+      final lastRebuffer = _lastRebufferTime;
+      if (lastRebuffer != null) {
+        final elapsed = DateTime.now().difference(lastRebuffer).inSeconds;
+        if (elapsed < 5) return false;
+      }
+    }
+    return true;
   }
   Future<void> _recoverPlayback() async {
     if (_recoveringPlayback || _playbackRetryCount >= 2) return;
@@ -1250,46 +1272,46 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     var next = _currentControl;
     switch (_currentControl) {
       case _Pc.back:
-        if (key == LogicalKeyboardKey.arrowRight) next = _Pc.subtitles;
-        else if (key == LogicalKeyboardKey.arrowDown) next = _Pc.play;
+        if (key == LogicalKeyboardKey.arrowRight) next = _Pc.playPause;
+        else if (key == LogicalKeyboardKey.arrowDown) next = _Pc.playPause;
         break;
-      case _Pc.subtitles:
+      case _Pc.playPause:
         if (key == LogicalKeyboardKey.arrowLeft) next = _Pc.back;
-        else if (key == LogicalKeyboardKey.arrowRight) next = _Pc.quality;
-        else if (key == LogicalKeyboardKey.arrowDown) next = _Pc.rewind;
-        break;
-      case _Pc.quality:
-        if (key == LogicalKeyboardKey.arrowLeft) next = _Pc.subtitles;
-        else if (key == LogicalKeyboardKey.arrowRight) next = _Pc.server;
-        else if (key == LogicalKeyboardKey.arrowDown) next = _Pc.play;
-        break;
-      case _Pc.server:
-        if (key == LogicalKeyboardKey.arrowLeft) next = _Pc.quality;
-        else if (key == LogicalKeyboardKey.arrowDown) next = _Pc.play;
-        break;
-      case _Pc.rewind:
-        if (key == LogicalKeyboardKey.arrowUp) next = _Pc.subtitles;
-        else if (key == LogicalKeyboardKey.arrowRight) next = _Pc.play;
+        else if (key == LogicalKeyboardKey.arrowRight) next = _Pc.rewind;
         else if (key == LogicalKeyboardKey.arrowDown) next = _Pc.volume;
         break;
-      case _Pc.play:
-        if (key == LogicalKeyboardKey.arrowUp) next = _Pc.back;
-        else if (key == LogicalKeyboardKey.arrowLeft) next = _Pc.rewind;
+      case _Pc.rewind:
+        if (key == LogicalKeyboardKey.arrowLeft) next = _Pc.playPause;
         else if (key == LogicalKeyboardKey.arrowRight) next = _Pc.forward;
         else if (key == LogicalKeyboardKey.arrowDown) next = _Pc.volume;
         break;
       case _Pc.forward:
-        if (key == LogicalKeyboardKey.arrowUp) next = _Pc.server;
-        else if (key == LogicalKeyboardKey.arrowLeft) next = _Pc.play;
+        if (key == LogicalKeyboardKey.arrowLeft) next = _Pc.rewind;
+        else if (key == LogicalKeyboardKey.arrowRight) next = _Pc.subtitles;
+        else if (key == LogicalKeyboardKey.arrowDown) next = _Pc.volume;
+        break;
+      case _Pc.subtitles:
+        if (key == LogicalKeyboardKey.arrowLeft) next = _Pc.forward;
+        else if (key == LogicalKeyboardKey.arrowRight) next = _Pc.quality;
+        else if (key == LogicalKeyboardKey.arrowDown) next = _Pc.volume;
+        break;
+      case _Pc.quality:
+        if (key == LogicalKeyboardKey.arrowLeft) next = _Pc.subtitles;
+        else if (key == LogicalKeyboardKey.arrowRight) next = _Pc.server;
+        else if (key == LogicalKeyboardKey.arrowDown) next = _Pc.volume;
+        break;
+      case _Pc.server:
+        if (key == LogicalKeyboardKey.arrowLeft) next = _Pc.quality;
         else if (key == LogicalKeyboardKey.arrowDown) next = _Pc.volume;
         break;
       case _Pc.volume:
         if (key == LogicalKeyboardKey.arrowLeft) next = _Pc.rewind;
         else if (key == LogicalKeyboardKey.arrowRight) next = _Pc.volume;
-        else if (key == LogicalKeyboardKey.arrowDown) next = _Pc.volume;
-        else if (key == LogicalKeyboardKey.arrowUp) next = _Pc.play;
+        else if (key == LogicalKeyboardKey.arrowUp) next = _Pc.playPause;
+        else if (key == LogicalKeyboardKey.arrowDown) next = _Pc.slider;
         break;
       case _Pc.slider:
+        if (key == LogicalKeyboardKey.arrowUp) next = _Pc.volume;
         break;
     }
 
@@ -1313,6 +1335,15 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       case _Pc.back:
         _toggleControls();
         break;
+      case _Pc.playPause:
+        _executePlayPause();
+        break;
+      case _Pc.rewind:
+        _seekBy(-10);
+        break;
+      case _Pc.forward:
+        _seekBy(10);
+        break;
       case _Pc.subtitles:
         _openSubtitleMenu();
         break;
@@ -1321,15 +1352,6 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         break;
       case _Pc.server:
         _openServerMenu();
-        break;
-      case _Pc.rewind:
-        _seekBy(-10);
-        break;
-      case _Pc.forward:
-        _seekBy(10);
-        break;
-      case _Pc.play:
-        _executePlayPause();
         break;
       case _Pc.volume:
         _stepVolume();
@@ -1547,6 +1569,21 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       onPress: () {},
     );
 
+    final playPauseButton = _controlButton(
+      _Pc.playPause, isPlaying ? Icons.pause : Icons.play_arrow, isPlaying ? 'Pause' : 'Play',
+      onPress: () {},
+    );
+
+    final rewindButton = _controlButton(
+      _Pc.rewind, Icons.replay_10, 'Back 10s',
+      onPress: () => _seekBy(-10),
+    );
+
+    final forwardButton = _controlButton(
+      _Pc.forward, Icons.forward_10, 'Forward 10s',
+      onPress: () => _seekBy(10),
+    );
+
     final subtitlesButton = _controlButton(
       _Pc.subtitles, Icons.subtitles, 'Subtitles',
       label: _selectedSubtitleLabel == 'Default'
@@ -1567,21 +1604,6 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       onPress: _openServerMenu,
     );
 
-    final rewindButton = _controlButton(
-      _Pc.rewind, Icons.replay_10, 'Back 10s',
-      onPress: () => _seekBy(-10),
-    );
-
-    final playPauseButton = _controlButton(
-      _Pc.play, isPlaying ? Icons.pause : Icons.play_arrow, isPlaying ? 'Pause' : 'Play',
-      onPress: () {},
-    );
-
-    final forwardButton = _controlButton(
-      _Pc.forward, Icons.forward_10, 'Forward 10s',
-      onPress: () => _seekBy(10),
-    );
-
     final volumeButton = _controlButton(
       _Pc.volume, Icons.volume_up, 'Volume',
       onPress: () {},
@@ -1595,37 +1617,57 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
           color: Colors.transparent,
           child: Focus(
             onKeyEvent: _onBaselineAmbitKey,
-            child: Column(
+            child: Stack(
+              fit: StackFit.expand,
               children: [
-                const Spacer(),
-                _buildProgressBar(),
-                const SizedBox(height: 24),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    backButton,
-                    const SizedBox(width: 18),
-                    subtitlesButton,
-                    const SizedBox(width: 18),
-                    qualityButton,
-                    const SizedBox(width: 18),
-                    serverButton,
-                  ],
+                // Back button at top left
+                Positioned(
+                  top: 16,
+                  left: 16,
+                  child: backButton,
                 ),
-                const SizedBox(height: 18),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    rewindButton,
-                    const SizedBox(width: 20),
-                    playPauseButton,
-                    const SizedBox(width: 20),
-                    forwardButton,
-                    const SizedBox(width: 20),
-                    volumeButton,
-                  ],
+                // Center controls: play/pause, back10, forward10
+                // between the player and subtitles
+                Positioned(
+                  bottom: 180,
+                  left: 0,
+                  right: 0,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      rewindButton,
+                      const SizedBox(width: 20),
+                      playPauseButton,
+                      const SizedBox(width: 20),
+                      forwardButton,
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 28),
+                // Below progress bar: server, volume, quality
+                Positioned(
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  child: Column(
+                    children: [
+                      _buildProgressBar(),
+                      const SizedBox(height: 12),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          serverButton,
+                          const SizedBox(width: 18),
+                          volumeButton,
+                          const SizedBox(width: 18),
+                          qualityButton,
+                          const SizedBox(width: 18),
+                          subtitlesButton,
+                        ],
+                      ),
+                      const SizedBox(height: 24),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),

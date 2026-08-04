@@ -8,6 +8,7 @@ import '../../models/movie.dart';
 import '../../services/tmdb_api_service.dart';
 import '../../services/watch_history_service.dart';
 import '../providers/tv_navigation_provider.dart';
+import '../utils/tv_image_cache_util.dart';
 import '../widgets/tv_content_card.dart';
 import '../widgets/tv_dark_mode_polish.dart';
 import 'tv_details_screen.dart';
@@ -470,7 +471,7 @@ class _TvHomeScreenState extends State<TvHomeScreen>
             ),
             const SizedBox(height: 12),
             SizedBox(
-              height: 220,
+              height: showProgress ? 260 : 220,
               child: ListView.builder(
                 controller: rowController,
                 clipBehavior: Clip.none,
@@ -493,16 +494,172 @@ class _TvHomeScreenState extends State<TvHomeScreen>
                   final posterUrl = resumeOnSelect
                       ? _resumePosterUrl(item, isSeries)
                       : _getPosterUrl(item);
+                  final overview = item['overview']?.toString() ?? '';
+                  final episodeName =
+                      isSeries ? item['episodeName']?.toString() ?? '' : '';
+                  final season = item['season'] ?? 1;
+                  final episode = item['episode'] ?? 1;
+                  final cardTitle = isSeries
+                      ? (item['seriesTitle']?.toString() ??
+                          item['title']?.toString() ??
+                          item['name']?.toString() ??
+                          'Unknown')
+                      : (item['title']?.toString() ??
+                          item['name']?.toString() ??
+                          'Unknown');
+
+                  if (showProgress) {
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 14),
+                      child: SizedBox(
+                        width: 220,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Stack(
+                              children: [
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: posterUrl.isNotEmpty
+                                      ? Image(
+                                          image: TvImageCacheUtil
+                                              .getCachedImage(
+                                            posterUrl,
+                                            cacheType: ImageCacheType.poster,
+                                          ),
+                                          width: 220,
+                                          height: 160,
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (_, __, ___) =>
+                                              Container(
+                                            width: 220,
+                                            height: 160,
+                                            color: Colors.grey[900],
+                                            child: const Icon(
+                                              Icons.movie,
+                                              color: Colors.grey,
+                                              size: 48,
+                                            ),
+                                          ),
+                                        )
+                                      : Container(
+                                          width: 220,
+                                          height: 160,
+                                          color: Colors.grey[900],
+                                          child: const Icon(
+                                            Icons.movie,
+                                            color: Colors.grey,
+                                            size: 48,
+                                          ),
+                                        ),
+                                ),
+                                Positioned(
+                                  bottom: 0,
+                                  left: 0,
+                                  right: 0,
+                                  child: Container(
+                                    height: 4,
+                                    decoration: BoxDecoration(
+                                      color: Colors.grey[700],
+                                      borderRadius:
+                                          const BorderRadius.only(
+                                        bottomLeft: Radius.circular(8),
+                                        bottomRight: Radius.circular(8),
+                                      ),
+                                    ),
+                                    child: FractionallySizedBox(
+                                      alignment: Alignment.centerLeft,
+                                      widthFactor: _historyProgress(item)
+                                              ?.clamp(0.0, 1.0) ??
+                                          0.0,
+                                      child: Container(
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFE50914),
+                                          borderRadius:
+                                              const BorderRadius.only(
+                                            bottomLeft: Radius.circular(8),
+                                            bottomRight: Radius.circular(8),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                if (isSeries)
+                                  Positioned(
+                                    top: 6,
+                                    left: 6,
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 5,
+                                        vertical: 1,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Colors.black
+                                            .withValues(alpha: 0.7),
+                                        borderRadius:
+                                            BorderRadius.circular(4),
+                                      ),
+                                      child: Text(
+                                        'S${season}E${episode}',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              cardTitle,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            if (isSeries && episodeName.isNotEmpty) ...[
+                              const SizedBox(height: 2),
+                              Text(
+                                episodeName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ],
+                            const SizedBox(height: 4),
+                            if (overview.isNotEmpty &&
+                                overview != 'No description available.')
+                              Text(
+                                overview,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Colors.white60,
+                                  fontSize: 10,
+                                  height: 1.3,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }
+
                   return Padding(
                     padding: const EdgeInsets.only(right: 14),
                     child: TvContentCard(
                       focusNode: node,
                       posterUrl: posterUrl,
-                      title:
-                          item[isSeries ? 'name' : 'title'] ??
-                          item['title'] ??
-                          item['name'] ??
-                          'Unknown',
+                      title: cardTitle,
                       year: date is String && date.length >= 4
                           ? int.tryParse(date.substring(0, 4))
                           : null,
@@ -521,7 +678,8 @@ class _TvHomeScreenState extends State<TvHomeScreen>
                           : _openDetails(item, type),
                       onFocusChanged: (focused) {
                         if (!focused || !mounted) return;
-                        final navigation = context.read<TvNavigationProvider>();
+                        final navigation =
+                            context.read<TvNavigationProvider>();
                         navigation.saveRowFocusedIndex(rowId, index);
                         navigation.saveActiveRowId(0, rowId);
                         _revealCard(rowId, index);
