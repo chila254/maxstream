@@ -92,6 +92,19 @@ class _TvMaxStreamMainState extends State<TvMaxStreamMain> {
     TvFocusManager.focusSidebar();
   }
 
+  void _handleSystemBack() {
+    final navigator = _navigatorKey.currentState;
+    if (navigator?.canPop() == true) {
+      navigator!.pop();
+      return;
+    }
+    if (!_navProvider.focusOnSidebar) {
+      _focusSidebar();
+    } else {
+      SystemNavigator.pop();
+    }
+  }
+
   List<Widget> _buildScreens() {
     return [
       TvHomeScreen(
@@ -110,63 +123,58 @@ class _TvMaxStreamMainState extends State<TvMaxStreamMain> {
   Widget build(BuildContext context) {
     return ChangeNotifierProvider<TvNavigationProvider>.value(
       value: _navProvider,
-      child: Navigator(
-        key: _navigatorKey,
-        onGenerateInitialRoutes: (_, _) => [
-          MaterialPageRoute(
-            settings: const RouteSettings(name: 'tv-root'),
-            builder: (_) => _buildRootShell(),
-          ),
-        ],
-        onGenerateRoute: (_) => null,
+      child: PopScope(
+        canPop: false,
+        onPopInvokedWithResult: (didPop, result) {
+          if (!didPop) _handleSystemBack();
+        },
+        child: Navigator(
+          key: _navigatorKey,
+          onGenerateInitialRoutes: (_, _) => [
+            MaterialPageRoute(
+              settings: const RouteSettings(name: 'tv-root'),
+              builder: (_) => _buildRootShell(),
+            ),
+          ],
+          onGenerateRoute: (_) => null,
+        ),
       ),
     );
   }
 
   Widget _buildRootShell() {
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, result) {
-        if (didPop) return;
-        if (!_navProvider.focusOnSidebar) {
-          _focusSidebar();
-        } else {
-          SystemNavigator.pop();
-        }
-      },
-      child: Scaffold(
-        backgroundColor: const Color(0xFF0F0F0F),
-        body: Consumer<TvNavigationProvider>(
-          builder: (context, navProvider, _) {
-            return Row(
-              children: [
-                FocusScope(
-                  node: _sidebarFocusScope,
+    return Scaffold(
+      backgroundColor: const Color(0xFF0F0F0F),
+      body: Consumer<TvNavigationProvider>(
+        builder: (context, navProvider, _) {
+          return Row(
+            children: [
+              FocusScope(
+                node: _sidebarFocusScope,
+                onFocusChange: (hasFocus) {
+                  if (hasFocus) navProvider.setFocusOnSidebar(true);
+                },
+                child: TvSidebarNavigation(
+                  selectedIndex: navProvider.selectedTab,
+                  titles: _navTitles,
+                  icons: _navIcons,
+                  onItemSelected: _onNavItemSelected,
+                  onExitToContent: _focusContent,
+                  active: navProvider.focusOnSidebar,
+                ),
+              ),
+              Expanded(
+                child: FocusScope(
+                  node: _contentFocusScope,
                   onFocusChange: (hasFocus) {
-                    if (hasFocus) navProvider.setFocusOnSidebar(true);
+                    if (hasFocus) navProvider.setFocusOnSidebar(false);
                   },
-                  child: TvSidebarNavigation(
-                    selectedIndex: navProvider.selectedTab,
-                    titles: _navTitles,
-                    icons: _navIcons,
-                    onItemSelected: _onNavItemSelected,
-                    onExitToContent: _focusContent,
-                    active: navProvider.focusOnSidebar,
-                  ),
+                  child: _buildCurrentScreen(),
                 ),
-                Expanded(
-                  child: FocusScope(
-                    node: _contentFocusScope,
-                    onFocusChange: (hasFocus) {
-                      if (hasFocus) navProvider.setFocusOnSidebar(false);
-                    },
-                    child: _buildCurrentScreen(),
-                  ),
-                ),
-              ],
-            );
-          },
-        ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }

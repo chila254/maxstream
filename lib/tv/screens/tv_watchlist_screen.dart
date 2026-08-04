@@ -1,111 +1,315 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+
 import '../../database/db_helper.dart';
 import '../../models/movie.dart';
 import '../../services/logger_service.dart';
+import '../../widgets/custom_loading_widget.dart';
 import '../providers/tv_navigation_provider.dart';
-import '../utils/index.dart';
-import '../widgets/tv_dark_mode_polish.dart';
+import '../utils/tv_focus_manager.dart';
 import '../widgets/tv_content_card.dart';
+import '../widgets/tv_dark_mode_polish.dart';
 import 'tv_details_screen.dart';
 import 'tv_series_screen.dart';
 
 class TvWatchlistScreen extends StatefulWidget {
-  final VoidCallback? onReturnToSidebar;
-
   const TvWatchlistScreen({super.key, this.onReturnToSidebar});
+
+  final VoidCallback? onReturnToSidebar;
 
   @override
   State<TvWatchlistScreen> createState() => _TvWatchlistScreenState();
 }
 
-class _TvWatchlistScreenState extends State<TvWatchlistScreen>
-    with SingleTickerProviderStateMixin {
-  List<Movie> watchlistItems = [];
-  List<Movie> movies = [];
-  List<Movie> series = [];
-  bool isLoading = true;
-  late TabController _tabController;
-  late ScrollController _scrollController;
+class _TvWatchlistScreenState extends State<TvWatchlistScreen> {
+  static const _navigationTab = 4;
+  static const _rowId = 'watchlist-grid';
+  final _scrollController = ScrollController();
+  final _tabNodes = List.generate(
+    3,
+    (index) => FocusNode(debugLabel: 'watchlist-tab-$index'),
+  );
+  final Map<String, FocusNode> _cardNodes = {};
+
+  List<Movie> _all = const [];
+  int _selectedTab = 0;
+  String? _rememberedIdentity;
+  int _rememberedIndex = 0;
+  bool _loading = true;
+  String? _error;
+
+  List<Movie> get _items => switch (_selectedTab) {
+    1 => _all.where((item) => item.mediaType != 'tv').toList(),
+    2 => _all.where((item) => item.mediaType == 'tv').toList(),
+    _ => _all,
+  };
+
+  String _identity(Movie item) => '${item.mediaType}:${item.id}';
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
-    _scrollController = ScrollController();
-
-    // Register scroll controller and integrate with navigation provider
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final navProvider = context.read<TvNavigationProvider>();
-      navProvider.registerScrollController(4, _scrollController);
-
-      // Restore scroll position if available
-      final savedOffset = navProvider.getScrollOffset(4);
-      if (savedOffset > 0 && _scrollController.hasClients) {
-        _scrollController.jumpTo(savedOffset);
-      }
-
-      // Add scroll listener to save scroll offset
-      _scrollController.addListener(() {
-        navProvider.saveScrollOffset(4, _scrollController.offset);
-      });
+      if (!mounted) return;
+      final nav = context.read<TvNavigationProvider>();
+      nav.registerScrollController(_navigationTab, _scrollController);
+      _tabNodes[_selectedTab].requestFocus();
     });
-
     _loadWatchlist();
   }
 
   @override
   void dispose() {
-    _tabController.dispose();
+    for (final node in [..._tabNodes, ..._cardNodes.values]) {
+      node.dispose();
+    }
     _scrollController.dispose();
     super.dispose();
   }
 
-  Future<void> _loadWatchlist() async {
-    setState(() => isLoading = true);
+  Future<void> _loadWatchlist({bool showLoading = true}) async {
+    if (!mounted) return;
+    setState(() {
+      if (showLoading) _loading = true;
+      _error = null;
+    });
     try {
       final items = await DBHelper.getWatchlistItems();
+      if (!mounted) return;
+      final identities = items.map(_identity).toSet();
       setState(() {
-        watchlistItems = items;
-        movies = items.where((item) => item.mediaType != 'tv').toList();
-        series = items.where((item) => item.mediaType == 'tv').toList();
+        _all = items;
+        _loading = false;
+        for (final key in _cardNodes.keys.toList()) {
+          if (!identities.contains(key)) _cardNodes.remove(key)?.dispose();
+        }
       });
-    } catch (e) {
-      LoggerService.error('Error loading watchlist: $e', e);
-    } finally {
-      setState(() => isLoading = false);
+    } catch (error) {
+      LoggerService.error('Error loading watchlist: $error', error);
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = 'Your watchlist could not be loaded.';
+      });
     }
   }
 
-  Future<void> _removeFromWatchlist(Movie item) async {
+  FocusNode _cardNode(Movie item) => _cardNodes.putIfAbsent(
+    _identity(item),
+    () => FocusNode(debugLabel: 'watchlist-${_identity(item)}'),
+  );
+
+  void _sidebar() {
+    if (!mounted) return;
+    context.read<TvNavigationProvider>().setFocusOnSidebar(true);
+    (widget.onReturnToSidebar ?? TvFocusManager.focusSidebar).call();
+  }
+
+  void _selectTab(int index, {bool focusGrid = false}) {
+    if (index != _selectedTab) {
+      setState(() {
+        _selectedTab = index;
+        _rememberedIdentity = null;
+        _rememberedIndex = 0;
+      });
+    }
+    final nav = context.read<TvNavigationProvider>();
+    nav
+      ..setFocusOnSidebar(false)
+      ..setSectionFocusIndex(_navigationTab, focusGrid ? 1 : 0);
+    if (focusGrid && _items.isNotEmpty) {
+      _focusItem(_nearestIndex());
+    } else if (!focusGrid) {
+      _tabNodes[index].requestFocus();
+    }
+  }
+
+  int _nearestIndex() {
+    final items = _items;
+    if (items.isEmpty) return 0;
+    final exact = items.indexWhere(
+      (item) => _identity(item) == _rememberedIdentity,
+    );
+    return exact >= 0 ? exact : _rememberedIndex.clamp(0, items.length - 1);
+  }
+
+  void _focusItem(int index) {
+    final items = _items;
+    if (items.isEmpty) {
+      _tabNodes[_selectedTab].requestFocus();
+      return;
+    }
+    final target = index.clamp(0, items.length - 1);
+    final item = items[target];
+    _rememberedIndex = target;
+    _rememberedIdentity = _identity(item);
+    context.read<TvNavigationProvider>()
+      ..setFocusOnSidebar(false)
+      ..setSectionFocusIndex(_navigationTab, 1)
+      ..saveFocusedIndex(_navigationTab, target)
+      ..saveActiveRowId(_navigationTab, _rowId)
+      ..saveRowFocusedIndex(_rowId, target);
+    _cardNode(item).requestFocus();
+  }
+
+  KeyEventResult _onTabKey(int index, KeyEvent event) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.arrowLeft) {
+      if (index == 0) {
+        _sidebar();
+      } else {
+        _selectTab(index - 1);
+      }
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.arrowRight) {
+      _selectTab((index + 1).clamp(0, _tabNodes.length - 1));
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.arrowDown) {
+      if (_items.isNotEmpty) _focusItem(_nearestIndex());
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.enter ||
+        key == LogicalKeyboardKey.select) {
+      _selectTab(index);
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.escape || key == LogicalKeyboardKey.goBack) {
+      _sidebar();
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
+
+  KeyEventResult _onCardKey(int index, int columns, KeyEvent event) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    final key = event.logicalKey;
+    int? target;
+    if (key == LogicalKeyboardKey.arrowLeft) {
+      if (index % columns == 0) {
+        _tabNodes[_selectedTab].requestFocus();
+        context.read<TvNavigationProvider>().setSectionFocusIndex(
+          _navigationTab,
+          0,
+        );
+      } else {
+        target = index - 1;
+      }
+    } else if (key == LogicalKeyboardKey.arrowRight) {
+      if (index % columns < columns - 1 && index + 1 < _items.length) {
+        target = index + 1;
+      }
+    } else if (key == LogicalKeyboardKey.arrowUp) {
+      if (index < columns) {
+        _tabNodes[_selectedTab].requestFocus();
+        context.read<TvNavigationProvider>().setSectionFocusIndex(
+          _navigationTab,
+          0,
+        );
+      } else {
+        target = index - columns;
+      }
+    } else if (key == LogicalKeyboardKey.arrowDown) {
+      final nextRow = index + columns;
+      if (nextRow < _items.length) {
+        target = nextRow;
+      } else {
+        final rowStart = (index ~/ columns + 1) * columns;
+        if (rowStart < _items.length) {
+          target = _items.length - 1;
+        }
+      }
+    } else if (key == LogicalKeyboardKey.delete ||
+        key == LogicalKeyboardKey.contextMenu) {
+      _confirmRemove(_items[index]);
+      return KeyEventResult.handled;
+    } else if (key == LogicalKeyboardKey.escape ||
+        key == LogicalKeyboardKey.goBack) {
+      _tabNodes[_selectedTab].requestFocus();
+      return KeyEventResult.handled;
+    } else {
+      return KeyEventResult.ignored;
+    }
+    if (target != null) _focusItem(target);
+    return KeyEventResult.handled;
+  }
+
+  Future<void> _open(int index) async {
+    final item = _items[index];
+    _rememberedIdentity = _identity(item);
+    _rememberedIndex = index;
+    context.read<TvNavigationProvider>().setDeepNavigating(true);
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => item.mediaType == 'tv'
+            ? TvSeriesScreen(seriesItem: item)
+            : TvDetailsScreen(item: item, mediaType: item.mediaType),
+      ),
+    );
+    if (!mounted) return;
+    context.read<TvNavigationProvider>().setDeepNavigating(false);
+    await _loadWatchlist(showLoading: false);
+    if (!mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || _items.isEmpty) return;
+        final target = _nearestIndex();
+        _focusItem(target);
+        final cardContext = _cardNode(_items[target]).context;
+        if (cardContext != null) {
+          Scrollable.ensureVisible(
+            cardContext,
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOutCubic,
+            alignment: .12,
+          );
+        }
+      });
+    });
+  }
+
+  Future<void> _confirmRemove(Movie item) async {
+    final remove = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Remove from watchlist?'),
+        content: Text(item.title),
+        actions: [
+          TextButton(
+            autofocus: true,
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || remove != true) return;
     try {
       await DBHelper.removeFromWatchlist(item.id, item.mediaType);
-      await _loadWatchlist();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                const Icon(
-                  Icons.favorite_border,
-                  color: Colors.white,
-                  size: 20,
-                ),
-                const SizedBox(width: 8),
-                Text('${item.title} removed from watchlist'),
-              ],
-            ),
-            backgroundColor: Colors.red.shade600,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-          ),
-        );
-      }
-    } catch (e) {
-      LoggerService.error('Error removing from watchlist: $e', e);
+      if (!mounted) return;
+      await _loadWatchlist(showLoading: false);
+      if (!mounted) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        if (_items.isEmpty) {
+          _tabNodes[_selectedTab].requestFocus();
+        } else {
+          _focusItem(_nearestIndex());
+        }
+      });
+    } catch (error) {
+      LoggerService.error('Error removing watchlist item: $error', error);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('This title could not be removed.')),
+      );
     }
   }
 
@@ -114,73 +318,19 @@ class _TvWatchlistScreenState extends State<TvWatchlistScreen>
     return DarkModeBackground(
       child: Scaffold(
         backgroundColor: Colors.transparent,
-        body: Focus(
-          onKey: (node, event) {
-            if (event.isKeyPressed(LogicalKeyboardKey.arrowLeft)) {
-              if (widget.onReturnToSidebar != null) {
-                widget.onReturnToSidebar!();
-              } else {
-                TvFocusManager.focusSidebar();
-                context.read<TvNavigationProvider>().setFocusOnSidebar(true);
-              }
-              return KeyEventResult.handled;
-            }
-            return KeyEventResult.ignored;
-          },
-          autofocus: true,
+        body: Padding(
+          padding: const EdgeInsets.fromLTRB(36, 28, 36, 24),
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Tab Bar
-              TabBar(
-                controller: _tabController,
-                indicatorColor: const Color(0xFFE50914),
-                labelColor: Colors.white,
-                unselectedLabelColor: Colors.grey,
-                tabs: [
-                  Tab(
-                    text: 'All (${watchlistItems.length})',
-                    child: Text(
-                      'All (${watchlistItems.length})',
-                      style: TvTypography.labelSmall,
-                    ),
-                  ),
-                  Tab(
-                    text: 'Movies (${movies.length})',
-                    child: Text(
-                      'Movies (${movies.length})',
-                      style: TvTypography.labelSmall,
-                    ),
-                  ),
-                  Tab(
-                    text: 'Series (${series.length})',
-                    child: Text(
-                      'Series (${series.length})',
-                      style: TvTypography.labelSmall,
-                    ),
-                  ),
-                ],
+              const Text(
+                'My Watchlist',
+                style: TextStyle(fontSize: 34, fontWeight: FontWeight.w700),
               ),
-              // Tab Content
-              Expanded(
-                child: isLoading
-                    ? const Center(
-                        child: CircularProgressIndicator(color: Colors.red),
-                      )
-                    : TabBarView(
-                        controller: _tabController,
-                        children: [
-                          watchlistItems.isEmpty
-                              ? _buildEmptyState()
-                              : _buildWatchlistGrid(watchlistItems),
-                          movies.isEmpty
-                              ? _buildEmptyState()
-                              : _buildWatchlistGrid(movies),
-                          series.isEmpty
-                              ? _buildEmptyState()
-                              : _buildWatchlistGrid(series),
-                        ],
-                      ),
-              ),
+              const SizedBox(height: 18),
+              _buildTabs(),
+              const SizedBox(height: 22),
+              Expanded(child: _buildContent()),
             ],
           ),
         ),
@@ -188,276 +338,149 @@ class _TvWatchlistScreenState extends State<TvWatchlistScreen>
     );
   }
 
-  Widget _buildEmptyState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.bookmark_border,
-            size: TvUtils.responsiveFontSize(64, context, maxSize: 100),
-            color: Colors.grey,
-          ),
-          SizedBox(height: TvUtils.responsivePadding(24, context)),
-          Text(
-            'Your watchlist is empty',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: TvUtils.responsiveFontSize(24, context, maxSize: 32),
-              fontWeight: FontWeight.bold,
+  Widget _buildTabs() {
+    final counts = [
+      _all.length,
+      _all.where((item) => item.mediaType != 'tv').length,
+      _all.where((item) => item.mediaType == 'tv').length,
+    ];
+    const labels = ['All', 'Movies', 'Series'];
+    return Row(
+      children: List.generate(3, (index) {
+        final selected = index == _selectedTab;
+        return Focus(
+          focusNode: _tabNodes[index],
+          onKeyEvent: (_, event) => _onTabKey(index, event),
+          onFocusChange: (focused) {
+            if (focused) _selectTab(index);
+          },
+          child: Builder(
+            builder: (context) => GestureDetector(
+              onTap: () => _selectTab(index),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                margin: const EdgeInsets.only(right: 12),
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                decoration: BoxDecoration(
+                  color: selected ? const Color(0xFFE50914) : Colors.white10,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Focus.of(context).hasFocus
+                      ? Border.all(color: Colors.white, width: 2)
+                      : null,
+                ),
+                child: Text(
+                  '${labels[index]} (${counts[index]})',
+                  style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w600),
+                ),
+              ),
             ),
-          ),
-          SizedBox(height: TvUtils.responsivePadding(12, context)),
-          Text(
-            'Add movies and TV shows to keep track of what you want to watch',
-            style: TextStyle(
-              color: Colors.grey,
-              fontSize: TvUtils.responsiveFontSize(16, context),
-            ),
-            textAlign: TextAlign.center,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildWatchlistGrid(List<Movie> items) {
-    return _WatchlistGridFocus(
-      items: items,
-      itemsPerRow: 6,
-      onItemSelected: (index) {
-        if (!mounted) return;
-        final item = items[index];
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => item.mediaType == 'tv'
-                ? TvSeriesScreen(seriesItem: item)
-                : TvDetailsScreen(item: item, mediaType: item.mediaType),
           ),
         );
-      },
-      onReturnToSidebar: () {
-        context.read<TvNavigationProvider>().setFocusOnSidebar(true);
-      },
-      itemBuilder: (context, index) {
-        final item = items[index];
-        return _buildWatchlistItem(item);
-      },
-      onRemoveItem: (index) => _removeFromWatchlist(items[index]),
+      }),
     );
   }
 
-  Widget _buildWatchlistItem(Movie item) {
-    final contentType = item.mediaType == 'tv'
-        ? ContentType.series
-        : ContentType.movie;
-
-    return Stack(
-      children: [
-        TvContentCard(
-          posterUrl: item.thumbnail,
-          title: item.title,
-          contentType: contentType,
-          rating: item.rating > 0 ? item.rating : null,
-          year: item.year.isNotEmpty ? int.tryParse(item.year) : null,
-          onTap: () {
-            if (!mounted) return;
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => item.mediaType == 'tv'
-                    ? TvSeriesScreen(seriesItem: item)
-                    : TvDetailsScreen(item: item, mediaType: item.mediaType),
-              ),
+  Widget _buildContent() {
+    if (_loading) {
+      return const _WatchlistMessage(
+        icon: Icons.bookmarks,
+        title: 'Loading your watchlist',
+        child: CustomLoadingWidget(size: 44),
+      );
+    }
+    if (_error != null) {
+      return _WatchlistMessage(
+        icon: Icons.error_outline,
+        title: _error!,
+        subtitle: 'Check your connection and try again.',
+        child: FilledButton.icon(
+          autofocus: true,
+          onPressed: _loadWatchlist,
+          icon: const Icon(Icons.refresh),
+          label: const Text('Retry'),
+        ),
+      );
+    }
+    if (_items.isEmpty) {
+      return const _WatchlistMessage(
+        icon: Icons.bookmark_border,
+        title: 'Nothing saved here yet',
+        subtitle: 'Add movies and series to build your watchlist.',
+      );
+    }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final columns = constraints.maxWidth >= 1350 ? 6 : 5;
+        return GridView.builder(
+          controller: _scrollController,
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: columns,
+            childAspectRatio: .61,
+            crossAxisSpacing: 18,
+            mainAxisSpacing: 18,
+          ),
+          itemCount: _items.length,
+          itemBuilder: (context, index) {
+            final item = _items[index];
+            return TvContentCard(
+              key: ValueKey(_identity(item)),
+              focusNode: _cardNode(item),
+              posterUrl: item.thumbnail,
+              title: item.title,
+              contentType: item.mediaType == 'tv'
+                  ? ContentType.series
+                  : ContentType.movie,
+              rating: item.rating > 0 ? item.rating : null,
+              year: int.tryParse(item.year),
+              onTap: () => _open(index),
+              onSelect: () => _open(index),
+              onKeyEvent: (_, event) => _onCardKey(index, columns, event),
+              onFocusChanged: (focused) {
+                if (focused) _focusItem(index);
+              },
             );
           },
-          width: 180,
-          height: 270,
-        ),
-        Positioned(
-          top: 8,
-          right: 8,
-          child: GestureDetector(
-            onTap: () => _removeFromWatchlist(item),
-            behavior: HitTestBehavior.opaque,
-            child: Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.7),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: const Icon(Icons.close, color: Colors.white, size: 24),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-/// Grid focus handler for watchlist with D-pad navigation
-class _WatchlistGridFocus extends StatefulWidget {
-  final List<Movie> items;
-  final int itemsPerRow;
-  final Function(int) onItemSelected;
-  final VoidCallback onReturnToSidebar;
-  final Widget Function(BuildContext, int) itemBuilder;
-  final Function(int) onRemoveItem;
-
-  const _WatchlistGridFocus({
-    required this.items,
-    required this.itemsPerRow,
-    required this.onItemSelected,
-    required this.onReturnToSidebar,
-    required this.itemBuilder,
-    required this.onRemoveItem,
-  });
-
-  @override
-  State<_WatchlistGridFocus> createState() => _WatchlistGridFocusState();
-}
-
-class _WatchlistGridFocusState extends State<_WatchlistGridFocus> {
-  late int _focusedIndex;
-  late List<FocusNode> _focusNodes;
-  late ScrollController _scrollController;
-
-  @override
-  void initState() {
-    super.initState();
-    _focusedIndex = 0;
-    _scrollController = ScrollController();
-
-    _focusNodes = List.generate(
-      widget.items.length,
-      (index) =>
-          FocusNode(onKey: (node, event) => _handleItemKeyEvent(event, index)),
-    );
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_focusNodes.isNotEmpty) {
-        _focusNodes[0].requestFocus();
-      }
-    });
-  }
-
-  @override
-  void dispose() {
-    for (var node in _focusNodes) {
-      node.dispose();
-    }
-    _scrollController.dispose();
-    super.dispose();
-  }
-
-  KeyEventResult _handleItemKeyEvent(RawKeyEvent event, int index) {
-    if (event is! RawKeyDownEvent) return KeyEventResult.ignored;
-
-    final currentCol = index % widget.itemsPerRow;
-
-    if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
-      if (index % widget.itemsPerRow == 0) {
-        TvFocusManager.focusSidebar();
-        widget.onReturnToSidebar();
-        return KeyEventResult.handled;
-      } else {
-        final prevIndex = index - 1;
-        _focusNodes[prevIndex].requestFocus();
-        return KeyEventResult.handled;
-      }
-    } else if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
-      if (index < widget.items.length - 1 &&
-          currentCol < widget.itemsPerRow - 1) {
-        final nextIndex = index + 1;
-        _focusNodes[nextIndex].requestFocus();
-        return KeyEventResult.handled;
-      }
-    } else if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
-      final nextIndex = index + widget.itemsPerRow;
-      if (nextIndex < widget.items.length) {
-        _focusNodes[nextIndex].requestFocus();
-        return KeyEventResult.handled;
-      }
-    } else if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
-      final prevIndex = index - widget.itemsPerRow;
-      if (prevIndex >= 0) {
-        _focusNodes[prevIndex].requestFocus();
-        return KeyEventResult.handled;
-      }
-    } else if (event.logicalKey == LogicalKeyboardKey.select) {
-      widget.onItemSelected(index);
-      return KeyEventResult.handled;
-    }
-
-    return KeyEventResult.ignored;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return GridView.builder(
-      controller: _scrollController,
-      padding: EdgeInsets.all(TvUtils.responsivePadding(24, context)),
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: widget.itemsPerRow,
-        childAspectRatio: 0.6,
-        crossAxisSpacing: TvUtils.responsivePadding(16, context),
-        mainAxisSpacing: TvUtils.responsivePadding(16, context),
-      ),
-      itemCount: widget.items.length,
-      itemBuilder: (context, index) {
-        final isFocused = _focusedIndex == index;
-
-        return Focus(
-          focusNode: _focusNodes[index],
-          onFocusChange: (hasFocus) {
-            if (hasFocus) {
-              setState(() => _focusedIndex = index);
-            }
-          },
-          child: AnimatedScale(
-            scale: isFocused ? 1.05 : 1.0,
-            duration: const Duration(milliseconds: 150),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 150),
-              decoration: BoxDecoration(
-                border: Border.all(
-                  color: isFocused
-                      ? const Color(0xFFE50914)
-                      : Colors.transparent,
-                  width: 3,
-                ),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Stack(
-                children: [
-                  widget.itemBuilder(context, index),
-                  Positioned(
-                    top: 8,
-                    right: 8,
-                    child: GestureDetector(
-                      onTap: () => widget.onRemoveItem(index),
-                      behavior: HitTestBehavior.opaque,
-                      child: Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.7),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: const Icon(
-                          Icons.close,
-                          color: Colors.white,
-                          size: 24,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
         );
       },
     );
   }
+}
+
+class _WatchlistMessage extends StatelessWidget {
+  const _WatchlistMessage({
+    required this.icon,
+    required this.title,
+    this.subtitle,
+    this.child,
+  });
+
+  final IconData icon;
+  final String title;
+  final String? subtitle;
+  final Widget? child;
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 72, color: Colors.white54),
+        const SizedBox(height: 18),
+        Text(
+          title,
+          textAlign: TextAlign.center,
+          style: const TextStyle(fontSize: 25, fontWeight: FontWeight.w700),
+        ),
+        if (subtitle != null) ...[
+          const SizedBox(height: 9),
+          Text(
+            subtitle!,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 18, color: Colors.white70),
+          ),
+        ],
+        if (child != null) ...[const SizedBox(height: 20), child!],
+      ],
+    ),
+  );
 }
