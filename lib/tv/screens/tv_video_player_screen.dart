@@ -212,6 +212,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
   final FocusNode _controlsFocusNode = FocusNode(debugLabel: 'Player controls');
   final FocusNode _retryNode = FocusNode(debugLabel: 'Player retry');
   final FocusNode _errorBackNode = FocusNode(debugLabel: 'Player error back');
+  final FocusNode _progressBarFocusNode = FocusNode(debugLabel: 'Player progress bar');
   final Map<_Pc, FocusNode> _controlFocusNodes = {};
   FocusScopeNode? _focusScope;
 
@@ -302,6 +303,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       _controlsFocusNode,
       _retryNode,
       _errorBackNode,
+      _progressBarFocusNode,
       ..._controlFocusNodes.values,
     ]) {
       node.dispose();
@@ -737,6 +739,10 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     if (_isNearEnd(value) && !_loadingNext && !_isBuffering) {
       unawaited(_playNextEpisode());
     }
+
+    if (_showControls && value.isPlaying && !_isBuffering) {
+      _resetHideTimer();
+    }
   }
 
   bool _isNearEnd(VideoPlayerValue value) {
@@ -1164,7 +1170,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
   void _resetHideTimer() {
     _hideTimer?.cancel();
     _hideTimer = Timer(const Duration(seconds: 5), () {
-      if (mounted && !_disposed && _currentControl == _Pc.back) {
+      if (mounted && !_disposed) {
         setState(() => _showControls = false);
         _clearFocusedBack();
       }
@@ -1278,7 +1284,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       case _Pc.playPause:
         if (key == LogicalKeyboardKey.arrowLeft) next = _Pc.back;
         else if (key == LogicalKeyboardKey.arrowRight) next = _Pc.rewind;
-        else if (key == LogicalKeyboardKey.arrowDown) next = _Pc.volume;
+        else if (key == LogicalKeyboardKey.arrowDown) next = _Pc.slider;
         break;
       case _Pc.rewind:
         if (key == LogicalKeyboardKey.arrowLeft) next = _Pc.playPause;
@@ -1680,26 +1686,54 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     final value = !_hasDuration || _duration == Duration.zero
         ? 0.0
         : (_position.inMilliseconds / _duration.inMilliseconds).clamp(0.0, 1.0);
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 44),
-      child: Column(
-        children: [
-          LinearProgressIndicator(
-            value: value,
-            minHeight: 6,
-            backgroundColor: Colors.white24,
-            valueColor:
-                const AlwaysStoppedAnimation<Color>(Color(0xFF00E5CC)),
-          ),
-          const SizedBox(height: 8),
-          Align(
-            alignment: Alignment.center,
-            child: Text(
-              _formatTime,
-              style: const TextStyle(color: Colors.white, fontSize: 14),
+    return Focus(
+      focusNode: _progressBarFocusNode,
+      onKeyEvent: (node, event) {
+        if (event is KeyDownEvent) {
+          final key = event.logicalKey;
+          if (key == LogicalKeyboardKey.arrowLeft) {
+            _seekBy(-10);
+            return KeyEventResult.handled;
+          }
+          if (key == LogicalKeyboardKey.arrowRight) {
+            _seekBy(10);
+            return KeyEventResult.handled;
+          }
+          if (key == LogicalKeyboardKey.arrowUp) {
+            _currentControl = _Pc.playPause;
+            _resetHideTimer();
+            _requestFocusFor(_Pc.playPause);
+            return KeyEventResult.handled;
+          }
+          if (key == LogicalKeyboardKey.escape ||
+              key == LogicalKeyboardKey.gameButtonB) {
+            _toggleControls();
+            return KeyEventResult.handled;
+          }
+        }
+        return KeyEventResult.ignored;
+      },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 44),
+        child: Column(
+          children: [
+            LinearProgressIndicator(
+              value: value,
+              minHeight: 6,
+              backgroundColor: Colors.white24,
+              valueColor:
+                  const AlwaysStoppedAnimation<Color>(Color(0xFF00E5CC)),
             ),
-          ),
-        ],
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.center,
+              child: Text(
+                _formatTime,
+                style: const TextStyle(color: Colors.white, fontSize: 14),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1719,13 +1753,13 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         focusNode: node,
         onKeyEvent: _onControlKey,
         child: Container(
-          width: 98,
-          padding: const EdgeInsets.symmetric(vertical: 10),
+          width: 72,
+          padding: const EdgeInsets.symmetric(vertical: 8),
           decoration: BoxDecoration(
             color: isFocused
                 ? const Color(0xFF00695C)
                 : const Color.fromARGB(150, 30, 30, 30),
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(6),
             border: Border.all(
               color: isFocused ? Colors.tealAccent : Colors.transparent,
               width: 2,
@@ -1735,20 +1769,20 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
             mainAxisSize: MainAxisSize.min,
             children: [
               Icon(icon,
-                  size: 20,
+                  size: 18,
                   color: isFocused ? Colors.white : Colors.white70),
-              const SizedBox(height: 4),
+              const SizedBox(height: 3),
               Text(title,
                   style: TextStyle(
                       color: isFocused ? Colors.white : Colors.white70,
-                      fontSize: 11)),
+                      fontSize: 10)),
               if (label != null && label.isNotEmpty) ...[
-                const SizedBox(height: 2),
+                const SizedBox(height: 1),
                 Text(label,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                        color: Colors.tealAccent, fontSize: 10)),
+                        color: Colors.tealAccent, fontSize: 9)),
               ],
             ],
           ),
