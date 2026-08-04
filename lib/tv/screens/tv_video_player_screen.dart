@@ -198,7 +198,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
   BetterPlayerConfiguration _playerConfiguration(String url) {
     return BetterPlayerConfiguration(
       aspectRatio: 16 / 9,
-      autoPlay: true,
+      autoPlay: false,
       errorBuilder: (context, errorMessage) {
         return _buildPlayerErrorWidget();
       },
@@ -366,9 +366,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
           _showStatus('Player is taking longer than expected. Please wait...');
         }
       });
-      await controller
-          .setupDataSource(dataSource)
-          .timeout(const Duration(seconds: 30));
+      await controller.setupDataSource(dataSource);
       if (!_isCurrent(generation)) {
         controller.dispose();
         return false;
@@ -430,20 +428,6 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         _focusAfterFrames(_retryNode);
       }
       return false;
-    } on TimeoutException {
-      _initTimeout?.cancel();
-      if (identical(_controller, controller)) _controller = null;
-      controller.dispose();
-      if (_isCurrent(generation)) {
-        setState(() {
-          _error =
-              'The selected server did not start playback in time.\n\n'
-              'Try again or choose another server.';
-          _isLoading = false;
-        });
-        _focusAfterFrames(_retryNode);
-      }
-      return false;
     } catch (e) {
       _initTimeout?.cancel();
       if (identical(_controller, controller)) _controller = null;
@@ -467,11 +451,15 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     switch (event.betterPlayerEventType) {
       case BetterPlayerEventType.initialized:
         _initTimeout?.cancel();
+        unawaited(_controller?.play());
         setState(() {
           _isLoading = false;
           _error = null;
           _statusMessage = '';
+          _isBuffering = false;
+          _playbackRetryCount = 0;
         });
+        _startProgressSaving();
         _showControlsAndFocus(_playNode);
         break;
       case BetterPlayerEventType.progress:
