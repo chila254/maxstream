@@ -82,6 +82,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
   bool _isBuffering = false;
   Timer? _hideTimer;
   Timer? _progressTimer;
+  Timer? _initTimeout;
   int _operationGeneration = 0;
   bool _switchingServer = false;
   bool _disposed = false;
@@ -126,6 +127,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     WidgetsBinding.instance.removeObserver(this);
     _hideTimer?.cancel();
     _progressTimer?.cancel();
+    _initTimeout?.cancel();
     _saveProgress();
     _controller?.removeEventsListener(_handlePlayerEvent);
     _controller?.dispose();
@@ -176,7 +178,17 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
 
   void _showStatus(String message) {
     debugPrint('TvVideoPlayer: $message');
-    if (mounted) setState(() => _statusMessage = message);
+    if (mounted) {
+      setState(() => _statusMessage = message);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          duration: const Duration(seconds: 2),
+          backgroundColor: const Color(0xFFB71C1C),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   bool _isCurrent(int generation) =>
@@ -340,7 +352,14 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
 
     try {
       _showStatus('Loading video...');
+      controller.addEventsListener(_handlePlayerEvent);
       controller.setupDataSource(dataSource);
+      _initTimeout?.cancel();
+      _initTimeout = Timer(const Duration(seconds: 8), () {
+        if (_isLoading && mounted && _isCurrent(generation)) {
+          _showStatus('Player is taking longer than expected. Please wait...');
+        }
+      });
       if (!_isCurrent(generation)) {
         controller.dispose();
         return false;
@@ -365,23 +384,10 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         }
       }
 
-      controller.play();
-      if (!_isCurrent(generation)) {
-        controller.dispose();
-        return false;
-      }
-
-      controller.addEventsListener(_handlePlayerEvent);
       setState(() {
         _controller = controller;
         _currentStreamUrl = url;
-        _isLoading = false;
-        _error = null;
-        _statusMessage = '';
-        _isBuffering = false;
-        _playbackRetryCount = 0;
       });
-
       previousController?.removeEventsListener(_handlePlayerEvent);
       previousController?.dispose();
       _startProgressSaving();
@@ -427,6 +433,14 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     final parameters = event.parameters;
 
     switch (event.betterPlayerEventType) {
+      case BetterPlayerEventType.initialized:
+        setState(() {
+          _isLoading = false;
+          _error = null;
+          _statusMessage = '';
+        });
+        _showControlsAndFocus(_playNode);
+        break;
       case BetterPlayerEventType.progress:
         final progress = parameters?['progress'] as Duration?;
         if (progress != null) {
@@ -436,6 +450,10 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         break;
       case BetterPlayerEventType.play:
         _isPlaying = true;
+        setState(() {
+          _isLoading = false;
+          _isBuffering = false;
+        });
         break;
       case BetterPlayerEventType.pause:
         _isPlaying = false;
