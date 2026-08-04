@@ -40,6 +40,7 @@ class _TvHomeScreenState extends State<TvHomeScreen>
   String? _errorMessage;
   Map<String, dynamic>? _heroItem;
   String _heroType = 'movie';
+  bool _heroResume = false;
 
   List<Map<String, dynamic>> trendingMovies = [];
   List<Map<String, dynamic>> trendingSeries = [];
@@ -207,6 +208,7 @@ class _TvHomeScreenState extends State<TvHomeScreen>
                           'Continue Watching',
                           continueWatching,
                           showProgress: true,
+                          resumeOnSelect: true,
                         ),
                       _buildContentRow(
                         'Trending Movies',
@@ -241,7 +243,14 @@ class _TvHomeScreenState extends State<TvHomeScreen>
     final item = _heroItem;
     if (item == null) return const SizedBox.shrink();
     final id = '${item['id']}:$_heroType';
-    final title = item['title'] ?? item['name'] ?? 'Unknown';
+    final isResume = _heroResume;
+    final isSeriesHero = _heroType == 'series';
+    final title = isResume
+        ? (item['seriesTitle']?.toString() ??
+              item['title']?.toString() ??
+              item['name']?.toString() ??
+              'Unknown')
+        : (item['title'] ?? item['name'] ?? 'Unknown');
     final date =
         item[_heroType == 'series' ? 'first_air_date' : 'release_date'];
     final rating = (item['vote_average'] as num?)?.toDouble() ?? 0;
@@ -251,6 +260,29 @@ class _TvHomeScreenState extends State<TvHomeScreen>
           return _getGenreName((genre as num).toInt());
         })
         .join('  •  ');
+    final heroBackdropUrl = isResume
+        ? (item['posterUrl']?.toString().isNotEmpty == true
+              ? item['posterUrl'].toString()
+              : '')
+        : TmdbApiService.getBackdropUrl(item['backdrop_path'] ?? '');
+    final episodeLabel = isResume && isSeriesHero
+        ? 'S${item['season'] ?? 1}E${item['episode'] ?? 1}'
+        : null;
+    final episodeName = isResume
+        ? item['episodeName']?.toString() ?? ''
+        : '';
+    final overview = isResume
+        ? (isSeriesHero
+              ? [if (episodeLabel != null) 'Episode $episodeLabel', if (episodeName.isNotEmpty) episodeName]
+                    .join(' • ')
+              : item['title']?.toString() ?? '')
+        : (item['overview'] ?? '');
+    final heroMetadata = <String>[
+      if (isResume) 'Resume',
+      if (rating > 0) '★ ${rating.toStringAsFixed(1)}',
+      if (date is String && date.length >= 4) date.substring(0, 4),
+      if (genres?.isNotEmpty == true) genres!,
+    ].join('   ');
     return AnimatedSwitcher(
       duration: const Duration(milliseconds: 480),
       switchInCurve: Curves.easeOutCubic,
@@ -273,7 +305,7 @@ class _TvHomeScreenState extends State<TvHomeScreen>
         fit: StackFit.expand,
         children: [
           Image.network(
-            TmdbApiService.getBackdropUrl(item['backdrop_path'] ?? ''),
+            heroBackdropUrl,
             fit: BoxFit.cover,
             alignment: Alignment.topCenter,
             errorBuilder: (_, _, _) => Container(color: Colors.grey[900]),
@@ -322,12 +354,7 @@ class _TvHomeScreenState extends State<TvHomeScreen>
                     ),
                     const SizedBox(height: 10),
                     Text(
-                      [
-                        if (rating > 0) '★ ${rating.toStringAsFixed(1)}',
-                        if (date is String && date.length >= 4)
-                          date.substring(0, 4),
-                        if (genres?.isNotEmpty == true) genres!,
-                      ].join('   '),
+                      heroMetadata,
                       style: const TextStyle(
                         color: Colors.white70,
                         fontSize: 14,
@@ -336,7 +363,7 @@ class _TvHomeScreenState extends State<TvHomeScreen>
                     ),
                     const SizedBox(height: 10),
                     Text(
-                      item['overview'] ?? '',
+                      overview,
                       maxLines: 3,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
@@ -351,9 +378,11 @@ class _TvHomeScreenState extends State<TvHomeScreen>
                         _HeroButton(
                           focusNode: _playFocusNode,
                           icon: Icons.play_arrow_rounded,
-                          label: 'Play',
+                          label: isResume ? 'Resume' : 'Play',
                           primary: true,
-                          onPressed: () => _play(item, _heroType),
+                          onPressed: () => isResume
+                              ? _resumePlayback(item, _heroType)
+                              : _play(item, _heroType),
                           onKeyEvent: (_, event) => _onHeroKey(0, event),
                         ),
                         const SizedBox(width: 12),
@@ -413,6 +442,7 @@ class _TvHomeScreenState extends State<TvHomeScreen>
     List<Map<String, dynamic>> items, {
     String contentType = 'movie',
     bool showProgress = false,
+    bool resumeOnSelect = false,
   }) {
     final rowId = 'home:$title';
     final rowController = _rowControllers.putIfAbsent(
@@ -460,11 +490,14 @@ class _TvHomeScreenState extends State<TvHomeScreen>
                     '$rowId:$index',
                     () => FocusNode(debugLabel: '$rowId card $index'),
                   );
+                  final posterUrl = resumeOnSelect
+                      ? _resumePosterUrl(item, isSeries)
+                      : _getPosterUrl(item);
                   return Padding(
                     padding: const EdgeInsets.only(right: 14),
                     child: TvContentCard(
                       focusNode: node,
-                      posterUrl: _getPosterUrl(item),
+                      posterUrl: posterUrl,
                       title:
                           item[isSeries ? 'name' : 'title'] ??
                           item['title'] ??
@@ -480,15 +513,19 @@ class _TvHomeScreenState extends State<TvHomeScreen>
                       contentType: isSeries
                           ? ContentType.series
                           : ContentType.movie,
-                      onTap: () => _openDetails(item, type),
-                      onSelect: () => _openDetails(item, type),
+                      onTap: () => resumeOnSelect
+                          ? _resumePlayback(item, type)
+                          : _openDetails(item, type),
+                      onSelect: () => resumeOnSelect
+                          ? _resumePlayback(item, type)
+                          : _openDetails(item, type),
                       onFocusChanged: (focused) {
                         if (!focused || !mounted) return;
                         final navigation = context.read<TvNavigationProvider>();
                         navigation.saveRowFocusedIndex(rowId, index);
                         navigation.saveActiveRowId(0, rowId);
                         _revealCard(rowId, index);
-                        _queueHero(item, type);
+                        _queueHero(item, type, resume: resumeOnSelect);
                       },
                       onKeyEvent: (_, event) =>
                           _onCardKey(rowId, index, items.length, event),
@@ -658,13 +695,52 @@ class _TvHomeScreenState extends State<TvHomeScreen>
     return null;
   }
 
-  void _queueHero(Map<String, dynamic> item, String type) {
+  String _resumePosterUrl(Map<String, dynamic> item, bool isSeries) {
+    if (isSeries) {
+      final still = item['posterUrl']?.toString() ?? '';
+      if (still.isNotEmpty && still.startsWith('https://image.tmdb.org')) {
+        return still;
+      }
+    }
+    return _getPosterUrl(item);
+  }
+
+  Future<void> _resumePlayback(Map<String, dynamic> item, String type) async {
+    final normalized = _normalizeItem(item);
+    final resolvedType = _itemType(normalized, type);
+    final isMovie = resolvedType != 'series';
+    final season =
+        (item['season'] as num?)?.toInt() ?? 1;
+    final episode =
+        (item['episode'] as num?)?.toInt() ?? 1;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => TvVideoPlayerScreen(
+          title: isMovie
+              ? (item['title']?.toString() ?? item['seriesTitle']?.toString() ?? item['name']?.toString() ?? '')
+              : (item['seriesTitle']?.toString() ?? item['title']?.toString() ?? ''),
+          tmdbId: isMovie
+              ? (item['tmdbId']?.toString() ?? item['id']?.toString() ?? '0')
+              : (item['tmdbId']?.toString() ?? item['id']?.toString() ?? '0'),
+          isMovie: isMovie,
+          season: isMovie ? 0 : season,
+          episode: isMovie ? 0 : episode,
+        ),
+      ),
+    );
+    if (mounted) _restoreInitialFocus();
+  }
+
+  void _queueHero(Map<String, dynamic> item, String type,
+      {bool resume = false}) {
     _heroDebounce?.cancel();
     _heroDebounce = Timer(const Duration(milliseconds: 400), () {
       if (!mounted) return;
       setState(() {
         _heroItem = item;
         _heroType = type;
+        _heroResume = resume;
       });
     });
   }

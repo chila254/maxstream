@@ -5,6 +5,7 @@ import '../../database/db_helper.dart';
 import '../../models/movie.dart';
 import '../../models/series.dart';
 import '../../services/tmdb_api_service.dart';
+import '../../services/watch_history_service.dart';
 import '../screens/tv_details_screen.dart';
 import '../screens/tv_series_screen.dart';
 import '../screens/tv_video_player_screen.dart';
@@ -43,6 +44,8 @@ class _TvCinematicDetailsState extends State<TvCinematicDetails>
   bool _loadingEpisodes = false;
   bool _saved = false;
   FocusNode? _lastPlayerFocus;
+  List<Map<String, dynamic>> _continueWatching = [];
+  bool get _hasContinueWatching => _continueWatching.isNotEmpty;
 
   bool get _isSeries => widget.mediaType == 'tv';
   FocusNode _node(String key) =>
@@ -78,9 +81,18 @@ class _TvCinematicDetailsState extends State<TvCinematicDetails>
           ? await TmdbApiService.getSeriesDetails(id)
           : await TmdbApiService.getMovieDetails(id);
       final watchlist = await DBHelper.getWatchlistItems();
+      final continueWatching = await WatchHistoryService.getContinueWatching();
       if (!mounted) return;
       setState(() {
         _details = result;
+        _continueWatching = continueWatching
+            .where(
+              (item) =>
+                  item['tmdbId']?.toString() == widget.item.id &&
+                  item['isMovie'] == !_isSeries,
+            )
+            .take(6)
+            .toList();
         _cast = List<Map<String, dynamic>>.from(
           result?['credits']?['cast'] ?? const [],
         );
@@ -227,6 +239,8 @@ class _TvCinematicDetailsState extends State<TvCinematicDetails>
                         controller: _scroll,
                         slivers: [
                           SliverToBoxAdapter(child: _hero()),
+                          if (_hasContinueWatching)
+                            SliverToBoxAdapter(child: _continueWatchingRow()),
                           if (_isSeries && _seasons.isNotEmpty)
                             SliverToBoxAdapter(child: _seasonRow()),
                           if (_isSeries) SliverToBoxAdapter(child: _episodeRow()),
@@ -408,6 +422,115 @@ class _TvCinematicDetailsState extends State<TvCinematicDetails>
       ],
     ),
   );
+
+  Widget _continueWatchingRow() => _section(
+    'Continue Watching',
+    240,
+    ListView.separated(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.only(right: 54),
+      itemCount: _continueWatching.length,
+      separatorBuilder: (_, _) => const SizedBox(width: 18),
+      itemBuilder: (_, index) {
+        final item = _continueWatching[index];
+        final season = (item['season'] as num?)?.toInt() ?? 1;
+        final episode = (item['episode'] as num?)?.toInt() ?? 1;
+        final progress = _resumeProgress(item);
+        final stillUrl = item['posterUrl']?.toString() ?? '';
+        final episodeName = item['episodeName']?.toString() ?? '';
+        final title = _isSeries
+            ? 'S$season E$episode${episodeName.isNotEmpty ? '  $episodeName' : ''}'
+            : widget.item.title;
+        return _TvTile(
+          node: _node('continue:$index'),
+          order: 15 + index / 100,
+          onPressed: () => _resumeFromHistory(item),
+          child: SizedBox(
+            width: 286,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        stillUrl.isEmpty
+                            ? const ColoredBox(
+                                color: Color(0xff242424),
+                                child: Center(
+                                  child: Icon(
+                                    Icons.play_circle_outline,
+                                    color: Colors.white54,
+                                  ),
+                                ),
+                              )
+                            : Image.network(
+                                stillUrl,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, _, _) => const ColoredBox(
+                                  color: Color(0xff242424),
+                                ),
+                              ),
+                        Positioned(
+                          left: 8,
+                          right: 8,
+                          bottom: 8,
+                          child: LinearProgressIndicator(
+                            value: progress.clamp(0.0, 1.0),
+                            minHeight: 4,
+                            backgroundColor: Colors.white24,
+                            color: const Color(0xffe50914),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                const Icon(Icons.play_circle_fill, color: _red, size: 20),
+              ],
+            ),
+          ),
+        );
+      },
+    ),
+  );
+
+  double _resumeProgress(Map<String, dynamic> item) {
+    final position = (item['position'] as num?)?.toDouble() ?? 0;
+    final duration = (item['duration'] as num?)?.toDouble() ?? 0;
+    if (duration <= 0) return 0;
+    return (position / duration).clamp(0, 1).toDouble();
+  }
+
+  Future<void> _resumeFromHistory(Map<String, dynamic> item) async {
+    final season = (item['season'] as num?)?.toInt() ?? 1;
+    final episode = (item['episode'] as num?)?.toInt() ?? 1;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => TvVideoPlayerScreen(
+          title: widget.item.title,
+          tmdbId: widget.item.id,
+          isMovie: !_isSeries,
+          season: _isSeries ? season : 1,
+          episode: _isSeries ? episode : 1,
+        ),
+      ),
+    );
+  }
 
   Widget _seasonRow() => _section(
     'Seasons',

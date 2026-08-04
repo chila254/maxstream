@@ -34,7 +34,14 @@ class Movie {
   });
 
   factory Movie.fromJson(Map<String, dynamic> json) {
-    final isMovie = (json['media_type'] ?? 'movie') == 'movie';
+    // Determine media type robustly. Some endpoints omit `media_type`;
+    // series results expose `name` and `first_air_date`, movies expose
+    // `title` and `release_date`.
+    final rawType = json['media_type']?.toString();
+    final resolvedType = rawType ??
+        ((json['first_air_date'] != null || json['name'] != null)
+            ? 'tv'
+            : 'movie');
 
     List<String> parsedGenres = [];
     if (json['genre_ids'] is List) {
@@ -67,11 +74,10 @@ class Movie {
       genres: parsedGenres,
       year: year,
       rating: (json['vote_average'] as num?)?.toDouble() ?? 0.0,
-      mediaType: json['media_type'] ?? (isMovie ? 'movie' : 'tv'),
+      mediaType: resolvedType,
       country: country,
     );
   }
-
   Map<String, dynamic> toMap() {
     return {
       'id': id,

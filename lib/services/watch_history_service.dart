@@ -70,6 +70,7 @@ class WatchHistoryService {
     required Duration duration,
     String posterUrl = '',
     String? seriesTitle,
+    String? episodeName,
   }) async {
     if (position.inSeconds <= 30) return;
     final percentage = duration.inSeconds > 0
@@ -79,6 +80,8 @@ class WatchHistoryService {
       'tmdbId': tmdbId,
       'title': title,
       if (!isMovie && seriesTitle != null) 'seriesTitle': seriesTitle,
+      if (!isMovie && episodeName != null && episodeName.isNotEmpty)
+        'episodeName': episodeName,
       'isMovie': isMovie,
       'season': season,
       'episode': episode,
