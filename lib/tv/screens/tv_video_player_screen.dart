@@ -2,8 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:media_kit/media_kit.dart';
+import 'package:media_kit_video/media_kit_video.dart';
 import 'package:provider/provider.dart';
-import 'package:better_player/better_player.dart';
 import '../providers/tv_navigation_provider.dart';
 import '../../services/direct_m3u8_service.dart';
 import '../../services/tmdb_api_service.dart';
@@ -72,10 +73,10 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
   String? _selectedSource;
   String? _selectedServerUrl;
   String? _currentTitle;
-  String? _currentStreamUrl;
   _StreamCandidate? _currentCandidate;
 
-  BetterPlayerController? _controller;
+  late final Player _player;
+  late final VideoController _videoController;
   bool _showControls = true;
   bool _isPlaying = false;
   Duration _position = Duration.zero;
@@ -88,10 +89,8 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
   bool _switchingServer = false;
   bool _disposed = false;
   bool _recoveringPlayback = false;
-  bool _isExiting = false;
   int _playbackRetryCount = 0;
   Duration _lastStablePosition = Duration.zero;
-  Duration? _currentResumePosition;
 
   final FocusNode _surfaceNode = FocusNode(debugLabel: 'Player surface');
   final FocusNode _controlsFocusNode = FocusNode(debugLabel: 'Player controls');
@@ -104,6 +103,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
   final FocusNode _retryNode = FocusNode(debugLabel: 'Player retry');
   final FocusNode _errorBackNode = FocusNode(debugLabel: 'Player error back');
   final List<FocusNode> _overlayNodes = [];
+  final List<StreamSubscription> _playerSubscriptions = [];
 
   @override
   void initState() {
@@ -116,9 +116,64 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     ]);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
 
+    _player = Player();
+    _videoController = VideoController(_player);
+
     _progressTimer = Timer.periodic(const Duration(seconds: 25), (_) {
       _saveProgress();
     });
+
+    _playerSubscriptions.addAll([
+      _player.stream.playing.listen((playing) {
+        if (_disposed || !mounted) return;
+        setState(() {
+          _isPlaying = playing;
+          if (!playing) {
+            _isBuffering = false;
+          }
+        });
+        if (playing) {
+          _showControlsAndFocus(_playNode);
+        }
+      }),
+      _player.stream.position.listen((position) {
+        if (_disposed || !mounted) return;
+        setState(() {
+          _position = position;
+          if (position > Duration.zero) {
+            _lastStablePosition = position;
+          }
+        });
+      }),
+      _player.stream.duration.listen((duration) {
+        if (_disposed || !mounted) return;
+        setState(() => _duration = duration);
+      }),
+      _player.stream.buffering.listen((buffering) {
+        if (_disposed || !mounted) return;
+        setState(() => _isBuffering = buffering);
+      }),
+      _player.stream.completed.listen((completed) {
+        if (_disposed || !mounted) return;
+        if (completed) {
+          _saveProgress();
+        }
+      }),
+      _player.stream.error.listen((error) {
+        if (_disposed || !mounted) return;
+        debugPrint('TvVideoPlayer: Player stream error: $error');
+        if (!_recoveringPlayback && _playbackRetryCount < 2) {
+          unawaited(_recoverPlayback());
+        } else if (mounted) {
+          setState(() {
+            _error = 'Playback error: $error';
+            _isLoading = false;
+            _showControls = true;
+          });
+          _focusAfterFrames(_retryNode);
+        }
+      }),
+    ]);
 
     _loadStream();
   }
@@ -132,7 +187,10 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     _progressTimer?.cancel();
     _initTimeout?.cancel();
     _saveProgress();
-    _controller?.dispose(forceDispose: true);
+    for (final sub in _playerSubscriptions) {
+      sub.cancel();
+    }
+    _player.dispose();
     for (final node in [
       _surfaceNode,
       _controlsFocusNode,
@@ -158,7 +216,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         state == AppLifecycleState.inactive ||
         state == AppLifecycleState.detached) {
       _saveProgress();
-      _controller?.pause();
+      _player.pause();
     }
   }
 
@@ -195,43 +253,6 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
 
   bool _isCurrent(int generation) =>
       !_disposed && mounted && generation == _operationGeneration;
-
-  BetterPlayerConfiguration _playerConfiguration(String url) {
-    return BetterPlayerConfiguration(
-      aspectRatio: 16 / 9,
-      autoPlay: false,
-      errorBuilder: (context, errorMessage) {
-        return _buildPlayerErrorWidget();
-      },
-      deviceOrientationsOnFullScreen: const [
-        DeviceOrientation.landscapeLeft,
-        DeviceOrientation.landscapeRight,
-      ],
-      deviceOrientationsAfterFullScreen: const [
-        DeviceOrientation.landscapeLeft,
-        DeviceOrientation.landscapeRight,
-      ],
-      handleLifecycle: true,
-      autoDispose: false,
-      expandToFill: true,
-      controlsConfiguration: const BetterPlayerControlsConfiguration(
-        showControls: false,
-      ),
-    );
-  }
-
-  BetterPlayerDataSource _playerDataSource(
-    String url,
-    Map<String, String> headers,
-  ) {
-    return BetterPlayerDataSource.network(
-      url,
-      headers: headers,
-      videoFormat: url.toLowerCase().contains('.m3u8')
-          ? BetterPlayerVideoFormat.hls
-          : BetterPlayerVideoFormat.other,
-    );
-  }
 
   Future<void> _loadStream() async {
     if (!mounted || _disposed) return;
@@ -346,49 +367,66 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     required Duration? resumePosition,
   }) async {
     if (!_isCurrent(generation)) return false;
-    final previousController = _controller;
     final url = candidate.url;
-    final dataSource = _playerDataSource(url, candidate.headers);
-    final controller = BetterPlayerController(_playerConfiguration(url));
 
     try {
       _showStatus('Loading video...');
-      controller.addEventsListener(_handlePlayerEvent);
-      setState(() {
-        _controller = controller;
-        _currentStreamUrl = url;
-        _currentCandidate = candidate;
-        _currentResumePosition = resumePosition;
+      _initTimeout?.cancel();
+      _initTimeout = Timer(const Duration(seconds: 8), () {
+        if (_isLoading && mounted && _isCurrent(generation)) {
+          _showStatus('Player is taking longer than expected. Please wait...');
+        }
       });
-      previousController?.removeEventsListener(_handlePlayerEvent);
-      previousController?.dispose();
-      controller.setupDataSource(dataSource);
-      return true;
-    } on PlatformException catch (e) {
-      controller.dispose();
-      debugPrint('TvVideoPlayer: PlatformException: ${e.message}');
-      if (_isCurrent(generation)) {
-        final codecError =
-            e.message?.contains('MediaCodec') == true ||
-            e.message?.contains('VideoRenderer') == true;
-        if (codecError && _playbackRetryCount < 1) {
-          _playbackRetryCount++;
-          _showStatus('Decoder error, trying fallback...');
-          await _switchToNextServer(generation);
+
+      final media = Media(
+        url,
+        httpHeaders: candidate.headers.isNotEmpty ? candidate.headers : null,
+      );
+
+      await _player.open(media, play: false);
+      if (!_isCurrent(generation)) {
+        await _player.stop();
+        return false;
+      }
+
+      final target = resumePosition ??
+          await WatchHistoryService.loadWatchPosition(
+            widget.tmdbId,
+            widget.isMovie,
+            widget.season,
+            widget.episode,
+          );
+      if (!_isCurrent(generation)) {
+        await _player.stop();
+        return false;
+      }
+      if (target > Duration.zero) {
+        await _player.seek(target);
+        if (!_isCurrent(generation)) {
+          await _player.stop();
           return false;
         }
-        setState(() {
-          _error =
-              'Playback failed on this device.\n'
-              'The stream format may not be supported.\n\n'
-              'Try switching to another server from the server picker.';
-          _isLoading = false;
-        });
-        _focusAfterFrames(_retryNode);
       }
-      return false;
+
+      await _player.play();
+      if (!_isCurrent(generation)) {
+        await _player.stop();
+        return false;
+      }
+
+      _initTimeout?.cancel();
+      setState(() {
+        _currentCandidate = candidate;
+        _isLoading = false;
+        _error = null;
+        _statusMessage = '';
+        _isBuffering = false;
+        _playbackRetryCount = 0;
+      });
+      _startProgressSaving();
+      _showControlsAndFocus(_playNode);
+      return true;
     } catch (e) {
-      controller.dispose();
       debugPrint('TvVideoPlayer: Error initializing player: $e');
       if (_isCurrent(generation)) {
         setState(() {
@@ -398,76 +436,6 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         _focusAfterFrames(_retryNode);
       }
       return false;
-    }
-  }
-
-  void _handlePlayerEvent(BetterPlayerEvent event) {
-    if (_disposed || !mounted) return;
-    final parameters = event.parameters;
-
-    switch (event.betterPlayerEventType) {
-      case BetterPlayerEventType.initialized:
-        _initTimeout?.cancel();
-        final target = _currentResumePosition;
-        _currentResumePosition = null;
-        if (target != null && target > Duration.zero) {
-          unawaited(_controller?.seekTo(target));
-        }
-        unawaited(_controller?.play());
-        setState(() {
-          _isLoading = false;
-          _error = null;
-          _statusMessage = '';
-          _isBuffering = false;
-          _playbackRetryCount = 0;
-        });
-        _startProgressSaving();
-        _showControlsAndFocus(_playNode);
-        break;
-      case BetterPlayerEventType.progress:
-        final progress = parameters?['progress'] as Duration?;
-        if (progress != null) {
-          _position = progress;
-          _lastStablePosition = progress;
-          _duration = parameters?['duration'] as Duration? ?? _duration;
-        }
-        break;
-      case BetterPlayerEventType.play:
-        _isPlaying = true;
-        setState(() {
-          _isLoading = false;
-          _isBuffering = false;
-        });
-        break;
-      case BetterPlayerEventType.pause:
-        _isPlaying = false;
-        _saveProgress();
-        break;
-      case BetterPlayerEventType.finished:
-        _saveProgress();
-        break;
-      case BetterPlayerEventType.bufferingStart:
-        _isBuffering = true;
-        break;
-      case BetterPlayerEventType.bufferingEnd:
-        _isBuffering = false;
-        break;
-      case BetterPlayerEventType.exception:
-        final errorMessage =
-            parameters?['exception'] as String? ?? 'Playback error';
-        if (!_recoveringPlayback && _playbackRetryCount < 2) {
-          unawaited(_recoverPlayback());
-        } else if (mounted) {
-          setState(() {
-            _error = 'Playback error: $errorMessage';
-            _isLoading = false;
-            _showControls = true;
-          });
-          _focusAfterFrames(_retryNode);
-        }
-        break;
-      default:
-        break;
     }
   }
 
@@ -503,22 +471,6 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     } finally {
       _recoveringPlayback = false;
     }
-  }
-
-  Future<void> _switchToNextServer(int generation) async {
-    if (_availableServers.length <= 1) return;
-    final currentIndex = _availableServers.indexWhere(
-      (s) => s.url == _currentStreamUrl,
-    );
-    final nextIndex = currentIndex < 0 ? 0 : currentIndex + 1;
-    final next = _availableServers[nextIndex % _availableServers.length];
-    if (next.url.isEmpty || next.url == _currentStreamUrl) return;
-    _showStatus('Trying ${next.source}...');
-    await _initializePlayer(
-      next,
-      generation: generation,
-      resumePosition: _lastStablePosition,
-    );
   }
 
   Future<void> _discoverAvailableServers(int generation) async {
@@ -580,30 +532,26 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
   }
 
   void _togglePlayPause() {
-    final controller = _controller;
-    if (controller == null) return;
     if (_isPlaying) {
-      controller.pause();
+      _player.pause();
     } else {
-      controller.play();
+      _player.play();
     }
     setState(() => _showControls = true);
     _resetHideTimer();
   }
 
   void _seekBy(Duration offset) {
-    final controller = _controller;
-    if (controller == null) return;
     var target = _position + offset;
     if (target < Duration.zero) target = Duration.zero;
     if (_duration > Duration.zero && target > _duration) target = _duration;
-    controller.seekTo(target);
+    _player.seek(target);
     setState(() => _showControls = true);
     _resetHideTimer();
   }
 
   void _seekTo(Duration position) {
-    _controller?.seekTo(position);
+    _player.seek(position);
     _resetHideTimer();
   }
 
@@ -630,16 +578,6 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         node.requestFocus();
       }
     });
-  }
-
-  void _toggleControls() {
-    setState(() => _showControls = !_showControls);
-    if (_showControls) {
-      _resetHideTimer();
-      _focusAfterFrames(_backNode);
-    } else {
-      _surfaceNode.requestFocus();
-    }
   }
 
   void _showServerPicker() {
@@ -717,11 +655,9 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
   }
 
   void _handleBackNavigation() {
-    if (_isExiting) return;
-    _isExiting = true;
     _saveProgress();
     context.read<TvNavigationProvider>().setDeepNavigating(false);
-    Navigator.maybePop(context);
+    Navigator.pop(context);
   }
 
   void _startProgressSaving() {
@@ -738,7 +674,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       canPop: true,
       onPopInvoked: (didPop) {
         if (didPop) {
-          _controller?.pause();
+          _player.pause();
           context.read<TvNavigationProvider>().setDeepNavigating(false);
         }
       },
@@ -746,7 +682,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         backgroundColor: Colors.black,
         body: Focus(
           focusNode: _surfaceNode,
-          autofocus: true,
+          canRequestFocus: true,
           onKeyEvent: (node, event) {
             if (event is KeyDownEvent &&
                 (event.logicalKey == LogicalKeyboardKey.escape ||
@@ -761,38 +697,17 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
               : Stack(
                   fit: StackFit.expand,
                   children: [
-                    if (_controller != null) _buildPlayerWidget(),
+                    Video(
+                      controller: _videoController,
+                      controls: NoVideoControls,
+                    ),
                     if (_isLoading) _buildLoadingWidget(),
+                    if (_isBuffering)
+                      const Center(child: CircularProgressIndicator(color: Colors.white)),
+                    if (_showControls) _buildControlsOverlay(),
                   ],
                 ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildPlayerWidget() {
-    final controller = _controller;
-    return GestureDetector(
-      onTap: _toggleControls,
-      child: Stack(
-        children: [
-          if (controller != null)
-            BetterPlayer(controller: controller)
-          else
-            Container(color: Colors.black),
-          if (_isBuffering)
-            const Center(child: CircularProgressIndicator(color: Colors.white)),
-          if (_showControls) _buildControlsOverlay(),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPlayerErrorWidget() {
-    return Container(
-      color: Colors.black,
-      child: const Center(
-        child: Icon(Icons.error_outline, color: Colors.red, size: 48),
       ),
     );
   }
@@ -834,10 +749,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
             children: [
               SafeArea(
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 8,
-                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   child: Row(
                     children: [
                       _ControlButton(
