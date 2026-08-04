@@ -57,7 +57,10 @@ public class PlatformViewVideoPlayer extends VideoPlayer {
         asset.getMediaItem(),
         options,
         () -> {
-          ExoPlayer.Builder builder = new ExoPlayer.Builder(context);
+          androidx.media3.exoplayer.DefaultRenderersFactory renderersFactory =
+              new androidx.media3.exoplayer.DefaultRenderersFactory(context);
+          renderersFactory.setEnableDecoderFallback(true);
+          ExoPlayer.Builder builder = new ExoPlayer.Builder(context, renderersFactory);
           if (options.backBufferDurationMs != null) {
             if (options.backBufferDurationMs < 0) {
               throw new IllegalArgumentException("backBufferDurationMs must be at least 0");
@@ -78,7 +81,6 @@ public class PlatformViewVideoPlayer extends VideoPlayer {
               new androidx.media3.exoplayer.trackselection.DefaultTrackSelector(context);
           builder
               .setTrackSelector(trackSelector)
-              .setEnableDecoderFallback(true)
               .setMediaSourceFactory(asset.getMediaSourceFactory(context));
           return builder.build();
         });
