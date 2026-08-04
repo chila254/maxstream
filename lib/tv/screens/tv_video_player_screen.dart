@@ -1231,20 +1231,6 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         return KeyEventResult.handled;
       }
     }
-    if (event.runtimeType == KeyUpEvent) {
-      final key = event.logicalKey;
-      if (key == LogicalKeyboardKey.enter ||
-          key == LogicalKeyboardKey.select ||
-          key == LogicalKeyboardKey.gameButtonA) {
-        _activateControl(_currentControl);
-        return KeyEventResult.handled;
-      }
-      if (key == LogicalKeyboardKey.escape ||
-          key == LogicalKeyboardKey.gameButtonB) {
-        _toggleControls();
-        return KeyEventResult.handled;
-      }
-    }
     return KeyEventResult.ignored;
   }
 
