@@ -91,6 +91,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
   bool _isExiting = false;
   int _playbackRetryCount = 0;
   Duration _lastStablePosition = Duration.zero;
+  Duration? _currentResumePosition;
 
   final FocusNode _surfaceNode = FocusNode(debugLabel: 'Player surface');
   final FocusNode _controlsFocusNode = FocusNode(debugLabel: 'Player controls');
@@ -357,55 +358,13 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         _controller = controller;
         _currentStreamUrl = url;
         _currentCandidate = candidate;
+        _currentResumePosition = resumePosition;
       });
       previousController?.removeEventsListener(_handlePlayerEvent);
       previousController?.dispose();
-      _initTimeout?.cancel();
-      _initTimeout = Timer(const Duration(seconds: 8), () {
-        if (_isLoading && mounted && _isCurrent(generation)) {
-          _showStatus('Player is taking longer than expected. Please wait...');
-        }
-      });
-      await controller.setupDataSource(dataSource);
-      if (!_isCurrent(generation)) {
-        controller.dispose();
-        return false;
-      }
-
-      final target =
-          resumePosition ??
-          await WatchHistoryService.loadWatchPosition(
-            widget.tmdbId,
-            widget.isMovie,
-            widget.season,
-            widget.episode,
-          );
-      if (!_isCurrent(generation)) {
-        controller.dispose();
-        return false;
-      }
-      if (target > Duration.zero) {
-        await controller.seekTo(target);
-        if (!_isCurrent(generation)) {
-          controller.dispose();
-          return false;
-        }
-      }
-
-      _initTimeout?.cancel();
-      setState(() {
-        _isLoading = false;
-        _error = null;
-        _statusMessage = '';
-        _isBuffering = false;
-        _playbackRetryCount = 0;
-      });
-      _startProgressSaving();
-      _showControlsAndFocus(_playNode);
+      controller.setupDataSource(dataSource);
       return true;
     } on PlatformException catch (e) {
-      _initTimeout?.cancel();
-      if (identical(_controller, controller)) _controller = null;
       controller.dispose();
       debugPrint('TvVideoPlayer: PlatformException: ${e.message}');
       if (_isCurrent(generation)) {
@@ -429,8 +388,6 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       }
       return false;
     } catch (e) {
-      _initTimeout?.cancel();
-      if (identical(_controller, controller)) _controller = null;
       controller.dispose();
       debugPrint('TvVideoPlayer: Error initializing player: $e');
       if (_isCurrent(generation)) {
@@ -451,6 +408,11 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     switch (event.betterPlayerEventType) {
       case BetterPlayerEventType.initialized:
         _initTimeout?.cancel();
+        final target = _currentResumePosition;
+        _currentResumePosition = null;
+        if (target != null && target > Duration.zero) {
+          unawaited(_controller?.seekTo(target));
+        }
         unawaited(_controller?.play());
         setState(() {
           _isLoading = false;
