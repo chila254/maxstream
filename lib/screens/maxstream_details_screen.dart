@@ -42,12 +42,18 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
     _scrollController = ScrollController();
     _downloadManager = MediaDownloadManager.instance;
     _downloadManager.addListener(_onDownloadChanged);
+    CloudSyncService.watchlistRevision.addListener(_onSyncedWatchlist);
     _loadDetails();
     _checkDownloadStatus();
   }
 
+  void _onSyncedWatchlist() {
+    if (mounted) _checkWatchlistStatus();
+  }
+
   @override
   void dispose() {
+    CloudSyncService.watchlistRevision.removeListener(_onSyncedWatchlist);
     _youtubeController?.dispose();
     _scrollController.dispose();
     _downloadManager.removeListener(_onDownloadChanged);

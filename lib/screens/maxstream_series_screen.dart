@@ -41,12 +41,18 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
     super.initState();
     _downloadManager = MediaDownloadManager.instance;
     _downloadManager.addListener(_onDownloadChanged);
+    CloudSyncService.watchlistRevision.addListener(_onSyncedWatchlist);
     _loadSeriesDetails();
     _checkWatchlistStatus();
   }
 
+  void _onSyncedWatchlist() {
+    if (mounted) _checkWatchlistStatus();
+  }
+
   @override
   void dispose() {
+    CloudSyncService.watchlistRevision.removeListener(_onSyncedWatchlist);
     _youtubeController?.dispose();
     _downloadManager.removeListener(_onDownloadChanged);
     super.dispose();

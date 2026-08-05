@@ -26,17 +26,23 @@ class _MaxStreamWatchlistScreenState extends State<MaxStreamWatchlistScreen>
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+    CloudSyncService.watchlistRevision.addListener(_onSyncedWatchlist);
     _loadWatchlist();
+  }
+
+  void _onSyncedWatchlist() {
+    if (mounted) _loadWatchlist(showLoading: false);
   }
 
   @override
   void dispose() {
+    CloudSyncService.watchlistRevision.removeListener(_onSyncedWatchlist);
     _tabController.dispose();
     super.dispose();
   }
 
-  Future<void> _loadWatchlist() async {
-    setState(() => isLoading = true);
+  Future<void> _loadWatchlist({bool showLoading = true}) async {
+    if (showLoading) setState(() => isLoading = true);
     try {
       await CloudSyncService.pullToDevice();
       final items = await DBHelper.getWatchlistItems();

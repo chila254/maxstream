@@ -6,6 +6,7 @@ import 'screens/tv_splash_screen.dart';
 import 'screens/tv_login_screen.dart';
 import 'screens/tv_maxstream_main.dart';
 import '../services/notification_service.dart';
+import '../widgets/cloud_sync_bootstrap.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -58,7 +59,7 @@ class MaxStreamTV extends StatelessWidget {
       title: 'MaxStream TV',
       theme: ThemeData.dark(),
       debugShowCheckedModeBanner: false,
-      home: const TvAuthGate(),
+      home: const CloudSyncBootstrap(child: TvAuthGate()),
     );
   }
 }

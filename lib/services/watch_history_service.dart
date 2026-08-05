@@ -105,7 +105,8 @@ class WatchHistoryService {
 
   /// Persists a history item fetched from the cloud into local storage without
   /// pushing it back up (avoids a push loop). Item keys are deterministic, so
-  /// re-importing is idempotent.
+  /// re-importing is idempotent. Non-JSON fields (e.g. the Firestore
+  /// `updatedAt` Timestamp) are stripped before encoding.
   static Future<void> importWatchProgress(
     Map<String, dynamic> history,
   ) async {
@@ -114,12 +115,31 @@ class WatchHistoryService {
     final season = _integer(history['season'], 0);
     final episode = _integer(history['episode'], 0);
     if (tmdbId.isEmpty) return;
+    final clean = <String, dynamic>{
+      'tmdbId': tmdbId,
+      'title': history['title']?.toString() ?? '',
+      if (history['seriesTitle'] != null)
+        'seriesTitle': history['seriesTitle'].toString(),
+      if (history['episodeName'] != null &&
+          history['episodeName'].toString().isNotEmpty)
+        'episodeName': history['episodeName'].toString(),
+      'isMovie': isMovie,
+      'season': season,
+      'episode': episode,
+      'posterUrl': history['posterUrl']?.toString() ?? '',
+      'position': _integer(history['position']),
+      'duration': _integer(history['duration']),
+      'watchPercentage':
+          (history['watchPercentage'] as num?)?.toDouble() ?? 0.0,
+      'isWatched': history['isWatched'] == true,
+      'timestamp': _integer(history['timestamp']),
+    };
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
       getWatchHistoryKey(tmdbId, isMovie, season, episode),
-      jsonEncode(history),
+      jsonEncode(clean),
     );
-    await _saveToGlobalHistory(history);
+    await _saveToGlobalHistory(clean);
   }
 
   static Future<void> _saveToGlobalHistory(Map<String, dynamic> history) async {
@@ -205,20 +225,31 @@ class WatchHistoryService {
     int season,
     int episode,
   ) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(getWatchHistoryKey(tmdbId, isMovie, season, episode));
-      final list = _decodeList(prefs.getString(_historyListKey))
-        ..removeWhere(
-          (item) =>
-              item['tmdbId']?.toString() == tmdbId &&
-              item['isMovie'] == isMovie &&
-              _integer(item['season']) == season &&
-              _integer(item['episode']) == episode,
-        );
-    await prefs.setString(_historyListKey, jsonEncode(list));
+    await removeFromHistoryLocal(tmdbId, isMovie, season, episode);
     unawaited(
       CloudSyncService.deleteWatchProgress(tmdbId, isMovie, season, episode),
     );
+  }
+
+  /// Removes an item from local storage only (used by the cloud listener to
+  /// apply a remote deletion without pushing it back).
+  static Future<void> removeFromHistoryLocal(
+    String tmdbId,
+    bool isMovie,
+    int season,
+    int episode,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(getWatchHistoryKey(tmdbId, isMovie, season, episode));
+    final list = _decodeList(prefs.getString(_historyListKey))
+      ..removeWhere(
+        (item) =>
+            item['tmdbId']?.toString() == tmdbId &&
+            item['isMovie'] == isMovie &&
+            _integer(item['season']) == season &&
+            _integer(item['episode']) == episode,
+      );
+    await prefs.setString(_historyListKey, jsonEncode(list));
   }
 
   static Future<void> removeSeriesFromHistory(String tmdbId) async {

@@ -32,7 +32,18 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
   @override
   void initState() {
     super.initState();
+    CloudSyncService.historyRevision.addListener(_onSyncedHistory);
     _loadContent();
+  }
+
+  void _onSyncedHistory() {
+    if (mounted) _loadContinueWatching();
+  }
+
+  @override
+  void dispose() {
+    CloudSyncService.historyRevision.removeListener(_onSyncedHistory);
+    super.dispose();
   }
 
   Future<void> _loadContent() async {

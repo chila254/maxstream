@@ -53,6 +53,7 @@ class _TvHomeScreenState extends State<TvHomeScreen>
   @override
   void initState() {
     super.initState();
+    CloudSyncService.historyRevision.addListener(_onSyncedHistory);
     _entryController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 330),
@@ -66,6 +67,10 @@ class _TvHomeScreenState extends State<TvHomeScreen>
     _loadContent();
   }
 
+  void _onSyncedHistory() {
+    if (mounted) _refreshContinueWatching();
+  }
+
   void _saveScrollOffset() {
     if (mounted) {
       context.read<TvNavigationProvider>().saveScrollOffset(
@@ -77,6 +82,7 @@ class _TvHomeScreenState extends State<TvHomeScreen>
 
   @override
   void dispose() {
+    CloudSyncService.historyRevision.removeListener(_onSyncedHistory);
     _heroDebounce?.cancel();
     _scrollController.removeListener(_saveScrollOffset);
     _scrollController.dispose();

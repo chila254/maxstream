@@ -8,6 +8,7 @@ import 'screens/maxstream_main_screen.dart';
 import 'services/notification_service.dart';
 import 'services/media_download_manager.dart';
 import 'services/theme_service.dart';
+import 'widgets/cloud_sync_bootstrap.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -68,7 +69,7 @@ class MaxStreamApp extends StatelessWidget {
       theme: ThemeService.darkTheme,
       themeMode: ThemeMode.dark,
       debugShowCheckedModeBanner: false,
-      home: const AuthGate(),
+      home: const CloudSyncBootstrap(child: AuthGate()),
     );
   }
 }

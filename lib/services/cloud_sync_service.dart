@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
@@ -8,11 +10,21 @@ import 'watch_history_service.dart';
 
 /// Syncs a user's watch history and watchlist between devices through
 /// Firestore. Writes on any device push the activity to the user's document,
-/// and a freshly signed-in TV pulls it back into local storage.
+/// and a real-time listener (see [startListening]) mirrors every cloud change
+/// back into local storage so all signed-in devices stay in sync live.
 class CloudSyncService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   static bool _pullInProgress = false;
+  static bool _listening = false;
+  static StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _historySub;
+  static StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _watchlistSub;
+
+  /// Bumped whenever synced watch history changes; screens listen to refresh.
+  static final ValueNotifier<int> historyRevision = ValueNotifier<int>(0);
+
+  /// Bumped whenever synced watchlist changes; screens listen to refresh.
+  static final ValueNotifier<int> watchlistRevision = ValueNotifier<int>(0);
 
   static String? get _uid => FirebaseAuth.instance.currentUser?.uid;
 
@@ -35,6 +47,84 @@ class CloudSyncService {
 
   static String watchlistKey(String id, String mediaType) =>
       '${id}_$mediaType';
+
+  // ---------------------------------------------------------------------
+  // Real-time listener
+  // ---------------------------------------------------------------------
+
+  /// Subscribes to the signed-in user's cloud subcollections and mirrors
+  /// changes into local storage. No-op if already listening or signed out.
+  static void startListening() {
+    final uid = _uid;
+    if (uid == null || _listening) return;
+    _listening = true;
+    _historySub = _watchHistoryRef(uid).snapshots().listen(
+      _onHistorySnapshot,
+      onError: (Object e) =>
+          debugPrint('CloudSync: history listener error: $e'),
+    );
+    _watchlistSub = _watchlistRef(uid).snapshots().listen(
+      _onWatchlistSnapshot,
+      onError: (Object e) =>
+          debugPrint('CloudSync: watchlist listener error: $e'),
+    );
+  }
+
+  /// Cancels the real-time subscriptions.
+  static void stopListening() {
+    _historySub?.cancel();
+    _watchlistSub?.cancel();
+    _historySub = null;
+    _watchlistSub = null;
+    _listening = false;
+  }
+
+  static void _onHistorySnapshot(
+    QuerySnapshot<Map<String, dynamic>> snapshot,
+  ) {
+    for (final change in snapshot.docChanges) {
+      final data = change.doc.data();
+      if (data == null) continue;
+      final tmdbId = (data['tmdbId'] ?? '').toString();
+      final isMovie = data['isMovie'] == true;
+      final season = (data['season'] as num?)?.toInt() ?? 0;
+      final episode = (data['episode'] as num?)?.toInt() ?? 0;
+      if (change.type == DocumentChangeType.removed) {
+        unawaited(
+          WatchHistoryService.removeFromHistoryLocal(
+            tmdbId,
+            isMovie,
+            season,
+            episode,
+          ),
+        );
+      } else {
+        unawaited(
+          WatchHistoryService.importWatchProgress(
+            Map<String, dynamic>.from(data),
+          ),
+        );
+      }
+    }
+    historyRevision.value++;
+  }
+
+  static void _onWatchlistSnapshot(
+    QuerySnapshot<Map<String, dynamic>> snapshot,
+  ) {
+    for (final change in snapshot.docChanges) {
+      final data = change.doc.data();
+      if (data == null) continue;
+      final id = (data['id'] ?? '').toString();
+      final mediaType = data['mediaType']?.toString() ?? 'movie';
+      if (change.type == DocumentChangeType.removed) {
+        unawaited(DBHelper.removeMovieLocal(id, mediaType));
+      } else {
+        unawaited(DBHelper.importWatchlist(_movieFromDoc(data)));
+      }
+    }
+    watchlistRevision.value++;
+  }
 
   // ---------------------------------------------------------------------
   // Push (called from phone/TV write paths)
@@ -131,7 +221,7 @@ class CloudSyncService {
 
       final watchlistSnap = await _watchlistRef(uid).get();
       for (final doc in watchlistSnap.docs) {
-        await DBHelper.addToWatchlist(_movieFromDoc(doc.data()));
+        await DBHelper.importWatchlist(_movieFromDoc(doc.data()));
       }
     } catch (e) {
       debugPrint('CloudSync: pull failed: $e');

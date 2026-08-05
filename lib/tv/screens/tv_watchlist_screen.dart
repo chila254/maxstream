@@ -51,6 +51,7 @@ class _TvWatchlistScreenState extends State<TvWatchlistScreen> {
   @override
   void initState() {
     super.initState();
+    CloudSyncService.watchlistRevision.addListener(_onSyncedWatchlist);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final nav = context.read<TvNavigationProvider>();
@@ -60,8 +61,13 @@ class _TvWatchlistScreenState extends State<TvWatchlistScreen> {
     _loadWatchlist();
   }
 
+  void _onSyncedWatchlist() {
+    if (mounted) _loadWatchlist(showLoading: false);
+  }
+
   @override
   void dispose() {
+    CloudSyncService.watchlistRevision.removeListener(_onSyncedWatchlist);
     for (final node in [..._tabNodes, ..._cardNodes.values]) {
       node.dispose();
     }

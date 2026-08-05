@@ -262,6 +262,17 @@ class DBHelper {
   }
 
   static Future<void> addToWatchlist(Movie movie) async {
+    await _insertWatchlist(movie);
+    unawaited(CloudSyncService.pushWatchlist(movie));
+  }
+
+  /// Upserts a watchlist item into local storage without pushing it back to
+  /// the cloud (used by the cloud listener to apply a remote change).
+  static Future<void> importWatchlist(Movie movie) async {
+    await _insertWatchlist(movie);
+  }
+
+  static Future<void> _insertWatchlist(Movie movie) async {
     final db = await database;
     await db.insert('watchlist', {
       'ownerId': UserScope.currentOwner,
@@ -277,7 +288,6 @@ class DBHelper {
       'rating': movie.rating,
       'mediaType': movie.mediaType,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
-    unawaited(CloudSyncService.pushWatchlist(movie));
   }
 
   static Future<void> updateMovie(Movie movie) async {
@@ -302,13 +312,19 @@ class DBHelper {
   }
 
   static Future<void> removeMovie(dynamic id, String mediaType) async {
+    await removeMovieLocal(id, mediaType);
+    unawaited(CloudSyncService.deleteWatchlist(id.toString(), mediaType));
+  }
+
+  /// Removes a watchlist item from local storage only (used by the cloud
+  /// listener to apply a remote deletion without pushing it back).
+  static Future<void> removeMovieLocal(dynamic id, String mediaType) async {
     final db = await database;
     await db.delete(
       'watchlist',
       where: 'ownerId = ? AND id = ? AND mediaType = ?',
       whereArgs: [UserScope.currentOwner, id.toString(), mediaType],
     );
-    unawaited(CloudSyncService.deleteWatchlist(id.toString(), mediaType));
   }
 
   static Future<bool> isInWatchlist(dynamic id, String mediaType) async {
