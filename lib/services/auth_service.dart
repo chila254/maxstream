@@ -185,6 +185,8 @@ class AuthService {
           password: password,
           displayName: result.user!.displayName ?? 'MaxStream Account',
         );
+        // Save locally so a TV device-code can sign this user in directly
+        await SecurePasswordService.savePassword(email, password);
       }
 
       return result.user;
