@@ -117,21 +117,28 @@ class _TvLoginScreenState extends State<TvLoginScreen> {
     if (key == LogicalKeyboardKey.select ||
         key == LogicalKeyboardKey.enter) {
       if (_focusedField == 0) {
-        setState(() {
-          _selectedTab = (_selectedTab + 1) % 3;
-          _resetForTabChange();
-        });
+        // Confirm the selected tab and move into its form.
+        setState(() => _focusedField = 1);
+        _updateFocus();
         return KeyEventResult.handled;
       }
       if (_focusedField == _maxField) {
         _submit();
         return KeyEventResult.handled;
       }
-      _moveToNextField();
+      // A text field: bring up the Android TV on-screen keyboard.
+      _openKeyboardForField(_focusedField);
       return KeyEventResult.handled;
     }
     // Everything else (characters, etc.) passes through to the focused field.
     return KeyEventResult.ignored;
+  }
+
+  void _openKeyboardForField(int field) {
+    final node = field == 1 ? _field1Focus : _field2Focus;
+    node.requestFocus();
+    // Explicitly show the platform IME (Android TV on-screen keyboard).
+    SystemChannels.textInput.invokeMethod('TextInput.show');
   }
 
   void _resetForTabChange() {
@@ -153,15 +160,23 @@ class _TvLoginScreenState extends State<TvLoginScreen> {
       _tabsFocus.requestFocus();
     } else if (_focusedField == 1) {
       _field1Focus.requestFocus();
+      _showKeyboardIfNeeded();
     } else if (_focusedField == 2) {
       if (_selectedTab == 0) {
         _submitFocus.requestFocus();
       } else {
         _field2Focus.requestFocus();
+        _showKeyboardIfNeeded();
       }
     } else if (_focusedField == 3) {
       _submitFocus.requestFocus();
     }
+  }
+
+  void _showKeyboardIfNeeded() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      SystemChannels.textInput.invokeMethod('TextInput.show');
+    });
   }
 
   void _moveToNextField() {
@@ -541,53 +556,50 @@ class _TvLoginScreenState extends State<TvLoginScreen> {
     required TextInputAction textInputAction,
     required ValueChanged<String> onSubmitted,
   }) {
-    return Focus(
-      focusNode: focusNode,
-      onKeyEvent: (node, event) => _handleScreenKey(node, event),
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: isFocused
-                ? Colors.white
-                : Colors.white.withValues(alpha: 0.2),
-            width: isFocused ? 4 : 1,
-          ),
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: isFocused
+              ? Colors.white
+              : Colors.white.withValues(alpha: 0.2),
+          width: isFocused ? 4 : 1,
         ),
-        child: TextField(
-          controller: controller,
-          obscureText: isPassword,
-          keyboardType: keyboardType,
-          textInputAction: textInputAction,
-          onSubmitted: onSubmitted,
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: TvUtils.responsiveFontSize(22, context, maxSize: 32),
+      ),
+      child: TextField(
+        focusNode: focusNode,
+        controller: controller,
+        obscureText: isPassword,
+        keyboardType: keyboardType,
+        textInputAction: textInputAction,
+        onSubmitted: onSubmitted,
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: TvUtils.responsiveFontSize(22, context, maxSize: 32),
+        ),
+        cursorColor: const Color(0xFFE50914),
+        decoration: InputDecoration(
+          labelText: label,
+          labelStyle: TextStyle(
+            color: isFocused ? Colors.white : Colors.white54,
+            fontSize: TvUtils.responsiveFontSize(16, context, maxSize: 24),
           ),
-          cursorColor: const Color(0xFFE50914),
-          decoration: InputDecoration(
-            labelText: label,
-            labelStyle: TextStyle(
-              color: isFocused ? Colors.white : Colors.white54,
-              fontSize: TvUtils.responsiveFontSize(16, context, maxSize: 24),
-            ),
-            prefixIcon: Icon(
-              icon,
-              color: Colors.white70,
-              size: TvUtils.responsiveFontSize(26, context, maxSize: 36),
-            ),
-            hintText: isFocused ? 'Use the on-screen keyboard' : null,
-            hintStyle: TextStyle(
-              color: Colors.white38,
-              fontSize: TvUtils.responsiveFontSize(16, context, maxSize: 24),
-            ),
-            enabledBorder: InputBorder.none,
-            focusedBorder: InputBorder.none,
-            contentPadding: EdgeInsets.symmetric(
-              vertical: TvUtils.responsivePadding(18, context),
-              horizontal: TvUtils.responsivePadding(16, context),
-            ),
+          prefixIcon: Icon(
+            icon,
+            color: Colors.white70,
+            size: TvUtils.responsiveFontSize(26, context, maxSize: 36),
+          ),
+          hintText: isFocused ? 'Use the on-screen keyboard' : null,
+          hintStyle: TextStyle(
+            color: Colors.white38,
+            fontSize: TvUtils.responsiveFontSize(16, context, maxSize: 24),
+          ),
+          enabledBorder: InputBorder.none,
+          focusedBorder: InputBorder.none,
+          contentPadding: EdgeInsets.symmetric(
+            vertical: TvUtils.responsivePadding(18, context),
+            horizontal: TvUtils.responsivePadding(16, context),
           ),
         ),
       ),
