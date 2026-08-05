@@ -614,6 +614,7 @@ resumePosition: Duration.zero,
         Uri.parse(url),
         httpHeaders: candidate.headers,
         formatHint: isHls ? VideoFormat.hls : null,
+        viewType: VideoViewType.platformView,
         videoPlayerOptions: VideoPlayerOptions(
           backBufferDurationMs: 15000,
           allowBackgroundPlayback: false,
