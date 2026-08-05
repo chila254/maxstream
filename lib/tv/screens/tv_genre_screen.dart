@@ -375,7 +375,7 @@ class _TvGenreScreenState extends State<TvGenreScreen> {
     }
     if (key == LogicalKeyboardKey.escape ||
         key == LogicalKeyboardKey.goBack) {
-      _sidebar();
+      _focusType(_selectedType);
       return KeyEventResult.handled;
     }
     return KeyEventResult.ignored;
@@ -394,7 +394,9 @@ class _TvGenreScreenState extends State<TvGenreScreen> {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
     final key = event.logicalKey;
     if (key == LogicalKeyboardKey.escape || key == LogicalKeyboardKey.goBack) {
-      _sidebar();
+      if (_genres.isNotEmpty) {
+        _focusGenreChip((index % _columns).clamp(0, _genres.length - 1));
+      }
       return KeyEventResult.handled;
     }
     int? target;

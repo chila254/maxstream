@@ -124,6 +124,18 @@ class _StreamCandidate {
   }
 }
 
+class _MenuOption {
+  const _MenuOption({
+    required this.label,
+    required this.onSelect,
+    this.selected = false,
+  });
+
+  final String label;
+  final VoidCallback onSelect;
+  final bool selected;
+}
+
 /// Player control areas laid out on a coarse grid so the D-pad can move
 /// predictably between them (mirroring the focus model used on the TV home
 /// screen).
@@ -207,9 +219,22 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
 
   _Pc _currentControl = _Pc.playPause;
 
-  bool _subtitleMenuOpen = false;
-  bool _qualityMenuOpen = false;
-  bool _serverMenuOpen = false;
+  _Pc? _activeMenu;
+  int _focusedMenuIndex = 0;
+  final List<FocusNode> _menuOptionNodes = [];
+  FocusNode _menuOptionNode(int index) => _menuOptionNodes[index];
+  void _rebuildMenuOptionNodes(int count) {
+    if (count < _menuOptionNodes.length) {
+      for (var i = count; i < _menuOptionNodes.length; i++) {
+        _menuOptionNodes[i].dispose();
+      }
+      _menuOptionNodes.removeRange(count, _menuOptionNodes.length);
+    } else if (count > _menuOptionNodes.length) {
+      for (var i = _menuOptionNodes.length; i < count; i++) {
+        _menuOptionNodes.add(FocusNode(debugLabel: 'player menu option $i'));
+      }
+    }
+  }
 
   final FocusNode _surfaceNode = FocusNode(debugLabel: 'Player surface');
   final FocusNode _retryNode = FocusNode(debugLabel: 'Player retry');
@@ -249,8 +274,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     }
   }
 
-  bool get _hasFocusableMenu =>
-      _subtitleMenuOpen || _qualityMenuOpen || _serverMenuOpen;
+  bool get _hasFocusableMenu => _activeMenu != null;
 
   @override
   void initState() {
@@ -304,6 +328,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       _retryNode,
       _errorBackNode,
       ..._controlFocusNodes.values,
+      ..._menuOptionNodes,
     ]) {
       node.dispose();
     }
@@ -1414,13 +1439,13 @@ if (next != _currentControl) {
         _seekBy(10);
         break;
       case _Pc.subtitles:
-        _openSubtitleMenu();
+        _openMenu(_Pc.subtitles);
         break;
       case _Pc.quality:
-        _openQualityMenu();
+        _openMenu(_Pc.quality);
         break;
       case _Pc.server:
-        _openServerMenu();
+        _openMenu(_Pc.server);
         break;
       case _Pc.volume:
         _stepVolume();
@@ -1474,56 +1499,72 @@ if (next != _currentControl) {
     _resetHideTimer();
   }
 
-  void _openSubtitleMenu() {
+  void _openMenu(_Pc pc) {
     if (!mounted) return;
+    final options = _buildMenuOptions(pc);
+    _rebuildMenuOptionNodes(options.length);
+    final selectedIndex = options.indexWhere((option) => option.selected);
+    final focusIndex = selectedIndex < 0 ? 0 : selectedIndex;
     setState(() {
-      _subtitleMenuOpen = true;
-      _currentControl = _Pc.subtitles;
+      _activeMenu = pc;
+      _currentControl = pc;
+      _focusedMenuIndex = focusIndex;
+    });
+    _resetHideTimer();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _activeMenu == pc && _menuOptionNodes.isNotEmpty) {
+        _menuOptionNode(focusIndex).requestFocus();
+      }
     });
   }
 
-  void _openQualityMenu() {
+  void _closeMenus({bool refocus = true}) {
     if (!mounted) return;
+    final opener = _activeMenu;
     setState(() {
-      _qualityMenuOpen = true;
-      _currentControl = _Pc.quality;
+      _activeMenu = null;
+      _focusedMenuIndex = 0;
     });
-  }
-
-  void _openServerMenu() {
-    if (!mounted) return;
-    setState(() {
-      _serverMenuOpen = true;
-      _currentControl = _Pc.server;
-    });
-  }
-
-  void _closeMenus() {
-    if (!mounted) return;
-    setState(() {
-      _subtitleMenuOpen = false;
-      _qualityMenuOpen = false;
-      _serverMenuOpen = false;
-    });
-  }
-
-  void _selectMenuOption(String menu, Object? option) {
-    switch (menu) {
-      case 'subtitle':
-        if (option is _SubtitleTrack) {
-          _selectSubtitle(option);
-        } else {
-          _clearSubtitles();
-        }
-        break;
-      case 'quality':
-        if (option is _QualityOption) _switchQuality(option);
-        break;
-      case 'server':
-        if (option is _StreamCandidate) _switchServer(option);
-        break;
+    _resetHideTimer();
+    if (refocus && opener != null) {
+      _requestFocusFor(opener);
     }
-    _closeMenus();
+  }
+
+  void _focusMenuOption(int index) {
+    if (index < 0 || index >= _menuOptionNodes.length) return;
+    setState(() => _focusedMenuIndex = index);
+    _menuOptionNode(index).requestFocus();
+    _resetHideTimer();
+  }
+
+  KeyEventResult _onMenuOptionKey(int index, KeyEvent event) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.arrowUp) {
+      if (index > 0) _focusMenuOption(index - 1);
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.arrowDown) {
+      if (index + 1 < _menuOptionNodes.length) {
+        _focusMenuOption(index + 1);
+      }
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.escape ||
+        key == LogicalKeyboardKey.goBack ||
+        key == LogicalKeyboardKey.gameButtonB) {
+      _closeMenus();
+      return KeyEventResult.handled;
+    }
+    if (keyIsEnter(event)) {
+      final options = _buildMenuOptions(_activeMenu ?? _Pc.server);
+      if (index >= 0 && index < options.length) {
+        _selectMenuOption(options[index]);
+      }
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
   }
 
   Widget _buildSubtitleWidget() {
@@ -1669,26 +1710,32 @@ if (next != _currentControl) {
       _Pc.subtitles,
       Icons.subtitles,
       'Subtitles',
+      width: 112,
+      height: 64,
       label: _selectedSubtitleLabel == 'Default'
           ? 'Off'
           : _selectedSubtitleLabel,
-      onPress: _openSubtitleMenu,
+      onPress: () => _openMenu(_Pc.subtitles),
     );
 
     final qualityButton = _controlButton(
       _Pc.quality,
       Icons.high_quality,
       'Quality',
+      width: 112,
+      height: 64,
       label: _selectedQualityLabel,
-      onPress: _openQualityMenu,
+      onPress: () => _openMenu(_Pc.quality),
     );
 
     final serverButton = _controlButton(
       _Pc.server,
       Icons.dns,
       'Server',
+      width: 112,
+      height: 64,
       label: _selectedSource,
-      onPress: _openServerMenu,
+      onPress: () => _openMenu(_Pc.server),
     );
 
     final volumeButton = _controlButton(
@@ -1697,6 +1744,8 @@ if (next != _currentControl) {
           ? Icons.volume_off
           : Icons.volume_up,
       'Volume',
+      width: 112,
+      height: 64,
       onPress: _stepVolume,
     );
 
@@ -1764,24 +1813,60 @@ if (next != _currentControl) {
                   bottom: 0,
                   left: 0,
                   right: 0,
-                  child: Column(
-                    children: [
-                      _buildProgressBar(),
-                      const SizedBox(height: 12),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      const buttonWidth = 112.0;
+                      const gap = 18.0;
+                      const rowWidth = buttonWidth * 4 + gap * 3;
+                      final startX = (constraints.maxWidth - rowWidth) / 2;
+                      const menuIndex = <_Pc, int>{
+                        _Pc.server: 0,
+                        _Pc.volume: 1,
+                        _Pc.quality: 2,
+                        _Pc.subtitles: 3,
+                      };
+                      final openMenu = _activeMenu;
+                      return Stack(
+                        clipBehavior: Clip.none,
                         children: [
-                          serverButton,
-                          const SizedBox(width: 18),
-                          volumeButton,
-                          const SizedBox(width: 18),
-                          qualityButton,
-                          const SizedBox(width: 18),
-                          subtitlesButton,
+                          Column(
+                            children: [
+                              _buildProgressBar(),
+                              const SizedBox(height: 12),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  serverButton,
+                                  const SizedBox(width: gap),
+                                  volumeButton,
+                                  const SizedBox(width: gap),
+                                  qualityButton,
+                                  const SizedBox(width: gap),
+                                  subtitlesButton,
+                                ],
+                              ),
+                              const SizedBox(height: 20),
+                            ],
+                          ),
+                          if (openMenu != null)
+                            Positioned(
+                              bottom: 88,
+                              left: (startX +
+                                          menuIndex[openMenu]! *
+                                              (buttonWidth + gap) +
+                                          buttonWidth / 2 -
+                                          170)
+                                  .clamp(
+                                    8,
+                                    constraints.maxWidth >= 356
+                                        ? constraints.maxWidth - 348
+                                        : 8,
+                                  ),
+                              child: _buildMenuPanel(openMenu),
+                            ),
                         ],
-                      ),
-                      const SizedBox(height: 20),
-                    ],
+                      );
+                    },
                   ),
                 ),
               ],
@@ -1860,6 +1945,8 @@ if (next != _currentControl) {
     String title, {
     VoidCallback? onPress,
     String? label,
+    double width = 64,
+    double height = 60,
   }) {
     final node = _controlFocusNodes[pc];
     final isFocused = node?.hasFocus ?? false;
@@ -1874,8 +1961,9 @@ if (next != _currentControl) {
           _resetHideTimer();
         },
         child: Container(
-          width: 64,
-          padding: const EdgeInsets.symmetric(vertical: 6),
+          width: width,
+          height: height,
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
           decoration: BoxDecoration(
             color: isFocused
                 ? const Color(0xFFE50914)
@@ -1887,7 +1975,7 @@ if (next != _currentControl) {
             ),
           ),
           child: Column(
-            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(
                 icon,
@@ -1918,26 +2006,45 @@ if (next != _currentControl) {
     );
   }
 
-  Widget _buildMenuSheet(String title, List<Widget> items) {
-    return Positioned(
-      top: 110,
-      left: 0,
-      right: 0,
-      child: Center(
-        child: Container(
-          width: 560,
-          constraints: const BoxConstraints(maxHeight: 640),
-          decoration: BoxDecoration(
-            color: const Color(0xF2181818),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.white24),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Text(
+  Widget _buildMenuPanel(_Pc pc) {
+    final options = _buildMenuOptions(pc);
+    if (_menuOptionNodes.length != options.length) {
+      _rebuildMenuOptionNodes(options.length);
+    }
+    if (_focusedMenuIndex >= _menuOptionNodes.length) {
+      _focusedMenuIndex = _menuOptionNodes.isEmpty
+          ? 0
+          : _menuOptionNodes.length - 1;
+    }
+    final title = switch (pc) {
+      _Pc.server => 'Server',
+      _Pc.quality => 'Quality',
+      _Pc.subtitles => 'Subtitles',
+      _ => '',
+    };
+    return Container(
+      width: 340,
+      constraints: const BoxConstraints(maxHeight: 440),
+      decoration: BoxDecoration(
+        color: const Color(0xF2181818),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white24),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 14, 20, 10),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.keyboard_arrow_up,
+                  color: Colors.redAccent,
+                  size: 20,
+                ),
+                const SizedBox(width: 8),
+                Text(
                   title,
                   style: const TextStyle(
                     color: Colors.redAccent,
@@ -1945,14 +2052,68 @@ if (next != _currentControl) {
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-              ),
-              Flexible(
-                child: ListView(
-                  shrinkWrap: true,
-                  children: [for (final item in items) item],
+              ],
+            ),
+          ),
+          const Divider(height: 1, color: Colors.white24),
+          Flexible(
+            child: ListView(
+              shrinkWrap: true,
+              children: [
+                for (var i = 0; i < options.length; i++) _menuOption(i, pc),
+              ],
+            ),
+          ),
+          if (options.isEmpty || (pc == _Pc.server && _serversLoading))
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: Center(
+                child: SizedBox(
+                  width: 28,
+                  height: 28,
+                  child: CircularProgressIndicator(color: Colors.redAccent),
                 ),
               ),
-              const SizedBox(height: 12),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _menuOption(int index, _Pc pc) {
+    final options = _buildMenuOptions(pc);
+    if (index >= options.length) return const SizedBox.shrink();
+    final option = options[index];
+    final node = _menuOptionNode(index);
+    final isFocused = node.hasFocus || index == _focusedMenuIndex;
+    return Focus(
+      focusNode: node,
+      onKeyEvent: (_, event) => _onMenuOptionKey(index, event),
+      child: InkWell(
+        key: Key('menu-option-$index'),
+        onTap: option.onSelect,
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+          color: option.selected
+              ? const Color(0xFFE50914)
+              : (isFocused ? Colors.white12 : Colors.transparent),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  option.label,
+                  style: TextStyle(
+                    color: option.selected ? Colors.white : Colors.white70,
+                    fontSize: 16,
+                    fontWeight: option.selected
+                        ? FontWeight.bold
+                        : FontWeight.normal,
+                  ),
+                ),
+              ),
+              if (option.selected)
+                const Icon(Icons.check, color: Colors.white, size: 18),
             ],
           ),
         ),
@@ -1960,39 +2121,66 @@ if (next != _currentControl) {
     );
   }
 
-  Widget _menuRow(
-    String label,
-    VoidCallback onSelect, {
-    bool selected = false,
-  }) {
-    return Focus(
-      onKeyEvent: (node, event) {
-        if (event.runtimeType == KeyDownEvent && keyIsEnter(event)) {
-          _closeMenus();
-          _currentControl = (label == 'Subtitles')
-              ? _Pc.subtitles
-              : (label == 'Quality' ? _Pc.quality : _Pc.server);
-          onSelect();
-        }
-        return KeyEventResult.ignored;
-      },
-      child: InkWell(
-        key: Key('menu-option-$label'),
-        onTap: onSelect,
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-          color: selected ? const Color(0xFFE50914) : Colors.transparent,
-          child: Text(
-            label,
-            style: TextStyle(
-              color: selected ? Colors.white : Colors.white70,
-              fontSize: 16,
-            ),
+  List<_MenuOption> _buildMenuOptions(_Pc pc) {
+    switch (pc) {
+      case _Pc.subtitles:
+        return [
+          _MenuOption(
+            label: 'Off',
+            onSelect: _clearSubtitles,
+            selected: _activeSubtitles.isEmpty,
           ),
-        ),
-      ),
-    );
+          for (final track in _subtitleTracks)
+            _MenuOption(
+              label: track.source.isNotEmpty
+                  ? '${track.source}/${track.label}'
+                  : track.label,
+              onSelect: () => _selectSubtitle(track),
+              selected: _activeSubtitles.isNotEmpty &&
+                  track.label == _selectedSubtitleLabel,
+            ),
+        ];
+      case _Pc.quality:
+        final allQuality = <_QualityOption>[
+          const _QualityOption(label: 'Auto', url: ''),
+          ..._qualities,
+        ];
+        final seen = <String>{};
+        return [
+          for (final q in allQuality)
+            if (seen.add(q.label))
+              _MenuOption(
+                label: q.label,
+                onSelect: () {
+                  if (q.url.isEmpty) return;
+                  _switchQuality(q);
+                },
+                selected: _selectedQualityLabel == q.label,
+              ),
+        ];
+      case _Pc.server:
+        return [
+          for (final server in _availableServers)
+            _MenuOption(
+              label: server.source,
+              onSelect: () => _switchServer(server),
+              selected: server.url == _selectedServerUrl ||
+                  streamEquals(server),
+            ),
+        ];
+      case _Pc.playPause:
+      case _Pc.back:
+      case _Pc.rewind:
+      case _Pc.forward:
+      case _Pc.volume:
+      case _Pc.slider:
+        return const [];
+    }
+  }
+
+  void _selectMenuOption(_MenuOption option) {
+    option.onSelect();
+    _closeMenus();
   }
 
   bool keyIsEnter(KeyEvent event) {
@@ -2072,7 +2260,6 @@ if (next != _currentControl) {
                 ),
               if (_error != null) _buildErrorWidget(),
               if (_showControls) _buildControlsOverlay(),
-              if (_showControls) _buildMenuSheets(),
               _buildSubtitleWidget(),
               if (_statusMessage.isNotEmpty && _showControls)
                 _buildStatusWidget(),
@@ -2081,83 +2268,6 @@ if (next != _currentControl) {
         ),
       ),
     );
-  }
-
-  Widget _buildMenuSheets() {
-    final sheets = <Widget>[];
-    if (_subtitleMenuOpen) {
-      sheets.add(_buildMenuSheet('Subtitles', _buildSubtitleMenuItems()));
-    }
-    if (_qualityMenuOpen) {
-      sheets.add(_buildMenuSheet('Quality', _buildQualityMenuItems()));
-    }
-    if (_serverMenuOpen) {
-      sheets.add(_buildMenuSheet('Server', _buildServerMenuItems()));
-    }
-    if (sheets.isEmpty) return const SizedBox.shrink();
-    return Stack(children: sheets);
-  }
-
-  List<Widget> _buildSubtitleMenuItems() {
-    final items = <Widget>[
-      _menuRow(
-        'Off',
-        () => _selectMenuOption('subtitle', null),
-        selected: _activeSubtitles.isEmpty,
-      ),
-      for (final track in _subtitleTracks)
-        _menuRow(
-          track.source.isNotEmpty
-              ? '${track.source}/${track.label}'
-              : track.label,
-          () => _selectMenuOption('subtitle', track),
-          selected:
-              _activeSubtitles.isNotEmpty &&
-                  track.label == _selectedSubtitleLabel ||
-              (track.label == _selectedSubtitleLabel &&
-                  _activeSubtitles.isNotEmpty),
-        ),
-    ];
-    return items;
-  }
-
-  List<Widget> _buildQualityMenuItems() {
-    final allQuality = <_QualityOption>[
-      const _QualityOption(label: 'Auto', url: ''),
-      ..._qualities,
-    ];
-    final seen = <String>{};
-    return [
-      for (final q in allQuality)
-        if (seen.add(q.label))
-          _menuRow(
-            q.label,
-            () => q.url.isEmpty ? (null) : _selectMenuOption('quality', q),
-            selected: _selectedQualityLabel == q.label,
-          ),
-    ];
-  }
-
-  List<Widget> _buildServerMenuItems() {
-    return [
-      if (_serversLoading)
-        const Padding(
-          padding: EdgeInsets.all(16),
-          child: Center(
-            child: SizedBox(
-              width: 28,
-              height: 28,
-              child: CircularProgressIndicator(color: Colors.redAccent),
-            ),
-          ),
-        ),
-      for (final server in _availableServers)
-        _menuRow(
-          server.source,
-          () => _selectMenuOption('server', server),
-          selected: server.url == _selectedServerUrl || streamEquals(server),
-        ),
-    ];
   }
 
   bool streamEquals(_StreamCandidate server) {
