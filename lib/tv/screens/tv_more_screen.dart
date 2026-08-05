@@ -414,13 +414,11 @@ class _TvMoreScreenState extends State<TvMoreScreen> {
           ),
           TextButton(
             onPressed: () async {
+              final nav = context.read<TvNavigationProvider>();
               Navigator.pop(context);
               try {
-                // Clear navigation state
-                context.read<TvNavigationProvider>().clearState();
-
+                nav.clearState();
                 await AuthService.signOut();
-                // AuthGate will handle navigation when auth state changes
                 if (mounted) {
                   Navigator.of(context).pop();
                 }
