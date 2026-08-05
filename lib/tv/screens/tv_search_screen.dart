@@ -66,9 +66,7 @@ class _TvSearchScreenState extends State<TvSearchScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       context.read<TvNavigationProvider>().setSearchFocused(true);
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _keyboardNode.requestFocus();
-      });
+      _keyboardNode.requestFocus();
     });
     _loadRecommendations();
   }

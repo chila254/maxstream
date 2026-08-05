@@ -755,10 +755,6 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         !_completionHandled) {
       unawaited(_completeCurrentItem());
     }
-
-    if (_showControls && value.isPlaying && !_isBuffering) {
-      _resetHideTimer();
-    }
   }
 
   bool _isNearEnd(VideoPlayerValue value) {
@@ -1396,7 +1392,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         break;
     }
 
-    if (next != _currentControl) {
+if (next != _currentControl) {
       _currentControl = next;
       _resetHideTimer();
       _requestFocusFor(next);
@@ -1886,8 +1882,8 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
           _resetHideTimer();
         },
         child: Container(
-          width: 72,
-          padding: const EdgeInsets.symmetric(vertical: 8),
+          width: 64,
+          padding: const EdgeInsets.symmetric(vertical: 6),
           decoration: BoxDecoration(
             color: isFocused
                 ? const Color(0xFF00695C)
