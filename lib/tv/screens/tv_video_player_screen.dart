@@ -219,6 +219,9 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
 
   _Pc _currentControl = _Pc.playPause;
 
+  bool _menuJustClosed = false;
+  Timer? _popGuardTimer;
+
   _Pc? _activeMenu;
   int _focusedMenuIndex = 0;
   final FocusNode _menuHeaderNode = FocusNode(debugLabel: 'player menu header');
@@ -315,6 +318,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     _progressTimer?.cancel();
     _positionTimer?.cancel();
     _initTimeout?.cancel();
+    _popGuardTimer?.cancel();
     _saveProgress();
     _controller?.removeListener(_handlePlaybackChanged);
     _controller?.dispose();
@@ -1674,11 +1678,18 @@ if (next != _currentControl) {
   KeyEventResult _onMenuHeaderKey(FocusNode node, KeyEvent event) {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
     final key = event.logicalKey;
-    if (key == LogicalKeyboardKey.arrowDown || keyIsEnter(event)) {
+    if (key == LogicalKeyboardKey.arrowDown) {
       if (_menuOptionNodes.isNotEmpty) _focusMenuOption(_focusedMenuIndex);
       return KeyEventResult.handled;
     }
-    if (key == LogicalKeyboardKey.escape ||
+    if (key == LogicalKeyboardKey.arrowUp) {
+      if (_menuOptionNodes.isNotEmpty) {
+        _focusMenuOption(_menuOptionNodes.length - 1);
+      }
+      return KeyEventResult.handled;
+    }
+    if (keyIsEnter(event) ||
+        key == LogicalKeyboardKey.escape ||
         key == LogicalKeyboardKey.goBack ||
         key == LogicalKeyboardKey.gameButtonB) {
       _closeMenus();
@@ -1693,6 +1704,11 @@ if (next != _currentControl) {
     setState(() {
       _activeMenu = null;
       _focusedMenuIndex = 0;
+    });
+    _menuJustClosed = true;
+    _popGuardTimer?.cancel();
+    _popGuardTimer = Timer(const Duration(milliseconds: 350), () {
+      if (mounted && !_disposed) setState(() => _menuJustClosed = false);
     });
     _resetHideTimer();
     if (refocus && opener != null) {
@@ -2090,20 +2106,20 @@ if (next != _currentControl) {
       },
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 44),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
-          decoration: BoxDecoration(
-            color: focused ? Colors.white10 : Colors.transparent,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: focused ? Colors.white70 : Colors.transparent,
-              width: 2,
-            ),
-          ),
-          child: Column(
-            children: [
-              LinearProgressIndicator(
+        child: Column(
+          children: [
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 3),
+              decoration: BoxDecoration(
+                color: focused ? Colors.white10 : Colors.transparent,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: focused ? Colors.white70 : Colors.transparent,
+                  width: 2,
+                ),
+              ),
+              child: LinearProgressIndicator(
                 value: value,
                 minHeight: focused ? 8 : 6,
                 backgroundColor: Colors.white24,
@@ -2111,16 +2127,16 @@ if (next != _currentControl) {
                   Color(0xFFE50914),
                 ),
               ),
-              const SizedBox(height: 8),
-              Align(
-                alignment: Alignment.center,
-                child: Text(
-                  _formatTime,
-                  style: const TextStyle(color: Colors.white, fontSize: 14),
-                ),
+            ),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.center,
+              child: Text(
+                _formatTime,
+                style: const TextStyle(color: Colors.white, fontSize: 14),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -2436,9 +2452,9 @@ if (next != _currentControl) {
   @override
   Widget build(BuildContext context) {
     return PopScope(
-      canPop: !_hasFocusableMenu,
+      canPop: !_hasFocusableMenu && !_menuJustClosed,
       onPopInvoked: (didPop) {
-        if (_hasFocusableMenu) {
+        if (_hasFocusableMenu || _menuJustClosed) {
           _closeMenus();
         } else if (didPop && !_disposed) {
           context.read<TvNavigationProvider>().setDeepNavigating(false);
