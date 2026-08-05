@@ -348,14 +348,6 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     debugPrint('TvVideoPlayer: $message');
     if (mounted) {
       setState(() => _statusMessage = message);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(message),
-          duration: const Duration(seconds: 2),
-          backgroundColor: const Color(0xFFB71C1C),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
     }
   }
 
@@ -405,7 +397,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         final initialized = await _initializePlayer(
           candidate,
           generation: generation,
-          resumePosition: null,
+resumePosition: null,
         );
         if (!initialized || !_isCurrent(generation)) return;
         _loadDefaultSubtitle(candidate);
@@ -572,7 +564,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       final initialized = await _initializePlayer(
         candidate,
         generation: generation,
-        resumePosition: null,
+resumePosition: Duration.zero,
       );
       if (!initialized || !_isCurrent(generation)) {
         _loadingNext = false;
@@ -678,7 +670,6 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         _lastRebufferTime = null;
         _lastReportedPosition = Duration.zero;
         _isPlaying = controller.value.isPlaying;
-        _completionHandled = false;
         _wasBufferingAtLastCheck = controller.value.isBuffering;
       });
 
