@@ -151,6 +151,18 @@ class _TvWatchlistScreenState extends State<TvWatchlistScreen> {
       ..saveActiveRowId(_navigationTab, _rowId)
       ..saveRowFocusedIndex(_rowId, target);
     _cardNode(item).requestFocus();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final cardContext = _cardNode(item).context;
+      if (cardContext != null) {
+        Scrollable.ensureVisible(
+          cardContext,
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOutCubic,
+          alignment: .12,
+        );
+      }
+    });
   }
 
   KeyEventResult _onTabKey(int index, KeyEvent event) {
@@ -172,8 +184,7 @@ class _TvWatchlistScreenState extends State<TvWatchlistScreen> {
       if (_items.isNotEmpty) _focusItem(_nearestIndex());
       return KeyEventResult.handled;
     }
-    if (key == LogicalKeyboardKey.enter ||
-        key == LogicalKeyboardKey.select) {
+    if (key == LogicalKeyboardKey.enter || key == LogicalKeyboardKey.select) {
       _selectTab(index);
       return KeyEventResult.handled;
     }
@@ -360,7 +371,10 @@ class _TvWatchlistScreenState extends State<TvWatchlistScreen> {
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 180),
                 margin: const EdgeInsets.only(right: 12),
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 12,
+                ),
                 decoration: BoxDecoration(
                   color: selected ? const Color(0xFFE50914) : Colors.white10,
                   borderRadius: BorderRadius.circular(8),
@@ -370,7 +384,10 @@ class _TvWatchlistScreenState extends State<TvWatchlistScreen> {
                 ),
                 child: Text(
                   '${labels[index]} (${counts[index]})',
-                  style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w600),
+                  style: const TextStyle(
+                    fontSize: 19,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             ),
@@ -410,14 +427,15 @@ class _TvWatchlistScreenState extends State<TvWatchlistScreen> {
     }
     return LayoutBuilder(
       builder: (context, constraints) {
-        final columns = constraints.maxWidth >= 1350 ? 6 : 5;
+        final columns = constraints.maxWidth >= 1350 ? 8 : 7;
         return GridView.builder(
           controller: _scrollController,
+          padding: const EdgeInsets.only(bottom: 32),
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: columns,
-            childAspectRatio: .61,
-            crossAxisSpacing: 18,
-            mainAxisSpacing: 18,
+            childAspectRatio: .68,
+            crossAxisSpacing: 12,
+            mainAxisSpacing: 14,
           ),
           itemCount: _items.length,
           itemBuilder: (context, index) {
@@ -432,6 +450,8 @@ class _TvWatchlistScreenState extends State<TvWatchlistScreen> {
                   : ContentType.movie,
               rating: item.rating > 0 ? item.rating : null,
               year: int.tryParse(item.year),
+              width: 130,
+              height: 190,
               onTap: () => _open(index),
               onSelect: () => _open(index),
               onKeyEvent: (_, event) => _onCardKey(index, columns, event),

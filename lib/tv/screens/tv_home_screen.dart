@@ -134,14 +134,24 @@ class _TvHomeScreenState extends State<TvHomeScreen>
             offset.clamp(0, _scrollController.position.maxScrollExtent),
           );
         }
-        final rowId = navigation.getActiveRowId(0);
-        final index = rowId == null ? null : navigation.getRowFocusedIndex(rowId);
+        final savedRowId = navigation.getActiveRowId(0);
+        final rowId = savedRowId != null && _visibleRows.contains(savedRowId)
+            ? savedRowId
+            : null;
+        final savedIndex = rowId == null
+            ? null
+            : navigation.getRowFocusedIndex(rowId);
+        final index = rowId == null || savedIndex == null
+            ? null
+            : savedIndex.clamp(0, _rowLength(rowId) - 1);
         if (rowId != null && index != null) {
           _revealCard(rowId, index);
         }
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted) return;
-          final cardNode = index == null ? null : _cardFocusNodes['$rowId:$index'];
+          final cardNode = index == null
+              ? null
+              : _cardFocusNodes['$rowId:$index'];
           (cardNode ?? _playFocusNode).requestFocus();
         });
       });
@@ -269,13 +279,13 @@ class _TvHomeScreenState extends State<TvHomeScreen>
     final episodeLabel = isResume && isSeriesHero
         ? 'S${item['season'] ?? 1}E${item['episode'] ?? 1}'
         : null;
-    final episodeName = isResume
-        ? item['episodeName']?.toString() ?? ''
-        : '';
+    final episodeName = isResume ? item['episodeName']?.toString() ?? '' : '';
     final overview = isResume
         ? (isSeriesHero
-              ? [if (episodeLabel != null) 'Episode $episodeLabel', if (episodeName.isNotEmpty) episodeName]
-                    .join(' • ')
+              ? [
+                  if (episodeLabel != null) 'Episode $episodeLabel',
+                  if (episodeName.isNotEmpty) episodeName,
+                ].join(' • ')
               : item['title']?.toString() ?? '')
         : (item['overview'] ?? '');
     final heroMetadata = <String>[
@@ -320,105 +330,106 @@ class _TvHomeScreenState extends State<TvHomeScreen>
           key: ValueKey(id),
           fit: StackFit.expand,
           children: [
-          Image.network(
-            heroBackdropUrl,
-            fit: BoxFit.cover,
-            alignment: Alignment.topCenter,
-            errorBuilder: (_, _, _) => Container(color: Colors.grey[900]),
-          ),
-          const DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.centerLeft,
-                end: Alignment.centerRight,
-                colors: [Colors.black, Color(0xD9000000), Colors.transparent],
-                stops: [0, .35, .78],
-              ),
+            Image.network(
+              heroBackdropUrl,
+              fit: BoxFit.cover,
+              alignment: Alignment.topCenter,
+              errorBuilder: (_, _, _) => Container(color: Colors.grey[900]),
             ),
-          ),
-          const DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.bottomCenter,
-                end: Alignment.topCenter,
-                colors: [Color(0xFF080808), Colors.transparent],
-                stops: [0, .58],
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(48, 32, 48, 56),
-            child: Align(
-              alignment: Alignment.bottomLeft,
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 620),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 38,
-                        height: 1.05,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: -.7,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      heroMetadata,
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      overview,
-                      maxLines: 3,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Color(0xFFD8D8D8),
-                        fontSize: 14,
-                        height: 1.45,
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    Row(
-                      children: [
-                        _HeroButton(
-                          focusNode: _playFocusNode,
-                          icon: Icons.play_arrow_rounded,
-                          label: isResume ? 'Resume' : 'Play',
-                          primary: true,
-                          onPressed: () => isResume
-                              ? _resumePlayback(item, _heroType)
-                              : _play(item, _heroType),
-                          onKeyEvent: (_, event) => _onHeroKey(0, event),
-                        ),
-                        const SizedBox(width: 12),
-                        _HeroButton(
-                          focusNode: _detailsFocusNode,
-                          icon: Icons.info_outline_rounded,
-                          label: 'Details',
-                          onPressed: () => _openDetails(item, _heroType),
-                          onKeyEvent: (_, event) => _onHeroKey(1, event),
-                        ),
-                      ],
-                    ),
-                  ],
+            const DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                  colors: [Colors.black, Color(0xD9000000), Colors.transparent],
+                  stops: [0, .35, .78],
                 ),
               ),
             ),
-          ),
-        ],
+            const DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.bottomCenter,
+                  end: Alignment.topCenter,
+                  colors: [Color(0xFF080808), Colors.transparent],
+                  stops: [0, .58],
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(48, 32, 48, 56),
+              child: Align(
+                alignment: Alignment.bottomLeft,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 620),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 38,
+                          height: 1.05,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -.7,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        heroMetadata,
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        overview,
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Color(0xFFD8D8D8),
+                          fontSize: 14,
+                          height: 1.45,
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      Row(
+                        children: [
+                          _HeroButton(
+                            focusNode: _playFocusNode,
+                            icon: Icons.play_arrow_rounded,
+                            label: isResume ? 'Resume' : 'Play',
+                            primary: true,
+                            onPressed: () => isResume
+                                ? _resumePlayback(item, _heroType)
+                                : _play(item, _heroType),
+                            onKeyEvent: (_, event) => _onHeroKey(0, event),
+                          ),
+                          const SizedBox(width: 12),
+                          _HeroButton(
+                            focusNode: _detailsFocusNode,
+                            icon: Icons.info_outline_rounded,
+                            label: 'Details',
+                            onPressed: () => _openDetails(item, _heroType),
+                            onKeyEvent: (_, event) => _onHeroKey(1, event),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
-    ));
+    );
   }
 
   String _getPosterUrl(Map<String, dynamic> item) {
@@ -510,160 +521,192 @@ class _TvHomeScreenState extends State<TvHomeScreen>
                       ? _resumePosterUrl(item, isSeries)
                       : _getPosterUrl(item);
                   final overview = item['overview']?.toString() ?? '';
-                  final episodeName =
-                      isSeries ? item['episodeName']?.toString() ?? '' : '';
+                  final episodeName = isSeries
+                      ? item['episodeName']?.toString() ?? ''
+                      : '';
                   final season = item['season'] ?? 1;
                   final episode = item['episode'] ?? 1;
                   final cardTitle = isSeries
                       ? (item['seriesTitle']?.toString() ??
-                          item['title']?.toString() ??
-                          item['name']?.toString() ??
-                          'Unknown')
+                            item['title']?.toString() ??
+                            item['name']?.toString() ??
+                            'Unknown')
                       : (item['title']?.toString() ??
-                          item['name']?.toString() ??
-                          'Unknown');
+                            item['name']?.toString() ??
+                            'Unknown');
 
                   if (showProgress) {
-                    return Padding(
-                      padding: const EdgeInsets.only(right: 14),
-                      child: SizedBox(
-                        width: 220,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Stack(
-                              children: [
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(8),
-                                  child: posterUrl.isNotEmpty
-                                      ? Image(
-                                          image: TvImageCacheUtil
-                                              .getCachedImage(
-                                            posterUrl,
-                                            cacheType: ImageCacheType.poster,
+                    return Focus(
+                      focusNode: node,
+                      onKeyEvent: (_, event) =>
+                          _onCardKey(rowId, index, items.length, event),
+                      onFocusChange: (focused) {
+                        if (!focused || !mounted) return;
+                        setState(() {});
+                        final navigation = context.read<TvNavigationProvider>();
+                        navigation.saveRowFocusedIndex(rowId, index);
+                        navigation.saveActiveRowId(0, rowId);
+                        _revealCard(rowId, index);
+                        _queueHero(item, type, resume: true);
+                      },
+                      child: GestureDetector(
+                        onTap: () => _resumePlayback(item, type),
+                        child: Padding(
+                          padding: const EdgeInsets.only(right: 14),
+                          child: AnimatedScale(
+                            scale: node.hasFocus ? 1.02 : 1,
+                            duration: const Duration(milliseconds: 180),
+                            child: SizedBox(
+                              width: 220,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Stack(
+                                    children: [
+                                      ClipRRect(
+                                        borderRadius: BorderRadius.circular(8),
+                                        child: posterUrl.isNotEmpty
+                                            ? Image(
+                                                image:
+                                                    TvImageCacheUtil.getCachedImage(
+                                                      posterUrl,
+                                                      cacheType:
+                                                          ImageCacheType.poster,
+                                                    ),
+                                                width: 220,
+                                                height: 160,
+                                                fit: BoxFit.cover,
+                                                errorBuilder: (_, _, _) =>
+                                                    Container(
+                                                      width: 220,
+                                                      height: 160,
+                                                      color: Colors.grey[900],
+                                                      child: const Icon(
+                                                        Icons.movie,
+                                                        color: Colors.grey,
+                                                        size: 48,
+                                                      ),
+                                                    ),
+                                              )
+                                            : Container(
+                                                width: 220,
+                                                height: 160,
+                                                color: Colors.grey[900],
+                                                child: const Icon(
+                                                  Icons.movie,
+                                                  color: Colors.grey,
+                                                  size: 48,
+                                                ),
+                                              ),
+                                      ),
+                                      Positioned(
+                                        bottom: 0,
+                                        left: 0,
+                                        right: 0,
+                                        child: Container(
+                                          height: 4,
+                                          decoration: BoxDecoration(
+                                            color: Colors.grey[700],
+                                            borderRadius:
+                                                const BorderRadius.only(
+                                                  bottomLeft: Radius.circular(
+                                                    8,
+                                                  ),
+                                                  bottomRight: Radius.circular(
+                                                    8,
+                                                  ),
+                                                ),
                                           ),
-                                          width: 220,
-                                          height: 160,
-                                          fit: BoxFit.cover,
-                                          errorBuilder: (_, __, ___) =>
-                                              Container(
-                                            width: 220,
-                                            height: 160,
-                                            color: Colors.grey[900],
-                                            child: const Icon(
-                                              Icons.movie,
-                                              color: Colors.grey,
-                                              size: 48,
+                                          child: FractionallySizedBox(
+                                            alignment: Alignment.centerLeft,
+                                            widthFactor:
+                                                _historyProgress(
+                                                  item,
+                                                )?.clamp(0.0, 1.0) ??
+                                                0.0,
+                                            child: Container(
+                                              decoration: BoxDecoration(
+                                                color: const Color(0xFFE50914),
+                                                borderRadius:
+                                                    const BorderRadius.only(
+                                                      bottomLeft:
+                                                          Radius.circular(8),
+                                                      bottomRight:
+                                                          Radius.circular(8),
+                                                    ),
+                                              ),
                                             ),
                                           ),
-                                        )
-                                      : Container(
-                                          width: 220,
-                                          height: 160,
-                                          color: Colors.grey[900],
-                                          child: const Icon(
-                                            Icons.movie,
-                                            color: Colors.grey,
-                                            size: 48,
+                                        ),
+                                      ),
+                                      if (isSeries)
+                                        Positioned(
+                                          top: 6,
+                                          left: 6,
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 5,
+                                              vertical: 1,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: Colors.black.withValues(
+                                                alpha: 0.7,
+                                              ),
+                                              borderRadius:
+                                                  BorderRadius.circular(4),
+                                            ),
+                                            child: Text(
+                                              'S${season}E$episode',
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
                                           ),
                                         ),
-                                ),
-                                Positioned(
-                                  bottom: 0,
-                                  left: 0,
-                                  right: 0,
-                                  child: Container(
-                                    height: 4,
-                                    decoration: BoxDecoration(
-                                      color: Colors.grey[700],
-                                      borderRadius:
-                                          const BorderRadius.only(
-                                        bottomLeft: Radius.circular(8),
-                                        bottomRight: Radius.circular(8),
-                                      ),
-                                    ),
-                                    child: FractionallySizedBox(
-                                      alignment: Alignment.centerLeft,
-                                      widthFactor: _historyProgress(item)
-                                              ?.clamp(0.0, 1.0) ??
-                                          0.0,
-                                      child: Container(
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFFE50914),
-                                          borderRadius:
-                                              const BorderRadius.only(
-                                            bottomLeft: Radius.circular(8),
-                                            bottomRight: Radius.circular(8),
-                                          ),
-                                        ),
-                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    cardTitle,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
                                     ),
                                   ),
-                                ),
-                                if (isSeries)
-                                  Positioned(
-                                    top: 6,
-                                    left: 6,
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 5,
-                                        vertical: 1,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: Colors.black
-                                            .withValues(alpha: 0.7),
-                                        borderRadius:
-                                            BorderRadius.circular(4),
-                                      ),
-                                      child: Text(
-                                        'S${season}E${episode}',
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.bold,
-                                        ),
+                                  if (isSeries && episodeName.isNotEmpty) ...[
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      episodeName,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: Colors.white70,
+                                        fontSize: 11,
                                       ),
                                     ),
-                                  ),
-                              ],
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              cardTitle,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
+                                  ],
+                                  const SizedBox(height: 4),
+                                  if (overview.isNotEmpty &&
+                                      overview != 'No description available.')
+                                    Text(
+                                      overview,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: Colors.white60,
+                                        fontSize: 10,
+                                        height: 1.3,
+                                      ),
+                                    ),
+                                ],
                               ),
                             ),
-                            if (isSeries && episodeName.isNotEmpty) ...[
-                              const SizedBox(height: 2),
-                              Text(
-                                episodeName,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 11,
-                                ),
-                              ),
-                            ],
-                            const SizedBox(height: 4),
-                            if (overview.isNotEmpty &&
-                                overview != 'No description available.')
-                              Text(
-                                overview,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: Colors.white60,
-                                  fontSize: 10,
-                                  height: 1.3,
-                                ),
-                              ),
-                          ],
+                          ),
                         ),
                       ),
                     );
@@ -693,8 +736,7 @@ class _TvHomeScreenState extends State<TvHomeScreen>
                           : _openDetails(item, type),
                       onFocusChanged: (focused) {
                         if (!focused || !mounted) return;
-                        final navigation =
-                            context.read<TvNavigationProvider>();
+                        final navigation = context.read<TvNavigationProvider>();
                         navigation.saveRowFocusedIndex(rowId, index);
                         navigation.saveActiveRowId(0, rowId);
                         _revealCard(rowId, index);
@@ -882,17 +924,20 @@ class _TvHomeScreenState extends State<TvHomeScreen>
     final normalized = _normalizeItem(item);
     final resolvedType = _itemType(normalized, type);
     final isMovie = resolvedType != 'series';
-    final season =
-        (item['season'] as num?)?.toInt() ?? 1;
-    final episode =
-        (item['episode'] as num?)?.toInt() ?? 1;
+    final season = (item['season'] as num?)?.toInt() ?? 1;
+    final episode = (item['episode'] as num?)?.toInt() ?? 1;
     await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => TvVideoPlayerScreen(
           title: isMovie
-              ? (item['title']?.toString() ?? item['seriesTitle']?.toString() ?? item['name']?.toString() ?? '')
-              : (item['seriesTitle']?.toString() ?? item['title']?.toString() ?? ''),
+              ? (item['title']?.toString() ??
+                    item['seriesTitle']?.toString() ??
+                    item['name']?.toString() ??
+                    '')
+              : (item['seriesTitle']?.toString() ??
+                    item['title']?.toString() ??
+                    ''),
           tmdbId: isMovie
               ? (item['tmdbId']?.toString() ?? item['id']?.toString() ?? '0')
               : (item['tmdbId']?.toString() ?? item['id']?.toString() ?? '0'),
@@ -902,11 +947,15 @@ class _TvHomeScreenState extends State<TvHomeScreen>
         ),
       ),
     );
+    await _refreshContinueWatching();
     if (mounted) _restoreInitialFocus();
   }
 
-  void _queueHero(Map<String, dynamic> item, String type,
-      {bool resume = false}) {
+  void _queueHero(
+    Map<String, dynamic> item,
+    String type, {
+    bool resume = false,
+  }) {
     _heroDebounce?.cancel();
     _heroDebounce = Timer(const Duration(milliseconds: 400), () {
       if (!mounted) return;
@@ -925,18 +974,22 @@ class _TvHomeScreenState extends State<TvHomeScreen>
       await Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (_) => TvSeriesScreen(seriesItem: Movie.fromJson(normalized)),
+          builder: (_) =>
+              TvSeriesScreen(seriesItem: Movie.fromJson(normalized)),
         ),
       );
     } else {
       await Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (_) =>
-              TvDetailsScreen(item: Movie.fromJson(normalized), mediaType: 'movie'),
+          builder: (_) => TvDetailsScreen(
+            item: Movie.fromJson(normalized),
+            mediaType: 'movie',
+          ),
         ),
       );
     }
+    await _refreshContinueWatching();
     if (mounted) _restoreInitialFocus();
   }
 
@@ -957,7 +1010,27 @@ class _TvHomeScreenState extends State<TvHomeScreen>
         ),
       ),
     );
+    await _refreshContinueWatching();
     if (mounted) _restoreInitialFocus();
+  }
+
+  Future<void> _refreshContinueWatching() async {
+    final history = await WatchHistoryService.getContinueWatching();
+    if (!mounted) return;
+    final next = history.take(10).toList();
+    setState(() {
+      continueWatching = next;
+      final heroId =
+          _heroItem?['tmdbId']?.toString() ?? _heroItem?['id']?.toString();
+      final heroStillResumable = next.any(
+        (item) => item['tmdbId']?.toString() == heroId,
+      );
+      if (_heroResume && !heroStillResumable) {
+        _heroItem = trendingMovies.firstOrNull;
+        _heroType = 'movie';
+        _heroResume = false;
+      }
+    });
   }
 
   String _getGenreName(int id) =>

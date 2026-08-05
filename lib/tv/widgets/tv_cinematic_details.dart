@@ -191,6 +191,8 @@ class _TvCinematicDetailsState extends State<TvCinematicDetails>
       ),
     );
     if (!mounted) return;
+    await _refreshContinueWatching();
+    if (!mounted) return;
     final target = _lastPlayerFocus;
     _lastPlayerFocus = null;
     if (target != null) {
@@ -207,21 +209,24 @@ class _TvCinematicDetailsState extends State<TvCinematicDetails>
       child: Focus(
         focusNode: _backNode,
         canRequestFocus: true,
-                      onKeyEvent: (node, event) {
-                        if (event is KeyDownEvent &&
-                            (event.logicalKey == LogicalKeyboardKey.escape ||
-                                event.logicalKey == LogicalKeyboardKey.goBack)) {
-                          Navigator.maybePop(context);
-                          return KeyEventResult.handled;
-                        }
-                        return KeyEventResult.ignored;
-                      },
+        onKeyEvent: (node, event) {
+          if (event is KeyDownEvent &&
+              (event.logicalKey == LogicalKeyboardKey.escape ||
+                  event.logicalKey == LogicalKeyboardKey.goBack)) {
+            Navigator.maybePop(context);
+            return KeyEventResult.handled;
+          }
+          return KeyEventResult.ignored;
+        },
         child: Scaffold(
           backgroundColor: const Color(0xff090909),
           body: _loading
               ? const Center(child: CircularProgressIndicator(color: _red))
               : FadeTransition(
-                  opacity: CurvedAnimation(parent: _entry, curve: Curves.easeOut),
+                  opacity: CurvedAnimation(
+                    parent: _entry,
+                    curve: Curves.easeOut,
+                  ),
                   child: SlideTransition(
                     position:
                         Tween(
@@ -243,7 +248,8 @@ class _TvCinematicDetailsState extends State<TvCinematicDetails>
                             SliverToBoxAdapter(child: _continueWatchingRow()),
                           if (_isSeries && _seasons.isNotEmpty)
                             SliverToBoxAdapter(child: _seasonRow()),
-                          if (_isSeries) SliverToBoxAdapter(child: _episodeRow()),
+                          if (_isSeries)
+                            SliverToBoxAdapter(child: _episodeRow()),
                           if (_cast.isNotEmpty)
                             SliverToBoxAdapter(child: _castRow()),
                           if (_recommendations.isNotEmpty)
@@ -469,9 +475,8 @@ class _TvCinematicDetailsState extends State<TvCinematicDetails>
                             : Image.network(
                                 stillUrl,
                                 fit: BoxFit.cover,
-                                errorBuilder: (_, _, _) => const ColoredBox(
-                                  color: Color(0xff242424),
-                                ),
+                                errorBuilder: (_, _, _) =>
+                                    const ColoredBox(color: Color(0xff242424)),
                               ),
                         Positioned(
                           left: 8,
@@ -516,6 +521,7 @@ class _TvCinematicDetailsState extends State<TvCinematicDetails>
   }
 
   Future<void> _resumeFromHistory(Map<String, dynamic> item) async {
+    final previousIndex = _continueWatching.indexOf(item);
     final season = (item['season'] as num?)?.toInt() ?? 1;
     final episode = (item['episode'] as num?)?.toInt() ?? 1;
     await Navigator.push(
@@ -530,6 +536,32 @@ class _TvCinematicDetailsState extends State<TvCinematicDetails>
         ),
       ),
     );
+    await _refreshContinueWatching();
+    if (!mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_continueWatching.isEmpty) {
+        _playNode.requestFocus();
+      } else {
+        final index = previousIndex.clamp(0, _continueWatching.length - 1);
+        _nodes['continue:$index']?.requestFocus();
+      }
+    });
+  }
+
+  Future<void> _refreshContinueWatching() async {
+    final history = await WatchHistoryService.getContinueWatching();
+    if (!mounted) return;
+    setState(() {
+      _continueWatching = history
+          .where(
+            (item) =>
+                item['tmdbId']?.toString() == widget.item.id &&
+                item['isMovie'] == !_isSeries,
+          )
+          .take(6)
+          .toList();
+    });
   }
 
   Widget _seasonRow() => _section(

@@ -42,7 +42,7 @@ class _ResultEntry {
 }
 
 class _TvSearchScreenState extends State<TvSearchScreen> {
-  static const _columns = 4;
+  static const _columns = 5;
   final _scrollController = ScrollController();
   final _keyboardNode = FocusNode(debugLabel: 'search-keyboard');
   final _keyboardManager = TvKeyboardFocusManager();
@@ -434,9 +434,9 @@ class _TvSearchScreenState extends State<TvSearchScreen> {
           SliverGrid(
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: _columns,
-              childAspectRatio: .58,
-              crossAxisSpacing: 16,
-              mainAxisSpacing: 20,
+              childAspectRatio: .68,
+              crossAxisSpacing: 12,
+              mainAxisSpacing: 14,
             ),
             delegate: SliverChildBuilderDelegate(
               (_, index) => _buildCard(
@@ -497,8 +497,8 @@ class _TvSearchScreenState extends State<TvSearchScreen> {
         if (focused) _rememberedIdentity = entry.identity;
       },
       onKeyEvent: (_, event) => _onCardKey(entry, event),
-      width: 155,
-      height: 232,
+      width: 130,
+      height: 190,
     );
   }
 

@@ -37,7 +37,7 @@ class _GenreItem {
 }
 
 class _TvGenreScreenState extends State<TvGenreScreen> {
-  static const _columns = 4;
+  static const _columns = 5;
   final _genreScroll = ScrollController();
   final _gridScroll = ScrollController();
   final Map<String, FocusNode> _genreNodes = {};
@@ -482,9 +482,9 @@ class _TvGenreScreenState extends State<TvGenreScreen> {
             controller: _gridScroll,
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: _columns,
-              childAspectRatio: .61,
-              crossAxisSpacing: 18,
-              mainAxisSpacing: 18,
+              childAspectRatio: .68,
+              crossAxisSpacing: 12,
+              mainAxisSpacing: 14,
             ),
             itemCount: _items.length,
             itemBuilder: (context, index) {
@@ -505,6 +505,8 @@ class _TvGenreScreenState extends State<TvGenreScreen> {
                 year: date == null
                     ? null
                     : int.tryParse(date.toString().split('-').first),
+                width: 130,
+                height: 190,
                 onTap: () => _open(index),
                 onSelect: () => _open(index),
                 onKeyEvent: (_, event) => _onCardKey(index, event),

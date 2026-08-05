@@ -142,6 +142,7 @@ enum _Pc {
   final int col;
   final int row;
 }
+
 class TvVideoPlayerScreen extends StatefulWidget {
   final String title;
   final String tmdbId;
@@ -191,6 +192,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
   bool _disposed = false;
   bool _recoveringPlayback = false;
   int _playbackRetryCount = 0;
+  bool _completionHandled = false;
   Duration _lastStablePosition = Duration.zero;
   int _rebufferCount = 0;
   DateTime? _lastRebufferTime;
@@ -209,12 +211,9 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
   bool _serverMenuOpen = false;
 
   final FocusNode _surfaceNode = FocusNode(debugLabel: 'Player surface');
-  final FocusNode _controlsFocusNode = FocusNode(debugLabel: 'Player controls');
   final FocusNode _retryNode = FocusNode(debugLabel: 'Player retry');
   final FocusNode _errorBackNode = FocusNode(debugLabel: 'Player error back');
-  final FocusNode _progressBarFocusNode = FocusNode(debugLabel: 'Player progress bar');
   final Map<_Pc, FocusNode> _controlFocusNodes = {};
-  FocusScopeNode? _focusScope;
 
   bool get _hasDuration => _duration > Duration.zero;
 
@@ -249,7 +248,8 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     }
   }
 
-  bool get _hasFocusableMenu => _subtitleMenuOpen || _qualityMenuOpen || _serverMenuOpen;
+  bool get _hasFocusableMenu =>
+      _subtitleMenuOpen || _qualityMenuOpen || _serverMenuOpen;
 
   @override
   void initState() {
@@ -300,10 +300,8 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     }
     for (final node in [
       _surfaceNode,
-      _controlsFocusNode,
       _retryNode,
       _errorBackNode,
-      _progressBarFocusNode,
       ..._controlFocusNodes.values,
     ]) {
       node.dispose();
@@ -458,8 +456,10 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       _seriesPosterUrl = TmdbApiService.getPosterUrl(
         details['poster_path']?.toString() ?? '',
       );
-      final episodes =
-          await TmdbApiService.getSeasonEpisodes(id, widget.season);
+      final episodes = await TmdbApiService.getSeasonEpisodes(
+        id,
+        widget.season,
+      );
       _seasonEpisodes = episodes;
       final currentEpisodeData = episodes
           .where(
@@ -485,14 +485,16 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         .map((e) => (e['episode_number'] as num?)?.toInt() ?? 0)
         .where((n) => n > 0)
         .toList();
-    final currentNumber = widget.episode;
-    final isLastOfSeason = episodeNumbers.isNotEmpty &&
+    final currentNumber = _activeEpisode;
+    final isLastOfSeason =
+        episodeNumbers.isNotEmpty &&
         currentNumber >= episodeNumbers.reduce((a, b) => a > b ? a : b);
-    final isLastKnownEpisode = currentNumber >= 2000 ||
+    final isLastKnownEpisode =
+        currentNumber >= 2000 ||
         (episodeNumbers.isEmpty && currentNumber >= 24);
 
     if (!isLastOfSeason && !isLastKnownEpisode) {
-      _nextSeason = widget.season;
+      _nextSeason = _activeSeason;
       _nextEpisode = currentNumber + 1;
       _hasNextEpisode = true;
       return;
@@ -500,7 +502,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
 
     // Season finished: advance to the next season episode 1 (series may continue).
     if (isLastOfSeason && !isLastKnownEpisode) {
-      _nextSeason = widget.season + 1;
+      _nextSeason = _activeSeason + 1;
       _nextEpisode = 1;
       _hasNextEpisode = true;
     } else {
@@ -526,8 +528,10 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       final id = int.tryParse(widget.tmdbId);
       Map<String, dynamic>? result;
       if (id != null) {
-        final seasonEpisodes =
-            await TmdbApiService.getSeasonEpisodes(id, targetSeason);
+        final seasonEpisodes = await TmdbApiService.getSeasonEpisodes(
+          id,
+          targetSeason,
+        );
         final episodeData = seasonEpisodes
             .where(
               (e) =>
@@ -542,8 +546,10 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         );
         final seriesTitle = _currentTitle?.split(' - ').first ?? widget.title;
         _currentTitle = episodeName != null && episodeName.isNotEmpty
-            ? '$seriesTitle - S$targetSeason' 'E$targetEpisode: $episodeName'
-            : '$seriesTitle - S$targetSeason' 'E$targetEpisode';
+            ? '$seriesTitle - S$targetSeason'
+                  'E$targetEpisode: $episodeName'
+            : '$seriesTitle - S$targetSeason'
+                  'E$targetEpisode';
       }
       result = await DirectM3u8Service.fetchSeriesStreamUrl(
         _currentTitle ?? widget.title,
@@ -576,11 +582,14 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         _nextEpisode = targetEpisode;
         _activeSeason = targetSeason;
         _activeEpisode = targetEpisode;
+        _completionHandled = false;
         _loadingNext = false;
       });
       if (id != null) {
-        _seasonEpisodes =
-            await TmdbApiService.getSeasonEpisodes(id, _nextSeason);
+        _seasonEpisodes = await TmdbApiService.getSeasonEpisodes(
+          id,
+          _nextSeason,
+        );
         _resolveNextEpisode(id, _currentTitle ?? widget.title);
       }
       _loadDefaultSubtitle(candidate);
@@ -624,7 +633,8 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         return false;
       }
 
-      final target = resumePosition ??
+      final target =
+          resumePosition ??
           await WatchHistoryService.loadWatchPosition(
             widget.tmdbId,
             widget.isMovie,
@@ -736,21 +746,21 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       setState(() {});
     }
 
-    if (_isNearEnd(value) && !_loadingNext && !_isBuffering) {
-      unawaited(_playNextEpisode());
-    }
-
-    if (_showControls && value.isPlaying && !_isBuffering) {
-      _resetHideTimer();
+    if (_isNearEnd(value) &&
+        !_loadingNext &&
+        !_isBuffering &&
+        !_completionHandled) {
+      unawaited(_completeCurrentItem());
     }
   }
 
   bool _isNearEnd(VideoPlayerValue value) {
     if (_duration <= Duration.zero) return false;
-    final remainingMs =
-        (_duration - value.position).inMilliseconds.clamp(0, 3000);
+    final remainingMs = (_duration - value.position).inMilliseconds.clamp(
+      0,
+      3000,
+    );
     if (remainingMs > 1500) return false;
-    if (!_isPlaying && !_isBuffering) return false;
     if (_rebufferCount > 0) {
       final lastRebuffer = _lastRebufferTime;
       if (lastRebuffer != null) {
@@ -760,6 +770,21 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     }
     return true;
   }
+
+  Future<void> _completeCurrentItem() async {
+    if (_completionHandled || _disposed) return;
+    _completionHandled = true;
+    await WatchHistoryService.markAsWatched(
+      widget.tmdbId,
+      widget.isMovie,
+      _activeSeason,
+      _activeEpisode,
+    );
+    if (!_disposed && mounted && !widget.isMovie) {
+      await _playNextEpisode();
+    }
+  }
+
   Future<void> _recoverPlayback() async {
     if (_recoveringPlayback || _playbackRetryCount >= 2) return;
     final generation = _operationGeneration;
@@ -804,8 +829,9 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
   _StreamCandidate? _nextServer() {
     final currentUrl = _currentStreamUrl;
     if (_availableServers.length <= 1 || currentUrl == null) return null;
-    final currentIndex =
-        _availableServers.indexWhere((s) => s.url == currentUrl);
+    final currentIndex = _availableServers.indexWhere(
+      (s) => s.url == currentUrl,
+    );
     final start =
         (currentIndex < 0 ? 0 : currentIndex + 1) % _availableServers.length;
     for (var i = 0; i < _availableServers.length; i++) {
@@ -940,22 +966,24 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     try {
       final uri = Uri.parse(track.url);
       final headers = _currentCandidate?.headers ?? const <String, String>{};
-      final response = await http.get(uri, headers: headers).timeout(
-            const Duration(seconds: 12),
-          );
+      final response = await http
+          .get(uri, headers: headers)
+          .timeout(const Duration(seconds: 12));
       if (response.statusCode >= 200 && response.statusCode < 300) {
         final cues = _parseSubtitleFile(response.body);
         if (cues.isEmpty) {
           _showStatus('Subtitle file was empty or could not be parsed');
           return;
         }
-        final parsed =
-            cues.map((c) => c.copyWith(text: _stripTags(c.text))).toList();
+        final parsed = cues
+            .map((c) => c.copyWith(text: _stripTags(c.text)))
+            .toList();
         if (!mounted) return;
         setState(() {
           _activeSubtitles = parsed;
-          _selectedSubtitleLabel =
-              track.source.isNotEmpty ? '${track.source}/${track.label}' : track.label;
+          _selectedSubtitleLabel = track.source.isNotEmpty
+              ? '${track.source}/${track.label}'
+              : track.label;
         });
       }
     } catch (e) {
@@ -986,8 +1014,9 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     var normalized = input.trim();
     if (normalized.isEmpty) return const [];
     if (normalized.startsWith('{')) {
-      final parsed =
-          _tryParseJson(jsonDecode(normalized) as Map<dynamic, dynamic>);
+      final parsed = _tryParseJson(
+        jsonDecode(normalized) as Map<dynamic, dynamic>,
+      );
       if (parsed != null && parsed.isNotEmpty) return parsed;
     }
     if (normalized.contains('WEBVTT')) return _parseVtt(normalized);
@@ -1002,19 +1031,21 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     try {
       final cues = <_SubtitleCue>[];
       final body = json['body'] ?? json['cues'] ?? json['payload'] ?? json;
-      final rawCues =
-          (body is Map && body['cues'] is List) ? body['cues'] : body;
+      final rawCues = (body is Map && body['cues'] is List)
+          ? body['cues']
+          : body;
       if (rawCues is List) {
         for (final item in rawCues) {
           if (item is! Map) continue;
           final start = _parseSubTime(item['from'] ?? item['start']);
           final end = _parseSubTime(item['to'] ?? item['end']);
-          final text = (item['text'] ??
-                  item['payload'] ??
-                  item['content'] ??
-                  item['value'])
-              ?.toString()
-              .trim();
+          final text =
+              (item['text'] ??
+                      item['payload'] ??
+                      item['content'] ??
+                      item['value'])
+                  ?.toString()
+                  .trim();
           if (start != null && end != null && text != null && text.isNotEmpty) {
             cues.add(_SubtitleCue(start: start, end: end, text: text));
           }
@@ -1048,11 +1079,13 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       final start = _parseSubTime(times[0]);
       final end = _parseSubTime(times[1].split(RegExp(r'\s')).first);
       if (start != null && end != null && end > start) {
-        cues.add(_SubtitleCue(
-          start: start,
-          end: end,
-          text: textLines.join('\n').trim(),
-        ));
+        cues.add(
+          _SubtitleCue(
+            start: start,
+            end: end,
+            text: textLines.join('\n').trim(),
+          ),
+        );
       }
     }
     return cues;
@@ -1093,8 +1126,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       if (parts.length < 3) continue;
       final start = _parseAssTime(parts[1]);
       final end = _parseAssTime(parts[2]);
-      final text =
-          parts.sublist(9).join(',').replaceAll(r'\N', '\n').trim();
+      final text = parts.sublist(9).join(',').replaceAll(r'\N', '\n').trim();
       if (start != null && end != null && end > start && text.isNotEmpty) {
         cues.add(_SubtitleCue(start: start, end: end, text: text));
       }
@@ -1121,17 +1153,26 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     final min = int.tryParse(m.group(2)!);
     final sec = int.tryParse(m.group(3)!);
     final msRaw = m.group(4)!;
-    final ms = msRaw.length == 2 ? int.tryParse(msRaw) ?? 0 : int.tryParse(msRaw);
+    final ms = msRaw.length == 2
+        ? int.tryParse(msRaw) ?? 0
+        : int.tryParse(msRaw);
     if (h == null || min == null || sec == null) return null;
     final centis = ms ?? 0;
-    final val = Duration(hours: h, minutes: min, seconds: sec) +
-        Duration(milliseconds: centis == 0 ? 0 : (msRaw.length == 2 ? centis * 10 : centis));
+    final val =
+        Duration(hours: h, minutes: min, seconds: sec) +
+        Duration(
+          milliseconds: centis == 0
+              ? 0
+              : (msRaw.length == 2 ? centis * 10 : centis),
+        );
     return val;
   }
 
   Duration? _parseSubTime(String raw) {
     final t = raw.trim();
-    final m = RegExp(r'(?:(\d+):)?(\d{1,2}):(\d{2})[.,](\d{1,3})').firstMatch(t);
+    final m = RegExp(
+      r'(?:(\d+):)?(\d{1,2}):(\d{2})[.,](\d{1,3})',
+    ).firstMatch(t);
     if (m != null) {
       final h = int.tryParse(m.group(1) ?? '0') ?? 0;
       final min = int.tryParse(m.group(2)!) ?? 0;
@@ -1151,26 +1192,35 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     final total = _duration;
     return '${_two(d.inHours)}:${_two(d.inMinutes % 60)}:${_two(d.inSeconds % 60)}'
         ' / '
-        '${_two(total.inHours)}:${_two(total.inMinutes % 60)}:${_two(total
-        .inSeconds % 60)}';
+        '${_two(total.inHours)}:${_two(total.inMinutes % 60)}:${_two(total.inSeconds % 60)}';
   }
 
   String _two(int v) => v.toString().padLeft(2, '0');
 
-  void _showControlsAndFocus() {
+  void _showControlsAndFocus({_Pc target = _Pc.playPause}) {
     if (!mounted || _disposed) return;
     setState(() {
       _showControls = true;
       _isBuffering = false;
       _isLoading = false;
+      _currentControl = target;
     });
     _resetHideTimer();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !_disposed && _showControls) {
+        _requestFocusFor(target);
+      }
+    });
   }
 
   void _resetHideTimer() {
     _hideTimer?.cancel();
     _hideTimer = Timer(const Duration(seconds: 5), () {
       if (mounted && !_disposed) {
+        if (_hasFocusableMenu) {
+          _resetHideTimer();
+          return;
+        }
         setState(() => _showControls = false);
         _clearFocusedBack();
       }
@@ -1179,10 +1229,8 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
 
   void _clearFocusedBack() {
     if (!mounted) return;
-    final backNode = _controlFocusNodes[_Pc.back];
-    backNode?.skipTraversal = true;
-    backNode?.unfocus();
-    _focusScope?.unfocus();
+    FocusManager.instance.primaryFocus?.unfocus();
+    _surfaceNode.requestFocus();
   }
 
   void _toggleControls() {
@@ -1191,17 +1239,6 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       _clearFocusedBack();
     } else {
       _showControlsAndFocus();
-      _ensureMenuNodeFocus();
-    }
-  }
-
-  void _ensureMenuNodeFocus() {
-    if (!mounted) return;
-    final node = _controlFocusNodes[_Pc.back];
-    if (node != null) {
-      FocusManager.instance.primaryFocus?.unfocus();
-      node.skipTraversal = false;
-      node.requestFocus();
     }
   }
 
@@ -1256,6 +1293,20 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         _toggleControls();
         return KeyEventResult.handled;
       }
+      if (!_showControls &&
+          (key == LogicalKeyboardKey.arrowLeft ||
+              key == LogicalKeyboardKey.arrowRight ||
+              key == LogicalKeyboardKey.arrowUp ||
+              key == LogicalKeyboardKey.arrowDown)) {
+        final target = switch (key) {
+          LogicalKeyboardKey.arrowLeft => _Pc.rewind,
+          LogicalKeyboardKey.arrowRight => _Pc.forward,
+          LogicalKeyboardKey.arrowDown => _Pc.slider,
+          _ => _Pc.playPause,
+        };
+        _showControlsAndFocus(target: target);
+        return KeyEventResult.handled;
+      }
     }
     return KeyEventResult.ignored;
   }
@@ -1264,46 +1315,77 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     var next = _currentControl;
     switch (_currentControl) {
       case _Pc.back:
-        if (key == LogicalKeyboardKey.arrowRight) next = _Pc.playPause;
-        else if (key == LogicalKeyboardKey.arrowDown) next = _Pc.playPause;
+        if (key == LogicalKeyboardKey.arrowDown) {
+          next = _Pc.playPause;
+        }
         break;
       case _Pc.playPause:
-        if (key == LogicalKeyboardKey.arrowLeft) next = _Pc.back;
-        else if (key == LogicalKeyboardKey.arrowRight) next = _Pc.rewind;
-        else if (key == LogicalKeyboardKey.arrowDown) next = _Pc.slider;
+        if (key == LogicalKeyboardKey.arrowLeft) {
+          next = _Pc.rewind;
+        } else if (key == LogicalKeyboardKey.arrowRight) {
+          next = _Pc.forward;
+        } else if (key == LogicalKeyboardKey.arrowUp) {
+          next = _Pc.back;
+        } else if (key == LogicalKeyboardKey.arrowDown) {
+          next = _Pc.slider;
+        }
         break;
       case _Pc.rewind:
-        if (key == LogicalKeyboardKey.arrowLeft) next = _Pc.playPause;
-        else if (key == LogicalKeyboardKey.arrowRight) next = _Pc.forward;
-        else if (key == LogicalKeyboardKey.arrowDown) next = _Pc.volume;
+        if (key == LogicalKeyboardKey.arrowRight) {
+          next = _Pc.playPause;
+        } else if (key == LogicalKeyboardKey.arrowUp) {
+          next = _Pc.back;
+        } else if (key == LogicalKeyboardKey.arrowDown) {
+          next = _Pc.slider;
+        }
         break;
       case _Pc.forward:
-        if (key == LogicalKeyboardKey.arrowLeft) next = _Pc.rewind;
-        else if (key == LogicalKeyboardKey.arrowRight) next = _Pc.subtitles;
-        else if (key == LogicalKeyboardKey.arrowDown) next = _Pc.volume;
+        if (key == LogicalKeyboardKey.arrowLeft) {
+          next = _Pc.playPause;
+        } else if (key == LogicalKeyboardKey.arrowUp) {
+          next = _Pc.back;
+        } else if (key == LogicalKeyboardKey.arrowDown) {
+          next = _Pc.slider;
+        }
         break;
       case _Pc.subtitles:
-        if (key == LogicalKeyboardKey.arrowLeft) next = _Pc.forward;
-        else if (key == LogicalKeyboardKey.arrowRight) next = _Pc.quality;
-        else if (key == LogicalKeyboardKey.arrowDown) next = _Pc.volume;
+        if (key == LogicalKeyboardKey.arrowLeft) {
+          next = _Pc.quality;
+        } else if (key == LogicalKeyboardKey.arrowUp) {
+          next = _Pc.slider;
+        }
         break;
       case _Pc.quality:
-        if (key == LogicalKeyboardKey.arrowLeft) next = _Pc.subtitles;
-        else if (key == LogicalKeyboardKey.arrowRight) next = _Pc.server;
-        else if (key == LogicalKeyboardKey.arrowDown) next = _Pc.volume;
+        if (key == LogicalKeyboardKey.arrowLeft) {
+          next = _Pc.volume;
+        } else if (key == LogicalKeyboardKey.arrowRight) {
+          next = _Pc.subtitles;
+        } else if (key == LogicalKeyboardKey.arrowUp) {
+          next = _Pc.slider;
+        }
         break;
       case _Pc.server:
-        if (key == LogicalKeyboardKey.arrowLeft) next = _Pc.quality;
-        else if (key == LogicalKeyboardKey.arrowDown) next = _Pc.volume;
+        if (key == LogicalKeyboardKey.arrowRight) {
+          next = _Pc.volume;
+        } else if (key == LogicalKeyboardKey.arrowUp) {
+          next = _Pc.slider;
+        }
         break;
       case _Pc.volume:
-        if (key == LogicalKeyboardKey.arrowLeft) next = _Pc.rewind;
-        else if (key == LogicalKeyboardKey.arrowRight) next = _Pc.volume;
-        else if (key == LogicalKeyboardKey.arrowUp) next = _Pc.playPause;
-        else if (key == LogicalKeyboardKey.arrowDown) next = _Pc.slider;
+        if (key == LogicalKeyboardKey.arrowLeft) {
+          next = _Pc.server;
+        } else if (key == LogicalKeyboardKey.arrowRight) {
+          next = _Pc.quality;
+        } else if (key == LogicalKeyboardKey.arrowUp) {
+          next = _Pc.slider;
+        }
         break;
       case _Pc.slider:
-        if (key == LogicalKeyboardKey.arrowUp) next = _Pc.volume;
+        if (key == LogicalKeyboardKey.arrowUp) {
+          next = _Pc.playPause;
+        } else if (key == LogicalKeyboardKey.arrowDown) {
+          next = _Pc.volume;
+        }
         break;
     }
 
@@ -1325,7 +1407,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
   void _activateControl(_Pc pc) {
     switch (pc) {
       case _Pc.back:
-        _toggleControls();
+        _handleBackNavigation();
         break;
       case _Pc.playPause:
         _executePlayPause();
@@ -1371,7 +1453,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     if (target < 0) target = 0;
     if (target > total) target = total;
     controller.seekTo(Duration(milliseconds: target));
-    _showStatus('${_formatClock(Duration(milliseconds: target))}');
+    _showStatus(_formatClock(Duration(milliseconds: target)));
     _resetHideTimer();
   }
 
@@ -1514,13 +1596,16 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
           children: [
             Icon(Icons.error_outline, size: 72, color: Colors.redAccent[200]),
             const SizedBox(height: 24),
-            Text(message,
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white, fontSize: 20)),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white, fontSize: 20),
+            ),
             const SizedBox(height: 24),
             FilledButton(
               style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFF00695C)),
+                backgroundColor: const Color(0xFF00695C),
+              ),
               onPressed: () {
                 if (Navigator.of(context).canPop()) Navigator.of(context).pop();
               },
@@ -1557,27 +1642,37 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     final isPlaying = _isPlaying || (_controller?.value.isPlaying ?? false);
 
     final backButton = _controlButton(
-      _Pc.back, Icons.arrow_back, 'Back',
-      onPress: () {},
+      _Pc.back,
+      Icons.arrow_back,
+      'Back',
+      onPress: _handleBackNavigation,
     );
 
     final playPauseButton = _controlButton(
-      _Pc.playPause, isPlaying ? Icons.pause : Icons.play_arrow, isPlaying ? 'Pause' : 'Play',
-      onPress: () {},
+      _Pc.playPause,
+      isPlaying ? Icons.pause : Icons.play_arrow,
+      isPlaying ? 'Pause' : 'Play',
+      onPress: _executePlayPause,
     );
 
     final rewindButton = _controlButton(
-      _Pc.rewind, Icons.replay_10, 'Back 10s',
+      _Pc.rewind,
+      Icons.replay_10,
+      'Back 10s',
       onPress: () => _seekBy(-10),
     );
 
     final forwardButton = _controlButton(
-      _Pc.forward, Icons.forward_10, 'Forward 10s',
+      _Pc.forward,
+      Icons.forward_10,
+      'Forward 10s',
       onPress: () => _seekBy(10),
     );
 
     final subtitlesButton = _controlButton(
-      _Pc.subtitles, Icons.subtitles, 'Subtitles',
+      _Pc.subtitles,
+      Icons.subtitles,
+      'Subtitles',
       label: _selectedSubtitleLabel == 'Default'
           ? 'Off'
           : _selectedSubtitleLabel,
@@ -1585,20 +1680,28 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     );
 
     final qualityButton = _controlButton(
-      _Pc.quality, Icons.high_quality, 'Quality',
+      _Pc.quality,
+      Icons.high_quality,
+      'Quality',
       label: _selectedQualityLabel,
       onPress: _openQualityMenu,
     );
 
     final serverButton = _controlButton(
-      _Pc.server, Icons.dns, 'Server',
+      _Pc.server,
+      Icons.dns,
+      'Server',
       label: _selectedSource,
       onPress: _openServerMenu,
     );
 
     final volumeButton = _controlButton(
-      _Pc.volume, Icons.volume_up, 'Volume',
-      onPress: () {},
+      _Pc.volume,
+      (_controller?.value.volume ?? 1) == 0
+          ? Icons.volume_off
+          : Icons.volume_up,
+      'Volume',
+      onPress: _stepVolume,
     );
 
     return Positioned.fill(
@@ -1606,36 +1709,61 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         behavior: HitTestBehavior.opaque,
         onTap: _toggleControls,
         child: Container(
-          color: Colors.transparent,
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Color(0xB8000000),
+                Colors.transparent,
+                Color(0xE6000000),
+              ],
+              stops: [0, .42, 1],
+            ),
+          ),
           child: Focus(
             onKeyEvent: _onBaselineAmbitKey,
             child: Stack(
               fit: StackFit.expand,
               children: [
-                // Back button at top left
                 Positioned(
-                  top: 16,
-                  left: 16,
-                  child: backButton,
+                  top: 22,
+                  left: 28,
+                  right: 28,
+                  child: Row(
+                    children: [
+                      backButton,
+                      const SizedBox(width: 18),
+                      Expanded(
+                        child: Text(
+                          _currentTitle ?? widget.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-                // Center controls: play/pause, back10, forward10
-                // between the player and subtitles
                 Positioned(
-                  bottom: 180,
+                  bottom: 174,
                   left: 0,
                   right: 0,
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       rewindButton,
-                      const SizedBox(width: 20),
+                      const SizedBox(width: 14),
                       playPauseButton,
-                      const SizedBox(width: 20),
+                      const SizedBox(width: 14),
                       forwardButton,
                     ],
                   ),
                 ),
-                // Below progress bar: server, volume, quality
                 Positioned(
                   bottom: 0,
                   left: 0,
@@ -1656,7 +1784,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
                           subtitlesButton,
                         ],
                       ),
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 20),
                     ],
                   ),
                 ),
@@ -1673,7 +1801,12 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         ? 0.0
         : (_position.inMilliseconds / _duration.inMilliseconds).clamp(0.0, 1.0);
     return Focus(
-      focusNode: _progressBarFocusNode,
+      focusNode: _controlFocusNodes[_Pc.slider],
+      onFocusChange: (focused) {
+        if (!focused || !mounted) return;
+        setState(() => _currentControl = _Pc.slider);
+        _resetHideTimer();
+      },
       onKeyEvent: (node, event) {
         if (event is KeyDownEvent) {
           final key = event.logicalKey;
@@ -1707,8 +1840,9 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
               value: value,
               minHeight: 6,
               backgroundColor: Colors.white24,
-              valueColor:
-                  const AlwaysStoppedAnimation<Color>(Color(0xFF00E5CC)),
+              valueColor: const AlwaysStoppedAnimation<Color>(
+                Color(0xFF00E5CC),
+              ),
             ),
             const SizedBox(height: 8),
             Align(
@@ -1738,6 +1872,11 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       child: Focus(
         focusNode: node,
         onKeyEvent: _onControlKey,
+        onFocusChange: (focused) {
+          if (!focused || !mounted) return;
+          setState(() => _currentControl = pc);
+          _resetHideTimer();
+        },
         child: Container(
           width: 72,
           padding: const EdgeInsets.symmetric(vertical: 8),
@@ -1754,21 +1893,27 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon,
-                  size: 18,
-                  color: isFocused ? Colors.white : Colors.white70),
+              Icon(
+                icon,
+                size: 18,
+                color: isFocused ? Colors.white : Colors.white70,
+              ),
               const SizedBox(height: 3),
-              Text(title,
-                  style: TextStyle(
-                      color: isFocused ? Colors.white : Colors.white70,
-                      fontSize: 10)),
+              Text(
+                title,
+                style: TextStyle(
+                  color: isFocused ? Colors.white : Colors.white70,
+                  fontSize: 10,
+                ),
+              ),
               if (label != null && label.isNotEmpty) ...[
                 const SizedBox(height: 1),
-                Text(label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                        color: Colors.tealAccent, fontSize: 9)),
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Colors.tealAccent, fontSize: 9),
+                ),
               ],
             ],
           ),
@@ -1796,19 +1941,19 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
             children: [
               Padding(
                 padding: const EdgeInsets.all(16),
-                child: Text(title,
-                    style: const TextStyle(
-                        color: Colors.tealAccent,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold)),
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    color: Colors.tealAccent,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
               ),
               Flexible(
                 child: ListView(
                   shrinkWrap: true,
-                  children: [
-                    for (final item in items)
-                      item,
-                  ],
+                  children: [for (final item in items) item],
                 ),
               ),
               const SizedBox(height: 12),
@@ -1819,7 +1964,11 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     );
   }
 
-  Widget _menuRow(String label, VoidCallback onSelect, {bool selected = false}) {
+  Widget _menuRow(
+    String label,
+    VoidCallback onSelect, {
+    bool selected = false,
+  }) {
     return Focus(
       onKeyEvent: (node, event) {
         if (event.runtimeType == KeyDownEvent && keyIsEnter(event)) {
@@ -1837,13 +1986,14 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         child: Container(
           width: double.infinity,
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-          color: selected
-              ? const Color(0xFF00695C)
-              : Colors.transparent,
-          child: Text(label,
-              style: TextStyle(
-                  color: selected ? Colors.white : Colors.white70,
-                  fontSize: 16)),
+          color: selected ? const Color(0xFF00695C) : Colors.transparent,
+          child: Text(
+            label,
+            style: TextStyle(
+              color: selected ? Colors.white : Colors.white70,
+              fontSize: 16,
+            ),
+          ),
         ),
       ),
     );
@@ -1855,6 +2005,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         key == LogicalKeyboardKey.select ||
         key == LogicalKeyboardKey.gameButtonA;
   }
+
   void _unpauseWithWake() {
     if (!mounted || _disposed) return;
     _controller?.play();
@@ -1935,22 +2086,13 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
   Widget _buildMenuSheets() {
     final sheets = <Widget>[];
     if (_subtitleMenuOpen) {
-      sheets.add(_buildMenuSheet(
-        'Subtitles',
-        _buildSubtitleMenuItems(),
-      ));
+      sheets.add(_buildMenuSheet('Subtitles', _buildSubtitleMenuItems()));
     }
     if (_qualityMenuOpen) {
-      sheets.add(_buildMenuSheet(
-        'Quality',
-        _buildQualityMenuItems(),
-      ));
+      sheets.add(_buildMenuSheet('Quality', _buildQualityMenuItems()));
     }
     if (_serverMenuOpen) {
-      sheets.add(_buildMenuSheet(
-        'Server',
-        _buildServerMenuItems(),
-      ));
+      sheets.add(_buildMenuSheet('Server', _buildServerMenuItems()));
     }
     if (sheets.isEmpty) return const SizedBox.shrink();
     return Stack(children: sheets);
@@ -1971,7 +2113,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
           () => _selectMenuOption('subtitle', track),
           selected:
               _activeSubtitles.isNotEmpty &&
-              track.label == _selectedSubtitleLabel ||
+                  track.label == _selectedSubtitleLabel ||
               (track.label == _selectedSubtitleLabel &&
                   _activeSubtitles.isNotEmpty),
         ),
@@ -1990,9 +2132,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         if (seen.add(q.label))
           _menuRow(
             q.label,
-            () => q.url.isEmpty
-                ? (null)
-                : _selectMenuOption('quality', q),
+            () => q.url.isEmpty ? (null) : _selectMenuOption('quality', q),
             selected: _selectedQualityLabel == q.label,
           ),
     ];
@@ -2015,8 +2155,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         _menuRow(
           server.source,
           () => _selectMenuOption('server', server),
-          selected:
-              server.url == _selectedServerUrl || streamEquals(server),
+          selected: server.url == _selectedServerUrl || streamEquals(server),
         ),
     ];
   }
@@ -2025,7 +2164,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     final selected = _availableServers
         .where((s) => s.url == _selectedServerUrl)
         .firstOrNull;
-    return selected?.source == server.source && server.url == _selectedServerUrl;
+    return selected?.source == server.source &&
+        server.url == _selectedServerUrl;
   }
-
 }
