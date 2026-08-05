@@ -221,6 +221,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
 
   _Pc? _activeMenu;
   int _focusedMenuIndex = 0;
+  final FocusNode _menuHeaderNode = FocusNode(debugLabel: 'player menu header');
   final List<FocusNode> _menuOptionNodes = [];
   FocusNode _menuOptionNode(int index) => _menuOptionNodes[index];
   void _rebuildMenuOptionNodes(int count) {
@@ -327,6 +328,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       _surfaceNode,
       _retryNode,
       _errorBackNode,
+      _menuHeaderNode,
       ..._controlFocusNodes.values,
       ..._menuOptionNodes,
     ]) {
@@ -984,32 +986,89 @@ resumePosition: Duration.zero,
       return;
     }
     try {
-      final uri = Uri.parse(track.url);
-      final headers = _currentCandidate?.headers ?? const <String, String>{};
-      final response = await http
-          .get(uri, headers: headers)
-          .timeout(const Duration(seconds: 12));
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        final cues = _parseSubtitleFile(response.body);
-        if (cues.isEmpty) {
-          _showStatus('Subtitle file was empty or could not be parsed');
-          return;
-        }
-        final parsed = cues
-            .map((c) => c.copyWith(text: _stripTags(c.text)))
-            .toList();
-        if (!mounted) return;
-        setState(() {
-          _activeSubtitles = parsed;
-          _selectedSubtitleLabel = track.source.isNotEmpty
-              ? '${track.source}/${track.label}'
-              : track.label;
-        });
+      final cues = await _fetchSubtitles(track);
+      if (!mounted) return;
+      if (cues.isEmpty) {
+        _showStatus('Subtitle file was empty or could not be parsed');
+        return;
       }
+      final parsed = cues
+          .map((c) => c.copyWith(text: _stripTags(c.text)))
+          .toList();
+      setState(() {
+        _activeSubtitles = parsed;
+        _selectedSubtitleLabel = track.source.isNotEmpty
+            ? '${track.source}/${track.label}'
+            : track.label;
+      });
     } catch (e) {
       debugPrint('TvVideoPlayer: Subtitle fetch failed: $e');
-      _showStatus('Failed to load subtitle');
+      if (!mounted) return;
+      final msg = e.toString().contains('404')
+          ? 'Subtitle not found on server (404). Try another track.'
+          : e.toString().contains('401')
+          ? 'Subtitle requires authentication. Try another track.'
+          : 'Failed to load subtitles: $e';
+      _showStatus(msg);
     }
+  }
+
+  Future<List<_SubtitleCue>> _fetchSubtitles(_SubtitleTrack track) async {
+    final uri = Uri.parse(track.url);
+    if (uri.host.isEmpty) {
+      final streamUrl = _currentStreamUrl;
+      final base = (streamUrl == null || streamUrl.isEmpty)
+          ? null
+          : Uri.tryParse(streamUrl);
+      if (base != null && base.host.isNotEmpty) {
+        final resolved = base.resolveUri(uri);
+        if (resolved.host.isNotEmpty) {
+          return _fetchSubtitles(
+            _SubtitleTrack(
+              label: track.label,
+              url: resolved.toString(),
+              source: track.source,
+              isDefault: track.isDefault,
+            ),
+          );
+        }
+      }
+      throw Exception('Invalid subtitle URL: ${track.url}');
+    }
+    final inheritedHeaders = _currentCandidate?.headers ?? const <String, String>{};
+    final headers = <String, String>{
+      if (track.source != 'Vidflix') ...inheritedHeaders,
+      'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+              '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      'Accept': 'text/vtt, application/x-subrip, text/plain, */*',
+    };
+    final urlsToTry = <String>[track.url];
+    final noFragment = track.url.split('#')[0];
+    if (noFragment != track.url) urlsToTry.add(noFragment);
+    Exception? lastError;
+    for (final url in urlsToTry) {
+      try {
+        final response = await http
+            .get(Uri.parse(url), headers: headers)
+            .timeout(const Duration(seconds: 12));
+        if (response.statusCode >= 200 && response.statusCode < 300) {
+          final body = utf8.decode(response.bodyBytes, allowMalformed: true);
+          if (body.trim().isNotEmpty) {
+            final cues = _parseSubtitleFile(body);
+            if (cues.isNotEmpty) return cues;
+            lastError = const FormatException(
+              'The subtitle file contained no valid timed cues',
+            );
+            continue;
+          }
+        }
+        lastError = Exception('HTTP ${response.statusCode}');
+      } catch (e) {
+        lastError = e is Exception ? e : Exception(e.toString());
+      }
+    }
+    throw lastError ?? Exception('Failed to load subtitles');
   }
 
   String _findSubtitleText(Duration position) {
@@ -1030,45 +1089,73 @@ resumePosition: Duration.zero,
         .trim();
   }
 
+  String _decodeHtmlEntities(String input) => input
+      .replaceAll('&amp;', '&')
+      .replaceAll('&lt;', '<')
+      .replaceAll('&gt;', '>')
+      .replaceAll('&quot;', '"')
+      .replaceAll('&#39;', "'")
+      .replaceAll('&nbsp;', ' ');
+
   List<_SubtitleCue> _parseSubtitleFile(String input) {
-    var normalized = input.trim();
-    if (normalized.isEmpty) return const [];
-    if (normalized.startsWith('{')) {
-      final parsed = _tryParseJson(
-        jsonDecode(normalized) as Map<dynamic, dynamic>,
-      );
-      if (parsed != null && parsed.isNotEmpty) return parsed;
+    final normalized = input
+        .replaceFirst('\uFEFF', '')
+        .replaceAll('\r\n', '\n')
+        .replaceAll('\r', '\n');
+    final upper = normalized.trimLeft().toUpperCase();
+
+    if (upper.startsWith('WEBVTT')) return _parseVtt(normalized);
+    if (upper.startsWith('{') || upper.startsWith('[')) {
+      final json = _tryParseJson(normalized);
+      if (json != null && json.isNotEmpty) return json;
     }
-    if (normalized.contains('WEBVTT')) return _parseVtt(normalized);
-    if (normalized.contains('[Script Info]') ||
-        normalized.contains('[Events]')) {
+    if (normalized.contains('[Script Info]') || normalized.contains('[Events]')) {
       return _parseAss(normalized);
     }
-    return _parseSrt(normalized);
+    if (normalized.contains('<tt') ||
+        normalized.contains('<p ') ||
+        normalized.contains('<p>')) {
+      final ttml = _parseTtml(normalized);
+      if (ttml.isNotEmpty) return ttml;
+    }
+    final srt = _parseSrt(normalized);
+    if (srt.isNotEmpty) return srt;
+    if (normalized.contains('<') && normalized.contains('begin=')) {
+      return _parseTtml(normalized);
+    }
+    return srt;
   }
 
-  List<_SubtitleCue>? _tryParseJson(Map<dynamic, dynamic> json) {
+  List<_SubtitleCue>? _tryParseJson(String input) {
     try {
+      final decoded = jsonDecode(input);
+      final dynamic rawCues = decoded is List
+          ? decoded
+          : decoded is Map
+          ? decoded['cues'] ??
+                decoded['subtitles'] ??
+                decoded['data'] ??
+                decoded['body'] ??
+                decoded['payload'] ??
+                decoded
+          : null;
+      if (rawCues is! List) return const [];
       final cues = <_SubtitleCue>[];
-      final body = json['body'] ?? json['cues'] ?? json['payload'] ?? json;
-      final rawCues = (body is Map && body['cues'] is List)
-          ? body['cues']
-          : body;
-      if (rawCues is List) {
-        for (final item in rawCues) {
-          if (item is! Map) continue;
-          final start = _parseSubTime(item['from'] ?? item['start']);
-          final end = _parseSubTime(item['to'] ?? item['end']);
-          final text =
-              (item['text'] ??
-                      item['payload'] ??
-                      item['content'] ??
-                      item['value'])
-                  ?.toString()
-                  .trim();
-          if (start != null && end != null && text != null && text.isNotEmpty) {
-            cues.add(_SubtitleCue(start: start, end: end, text: text));
-          }
+      for (final item in rawCues.whereType<Map>()) {
+        final start = _parseJsonCueTime(
+          item['startTime'] ?? item['start'] ?? item['from'],
+        );
+        final end = _parseJsonCueTime(
+          item['endTime'] ?? item['end'] ?? item['to'],
+        );
+        final rawText =
+            item['text'] ?? item['payload'] ?? item['content'] ?? item['value'];
+        final text = rawText is List
+            ? rawText.join('\n')
+            : rawText?.toString() ?? '';
+        final cleaned = _decodeHtmlEntities(text).trim();
+        if (start != null && end != null && end > start && cleaned.isNotEmpty) {
+          cues.add(_SubtitleCue(start: start, end: end, text: cleaned));
         }
       }
       return cues;
@@ -1077,49 +1164,76 @@ resumePosition: Duration.zero,
     }
   }
 
+  Duration? _parseJsonCueTime(dynamic value) {
+    if (value is num) {
+      return Duration(milliseconds: (value.toDouble() * 1000).round());
+    }
+    if (value is! String) return null;
+    final timestamp = _parseSubTime(value);
+    if (timestamp != null) return timestamp;
+    final seconds = double.tryParse(value);
+    return seconds == null
+        ? null
+        : Duration(milliseconds: (seconds * 1000).round());
+  }
+
   List<_SubtitleCue> _parseVtt(String input) {
+    final lines = input.split('\n');
     final cues = <_SubtitleCue>[];
-    final blocks = input.split(RegExp(r'\n{2,}'));
-    for (final block in blocks) {
-      final lines = block.split('\n');
-      String? timing;
-      final textLines = <String>[];
-      for (final line in lines) {
-        if (line.contains('-->')) {
-          timing = line;
-        } else if (line.trim().isNotEmpty &&
-            !line.trim().startsWith('WEBVTT') &&
-            !line.trim().startsWith('NOTE') &&
-            !line.trim().startsWith('STYLE')) {
-          textLines.add(line);
+    var i = 0;
+    if (lines.isNotEmpty && lines[0].trim().toUpperCase().startsWith('WEBVTT')) {
+      i = 1;
+    }
+    while (i < lines.length) {
+      final line = lines[i].trim();
+      if (line.isEmpty || line.toUpperCase().startsWith('NOTE')) {
+        if (line.toUpperCase().startsWith('NOTE')) {
+          while (i < lines.length && lines[i].trim().isNotEmpty) {
+            i++;
+          }
         }
+        i++;
+        continue;
       }
-      if (timing == null || textLines.isEmpty) continue;
-      final times = timing.split('-->');
-      final start = _parseSubTime(times[0]);
-      final end = _parseSubTime(times[1].split(RegExp(r'\s')).first);
-      if (start != null && end != null && end > start) {
-        cues.add(
-          _SubtitleCue(
-            start: start,
-            end: end,
-            text: textLines.join('\n').trim(),
-          ),
-        );
+      if (!line.contains('-->')) {
+        i++;
+        continue;
+      }
+      final timing = line.split('-->');
+      if (timing.length != 2) {
+        i++;
+        continue;
+      }
+      final start = _parseSubTime(timing[0]);
+      final end = _parseSubTime(timing[1].trim().split(RegExp(r'\s+')).first);
+      if (start == null || end == null) {
+        i++;
+        continue;
+      }
+      i++;
+      final textLines = <String>[];
+      while (i < lines.length && lines[i].trim().isNotEmpty) {
+        if (lines[i].trim().contains('-->')) break;
+        textLines.add(lines[i].trim());
+        i++;
+      }
+      final text = _decodeHtmlEntities(textLines.join('\n')).trim();
+      if (text.isNotEmpty && end > start) {
+        cues.add(_SubtitleCue(start: start, end: end, text: text));
       }
     }
     return cues;
   }
 
   List<_SubtitleCue> _parseSrt(String input) {
+    final blocks = input.split(RegExp(r'\n\s*\n'));
     final cues = <_SubtitleCue>[];
-    final blocks = input.split(RegExp(r'\n{2,}'));
     for (final block in blocks) {
       final lines = block.trim().split('\n');
       if (lines.length < 2) continue;
-      if (int.tryParse(lines[0].trim()) == null) continue;
+      var idx = 0;
+      if (int.tryParse(lines[0].trim()) != null) idx = 1;
       String? timing;
-      var idx = 1;
       for (; idx < lines.length; idx++) {
         if (lines[idx].contains('-->')) {
           timing = lines[idx];
@@ -1130,12 +1244,51 @@ resumePosition: Duration.zero,
       final times = timing.split('-->');
       final start = _parseSubTime(times[0]);
       final end = _parseSubTime(times[1]);
-      final text = lines.skip(idx + 1).join('\n').trim();
+      final text = _decodeHtmlEntities(lines.skip(idx + 1).join('\n')).trim();
       if (start != null && end != null && end > start && text.isNotEmpty) {
         cues.add(_SubtitleCue(start: start, end: end, text: text));
       }
     }
     return cues;
+  }
+
+  List<_SubtitleCue> _parseTtml(String input) {
+    final cues = <_SubtitleCue>[];
+    final pTag = RegExp(
+      r'<p\b[^>]*begin="([^"]+)"[^>]*end="([^"]+)"[^>]*>(.*?)</p>',
+      dotAll: true,
+    );
+    for (final match in pTag.allMatches(input)) {
+      final start = _parseTtmlTime(match.group(1)!);
+      final end = _parseTtmlTime(match.group(2)!);
+      final text = _decodeHtmlEntities(_stripTags(match.group(3)!)).trim();
+      if (start != null && end != null && end > start && text.isNotEmpty) {
+        cues.add(_SubtitleCue(start: start, end: end, text: text));
+      }
+    }
+    return cues;
+  }
+
+  Duration? _parseTtmlTime(String raw) {
+    final t = raw.trim();
+    final m = RegExp(r'(?:(\d+):)?(\d+):(\d+)[.,](\d+)').firstMatch(t);
+    if (m != null) {
+      final h = int.tryParse(m.group(1) ?? '0') ?? 0;
+      final min = int.tryParse(m.group(2)!) ?? 0;
+      final sec = int.tryParse(m.group(3)!) ?? 0;
+      final frac = m.group(4)!;
+      var ms = int.tryParse(frac) ?? 0;
+      if (frac.length == 2) {
+        ms *= 10;
+      } else if (frac.length == 1) {
+        ms *= 100;
+      }
+      return Duration(hours: h, minutes: min, seconds: sec, milliseconds: ms);
+    }
+    final seconds = double.tryParse(t);
+    return seconds == null
+        ? null
+        : Duration(milliseconds: (seconds * 1000).round());
   }
 
   List<_SubtitleCue> _parseAss(String input) {
@@ -1512,10 +1665,25 @@ if (next != _currentControl) {
     });
     _resetHideTimer();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && _activeMenu == pc && _menuOptionNodes.isNotEmpty) {
-        _menuOptionNode(focusIndex).requestFocus();
-      }
+      if (!mounted || _activeMenu != pc) return;
+      _menuHeaderNode.requestFocus();
     });
+  }
+
+  KeyEventResult _onMenuHeaderKey(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.arrowDown || keyIsEnter(event)) {
+      if (_menuOptionNodes.isNotEmpty) _focusMenuOption(_focusedMenuIndex);
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.escape ||
+        key == LogicalKeyboardKey.goBack ||
+        key == LogicalKeyboardKey.gameButtonB) {
+      _closeMenus();
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
   }
 
   void _closeMenus({bool refocus = true}) {
@@ -1542,7 +1710,12 @@ if (next != _currentControl) {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
     final key = event.logicalKey;
     if (key == LogicalKeyboardKey.arrowUp) {
-      if (index > 0) _focusMenuOption(index - 1);
+      if (index > 0) {
+        _focusMenuOption(index - 1);
+      } else {
+        _menuHeaderNode.requestFocus();
+        _resetHideTimer();
+      }
       return KeyEventResult.handled;
     }
     if (key == LogicalKeyboardKey.arrowDown) {
@@ -1881,6 +2054,7 @@ if (next != _currentControl) {
     final value = !_hasDuration || _duration == Duration.zero
         ? 0.0
         : (_position.inMilliseconds / _duration.inMilliseconds).clamp(0.0, 1.0);
+    final focused = _controlFocusNodes[_Pc.slider]?.hasFocus ?? false;
     return Focus(
       focusNode: _controlFocusNodes[_Pc.slider],
       onFocusChange: (focused) {
@@ -1915,25 +2089,37 @@ if (next != _currentControl) {
       },
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 44),
-        child: Column(
-          children: [
-            LinearProgressIndicator(
-              value: value,
-              minHeight: 6,
-              backgroundColor: Colors.white24,
-              valueColor: const AlwaysStoppedAnimation<Color>(
-                Color(0xFFE50914),
-              ),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
+          decoration: BoxDecoration(
+            color: focused ? Colors.white10 : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: focused ? Colors.white70 : Colors.transparent,
+              width: 2,
             ),
-            const SizedBox(height: 8),
-            Align(
-              alignment: Alignment.center,
-              child: Text(
-                _formatTime,
-                style: const TextStyle(color: Colors.white, fontSize: 14),
+          ),
+          child: Column(
+            children: [
+              LinearProgressIndicator(
+                value: value,
+                minHeight: focused ? 8 : 6,
+                backgroundColor: Colors.white24,
+                valueColor: const AlwaysStoppedAnimation<Color>(
+                  Color(0xFFE50914),
+                ),
               ),
-            ),
-          ],
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.center,
+                child: Text(
+                  _formatTime,
+                  style: const TextStyle(color: Colors.white, fontSize: 14),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -2034,25 +2220,47 @@ if (next != _currentControl) {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 14, 20, 10),
-            child: Row(
-              children: [
-                const Icon(
-                  Icons.keyboard_arrow_up,
-                  color: Colors.redAccent,
-                  size: 20,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  title,
-                  style: const TextStyle(
-                    color: Colors.redAccent,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
+          Focus(
+            focusNode: _menuHeaderNode,
+            onKeyEvent: _onMenuHeaderKey,
+            child: InkWell(
+              onTap: _closeMenus,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 150),
+                padding: const EdgeInsets.fromLTRB(20, 14, 20, 10),
+                decoration: BoxDecoration(
+                  color: _menuHeaderNode.hasFocus
+                      ? Colors.white12
+                      : Colors.transparent,
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(11),
                   ),
                 ),
-              ],
+                child: Row(
+                  children: [
+                    Icon(
+                      _menuHeaderNode.hasFocus
+                          ? Icons.keyboard_arrow_down
+                          : Icons.keyboard_arrow_up,
+                      color: Colors.redAccent,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: const TextStyle(
+                          color: Colors.redAccent,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    if (_menuHeaderNode.hasFocus)
+                      const Icon(Icons.check, color: Colors.white70, size: 16),
+                  ],
+                ),
+              ),
             ),
           ),
           const Divider(height: 1, color: Colors.white24),
@@ -2249,7 +2457,10 @@ if (next != _currentControl) {
                       aspectRatio: _controller!.value.aspectRatio == 0
                           ? 16 / 9
                           : _controller!.value.aspectRatio,
-                      child: VideoPlayer(_controller!),
+                      child: VideoPlayer(
+                        _controller!,
+                        key: ObjectKey(_controller),
+                      ),
                     ),
                   ),
                 ),
