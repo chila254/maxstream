@@ -419,9 +419,8 @@ class _TvMoreScreenState extends State<TvMoreScreen> {
               try {
                 nav.clearState();
                 await AuthService.signOut();
-                if (mounted) {
-                  Navigator.of(context).pop();
-                }
+                // Navigation back to the login screen is handled by
+                // TvAuthGate's auth state stream.
               } catch (e) {
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
