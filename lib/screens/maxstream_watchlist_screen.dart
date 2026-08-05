@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../database/db_helper.dart';
 import '../models/movie.dart';
+import '../services/cloud_sync_service.dart';
 import '../widgets/custom_loading_widget.dart';
 import 'maxstream_details_screen.dart';
 import 'maxstream_series_screen.dart';
@@ -37,6 +38,7 @@ class _MaxStreamWatchlistScreenState extends State<MaxStreamWatchlistScreen>
   Future<void> _loadWatchlist() async {
     setState(() => isLoading = true);
     try {
+      await CloudSyncService.pullToDevice();
       final items = await DBHelper.getWatchlistItems();
       setState(() {
         watchlistItems = items;

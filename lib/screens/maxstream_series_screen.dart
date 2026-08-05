@@ -7,6 +7,7 @@ import '../services/media_download_manager.dart';
 import '../services/direct_m3u8_service.dart';
 import '../services/tmdb_api_service.dart';
 import '../database/db_helper.dart';
+import '../services/cloud_sync_service.dart';
 import '../widgets/video_player_screen.dart';
 
 class MaxStreamSeriesScreen extends StatefulWidget {
@@ -172,6 +173,7 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
   }
 
   Future<void> _checkWatchlistStatus() async {
+    await CloudSyncService.pullToDevice();
     final watchlist = await DBHelper.getWatchlistItems();
     if (mounted) {
       setState(() {

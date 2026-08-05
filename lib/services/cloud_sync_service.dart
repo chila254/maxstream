@@ -13,7 +13,6 @@ class CloudSyncService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   static bool _pullInProgress = false;
-  static DateTime? _lastPullAt;
 
   static String? get _uid => FirebaseAuth.instance.currentUser?.uid;
 
@@ -117,17 +116,10 @@ class CloudSyncService {
   // ---------------------------------------------------------------------
 
   /// Pulls the signed-in user's cloud data into local storage. Safe to call
-  /// repeatedly; a full re-pull is throttled to every 45s unless [force] is
-  /// true.
-  static Future<void> pullToDevice({bool force = false}) async {
+  /// repeatedly; concurrent pulls are collapsed into one.
+  static Future<void> pullToDevice() async {
     final uid = _uid;
     if (uid == null || _pullInProgress) return;
-    final last = _lastPullAt;
-    if (!force &&
-        last != null &&
-        DateTime.now().difference(last).inSeconds < 45) {
-      return;
-    }
     _pullInProgress = true;
     try {
       final historySnap = await _watchHistoryRef(uid).get();
@@ -141,8 +133,6 @@ class CloudSyncService {
       for (final doc in watchlistSnap.docs) {
         await DBHelper.addToWatchlist(_movieFromDoc(doc.data()));
       }
-
-      _lastPullAt = DateTime.now();
     } catch (e) {
       debugPrint('CloudSync: pull failed: $e');
     } finally {

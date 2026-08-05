@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shimmer/shimmer.dart';
 import '../models/movie.dart';
+import '../services/cloud_sync_service.dart';
 import '../services/tmdb_api_service.dart';
 import '../utils/tmdb_list_utils.dart';
 import '../services/watch_history_service.dart';
@@ -38,11 +39,12 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
     setState(() => isLoading = true);
 
     try {
+      final syncFuture = CloudSyncService.pullToDevice();
       final results = await Future.wait([
         TmdbApiService.fetchTrendingMovies(),
         TmdbApiService.fetchPopularMovies(),
         TmdbApiService.fetchTopRatedMovies(),
-        WatchHistoryService.getContinueWatching(),
+        syncFuture.then((_) => WatchHistoryService.getContinueWatching()),
       ]);
 
       setState(() {

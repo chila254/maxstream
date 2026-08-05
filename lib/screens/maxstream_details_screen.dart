@@ -3,6 +3,7 @@ import 'package:youtube_player_flutter/youtube_player_flutter.dart';
 import 'package:shimmer/shimmer.dart';
 import '../database/db_helper.dart';
 import '../models/movie.dart';
+import '../services/cloud_sync_service.dart';
 import '../services/direct_m3u8_service.dart';
 import '../services/media_download_manager.dart';
 import '../services/tmdb_api_service.dart';
@@ -130,6 +131,7 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
   }
 
   Future<void> _checkWatchlistStatus() async {
+    await CloudSyncService.pullToDevice();
     final watchlist = await DBHelper.getWatchlistItems();
     if (mounted) {
       setState(() {
