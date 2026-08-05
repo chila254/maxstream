@@ -1432,6 +1432,7 @@ resumePosition: Duration.zero,
         return KeyEventResult.handled;
       }
       if (key == LogicalKeyboardKey.escape ||
+          key == LogicalKeyboardKey.goBack ||
           key == LogicalKeyboardKey.gameButtonB) {
         if (_hasFocusableMenu) {
           _closeMenus();
@@ -2435,9 +2436,11 @@ if (next != _currentControl) {
   @override
   Widget build(BuildContext context) {
     return PopScope(
-      canPop: true,
+      canPop: !_hasFocusableMenu,
       onPopInvoked: (didPop) {
-        if (didPop && !_disposed) {
+        if (_hasFocusableMenu) {
+          _closeMenus();
+        } else if (didPop && !_disposed) {
           context.read<TvNavigationProvider>().setDeepNavigating(false);
         }
       },
