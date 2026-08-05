@@ -79,52 +79,53 @@ class _TvKeyboardState extends State<TvKeyboard> {
   }
 
   void _handleKeyEvent(RawKeyEvent event) {
-    // Only handle arrow keys if keyboard is focused
-    if (event.isKeyPressed(LogicalKeyboardKey.arrowUp)) {
-      setState(() {
-        _selectedRow = (_selectedRow - 1).clamp(0, _keyboardLayout.length - 1);
-        _selectedCol = _selectedCol.clamp(
-          0,
-          _keyboardLayout[_selectedRow].length - 1,
-        );
-      });
-    } else if (event.isKeyPressed(LogicalKeyboardKey.arrowDown)) {
-      setState(() {
-        _selectedRow = (_selectedRow + 1).clamp(0, _keyboardLayout.length - 1);
-        _selectedCol = _selectedCol.clamp(
-          0,
-          _keyboardLayout[_selectedRow].length - 1,
-        );
-      });
-    } else if (event.isKeyPressed(LogicalKeyboardKey.arrowLeft)) {
-      if (_selectedCol == 0) {
-        widget.onMoveLeft?.call();
-        return;
+    if (!_keyboardFocusNode.hasFocus) return;
+    if (event is KeyDownEvent) {
+      if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+        setState(() {
+          _selectedRow = (_selectedRow - 1).clamp(0, _keyboardLayout.length - 1);
+          _selectedCol = _selectedCol.clamp(
+            0,
+            _keyboardLayout[_selectedRow].length - 1,
+          );
+        });
+      } else if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+        setState(() {
+          _selectedRow = (_selectedRow + 1).clamp(0, _keyboardLayout.length - 1);
+          _selectedCol = _selectedCol.clamp(
+            0,
+            _keyboardLayout[_selectedRow].length - 1,
+          );
+        });
+      } else if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+        if (_selectedCol == 0) {
+          widget.onMoveLeft?.call();
+          return;
+        }
+        setState(() {
+          _selectedCol = (_selectedCol - 1).clamp(
+            0,
+            _keyboardLayout[_selectedRow].length - 1,
+          );
+        });
+      } else if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+        if (_selectedCol == _keyboardLayout[_selectedRow].length - 1) {
+          widget.onMoveRight?.call();
+          return;
+        }
+        setState(() {
+          _selectedCol = (_selectedCol + 1).clamp(
+            0,
+            _keyboardLayout[_selectedRow].length - 1,
+          );
+        });
+      } else if (event.logicalKey == LogicalKeyboardKey.select ||
+          event.logicalKey == LogicalKeyboardKey.enter) {
+        _pressKey(_keyboardLayout[_selectedRow][_selectedCol]);
+      } else if (event.logicalKey == LogicalKeyboardKey.escape ||
+          event.logicalKey == LogicalKeyboardKey.goBack) {
+        widget.focusManager?.focusOnContent();
       }
-      setState(() {
-        _selectedCol = (_selectedCol - 1).clamp(
-          0,
-          _keyboardLayout[_selectedRow].length - 1,
-        );
-      });
-    } else if (event.isKeyPressed(LogicalKeyboardKey.arrowRight)) {
-      if (_selectedCol == _keyboardLayout[_selectedRow].length - 1) {
-        widget.onMoveRight?.call();
-        return;
-      }
-      setState(() {
-        _selectedCol = (_selectedCol + 1).clamp(
-          0,
-          _keyboardLayout[_selectedRow].length - 1,
-        );
-      });
-    } else if (event.isKeyPressed(LogicalKeyboardKey.select) ||
-        event.isKeyPressed(LogicalKeyboardKey.enter)) {
-      _pressKey(_keyboardLayout[_selectedRow][_selectedCol]);
-    } else if (event.isKeyPressed(LogicalKeyboardKey.escape) ||
-        event.isKeyPressed(LogicalKeyboardKey.goBack)) {
-      // If back is pressed on keyboard, go back to content
-      widget.focusManager?.focusOnContent();
     }
   }
 

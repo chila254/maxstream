@@ -230,7 +230,9 @@ class _TvSearchScreenState extends State<TvSearchScreen> {
     }
     _ResultEntry? destination;
     if (key == LogicalKeyboardKey.arrowLeft) {
-      destination = _entries[entry.index - 1];
+      if (entry.index > 0) {
+        destination = _entries[entry.index - 1];
+      }
     } else if (key == LogicalKeyboardKey.arrowRight &&
         entry.index + 1 < _entries.length &&
         _entries[entry.index + 1].section == entry.section) {
@@ -252,6 +254,10 @@ class _TvSearchScreenState extends State<TvSearchScreen> {
               ? a
               : b,
         );
+      } else if (key == LogicalKeyboardKey.arrowUp && entry.row == 0) {
+        return KeyEventResult.handled;
+      } else if (key == LogicalKeyboardKey.arrowDown && entry.row == sameSection.last.row) {
+        return KeyEventResult.handled;
       } else {
         final targetSection = sectionIndex + direction;
         if (targetSection >= 0 && targetSection < sectionNames.length) {
@@ -276,7 +282,7 @@ class _TvSearchScreenState extends State<TvSearchScreen> {
       _focusEntry(destination);
       return KeyEventResult.handled;
     }
-    return KeyEventResult.ignored;
+    return KeyEventResult.handled;
   }
 
   Future<void> _open(_ResultEntry entry) async {

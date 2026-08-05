@@ -193,6 +193,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
   bool _recoveringPlayback = false;
   int _playbackRetryCount = 0;
   bool _completionHandled = false;
+  Duration _lastReportedPosition = Duration.zero;
   Duration _lastStablePosition = Duration.zero;
   int _rebufferCount = 0;
   DateTime? _lastRebufferTime;
@@ -675,6 +676,9 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         _playbackRetryCount = 0;
         _rebufferCount = 0;
         _lastRebufferTime = null;
+        _lastReportedPosition = Duration.zero;
+        _isPlaying = controller.value.isPlaying;
+        _completionHandled = false;
         _wasBufferingAtLastCheck = controller.value.isBuffering;
       });
 
@@ -702,21 +706,18 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     final value = controller.value;
     if (value.position > Duration.zero) _lastStablePosition = value.position;
     if (value.duration > Duration.zero) _duration = value.duration;
-    final isBuffering = value.isBuffering;
-    var shouldRebuild = isBuffering != _isBuffering;
-    _isBuffering = isBuffering;
+    final wasBuffering = _isBuffering;
+    final wasPlaying = _isPlaying;
+    _isBuffering = value.isBuffering;
     _isPlaying = value.isPlaying;
     if (value.isPlaying) {
       _isLoading = false;
     }
     if (value.hasError && !_recoveringPlayback && _playbackRetryCount < 2) {
       unawaited(_recoverPlayback());
-      shouldRebuild = true;
       _isBuffering = true;
     }
-    if (value.isInitialized) {
-      shouldRebuild = true;
-    }
+    final shouldRebuild = _isBuffering != wasBuffering || _isPlaying != wasPlaying || value.isInitialized;
     if (shouldRebuild && mounted) setState(() {});
   }
 
@@ -742,8 +743,10 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     }
     _wasBufferingAtLastCheck = isBuffering;
 
-    if (_showControls && (value.isPlaying || _isBuffering)) {
-      setState(() {});
+    final positionChanged = (_position - _lastReportedPosition).inSeconds >= 1;
+    if (_showControls && positionChanged) {
+      _lastReportedPosition = _position;
+      if (mounted) setState(() {});
     }
 
     if (_isNearEnd(value) &&
@@ -751,6 +754,10 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         !_isBuffering &&
         !_completionHandled) {
       unawaited(_completeCurrentItem());
+    }
+
+    if (_showControls && value.isPlaying && !_isBuffering) {
+      _resetHideTimer();
     }
   }
 
@@ -1467,11 +1474,12 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
 
   void _executePlayPause() {
     final controller = _controller;
-    if (controller == null) return;
-    if (controller.value.isPlaying) {
+    if (controller == null || _disposed || !mounted) return;
+    final isCurrentlyPlaying = controller.value.isPlaying;
+    if (isCurrentlyPlaying) {
       controller.pause();
       _showStatus('Paused');
-    } else {
+    } else if (!isCurrentlyPlaying && !controller.value.isBuffering) {
       _unpauseWithWake();
       _showStatus('Playing');
     }
@@ -2007,10 +2015,14 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
   }
 
   void _unpauseWithWake() {
-    if (!mounted || _disposed) return;
-    _controller?.play();
-    _isPlaying = true;
-    _isLoading = false;
+    if (_disposed || !mounted) return;
+    final controller = _controller;
+    if (controller == null) return;
+    if (!controller.value.isPlaying && !controller.value.isBuffering) {
+      controller.play();
+      _isPlaying = true;
+      _isLoading = false;
+    }
   }
 
   void _handleBackNavigation() {
