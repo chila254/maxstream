@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../models/movie.dart';
+import '../../services/cloud_sync_service.dart';
 import '../../services/tmdb_api_service.dart';
 import '../../services/watch_history_service.dart';
 import '../providers/tv_navigation_provider.dart';
@@ -94,12 +95,13 @@ class _TvHomeScreenState extends State<TvHomeScreen>
   Future<void> _loadContent() async {
     if (mounted) setState(() => _isLoading = true);
     try {
+      final syncFuture = CloudSyncService.pullToDevice();
       final results = await Future.wait([
         TmdbApiService.fetchTrendingMovies(),
         TmdbApiService.fetchTrendingSeries(),
         TmdbApiService.fetchPopularMovies(),
         TmdbApiService.fetchTopRatedMovies(),
-        WatchHistoryService.getContinueWatching(),
+        syncFuture.then((_) => WatchHistoryService.getContinueWatching()),
       ]);
       if (!mounted) return;
       setState(() {

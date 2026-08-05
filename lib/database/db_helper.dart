@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import '../models/movie.dart';
+import '../services/cloud_sync_service.dart';
 import '../services/user_scope.dart';
 
 class DBHelper {
@@ -275,6 +277,7 @@ class DBHelper {
       'rating': movie.rating,
       'mediaType': movie.mediaType,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
+    unawaited(CloudSyncService.pushWatchlist(movie));
   }
 
   static Future<void> updateMovie(Movie movie) async {
@@ -305,6 +308,7 @@ class DBHelper {
       where: 'ownerId = ? AND id = ? AND mediaType = ?',
       whereArgs: [UserScope.currentOwner, id.toString(), mediaType],
     );
+    unawaited(CloudSyncService.deleteWatchlist(id.toString(), mediaType));
   }
 
   static Future<bool> isInWatchlist(dynamic id, String mediaType) async {

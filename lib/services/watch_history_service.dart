@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'cloud_sync_service.dart';
 import 'user_scope.dart';
 
 class WatchHistoryService {
@@ -98,6 +100,26 @@ class WatchHistoryService {
       jsonEncode(history),
     );
     await _saveToGlobalHistory(history);
+    unawaited(CloudSyncService.pushWatchProgress(history));
+  }
+
+  /// Persists a history item fetched from the cloud into local storage without
+  /// pushing it back up (avoids a push loop). Item keys are deterministic, so
+  /// re-importing is idempotent.
+  static Future<void> importWatchProgress(
+    Map<String, dynamic> history,
+  ) async {
+    final tmdbId = (history['tmdbId'] ?? '').toString();
+    final isMovie = history['isMovie'] == true;
+    final season = _integer(history['season'], 0);
+    final episode = _integer(history['episode'], 0);
+    if (tmdbId.isEmpty) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      getWatchHistoryKey(tmdbId, isMovie, season, episode),
+      jsonEncode(history),
+    );
+    await _saveToGlobalHistory(history);
   }
 
   static Future<void> _saveToGlobalHistory(Map<String, dynamic> history) async {
@@ -185,15 +207,18 @@ class WatchHistoryService {
   ) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(getWatchHistoryKey(tmdbId, isMovie, season, episode));
-    final list = _decodeList(prefs.getString(_historyListKey))
-      ..removeWhere(
-        (item) =>
-            item['tmdbId']?.toString() == tmdbId &&
-            item['isMovie'] == isMovie &&
-            _integer(item['season']) == season &&
-            _integer(item['episode']) == episode,
-      );
+      final list = _decodeList(prefs.getString(_historyListKey))
+        ..removeWhere(
+          (item) =>
+              item['tmdbId']?.toString() == tmdbId &&
+              item['isMovie'] == isMovie &&
+              _integer(item['season']) == season &&
+              _integer(item['episode']) == episode,
+        );
     await prefs.setString(_historyListKey, jsonEncode(list));
+    unawaited(
+      CloudSyncService.deleteWatchProgress(tmdbId, isMovie, season, episode),
+    );
   }
 
   static Future<void> removeSeriesFromHistory(String tmdbId) async {
@@ -216,6 +241,16 @@ class WatchHistoryService {
       (item) => item['isMovie'] != true && item['tmdbId']?.toString() == tmdbId,
     );
     await prefs.setString(_historyListKey, jsonEncode(list));
+    for (final item in matches) {
+      unawaited(
+        CloudSyncService.deleteWatchProgress(
+          tmdbId,
+          false,
+          _integer(item['season'], 1),
+          _integer(item['episode'], 1),
+        ),
+      );
+    }
   }
 
   static Future<void> clearAllHistory() async {

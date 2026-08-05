@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../../database/db_helper.dart';
 import '../../models/movie.dart';
+import '../../services/cloud_sync_service.dart';
 import '../../services/logger_service.dart';
 import '../../widgets/custom_loading_widget.dart';
 import '../providers/tv_navigation_provider.dart';
@@ -75,6 +76,7 @@ class _TvWatchlistScreenState extends State<TvWatchlistScreen> {
       _error = null;
     });
     try {
+      await CloudSyncService.pullToDevice();
       final items = await DBHelper.getWatchlistItems();
       if (!mounted) return;
       final identities = items.map(_identity).toSet();
