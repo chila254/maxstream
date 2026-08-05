@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:math';
 import 'dart:async';
+import 'secure_password_service.dart';
 
 class DeviceCodeService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -24,6 +25,12 @@ class DeviceCodeService {
 
       print('Writing to Firestore collection: device_codes');
 
+      // Carry the user's password so the TV can sign in directly with the
+      // code (interim solution until a custom-token backend exists).
+      final savedPassword = await SecurePasswordService.getPassword(
+        user.email ?? '',
+      );
+
       // Use exponential backoff retry logic
       int retryCount = 0;
       const maxRetries = 3;
@@ -39,6 +46,7 @@ class DeviceCodeService {
                 'userId': user.uid,
                 'email': user.email,
                 'displayName': user.displayName,
+                'password': savedPassword,
                 'createdAt': FieldValue.serverTimestamp(),
                 'expiresAt': Timestamp.fromDate(expiresAt),
                 'isUsed': false,

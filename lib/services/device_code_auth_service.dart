@@ -29,6 +29,7 @@ class DeviceCodeAuthService {
       final isUsed = data['isUsed'] as bool;
       final email = data['email'] as String;
       final userId = data['userId'] as String;
+      final password = data['password'] as String?;
 
       // Validate code
       if (DateTime.now().isAfter(expiresAt)) {
@@ -51,6 +52,7 @@ class DeviceCodeAuthService {
       return {
         'email': email,
         'userId': userId,
+        'password': password ?? '',
         'displayName': data['displayName'] as String? ?? '',
       };
     } catch (e) {

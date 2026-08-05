@@ -392,9 +392,14 @@ class _TvMoreScreenState extends State<TvMoreScreen> {
     final fontSize = TvUtils.responsiveFontSize(18, context);
     final titleFontSize = TvUtils.responsiveFontSize(22, context, maxSize: 28);
 
+    // Read the provider from THIS widget's context (under the ChangeNotifierProvider).
+    // The dialog's own context sits on the root navigator, above the provider,
+    // so context.read inside the dialog would throw ProviderNotFoundException.
+    final nav = context.read<TvNavigationProvider>();
+
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         backgroundColor: const Color(0xFF1E1E1E),
         title: Text(
           'Sign Out',
@@ -414,7 +419,6 @@ class _TvMoreScreenState extends State<TvMoreScreen> {
           ),
           TextButton(
             onPressed: () async {
-              final nav = context.read<TvNavigationProvider>();
               Navigator.pop(context);
               try {
                 nav.clearState();

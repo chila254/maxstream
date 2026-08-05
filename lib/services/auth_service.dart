@@ -1,6 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'password_manager_service.dart';
+import 'secure_password_service.dart';
 
 class AuthService {
   static final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -21,6 +22,8 @@ class AuthService {
           password: password,
           displayName: result.user!.displayName ?? 'MaxStream Account',
         );
+        // Save locally so a TV device-code can sign this user in directly
+        await SecurePasswordService.savePassword(email, password);
       }
 
       return result.user;
@@ -46,6 +49,8 @@ class AuthService {
           password: password,
           displayName: result.user!.displayName ?? 'MaxStream Account',
         );
+        // Save locally so a TV device-code can sign this user in directly
+        await SecurePasswordService.savePassword(email, password);
       }
 
       return result.user;

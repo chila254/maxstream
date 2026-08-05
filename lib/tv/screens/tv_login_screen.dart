@@ -223,7 +223,25 @@ class _TvLoginScreenState extends State<TvLoginScreen> {
         code,
       );
       final email = userInfo['email'] ?? '';
+      final password = userInfo['password'] ?? '';
       if (!mounted) return;
+
+      if (password.isNotEmpty && email.isNotEmpty) {
+        // Sign in directly with the code; no password step needed.
+        final user = await AuthService.signInWithEmail(email, password);
+        if (!mounted) return;
+        if (user != null) {
+          setState(() {
+            _successMessage = 'Signed in successfully!';
+            _errorMessage = null;
+          });
+          // TvAuthGate's auth state stream switches to the main screen.
+          return;
+        }
+      }
+
+      // Fallback for codes without an embedded password (e.g. Google-created
+      // accounts): prefill the email and let the user enter their password.
       setState(() {
         _emailController.text = email;
         _selectedTab = 1;
