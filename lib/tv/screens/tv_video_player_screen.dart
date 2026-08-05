@@ -1600,7 +1600,7 @@ if (next != _currentControl) {
             const SizedBox(height: 24),
             FilledButton(
               style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFF00695C),
+                backgroundColor: const Color(0xFFE50914),
               ),
               onPressed: () {
                 if (Navigator.of(context).canPop()) Navigator.of(context).pop();
@@ -1837,7 +1837,7 @@ if (next != _currentControl) {
               minHeight: 6,
               backgroundColor: Colors.white24,
               valueColor: const AlwaysStoppedAnimation<Color>(
-                Color(0xFF00E5CC),
+                Color(0xFFE50914),
               ),
             ),
             const SizedBox(height: 8),
@@ -1878,11 +1878,11 @@ if (next != _currentControl) {
           padding: const EdgeInsets.symmetric(vertical: 6),
           decoration: BoxDecoration(
             color: isFocused
-                ? const Color(0xFF00695C)
+                ? const Color(0xFFE50914)
                 : const Color.fromARGB(150, 30, 30, 30),
             borderRadius: BorderRadius.circular(6),
             border: Border.all(
-              color: isFocused ? Colors.tealAccent : Colors.transparent,
+              color: isFocused ? Colors.redAccent : Colors.transparent,
               width: 2,
             ),
           ),
@@ -1908,7 +1908,7 @@ if (next != _currentControl) {
                   label,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: Colors.tealAccent, fontSize: 9),
+                  style: const TextStyle(color: Colors.redAccent, fontSize: 9),
                 ),
               ],
             ],
@@ -1940,7 +1940,7 @@ if (next != _currentControl) {
                 child: Text(
                   title,
                   style: const TextStyle(
-                    color: Colors.tealAccent,
+                    color: Colors.redAccent,
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
                   ),
@@ -1982,7 +1982,7 @@ if (next != _currentControl) {
         child: Container(
           width: double.infinity,
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-          color: selected ? const Color(0xFF00695C) : Colors.transparent,
+          color: selected ? const Color(0xFFE50914) : Colors.transparent,
           child: Text(
             label,
             style: TextStyle(
@@ -2147,7 +2147,7 @@ if (next != _currentControl) {
             child: SizedBox(
               width: 28,
               height: 28,
-              child: CircularProgressIndicator(color: Colors.tealAccent),
+              child: CircularProgressIndicator(color: Colors.redAccent),
             ),
           ),
         ),
