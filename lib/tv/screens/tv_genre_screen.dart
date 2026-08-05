@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -38,11 +40,21 @@ class _GenreItem {
 
 class _TvGenreScreenState extends State<TvGenreScreen> {
   static const _columns = 5;
+  static const _typeOptions = <MapEntry<String, String>>[
+    MapEntry('movie', 'Movies'),
+    MapEntry('tv', 'TV Shows'),
+  ];
+
   final _genreScroll = ScrollController();
   final _gridScroll = ScrollController();
+  final Map<String, FocusNode> _typeNodes = {};
   final Map<String, FocusNode> _genreNodes = {};
   final Map<String, FocusNode> _cardNodes = {};
+  Timer? _genreDebounce;
+  bool _pendingEnterGrid = false;
 
+  String _selectedType = 'movie';
+  String _focusedType = 'movie';
   List<_Genre> _genres = const [];
   List<_GenreItem> _items = const [];
   _Genre? _focusedGenre;
@@ -61,65 +73,112 @@ class _TvGenreScreenState extends State<TvGenreScreen> {
   @override
   void initState() {
     super.initState();
-    _loadGenres();
+    _selectType('movie', initial: true);
   }
 
   @override
   void dispose() {
     _generation++;
+    _genreDebounce?.cancel();
     _genreScroll.dispose();
     _gridScroll.dispose();
-    for (final node in [..._genreNodes.values, ..._cardNodes.values]) {
+    for (final node in [
+      ..._typeNodes.values,
+      ..._genreNodes.values,
+      ..._cardNodes.values,
+    ]) {
       node.dispose();
     }
     super.dispose();
   }
 
-  FocusNode _genreNode(_Genre genre) => _genreNodes.putIfAbsent(
-    genre.key,
-    () => FocusNode(debugLabel: genre.key),
-  );
+  FocusNode _typeNode(String source) =>
+      _typeNodes.putIfAbsent(source, () => FocusNode(debugLabel: 'type:$source'));
+  FocusNode _genreNode(_Genre genre) =>
+      _genreNodes.putIfAbsent(genre.key, () => FocusNode(debugLabel: genre.key));
   FocusNode _cardNode(_GenreItem item) =>
       _cardNodes.putIfAbsent(item.key, () => FocusNode(debugLabel: item.key));
 
-  Future<void> _loadGenres() async {
+  /// Switches the active media type (movie/tv): loads its genres and
+  /// auto-commits the first genre. Focus stays wherever it is unless
+  /// [enterGenreBar] requests moving into the genre rail.
+  Future<void> _selectType(
+    String source, {
+    bool enterGenreBar = false,
+    bool initial = false,
+  }) async {
+    if (_selectedType == source && _genres.isNotEmpty) {
+      if (enterGenreBar) {
+        final idx = _genres.indexWhere((e) => e.key == _selectedGenre?.key);
+        _focusGenreChip(idx < 0 ? 0 : idx);
+      }
+      return;
+    }
     final request = ++_generation;
     setState(() {
+      _selectedType = source;
+      _focusedType = source;
+      _genres = const [];
+      _selectedGenre = null;
+      _focusedGenre = null;
+      _items = const [];
+      _focusedCard = null;
+      _page = 1;
+      _hasMore = true;
       _loadingGenres = true;
+      _loadingContent = true;
       _genreError = null;
+      _contentError = null;
+      _pagingError = null;
     });
     try {
-      final result = await Future.wait([
-        TmdbApiService.fetchGenres('movie'),
-        TmdbApiService.fetchGenres('tv'),
-      ]);
+      final genresMap = await TmdbApiService.fetchGenres(source);
       if (!mounted || request != _generation) return;
-      final genres = <_Genre>[
-        ...result[0].entries.map((e) => _Genre('movie', e.key, e.value)),
-        ...result[1].entries.map((e) => _Genre('tv', e.key, e.value)),
-      ];
+      final genres = genresMap.entries
+          .map((e) => _Genre(source, e.key, e.value))
+          .toList();
       setState(() {
         _genres = genres;
+        _selectedGenre = genres.firstOrNull;
         _focusedGenre = genres.firstOrNull;
         _loadingGenres = false;
       });
-      if (genres.isNotEmpty) await _commitGenre(genres.first, initial: true);
+      if (genres.isNotEmpty) {
+        final future = _loadGenreContent(genres.first);
+        if (initial) await future;
+      } else {
+        setState(() => _loadingContent = false);
+      }
+      if (enterGenreBar) {
+        _focusGenreChip(0);
+      } else if (initial) {
+        _restoreFocus();
+      }
     } catch (error) {
-      LoggerService.error('Error loading TV genres: $error', error);
+      LoggerService.error('Error loading $source genres: $error', error);
       if (!mounted || request != _generation) return;
       setState(() {
         _loadingGenres = false;
+        _loadingContent = false;
         _genreError = 'Genres could not be loaded.';
       });
-      _scheduleFocus(null);
+      _scheduleFocus(_typeNode(source));
     }
   }
 
-  Future<void> _commitGenre(_Genre genre, {bool initial = false}) async {
-    if (!initial && _selectedGenre?.key == genre.key && _items.isNotEmpty) {
-      _focusGrid(0);
+  /// Loads the first page for [genre]. In auto mode (hover) focus is left on
+  /// the rail; with [enterGrid] the focus drops into the content grid once
+  /// titles are ready.
+  Future<void> _loadGenreContent(_Genre genre, {bool enterGrid = false}) async {
+    if (_selectedGenre?.key == genre.key && _items.isNotEmpty) {
+      if (enterGrid) _enterGrid(genre);
       return;
     }
+    if (_selectedGenre?.key == genre.key && _loadingContent) {
+      if (enterGrid) _pendingEnterGrid = true;
+      return;
+    }
+    _genreDebounce?.cancel();
     final request = ++_generation;
     setState(() {
       _selectedGenre = genre;
@@ -131,6 +190,7 @@ class _TvGenreScreenState extends State<TvGenreScreen> {
       _loadingContent = true;
       _contentError = null;
       _pagingError = null;
+      _pendingEnterGrid = enterGrid;
     });
     try {
       final rows = await _fetch(genre, 1);
@@ -140,12 +200,9 @@ class _TvGenreScreenState extends State<TvGenreScreen> {
         _hasMore = rows.isNotEmpty;
         _loadingContent = false;
       });
-      final nav = context.read<TvNavigationProvider>();
-      final restoreGrid = nav.getSectionFocusIndex(2) == 1;
-      if (restoreGrid && _items.isNotEmpty) {
-        _focusGrid(nav.getFocusedIndex(2).clamp(0, _items.length - 1));
-      } else {
-        _scheduleFocus(_genreNode(genre));
+      if (_pendingEnterGrid && _items.isNotEmpty) {
+        _pendingEnterGrid = false;
+        _enterGrid(genre);
       }
     } catch (error) {
       LoggerService.error('Error loading genre content: $error', error);
@@ -154,8 +211,14 @@ class _TvGenreScreenState extends State<TvGenreScreen> {
         _loadingContent = false;
         _contentError = 'Content could not be loaded.';
       });
-      _scheduleFocus(_genreNode(genre));
     }
+  }
+
+  void _enterGrid(_Genre genre) {
+    final genreIndex = _genres.indexWhere((e) => e.key == genre.key);
+    final target = (genreIndex < 0 ? 0 : genreIndex % _columns)
+        .clamp(0, _items.length - 1);
+    _focusGrid(target);
   }
 
   Future<List<Map<String, dynamic>>> _fetch(_Genre genre, int page) =>
@@ -191,9 +254,25 @@ class _TvGenreScreenState extends State<TvGenreScreen> {
     }
   }
 
+  void _restoreFocus() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final nav = context.read<TvNavigationProvider>();
+      final section = nav.getSectionFocusIndex(2);
+      if (section == 2 && _items.isNotEmpty) {
+        _focusGrid(nav.getFocusedIndex(2).clamp(0, _items.length - 1));
+      } else if (section == 1 && _selectedGenre != null) {
+        final idx = _genres.indexWhere((e) => e.key == _selectedGenre!.key);
+        _focusGenreChip(idx < 0 ? 0 : idx);
+      } else {
+        _scheduleFocus(_typeNode(_selectedType));
+      }
+    });
+  }
+
   void _scheduleFocus(FocusNode? node) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) (node ?? _genreNodes.values.firstOrNull)?.requestFocus();
+      if (mounted) node?.requestFocus();
     });
   }
 
@@ -201,73 +280,127 @@ class _TvGenreScreenState extends State<TvGenreScreen> {
     if (_items.isEmpty) return;
     final target = index.clamp(0, _items.length - 1);
     context.read<TvNavigationProvider>()
-      ..setSectionFocusIndex(2, 1)
+      ..setSectionFocusIndex(2, 2)
       ..saveFocusedIndex(2, target);
     _scheduleFocus(_cardNode(_items[target]));
   }
 
-  void _focusGenre() {
-    final genre = _selectedGenre ?? _focusedGenre;
-    if (genre == null) return;
-    context.read<TvNavigationProvider>().setSectionFocusIndex(2, 0);
+  void _focusGenreChip(int index) {
+    if (_genres.isEmpty) return;
+    final target = index.clamp(0, _genres.length - 1);
+    final genre = _genres[target];
+    context.read<TvNavigationProvider>().setSectionFocusIndex(2, 1);
     _scheduleFocus(_genreNode(genre));
-    final nodeContext = _genreNode(genre).context;
-    if (nodeContext != null) {
-      Scrollable.ensureVisible(
-        nodeContext,
-        duration: const Duration(milliseconds: 220),
-      );
-    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final ctx = _genreNode(genre).context;
+      if (ctx != null) {
+        Scrollable.ensureVisible(
+          ctx,
+          alignment: 0.5,
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+        );
+      }
+    });
+  }
+
+  void _focusType(String source) {
+    context.read<TvNavigationProvider>().setSectionFocusIndex(2, 0);
+    _scheduleFocus(_typeNode(source));
   }
 
   void _sidebar() {
     (widget.onReturnToSidebar ?? TvFocusManager.focusSidebar).call();
   }
 
-  KeyEventResult _onGenreKey(_Genre genre, KeyEvent event) {
+  KeyEventResult _onTypeKey(String source, KeyEvent event) {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
-    final index = _genres.indexWhere((e) => e.key == genre.key);
-    if (event.logicalKey == LogicalKeyboardKey.arrowUp ||
-        event.logicalKey == LogicalKeyboardKey.arrowDown) {
-      final delta = event.logicalKey == LogicalKeyboardKey.arrowUp ? -1 : 1;
-      final next = (index + delta).clamp(0, _genres.length - 1);
-      setState(() => _focusedGenre = _genres[next]);
-      _genreNode(_genres[next]).requestFocus();
-      final targetContext = _genreNode(_genres[next]).context;
-      if (targetContext != null) {
-        Scrollable.ensureVisible(
-          targetContext,
-          duration: const Duration(milliseconds: 220),
-        );
-      }
+    final index = _typeOptions.indexWhere((e) => e.key == source);
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.arrowUp ||
+        key == LogicalKeyboardKey.arrowDown) {
+      final delta = key == LogicalKeyboardKey.arrowUp ? -1 : 1;
+      final next = (index + delta).clamp(0, _typeOptions.length - 1);
+      setState(() => _focusedType = _typeOptions[next].key);
+      _typeNode(_typeOptions[next].key).requestFocus();
       return KeyEventResult.handled;
     }
-    if (event.logicalKey == LogicalKeyboardKey.arrowRight ||
-        event.logicalKey == LogicalKeyboardKey.select ||
-        event.logicalKey == LogicalKeyboardKey.enter) {
-      _commitGenre(genre);
+    if (key == LogicalKeyboardKey.arrowRight ||
+        key == LogicalKeyboardKey.select ||
+        key == LogicalKeyboardKey.enter) {
+      _selectType(source, enterGenreBar: true);
       return KeyEventResult.handled;
     }
-    if (event.logicalKey == LogicalKeyboardKey.arrowLeft ||
-        event.logicalKey == LogicalKeyboardKey.escape ||
-        event.logicalKey == LogicalKeyboardKey.goBack) {
+    if (key == LogicalKeyboardKey.arrowLeft ||
+        key == LogicalKeyboardKey.escape ||
+        key == LogicalKeyboardKey.goBack) {
       _sidebar();
       return KeyEventResult.handled;
     }
     return KeyEventResult.ignored;
   }
 
+  void _onTypeFocus(String source) {
+    setState(() => _focusedType = source);
+    if (source != _selectedType || _genres.isEmpty) {
+      _selectType(source);
+    }
+  }
+
+  KeyEventResult _onGenreKey(_Genre genre, int index, KeyEvent event) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.arrowLeft) {
+      if (index == 0) {
+        _focusType(_selectedType);
+      } else {
+        _focusGenreChip(index - 1);
+      }
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.arrowRight) {
+      if (index + 1 < _genres.length) _focusGenreChip(index + 1);
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.arrowDown ||
+        key == LogicalKeyboardKey.select ||
+        key == LogicalKeyboardKey.enter) {
+      _genreDebounce?.cancel();
+      _loadGenreContent(genre, enterGrid: true);
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.arrowUp) {
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.escape ||
+        key == LogicalKeyboardKey.goBack) {
+      _sidebar();
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
+
+  void _onGenreFocus(_Genre genre) {
+    setState(() => _focusedGenre = genre);
+    if (genre.key == _selectedGenre?.key && _items.isNotEmpty) return;
+    _genreDebounce?.cancel();
+    _genreDebounce = Timer(const Duration(milliseconds: 180), () {
+      if (mounted) _loadGenreContent(genre);
+    });
+  }
+
   KeyEventResult _onCardKey(int index, KeyEvent event) {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
     final key = event.logicalKey;
     if (key == LogicalKeyboardKey.escape || key == LogicalKeyboardKey.goBack) {
-      _focusGenre();
+      _sidebar();
       return KeyEventResult.handled;
     }
     int? target;
     if (key == LogicalKeyboardKey.arrowLeft) {
       if (index % _columns == 0) {
-        _focusGenre();
+        _focusType(_selectedType);
         return KeyEventResult.handled;
       }
       target = index - 1;
@@ -276,8 +409,10 @@ class _TvGenreScreenState extends State<TvGenreScreen> {
         target = index + 1;
       }
     } else if (key == LogicalKeyboardKey.arrowUp) {
-      target = index - _columns;
-      if (target < 0) target = index;
+      if (_genres.isNotEmpty) {
+        _focusGenreChip((index % _columns).clamp(0, _genres.length - 1));
+      }
+      return KeyEventResult.handled;
     } else if (key == LogicalKeyboardKey.arrowDown) {
       final column = index % _columns;
       final nextRowStart = (index ~/ _columns + 1) * _columns;
@@ -295,7 +430,7 @@ class _TvGenreScreenState extends State<TvGenreScreen> {
     final item = _items[index];
     context.read<TvNavigationProvider>()
       ..saveFocusedIndex(2, index)
-      ..setSectionFocusIndex(2, 1)
+      ..setSectionFocusIndex(2, 2)
       ..saveActiveRowId(2, 'genre-grid')
       ..saveRowFocusedIndex('genre-grid', index);
     final movie = Movie.fromJson(item.data);
@@ -327,104 +462,161 @@ class _TvGenreScreenState extends State<TvGenreScreen> {
     return Padding(
       padding: const EdgeInsets.fromLTRB(28, 26, 34, 24),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(width: 276, child: _buildGenrePane()),
-          const SizedBox(width: 30),
-          Expanded(child: _buildDetailPane()),
+          SizedBox(width: 168, child: _buildMediaTypePane()),
+          const SizedBox(width: 26),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildGenreBar(),
+                const SizedBox(height: 14),
+                _buildDetailPane(),
+              ],
+            ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildGenrePane() {
-    if (_loadingGenres) {
-      return const Center(child: CustomLoadingWidget(size: 38));
-    }
-    if (_genreError != null) {
-      return _Message(
-        message: _genreError!,
-        action: 'Retry',
-        onPressed: _loadGenres,
-      );
-    }
+  Widget _buildMediaTypePane() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
-          'Browse Genres',
+          'Browse',
           style: TextStyle(fontSize: 31, fontWeight: FontWeight.w700),
         ),
         const SizedBox(height: 20),
-        Expanded(
-          child: ListView.builder(
-            controller: _genreScroll,
-            itemCount: _genres.length + 2,
-            itemBuilder: (context, index) {
-              final movieCount = _genres
-                  .where((e) => e.source == 'movie')
-                  .length;
-              if (index == 0) return _sectionLabel('Movie Genres');
-              if (index == movieCount + 1) {
-                return _sectionLabel('TV Series Genres');
-              }
-              final genreIndex = index <= movieCount ? index - 1 : index - 2;
-              final genre = _genres[genreIndex];
-              final selected = _selectedGenre?.key == genre.key;
-              final focused = _focusedGenre?.key == genre.key;
-              return Focus(
-                focusNode: _genreNode(genre),
-                onKeyEvent: (_, event) => _onGenreKey(genre, event),
-                onFocusChange: (value) {
-                  if (value) setState(() => _focusedGenre = genre);
-                },
-                child: GestureDetector(
-                  onTap: () => _commitGenre(genre),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 180),
-                    margin: const EdgeInsets.only(bottom: 7),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 15,
-                      vertical: 12,
-                    ),
-                    decoration: BoxDecoration(
-                      color: selected
-                          ? const Color(0xFFE50914)
-                          : focused
-                          ? Colors.white12
-                          : Colors.transparent,
-                      borderRadius: BorderRadius.circular(8),
-                      border: focused
-                          ? Border.all(color: Colors.white70)
-                          : null,
-                    ),
-                    child: Text(
-                      genre.name,
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ),
-              );
-            },
+        for (final option in _typeOptions) ...[
+          _buildTypeButton(option.key, option.value),
+          const SizedBox(height: 10),
+        ],
+        if (_loadingGenres)
+          const Padding(
+            padding: EdgeInsets.only(top: 24),
+            child: CustomLoadingWidget(size: 28),
           ),
-        ),
+        if (_genreError != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 20),
+            child: _Message(
+              message: _genreError!,
+              action: 'Retry',
+              onPressed: () =>
+                  _selectType(_selectedType, enterGenreBar: true),
+              compact: true,
+            ),
+          ),
       ],
     );
   }
 
-  Widget _sectionLabel(String text) => Padding(
-    padding: const EdgeInsets.fromLTRB(4, 15, 4, 9),
-    child: Text(
-      text.toUpperCase(),
-      style: const TextStyle(
-        fontSize: 15,
-        color: Colors.white60,
-        letterSpacing: 1.1,
+  Widget _buildTypeButton(String source, String label) {
+    final selected = _selectedType == source;
+    final focused = _focusedType == source;
+    return Focus(
+      focusNode: _typeNode(source),
+      onKeyEvent: (_, event) => _onTypeKey(source, event),
+      onFocusChange: (value) {
+        if (value) _onTypeFocus(source);
+      },
+      child: GestureDetector(
+        onTap: () => _selectType(source, enterGenreBar: true),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+          decoration: BoxDecoration(
+            color: selected
+                ? const Color(0xFFE50914)
+                : focused
+                ? Colors.white12
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+            border: focused ? Border.all(color: Colors.white70) : null,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                source == 'movie' ? Icons.movie_outlined : Icons.tv,
+                color: selected || focused ? Colors.white : Colors.white70,
+                size: 22,
+              ),
+              const SizedBox(height: 6),
+              Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
-    ),
-  );
+    );
+  }
+
+  Widget _buildGenreBar() {
+    if (_genres.isEmpty) return const SizedBox(height: 46);
+    return SizedBox(
+      height: 46,
+      child: ListView.builder(
+        controller: _genreScroll,
+        scrollDirection: Axis.horizontal,
+        itemCount: _genres.length,
+        itemBuilder: (context, index) {
+          final genre = _genres[index];
+          final selected = _selectedGenre?.key == genre.key;
+          final focused = _focusedGenre?.key == genre.key;
+          return Padding(
+            padding: const EdgeInsets.only(right: 9),
+            child: Focus(
+              focusNode: _genreNode(genre),
+              onKeyEvent: (_, event) => _onGenreKey(genre, index, event),
+              onFocusChange: (value) {
+                if (value) _onGenreFocus(genre);
+              },
+              child: GestureDetector(
+                onTap: () => _loadGenreContent(genre, enterGrid: true),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 9,
+                  ),
+                  decoration: BoxDecoration(
+                    color: selected
+                        ? const Color(0xFFE50914)
+                        : focused
+                        ? Colors.white12
+                        : Colors.white10,
+                    borderRadius: BorderRadius.circular(20),
+                    border: focused
+                        ? Border.all(color: Colors.white70)
+                        : null,
+                  ),
+                  child: Text(
+                    genre.name,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight:
+                          selected || focused
+                              ? FontWeight.w700
+                              : FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
 
   Widget _buildDetailPane() {
     final focused = _focusedCard != null && _focusedCard! < _items.length
@@ -434,29 +626,36 @@ class _TvGenreScreenState extends State<TvGenreScreen> {
     final date =
         focused?.data['release_date'] ?? focused?.data['first_air_date'];
     final rating = (focused?.data['vote_average'] as num?)?.toDouble();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          _selectedGenre?.name ?? 'Choose a genre',
-          style: const TextStyle(fontSize: 33, fontWeight: FontWeight.w700),
-        ),
-        const SizedBox(height: 5),
-        AnimatedSwitcher(
-          duration: const Duration(milliseconds: 220),
-          child: Text(
-            focused == null
-                ? 'Select a title to see details'
-                : '$title  •  ${date?.toString().split('-').first ?? '—'}  •  ${rating?.toStringAsFixed(1) ?? '—'} ★  •  ${focused.mediaType == 'movie' ? 'Movie' : 'TV Series'}',
-            key: ValueKey(focused?.key),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 18, color: Colors.white70),
+    final typeLabel = _typeOptions
+        .firstWhere((e) => e.key == _selectedType)
+        .value;
+    return Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            _selectedGenre == null
+                ? typeLabel
+                : '$typeLabel  •  ${_selectedGenre!.name}',
+            style: const TextStyle(fontSize: 27, fontWeight: FontWeight.w700),
           ),
-        ),
-        const SizedBox(height: 20),
-        Expanded(child: _buildContent()),
-      ],
+          const SizedBox(height: 5),
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 220),
+            child: Text(
+              focused == null
+                  ? 'Select a title to see details'
+                  : '$title  •  ${date?.toString().split('-').first ?? '—'}  •  ${rating?.toStringAsFixed(1) ?? '—'} ★  •  ${focused.mediaType == 'movie' ? 'Movie' : 'TV Series'}',
+              key: ValueKey(focused?.key),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 18, color: Colors.white70),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Expanded(child: _buildContent()),
+        ],
+      ),
     );
   }
 
@@ -468,11 +667,17 @@ class _TvGenreScreenState extends State<TvGenreScreen> {
       return _Message(
         message: _contentError!,
         action: 'Retry',
-        onPressed: () => _commitGenre(_selectedGenre!),
+        onPressed: () {
+          final genre = _selectedGenre;
+          if (genre != null) {
+            _loadGenreContent(genre, enterGrid: true);
+          } else {
+            _selectType(_selectedType, enterGenreBar: true);
+          }
+        },
       );
     }
-    if (_selectedGenre == null) return const SizedBox.shrink();
-    if (_items.isEmpty) {
+    if (_selectedGenre == null || _items.isEmpty) {
       return const _Message(message: 'No titles found for this genre.');
     }
     return Column(
@@ -515,7 +720,7 @@ class _TvGenreScreenState extends State<TvGenreScreen> {
                   setState(() => _focusedCard = index);
                   context.read<TvNavigationProvider>()
                     ..saveFocusedIndex(2, index)
-                    ..setSectionFocusIndex(2, 1)
+                    ..setSectionFocusIndex(2, 2)
                     ..saveActiveRowId(2, 'genre-grid')
                     ..saveRowFocusedIndex('genre-grid', index);
                   if (index >= _items.length - _columns * 2) _loadMore();
