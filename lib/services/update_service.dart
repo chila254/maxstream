@@ -99,11 +99,13 @@ class UpdateService {
       if (latestVersion.isEmpty) return null;
       if (!_isVersionNewer(currentVersion, latestVersion)) return null;
 
-      // Find the MaxStream.apk asset
+      // Find the MaxStream.apk asset (never the TV variant).
       final assets = response.data['assets'] as List<dynamic>? ?? [];
       for (final asset in assets) {
-        final name = asset['name'] as String? ?? '';
-        if (name.toLowerCase().contains('maxstream') && name.endsWith('.apk')) {
+        final name = (asset['name'] as String? ?? '').toLowerCase();
+        if (name.endsWith('.apk') &&
+            name.contains('maxstream') &&
+            !name.contains('-tv')) {
           return UpdateInfo(
             downloadUrl: asset['browser_download_url'] as String,
             version: latestVersion,

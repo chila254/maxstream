@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../providers/tv_navigation_provider.dart';
+import '../services/tv_update_service.dart';
 import '../widgets/tv_sidebar_navigation.dart';
 import '../utils/tv_focus_manager.dart';
 import 'tv_home_screen.dart';
@@ -31,6 +34,8 @@ class _TvMaxStreamMainState extends State<TvMaxStreamMain> {
   late GlobalKey<NavigatorState> _navigatorKey;
   late FocusScopeNode _sidebarFocusScope;
   late FocusScopeNode _contentFocusScope;
+  Timer? _updateTimer;
+  bool _checkingForUpdate = false;
 
   final List<String> _navTitles = [
     'Home',
@@ -63,15 +68,52 @@ class _TvMaxStreamMainState extends State<TvMaxStreamMain> {
       sidebarFocusNode: _sidebarFocusScope,
       contentFocusNode: _contentFocusScope,
     );
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _scheduleUpdateCheck();
+    });
   }
 
   @override
   void dispose() {
+    _updateTimer?.cancel();
     _sidebarFocusScope.dispose();
     _contentFocusScope.dispose();
     TvFocusManager.dispose();
     _navProvider.dispose();
     super.dispose();
+  }
+
+  void _scheduleUpdateCheck() {
+    _updateTimer?.cancel();
+    _updateTimer = Timer.periodic(
+      const Duration(hours: 1),
+      (_) => _checkForUpdate(),
+    );
+    _checkForUpdate();
+  }
+
+  Future<void> _checkForUpdate() async {
+    if (_checkingForUpdate) return;
+    _checkingForUpdate = true;
+    try {
+      final info = await TvUpdateService.checkForUpdate();
+      if (!mounted || info == null) return;
+      if (!TvUpdateService.reserveUpdateDialog(info.version)) return;
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => TvUpdateDialog(
+          info: info,
+          onDownload: () {
+            Navigator.of(context).pop();
+            TvUpdateService.downloadAndInstallUpdate(context, info.downloadUrl);
+          },
+        ),
+      );
+    } finally {
+      _checkingForUpdate = false;
+    }
   }
 
   void _onNavItemSelected(int index) {
