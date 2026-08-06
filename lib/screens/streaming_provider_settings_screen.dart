@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../database/db_helper.dart';
+import '../services/content_notification_service.dart';
 
 class StreamingProvider {
   final int id;
@@ -129,6 +130,14 @@ class _StreamingProviderSettingsScreenState
       setState(() {
         providerPreferences[providerId] = value;
       });
+
+      // Kick off a check for this provider right away so the user gets
+      // new-release notifications shortly after enabling it.
+      if (value) {
+        ContentNotificationService.checkAndNotifyNewContent(
+          onlyProviderId: providerId,
+        );
+      }
 
       // Show confirmation
       final provider = providers.firstWhere((p) => p.id == providerId);

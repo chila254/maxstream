@@ -6,9 +6,12 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'screens/splash_screen.dart';
 import 'screens/maxstream_main_screen.dart';
 import 'services/notification_service.dart';
+import 'services/notification_router.dart';
 import 'services/media_download_manager.dart';
 import 'services/theme_service.dart';
 import 'widgets/cloud_sync_bootstrap.dart';
+
+final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -23,12 +26,13 @@ void main() async {
     if (!kIsWeb) await MediaDownloadManager.instance.initialize();
     await ThemeService.instance.loadTheme();
 
-    // Check for updates after initialization
-    // WidgetsBinding.instance.addPostFrameCallback((_) {
-    //   _checkForUpdates();
-    // });
-
     runApp(const MaxStreamApp());
+
+    // Attach the navigator once the first frame is up so notification taps
+    // (including cold-start taps) can be routed to the right screen.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      NotificationRouter.registerNavigator(appNavigatorKey);
+    });
   } catch (e) {
     runApp(ErrorApp(error: e));
   }
@@ -66,6 +70,7 @@ class MaxStreamApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'MaxStream',
+      navigatorKey: appNavigatorKey,
       theme: ThemeService.darkTheme,
       themeMode: ThemeMode.dark,
       debugShowCheckedModeBanner: false,

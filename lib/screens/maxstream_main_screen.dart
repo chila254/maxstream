@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'maxstream_home_screen.dart';
 import 'maxstream_search_screen.dart';
 import 'maxstream_series_list_screen.dart';
@@ -22,6 +21,7 @@ class MaxStreamMainScreen extends StatefulWidget {
 class _MaxStreamMainScreenState extends State<MaxStreamMainScreen> {
   int _currentIndex = 0;
   Timer? _updateTimer;
+  Timer? _contentCheckTimer;
   bool _checkingForUpdate = false;
 
   void _onTabChange(int index) {
@@ -35,32 +35,14 @@ class _MaxStreamMainScreenState extends State<MaxStreamMainScreen> {
     super.initState();
     if (!kIsWeb) {
       _initializeServices();
-      _setupNotificationTap();
     }
   }
 
   @override
   void dispose() {
     _updateTimer?.cancel();
+    _contentCheckTimer?.cancel();
     super.dispose();
-  }
-
-  void _setupNotificationTap() {
-    final plugin = FlutterLocalNotificationsPlugin();
-    plugin.initialize(
-      const InitializationSettings(
-        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
-      ),
-      onDidReceiveNotificationResponse: (details) {
-        final payload = details.payload;
-        if (payload != null && payload.startsWith('update:')) {
-          final downloadUrl = payload.substring('update:'.length);
-          if (mounted) {
-            UpdateService.downloadAndInstallUpdate(context, downloadUrl);
-          }
-        }
-      },
-    );
   }
 
   Future<void> _initializeServices() async {
@@ -70,8 +52,11 @@ class _MaxStreamMainScreenState extends State<MaxStreamMainScreen> {
       (_) => unawaited(_checkForUpdates()),
     );
     _checkNotificationPermission();
-    await ContentNotificationService.initialize();
-    await ContentNotificationService.schedulePeriodicCheck();
+    _contentCheckTimer = Timer.periodic(
+      const Duration(hours: 6),
+      (_) => unawaited(ContentNotificationService.checkAndNotifyNewContent()),
+    );
+    unawaited(ContentNotificationService.checkAndNotifyNewContent());
   }
 
   Future<void> _checkForUpdates() async {

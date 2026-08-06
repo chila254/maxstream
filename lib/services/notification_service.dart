@@ -1,4 +1,5 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'notification_router.dart';
 
 class NotificationService {
   static final NotificationService _instance = NotificationService._internal();
@@ -28,7 +29,10 @@ class NotificationService {
       iOS: iosSettings,
     );
 
-    await _notificationsPlugin.initialize(initSettings);
+    await _notificationsPlugin.initialize(
+      initSettings,
+      onDidReceiveNotificationResponse: NotificationRouter.handleTap,
+    );
   }
 
   Future<void> showNotification({
