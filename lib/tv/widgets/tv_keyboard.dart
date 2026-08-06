@@ -78,9 +78,9 @@ class _TvKeyboardState extends State<TvKeyboard> {
     }
   }
 
-  void _handleKeyEvent(RawKeyEvent event) {
-    if (!_keyboardFocusNode.hasFocus) return;
-    if (event is RawKeyDownEvent) {
+  KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
+    if (!_keyboardFocusNode.hasFocus) return KeyEventResult.ignored;
+    if (event is KeyDownEvent || event is KeyRepeatEvent) {
       if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
         setState(() {
           _selectedRow = (_selectedRow - 1).clamp(
@@ -106,7 +106,7 @@ class _TvKeyboardState extends State<TvKeyboard> {
       } else if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
         if (_selectedCol == 0) {
           widget.onMoveLeft?.call();
-          return;
+          return KeyEventResult.handled;
         }
         setState(() {
           _selectedCol = (_selectedCol - 1).clamp(
@@ -117,7 +117,7 @@ class _TvKeyboardState extends State<TvKeyboard> {
       } else if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
         if (_selectedCol == _keyboardLayout[_selectedRow].length - 1) {
           widget.onMoveRight?.call();
-          return;
+          return KeyEventResult.handled;
         }
         setState(() {
           _selectedCol = (_selectedCol + 1).clamp(
@@ -130,9 +130,11 @@ class _TvKeyboardState extends State<TvKeyboard> {
         _pressKey(_keyboardLayout[_selectedRow][_selectedCol]);
       } else if (event.logicalKey == LogicalKeyboardKey.escape ||
           event.logicalKey == LogicalKeyboardKey.goBack) {
-        widget.focusManager?.focusOnContent();
+        widget.onMoveLeft?.call();
       }
+      return KeyEventResult.handled;
     }
+    return KeyEventResult.ignored;
   }
 
   void _pressKey(String key) {
@@ -177,9 +179,9 @@ class _TvKeyboardState extends State<TvKeyboard> {
 
   @override
   Widget build(BuildContext context) {
-    return RawKeyboardListener(
+    return Focus(
       focusNode: _keyboardFocusNode,
-      onKey: _handleKeyEvent,
+      onKeyEvent: _handleKeyEvent,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [

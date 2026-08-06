@@ -60,7 +60,7 @@ class _TvGenreScreenState extends State<TvGenreScreen> {
   _Genre? _focusedGenre;
   _Genre? _selectedGenre;
   int? _focusedCard;
-  bool _loadingGenres = true;
+  bool _loadingGenres = false;
   bool _loadingContent = false;
   bool _loadingMore = false;
   bool _hasMore = true;
@@ -118,6 +118,7 @@ class _TvGenreScreenState extends State<TvGenreScreen> {
       }
       return;
     }
+    if (_selectedType == source && _loadingGenres) return;
     final request = ++_generation;
     setState(() {
       _selectedType = source;
