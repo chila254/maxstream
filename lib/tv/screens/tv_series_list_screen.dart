@@ -31,7 +31,9 @@ class _TvSeriesListScreenState extends State<TvSeriesListScreen>
     with SingleTickerProviderStateMixin {
   final ScrollController _scrollController = ScrollController();
   final FocusNode _playFocusNode = FocusNode(debugLabel: 'Series hero play');
-  final FocusNode _detailsFocusNode = FocusNode(debugLabel: 'Series hero details');
+  final FocusNode _detailsFocusNode = FocusNode(
+    debugLabel: 'Series hero details',
+  );
   final Map<String, FocusNode> _cardFocusNodes = {};
   final Map<String, ScrollController> _rowControllers = {};
   final Map<String, GlobalKey> _rowKeys = {};
@@ -131,15 +133,16 @@ class _TvSeriesListScreenState extends State<TvSeriesListScreen>
                   curve: Curves.easeOut,
                 ),
                 child: SlideTransition(
-                  position: Tween<Offset>(
-                    begin: const Offset(0, .025),
-                    end: Offset.zero,
-                  ).animate(
-                    CurvedAnimation(
-                      parent: _entryController,
-                      curve: Curves.easeOutCubic,
-                    ),
-                  ),
+                  position:
+                      Tween<Offset>(
+                        begin: const Offset(0, .025),
+                        end: Offset.zero,
+                      ).animate(
+                        CurvedAnimation(
+                          parent: _entryController,
+                          curve: Curves.easeOutCubic,
+                        ),
+                      ),
                   child: _buildContent(),
                 ),
               ),
@@ -558,9 +561,7 @@ class _TvSeriesListScreenState extends State<TvSeriesListScreen>
       ..saveActiveRowId(3, rowId)
       ..saveRowFocusedIndex(rowId, index);
     _revealCard(rowId, index);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _cardFocusNodes['$rowId:$index']?.requestFocus();
-    });
+    _cardFocusNodes['$rowId:$index']?.requestFocus();
   }
 
   void _revealCard(String rowId, int index) {
@@ -636,8 +637,7 @@ class _TvSeriesListScreenState extends State<TvSeriesListScreen>
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) =>
-            TvSeriesScreen(seriesItem: Movie.fromJson(item)),
+        builder: (_) => TvSeriesScreen(seriesItem: Movie.fromJson(item)),
       ),
     );
     if (mounted) _restoreInitialFocus();

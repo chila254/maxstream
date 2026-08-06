@@ -80,10 +80,13 @@ class _TvKeyboardState extends State<TvKeyboard> {
 
   void _handleKeyEvent(RawKeyEvent event) {
     if (!_keyboardFocusNode.hasFocus) return;
-    if (event is KeyDownEvent) {
+    if (event is RawKeyDownEvent) {
       if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
         setState(() {
-          _selectedRow = (_selectedRow - 1).clamp(0, _keyboardLayout.length - 1);
+          _selectedRow = (_selectedRow - 1).clamp(
+            0,
+            _keyboardLayout.length - 1,
+          );
           _selectedCol = _selectedCol.clamp(
             0,
             _keyboardLayout[_selectedRow].length - 1,
@@ -91,7 +94,10 @@ class _TvKeyboardState extends State<TvKeyboard> {
         });
       } else if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
         setState(() {
-          _selectedRow = (_selectedRow + 1).clamp(0, _keyboardLayout.length - 1);
+          _selectedRow = (_selectedRow + 1).clamp(
+            0,
+            _keyboardLayout.length - 1,
+          );
           _selectedCol = _selectedCol.clamp(
             0,
             _keyboardLayout[_selectedRow].length - 1,

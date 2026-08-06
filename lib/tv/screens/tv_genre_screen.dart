@@ -92,10 +92,14 @@ class _TvGenreScreenState extends State<TvGenreScreen> {
     super.dispose();
   }
 
-  FocusNode _typeNode(String source) =>
-      _typeNodes.putIfAbsent(source, () => FocusNode(debugLabel: 'type:$source'));
-  FocusNode _genreNode(_Genre genre) =>
-      _genreNodes.putIfAbsent(genre.key, () => FocusNode(debugLabel: genre.key));
+  FocusNode _typeNode(String source) => _typeNodes.putIfAbsent(
+    source,
+    () => FocusNode(debugLabel: 'type:$source'),
+  );
+  FocusNode _genreNode(_Genre genre) => _genreNodes.putIfAbsent(
+    genre.key,
+    () => FocusNode(debugLabel: genre.key),
+  );
   FocusNode _cardNode(_GenreItem item) =>
       _cardNodes.putIfAbsent(item.key, () => FocusNode(debugLabel: item.key));
 
@@ -216,8 +220,10 @@ class _TvGenreScreenState extends State<TvGenreScreen> {
 
   void _enterGrid(_Genre genre) {
     final genreIndex = _genres.indexWhere((e) => e.key == genre.key);
-    final target = (genreIndex < 0 ? 0 : genreIndex % _columns)
-        .clamp(0, _items.length - 1);
+    final target = (genreIndex < 0 ? 0 : genreIndex % _columns).clamp(
+      0,
+      _items.length - 1,
+    );
     _focusGrid(target);
   }
 
@@ -282,7 +288,24 @@ class _TvGenreScreenState extends State<TvGenreScreen> {
     context.read<TvNavigationProvider>()
       ..setSectionFocusIndex(2, 2)
       ..saveFocusedIndex(2, target);
-    _scheduleFocus(_cardNode(_items[target]));
+    final node = _cardNode(_items[target]);
+    if (node.context != null) {
+      node.requestFocus();
+    } else {
+      _scheduleFocus(node);
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final cardContext = node.context;
+      if (cardContext != null) {
+        Scrollable.ensureVisible(
+          cardContext,
+          alignment: .12,
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOutCubic,
+        );
+      }
+    });
   }
 
   void _focusGenreChip(int index) {
@@ -290,7 +313,12 @@ class _TvGenreScreenState extends State<TvGenreScreen> {
     final target = index.clamp(0, _genres.length - 1);
     final genre = _genres[target];
     context.read<TvNavigationProvider>().setSectionFocusIndex(2, 1);
-    _scheduleFocus(_genreNode(genre));
+    final node = _genreNode(genre);
+    if (node.context != null) {
+      node.requestFocus();
+    } else {
+      _scheduleFocus(node);
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final ctx = _genreNode(genre).context;
@@ -307,7 +335,12 @@ class _TvGenreScreenState extends State<TvGenreScreen> {
 
   void _focusType(String source) {
     context.read<TvNavigationProvider>().setSectionFocusIndex(2, 0);
-    _scheduleFocus(_typeNode(source));
+    final node = _typeNode(source);
+    if (node.context != null) {
+      node.requestFocus();
+    } else {
+      _scheduleFocus(node);
+    }
   }
 
   void _sidebar() {
@@ -315,7 +348,9 @@ class _TvGenreScreenState extends State<TvGenreScreen> {
   }
 
   KeyEventResult _onTypeKey(String source, KeyEvent event) {
-    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+      return KeyEventResult.ignored;
+    }
     final index = _typeOptions.indexWhere((e) => e.key == source);
     final key = event.logicalKey;
     if (key == LogicalKeyboardKey.arrowUp ||
@@ -349,7 +384,9 @@ class _TvGenreScreenState extends State<TvGenreScreen> {
   }
 
   KeyEventResult _onGenreKey(_Genre genre, int index, KeyEvent event) {
-    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+      return KeyEventResult.ignored;
+    }
     final key = event.logicalKey;
     if (key == LogicalKeyboardKey.arrowLeft) {
       if (index == 0) {
@@ -373,8 +410,7 @@ class _TvGenreScreenState extends State<TvGenreScreen> {
     if (key == LogicalKeyboardKey.arrowUp) {
       return KeyEventResult.handled;
     }
-    if (key == LogicalKeyboardKey.escape ||
-        key == LogicalKeyboardKey.goBack) {
+    if (key == LogicalKeyboardKey.escape || key == LogicalKeyboardKey.goBack) {
       _focusType(_selectedType);
       return KeyEventResult.handled;
     }
@@ -391,7 +427,9 @@ class _TvGenreScreenState extends State<TvGenreScreen> {
   }
 
   KeyEventResult _onCardKey(int index, KeyEvent event) {
-    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+      return KeyEventResult.ignored;
+    }
     final key = event.logicalKey;
     if (key == LogicalKeyboardKey.escape || key == LogicalKeyboardKey.goBack) {
       if (_genres.isNotEmpty) {
@@ -411,10 +449,11 @@ class _TvGenreScreenState extends State<TvGenreScreen> {
         target = index + 1;
       }
     } else if (key == LogicalKeyboardKey.arrowUp) {
-      if (_genres.isNotEmpty) {
+      if (index < _columns && _genres.isNotEmpty) {
         _focusGenreChip((index % _columns).clamp(0, _genres.length - 1));
+      } else {
+        target = index - _columns;
       }
-      return KeyEventResult.handled;
     } else if (key == LogicalKeyboardKey.arrowDown) {
       final column = index % _columns;
       final nextRowStart = (index ~/ _columns + 1) * _columns;
@@ -507,8 +546,7 @@ class _TvGenreScreenState extends State<TvGenreScreen> {
             child: _Message(
               message: _genreError!,
               action: 'Retry',
-              onPressed: () =>
-                  _selectType(_selectedType, enterGenreBar: true),
+              onPressed: () => _selectType(_selectedType, enterGenreBar: true),
               compact: true,
             ),
           ),
@@ -597,18 +635,15 @@ class _TvGenreScreenState extends State<TvGenreScreen> {
                         ? Colors.white12
                         : Colors.white10,
                     borderRadius: BorderRadius.circular(20),
-                    border: focused
-                        ? Border.all(color: Colors.white70)
-                        : null,
+                    border: focused ? Border.all(color: Colors.white70) : null,
                   ),
                   child: Text(
                     genre.name,
                     style: TextStyle(
                       fontSize: 16,
-                      fontWeight:
-                          selected || focused
-                              ? FontWeight.w700
-                              : FontWeight.w500,
+                      fontWeight: selected || focused
+                          ? FontWeight.w700
+                          : FontWeight.w500,
                     ),
                   ),
                 ),

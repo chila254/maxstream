@@ -546,8 +546,15 @@ class _TvHomeScreenState extends State<TvHomeScreen>
                   if (showProgress) {
                     return Focus(
                       focusNode: node,
-                      onKeyEvent: (_, event) =>
-                          _onCardKey(rowId, index, items.length, event),
+                      onKeyEvent: (_, event) {
+                        if (event is KeyDownEvent &&
+                            (event.logicalKey == LogicalKeyboardKey.select ||
+                                event.logicalKey == LogicalKeyboardKey.enter)) {
+                          _resumePlayback(item, type);
+                          return KeyEventResult.handled;
+                        }
+                        return _onCardKey(rowId, index, items.length, event);
+                      },
                       onFocusChange: (focused) {
                         if (!focused || !mounted) return;
                         setState(() {});
@@ -564,154 +571,172 @@ class _TvHomeScreenState extends State<TvHomeScreen>
                           child: AnimatedScale(
                             scale: node.hasFocus ? 1.02 : 1,
                             duration: const Duration(milliseconds: 180),
-                            child: SizedBox(
-                              width: 220,
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Stack(
-                                    children: [
-                                      ClipRRect(
-                                        borderRadius: BorderRadius.circular(8),
-                                        child: posterUrl.isNotEmpty
-                                            ? Image(
-                                                image:
-                                                    TvImageCacheUtil.getCachedImage(
-                                                      posterUrl,
-                                                      cacheType:
-                                                          ImageCacheType.poster,
-                                                    ),
-                                                width: 220,
-                                                height: 160,
-                                                fit: BoxFit.cover,
-                                                errorBuilder: (_, _, _) =>
-                                                    Container(
-                                                      width: 220,
-                                                      height: 160,
-                                                      color: Colors.grey[900],
-                                                      child: const Icon(
-                                                        Icons.movie,
-                                                        color: Colors.grey,
-                                                        size: 48,
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 180),
+                              padding: const EdgeInsets.all(2),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: node.hasFocus
+                                      ? Colors.white
+                                      : Colors.transparent,
+                                  width: 2,
+                                ),
+                              ),
+                              child: SizedBox(
+                                width: 220,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Stack(
+                                      children: [
+                                        ClipRRect(
+                                          borderRadius: BorderRadius.circular(
+                                            8,
+                                          ),
+                                          child: posterUrl.isNotEmpty
+                                              ? Image(
+                                                  image:
+                                                      TvImageCacheUtil.getCachedImage(
+                                                        posterUrl,
+                                                        cacheType:
+                                                            ImageCacheType
+                                                                .poster,
                                                       ),
-                                                    ),
-                                              )
-                                            : Container(
-                                                width: 220,
-                                                height: 160,
-                                                color: Colors.grey[900],
-                                                child: const Icon(
-                                                  Icons.movie,
-                                                  color: Colors.grey,
-                                                  size: 48,
-                                                ),
-                                              ),
-                                      ),
-                                      Positioned(
-                                        bottom: 0,
-                                        left: 0,
-                                        right: 0,
-                                        child: Container(
-                                          height: 4,
-                                          decoration: BoxDecoration(
-                                            color: Colors.grey[700],
-                                            borderRadius:
-                                                const BorderRadius.only(
-                                                  bottomLeft: Radius.circular(
-                                                    8,
-                                                  ),
-                                                  bottomRight: Radius.circular(
-                                                    8,
+                                                  width: 220,
+                                                  height: 160,
+                                                  fit: BoxFit.cover,
+                                                  errorBuilder: (_, _, _) =>
+                                                      Container(
+                                                        width: 220,
+                                                        height: 160,
+                                                        color: Colors.grey[900],
+                                                        child: const Icon(
+                                                          Icons.movie,
+                                                          color: Colors.grey,
+                                                          size: 48,
+                                                        ),
+                                                      ),
+                                                )
+                                              : Container(
+                                                  width: 220,
+                                                  height: 160,
+                                                  color: Colors.grey[900],
+                                                  child: const Icon(
+                                                    Icons.movie,
+                                                    color: Colors.grey,
+                                                    size: 48,
                                                   ),
                                                 ),
-                                          ),
-                                          child: FractionallySizedBox(
-                                            alignment: Alignment.centerLeft,
-                                            widthFactor:
-                                                _historyProgress(
-                                                  item,
-                                                )?.clamp(0.0, 1.0) ??
-                                                0.0,
-                                            child: Container(
-                                              decoration: BoxDecoration(
-                                                color: const Color(0xFFE50914),
-                                                borderRadius:
-                                                    const BorderRadius.only(
-                                                      bottomLeft:
-                                                          Radius.circular(8),
-                                                      bottomRight:
-                                                          Radius.circular(8),
-                                                    ),
-                                              ),
-                                            ),
-                                          ),
                                         ),
-                                      ),
-                                      if (isSeries)
                                         Positioned(
-                                          top: 6,
-                                          left: 6,
+                                          bottom: 0,
+                                          left: 0,
+                                          right: 0,
                                           child: Container(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 5,
-                                              vertical: 1,
-                                            ),
+                                            height: 4,
                                             decoration: BoxDecoration(
-                                              color: Colors.black.withValues(
-                                                alpha: 0.7,
-                                              ),
+                                              color: Colors.grey[700],
                                               borderRadius:
-                                                  BorderRadius.circular(4),
+                                                  const BorderRadius.only(
+                                                    bottomLeft: Radius.circular(
+                                                      8,
+                                                    ),
+                                                    bottomRight:
+                                                        Radius.circular(8),
+                                                  ),
                                             ),
-                                            child: Text(
-                                              'S${season}E$episode',
-                                              style: const TextStyle(
-                                                color: Colors.white,
-                                                fontSize: 10,
-                                                fontWeight: FontWeight.bold,
+                                            child: FractionallySizedBox(
+                                              alignment: Alignment.centerLeft,
+                                              widthFactor:
+                                                  _historyProgress(
+                                                    item,
+                                                  )?.clamp(0.0, 1.0) ??
+                                                  0.0,
+                                              child: Container(
+                                                decoration: BoxDecoration(
+                                                  color: const Color(
+                                                    0xFFE50914,
+                                                  ),
+                                                  borderRadius:
+                                                      const BorderRadius.only(
+                                                        bottomLeft:
+                                                            Radius.circular(8),
+                                                        bottomRight:
+                                                            Radius.circular(8),
+                                                      ),
+                                                ),
                                               ),
                                             ),
                                           ),
                                         ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    cardTitle,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
+                                        if (isSeries)
+                                          Positioned(
+                                            top: 6,
+                                            left: 6,
+                                            child: Container(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 5,
+                                                    vertical: 1,
+                                                  ),
+                                              decoration: BoxDecoration(
+                                                color: Colors.black.withValues(
+                                                  alpha: 0.7,
+                                                ),
+                                                borderRadius:
+                                                    BorderRadius.circular(4),
+                                              ),
+                                              child: Text(
+                                                'S${season}E$episode',
+                                                style: const TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: 10,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                      ],
                                     ),
-                                  ),
-                                  if (isSeries && episodeName.isNotEmpty) ...[
-                                    const SizedBox(height: 2),
+                                    const SizedBox(height: 6),
                                     Text(
-                                      episodeName,
+                                      cardTitle,
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                       style: const TextStyle(
-                                        color: Colors.white70,
-                                        fontSize: 11,
+                                        color: Colors.white,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
                                       ),
                                     ),
+                                    if (isSeries && episodeName.isNotEmpty) ...[
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        episodeName,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          color: Colors.white70,
+                                          fontSize: 11,
+                                        ),
+                                      ),
+                                    ],
+                                    const SizedBox(height: 4),
+                                    if (overview.isNotEmpty &&
+                                        overview != 'No description available.')
+                                      Text(
+                                        overview,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          color: Colors.white60,
+                                          fontSize: 10,
+                                          height: 1.3,
+                                        ),
+                                      ),
                                   ],
-                                  const SizedBox(height: 4),
-                                  if (overview.isNotEmpty &&
-                                      overview != 'No description available.')
-                                    Text(
-                                      overview,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        color: Colors.white60,
-                                        fontSize: 10,
-                                        height: 1.3,
-                                      ),
-                                    ),
-                                ],
+                                ),
                               ),
                             ),
                           ),
@@ -867,9 +892,7 @@ class _TvHomeScreenState extends State<TvHomeScreen>
       ..saveActiveRowId(0, rowId)
       ..saveRowFocusedIndex(rowId, index);
     _revealCard(rowId, index);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _cardFocusNodes['$rowId:$index']?.requestFocus();
-    });
+    _cardFocusNodes['$rowId:$index']?.requestFocus();
   }
 
   void _revealCard(String rowId, int index) {

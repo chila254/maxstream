@@ -214,7 +214,9 @@ class _TvSearchScreenState extends State<TvSearchScreen> {
   }
 
   KeyEventResult _onCardKey(_ResultEntry entry, KeyEvent event) {
-    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+      return KeyEventResult.ignored;
+    }
     final key = event.logicalKey;
     if (key == LogicalKeyboardKey.escape || key == LogicalKeyboardKey.goBack) {
       _keyboardManager.activateKeyboard();
@@ -252,10 +254,6 @@ class _TvSearchScreenState extends State<TvSearchScreen> {
               ? a
               : b,
         );
-      } else if (key == LogicalKeyboardKey.arrowUp && entry.row == 0) {
-        return KeyEventResult.handled;
-      } else if (key == LogicalKeyboardKey.arrowDown && entry.row == sameSection.last.row) {
-        return KeyEventResult.handled;
       } else {
         final targetSection = sectionIndex + direction;
         if (targetSection >= 0 && targetSection < sectionNames.length) {
@@ -273,6 +271,9 @@ class _TvSearchScreenState extends State<TvSearchScreen> {
                 ? a
                 : b,
           );
+        } else if (key == LogicalKeyboardKey.arrowUp) {
+          _keyboardManager.activateKeyboard();
+          _keyboardNode.requestFocus();
         }
       }
     }
