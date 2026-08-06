@@ -5,6 +5,7 @@ import android.content.Context
 import android.text.Html
 import android.util.Base64
 import android.util.Log
+import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -17,6 +18,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import okhttp3.Cookie
@@ -29,11 +31,18 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.dnsoverhttps.DnsOverHttps
+import org.json.JSONArray
 import org.json.JSONObject
 import java.net.InetAddress
 import java.net.URI
+import java.net.URLDecoder
 import java.net.URLEncoder
+import java.security.KeyPairGenerator
 import java.security.MessageDigest
+import java.security.Signature
+import java.security.interfaces.ECPublicKey
+import java.security.spec.ECGenParameterSpec
+import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import java.util.regex.Pattern
@@ -43,6 +52,7 @@ import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
+import kotlin.experimental.xor
 
 /** Resolves TMDB metadata through server providers and host-specific extractors. */
 class StreamExtractor(private val context: Context) {
@@ -215,6 +225,19 @@ class StreamExtractor(private val context: Context) {
             VoeExtractor(),
             StreamtapeExtractor(),
             TwoEmbedExtractor(),
+            FilemoonExtractor(),
+            StreamWishExtractor(),
+            DoodLaExtractor(),
+            VidMoLyExtractor(),
+            LuluVdoExtractor(),
+            MixDropExtractor(),
+            SupervideoExtractor(),
+            RabbitstreamExtractor(),
+            MegacloudExtractor(),
+            GxPlayerExtractor(),
+            VeevExtractor(),
+            VidplayExtractor(),
+            StreamrubyExtractor(),
             GenericMediaExtractor(),
         )
     }
@@ -950,6 +973,7 @@ class StreamExtractor(private val context: Context) {
         }
     }
 
+    @SuppressLint("SetJavaScriptEnabled")
     private inner class Mov2DayExtractor : HostExtractor {
         override val name = "Mov2Day"
 
@@ -958,6 +982,15 @@ class StreamExtractor(private val context: Context) {
         }
 
         override suspend fun extract(server: StreamServer): ExtractionResult {
+            return try {
+                extractHttp(server)
+            } catch (error: Exception) {
+                Log.w(tag, "Mov2Day HTTP route failed (${error.message}); retrying through WebView")
+                extractViaWebView(server)
+            }
+        }
+
+        private suspend fun extractHttp(server: StreamServer): ExtractionResult {
             val landingHtml = httpGet(server.url, refererHeaders("https://vidflix.club/"))
             val embedBase = Regex(
                 """const\s+EMBED_BASE\s*=\s*["']([^"']+)["']""",
@@ -1021,6 +1054,104 @@ class StreamExtractor(private val context: Context) {
                 }
             }
             throw IllegalStateException("Alternate Vidflix source returned no playable route")
+        }
+
+        private suspend fun extractViaWebView(server: StreamServer): ExtractionResult {
+            return withContext(Dispatchers.Main) {
+                withTimeout(45_000) {
+                    suspendCancellableCoroutine { continuation ->
+                        val webView = WebView(context)
+                        webView.settings.javaScriptEnabled = true
+                        webView.settings.domStorageEnabled = true
+                        webView.settings.mediaPlaybackRequiresUserGesture = false
+
+                        fun finish(result: Result<StreamResult>) {
+                            if (!continuation.isActive) return
+                            result.fold(
+                                onSuccess = { continuation.resume(ExtractionResult.Final(it)) },
+                                onFailure = { continuation.resumeWithException(it) },
+                            )
+                            webView.post { webView.destroy() }
+                        }
+
+                        val mediaPath = URI(server.url).rawPath.orEmpty()
+                        webView.addJavascriptInterface(object {
+                            @JavascriptInterface
+                            fun onEmbedBase(base: String) {
+                                if (!continuation.isActive) return
+                                if (base.isBlank() || mediaPath.isBlank()) {
+                                    finish(
+                                        Result.failure(
+                                            IllegalStateException("Mov2Day embed base was not found"),
+                                        ),
+                                    )
+                                    return
+                                }
+                                val embedUrl = "${base.trimEnd('/')}$mediaPath"
+                                webView.post {
+                                    if (continuation.isActive) webView.loadUrl(embedUrl)
+                                }
+                            }
+                        }, "NativeBridge")
+
+                        webView.webViewClient = object : WebViewClient() {
+                            override fun onPageFinished(view: WebView, url: String) {
+                                if (host(url).endsWith("mov2day.xyz") && !url.contains("/embed", true)) {
+                                    val script = """
+                                        (() => {
+                                          const text = [...document.querySelectorAll('script')]
+                                            .map(s => s.textContent || '').join('\n');
+                                          const m = text.match(/EMBED_BASE\s*=\s*['"]([^'"]+)['"]/);
+                                          window.NativeBridge.onEmbedBase(m ? m[1] : '');
+                                        })();
+                                    """.trimIndent()
+                                    view.evaluateJavascript(script, null)
+                                }
+                            }
+
+                            override fun shouldInterceptRequest(
+                                view: WebView?,
+                                request: WebResourceRequest?,
+                            ): WebResourceResponse? {
+                                val url = request?.url?.toString() ?: ""
+                                val isMediaRequest = url.contains(".m3u8", true) ||
+                                    url.contains(".mp4", true) ||
+                                    url.contains("videoplayback", true)
+                                if (isMediaRequest && continuation.isActive) {
+                                    val origin = URI(url).let { "${it.scheme}://${it.host}" }
+                                    val cookies = CookieManager.getInstance()
+                                        .getCookie(url).orEmpty()
+                                    val headers = buildMap {
+                                        putAll(refererHeaders(origin))
+                                        put("Origin", origin)
+                                        if (cookies.isNotBlank()) put("Cookie", cookies)
+                                    }
+                                    finish(
+                                        Result.success(
+                                            StreamResult(
+                                                url,
+                                                name,
+                                                mediaType(url),
+                                                headers,
+                                                subtitles = server.subtitles.distinctBy { it.url },
+                                            ),
+                                        ),
+                                    )
+                                }
+                                return super.shouldInterceptRequest(view, request)
+                            }
+                        }
+
+                        webView.loadUrl(server.url)
+                        continuation.invokeOnCancellation {
+                            webView.post {
+                                webView.stopLoading()
+                                webView.destroy()
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -1704,6 +1835,772 @@ class StreamExtractor(private val context: Context) {
         }
     }
 
+    private inner class FilemoonExtractor : HostExtractor {
+        override val name = "Filemoon"
+        private val aliases = setOf(
+            "bf0skv.org", "bysejikuar.com", "moflix-stream.link", "bysezoxexe.com",
+            "bysebuho.com", "filemoon.sx", "bysekoze.com", "bysesayeveum.com",
+        )
+
+        override fun supports(server: StreamServer): Boolean {
+            val domain = host(server.url)
+            return domain.contains("filemoon") || domain in aliases
+        }
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            val matcher = Regex("""/(e|d)/([a-zA-Z0-9]+)""").find(server.url)
+                ?: throw IllegalStateException("Filemoon link has no video ID")
+            val linkType = matcher.groupValues[1]
+            val videoId = matcher.groupValues[2]
+            val currentDomain = Regex("""(https?://[^/]+)""").find(server.url)?.groupValues?.get(1)
+                ?: throw IllegalStateException("Filemoon link has no base URL")
+
+            val details = getJson(
+                "$currentDomain/api/videos/$videoId/embed/details",
+                refererHeaders(server.url),
+            )
+            val embedFrameUrl = details.optString("embed_frame_url")
+            require(embedFrameUrl.isNotBlank()) { "Filemoon embed frame URL was not found" }
+            val playbackDomain = Regex("""(https?://[^/]+)""").find(embedFrameUrl)
+                ?.groupValues?.get(1)
+                ?: throw IllegalStateException("Filemoon playback domain was not found")
+
+            val accessHeaders = refererHeaders(embedFrameUrl) + mapOf("Origin" to playbackDomain)
+            val challenge = JSONObject(
+                postJson(
+                    "$playbackDomain/api/videos/access/challenge",
+                    "{}",
+                    accessHeaders,
+                ),
+            )
+            val challengeId = challenge.optString("challenge_id")
+            val nonce = challenge.optString("nonce")
+            require(challengeId.isNotBlank() && nonce.isNotBlank()) {
+                "Filemoon challenge was incomplete"
+            }
+
+            val viewerId = UUID.randomUUID().toString().replace("-", "")
+            val deviceId = UUID.randomUUID().toString().replace("-", "")
+            val attestation = filemoonAttestation(nonce)
+            val attestPayload = JSONObject().apply {
+                put("viewer_id", viewerId)
+                put("device_id", deviceId)
+                put("challenge_id", challengeId)
+                put("nonce", nonce)
+                put("signature", attestation.first)
+                put("public_key", attestation.second)
+                put(
+                    "client",
+                    JSONObject().apply {
+                        put("user_agent", userAgent)
+                        put("architecture", "x86")
+                        put("bitness", "64")
+                        put("platform", "Windows")
+                        put("platform_version", "10.0.0")
+                        put("pixel_ratio", 1.0)
+                        put("screen_width", 1920)
+                        put("screen_height", 1080)
+                        put("languages", JSONArray(listOf("en-US")))
+                    },
+                )
+                put(
+                    "storage",
+                    JSONObject().apply {
+                        put("cookie", viewerId)
+                        put("local_storage", viewerId)
+                        put("indexed_db", "$viewerId:$deviceId")
+                        put("cache_storage", "$viewerId:$deviceId")
+                    },
+                )
+                put("attributes", JSONObject().put("entropy", "high"))
+            }.toString()
+
+            val attestResponse = JSONObject(
+                postJson(
+                    "$playbackDomain/api/videos/access/attest",
+                    attestPayload,
+                    accessHeaders,
+                ),
+            )
+            val token = attestResponse.optString("token")
+            val confidence = attestResponse.optDouble("confidence", 0.0)
+            require(token.isNotBlank()) { "Filemoon attestation returned no token" }
+
+            val playbackPayload = JSONObject().apply {
+                put(
+                    "fingerprint",
+                    JSONObject().apply {
+                        put("token", token)
+                        put("viewer_id", attestResponse.optString("viewer_id", viewerId))
+                        put("device_id", attestResponse.optString("device_id", deviceId))
+                        put("confidence", confidence)
+                    },
+                )
+            }.toString()
+            val playbackHeaders = buildMap {
+                putAll(accessHeaders)
+                if (linkType == "e") put("X-Embed-Parent", server.url)
+            }
+            val playbackData = JSONObject(
+                postJson(
+                    "$playbackDomain/api/videos/$videoId/embed/playback",
+                    playbackPayload,
+                    playbackHeaders,
+                ),
+            ).optJSONObject("playback") ?: throw IllegalStateException("Filemoon playback data was not found")
+
+            val iv = Base64.decode(playbackData.optString("iv"), Base64.URL_SAFE)
+            val payload = Base64.decode(playbackData.optString("payload"), Base64.URL_SAFE)
+            val keyParts = playbackData.optJSONArray("key_parts")
+            require(keyParts != null && keyParts.length() >= 2) { "Filemoon playback payload was incomplete" }
+            val p1 = Base64.decode(keyParts.getString(0), Base64.URL_SAFE)
+            val p2 = Base64.decode(keyParts.getString(1), Base64.URL_SAFE)
+            val key = ByteArray(p1.size + p2.size)
+            System.arraycopy(p1, 0, key, 0, p1.size)
+            System.arraycopy(p2, 0, key, p1.size, p2.size)
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(
+                Cipher.DECRYPT_MODE,
+                SecretKeySpec(key, "AES"),
+                GCMParameterSpec(128, iv),
+            )
+            val decrypted = String(cipher.doFinal(payload), Charsets.UTF_8)
+            val sources = JSONObject(decrypted).optJSONArray("sources")
+                ?: throw IllegalStateException("Filemoon returned no sources")
+            require(sources.length() > 0) { "Filemoon returned an empty source list" }
+            val streamUrl = sources.optJSONObject(0).optString("url")
+            require(streamUrl.isNotBlank()) { "Filemoon returned no source URL" }
+
+            return ExtractionResult.Final(
+                StreamResult(streamUrl, name, mediaType(streamUrl), accessHeaders),
+            )
+        }
+
+        private fun filemoonAttestation(nonce: String): Pair<String, JSONObject> {
+            val keyPairGenerator = KeyPairGenerator.getInstance("EC")
+            keyPairGenerator.initialize(ECGenParameterSpec("secp256r1"))
+            val keyPair = keyPairGenerator.generateKeyPair()
+            val publicKey = keyPair.public as ECPublicKey
+            val x = Base64.encodeToString(
+                publicKey.w.affineX.toByteArray().stripLeadingZero(),
+                Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING,
+            )
+            val y = Base64.encodeToString(
+                publicKey.w.affineY.toByteArray().stripLeadingZero(),
+                Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING,
+            )
+            val signature = Signature.getInstance("SHA256withECDSA")
+            signature.initSign(keyPair.private)
+            signature.update(nonce.toByteArray())
+            val raw = derToRawSignature(signature.sign())
+            val encodedSignature = Base64.encodeToString(
+                raw,
+                Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING,
+            )
+            val jwk = JSONObject().apply {
+                put("crv", "P-256")
+                put("ext", true)
+                put("key_ops", JSONArray(listOf("verify")))
+                put("kty", "EC")
+                put("x", x)
+                put("y", y)
+            }
+            return encodedSignature to jwk
+        }
+
+        private fun derToRawSignature(der: ByteArray): ByteArray {
+            var offset = 2
+            val rLen = der[offset + 1].toInt()
+            val r = der.copyOfRange(offset + 2, offset + 2 + rLen).stripLeadingZero()
+            offset += 2 + rLen
+            val sLen = der[offset + 1].toInt()
+            val s = der.copyOfRange(offset + 2, offset + 2 + sLen).stripLeadingZero()
+            val raw = ByteArray(64)
+            System.arraycopy(r, 0, raw, 32 - r.size, r.size)
+            System.arraycopy(s, 0, raw, 64 - s.size, s.size)
+            return raw
+        }
+
+        private fun ByteArray.stripLeadingZero(): ByteArray =
+            if (isNotEmpty() && this[0] == 0.toByte()) copyOfRange(1, size) else this
+    }
+
+    @SuppressLint("SetJavaScriptEnabled")
+    private inner class StreamWishExtractor : HostExtractor {
+        override val name = "StreamWish"
+        private val aliases = setOf(
+            "streamwish.to", "streamwish.com", "streamwish.site", "streamwish.club",
+            "streamwish.cc", "streamwish.biz", "streamwish.info", "streamwish.net",
+            "streamwish.org", "streamwish.live", "streamwish.me", "streamwish.fun",
+            "ajmidyad.sbs", "khadhnayad.sbs", "yadmalik.sbs", "hayaatieadhab.sbs",
+            "kharabnahs.sbs", "atabkhha.sbs", "atabknha.sbs", "atabknhk.sbs",
+            "atabknhs.sbs", "abkrzkr.sbs", "abkrzkz.sbs", "ankrzkz.sbs",
+            "ankrznm.sbs", "eghjrutf.sbs", "eghzrutw.sbs", "egsyxurh.sbs",
+            "egtpgrvh.sbs", "trgsfjll.sbs", "fsdcmo.sbs", "anime4low.sbs",
+            "gsfqzmqu.sbs", "4yftwvrdz7.sbs", "eb8gfmjn71.sbs", "edbrdl7pab.sbs",
+            "wishembed.pro", "mwish.pro", "strmwis.xyz", "awish.pro", "dwish.pro",
+            "embedwish.com", "vidmoviesb.xyz", "cilootv.store", "uqloads.xyz",
+            "tuktukcinema.store", "doodporn.xyz", "volvovideo.top", "wishfast.top",
+            "sfastwish.com", "playembed.online", "flaswish.com", "obeywish.com",
+            "cdnwish.com", "javsw.me", "cinemathek.online", "mohahhda.site",
+            "ma2d.store", "dancima.shop", "swhoi.com", "jodwish.com", "swdyu.com",
+            "strwish.com", "asnwish.com", "wishonly.site", "playerwish.com",
+            "katomen.store", "swishsrv.com", "iplayerhls.com", "hlsflast.com",
+            "ghbrisk.com", "cybervynx.com", "stbhg.click", "dhcplay.com",
+            "gradehgplus.com", "ultpreplayer.com", "hglink.to", "haxloppd.com",
+            "swish.site", "wishon.site", "vidwish.site", "awish.top", "dwish.top",
+            "mwish.top",
+        )
+
+        override fun supports(server: StreamServer): Boolean {
+            val domain = host(server.url)
+            return domain in aliases || domain.contains("streamwish") ||
+                domain.contains("swish") || domain.contains("wishfast")
+        }
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            val uri = URI(server.url)
+            val referer = "${uri.scheme}://${uri.host}/"
+            val resolved = resolveStreamWishRedirect(server.url, uri.host ?: "")
+            val html = httpGet(resolved, refererHeaders(referer))
+            val script = unpackPackedScript(html, requiresM3u8 = true)
+                ?: throw IllegalStateException("StreamWish player script was not found")
+            val source = Regex(
+                """(?:["']?hls(\d*)["']?|["']?file["']?)\s*[:=]\s*["']((?:https?://|/)[^"']+\.m3u8[^"']*)["']""",
+            ).findAll(script)
+                .map { (it.groupValues[1].toIntOrNull() ?: 0) to it.groupValues[2] }
+                .sortedByDescending { it.first }
+                .map { it.second }
+                .firstOrNull()
+                ?: throw IllegalStateException("StreamWish returned no m3u8 source")
+            val finalSource = if (source.startsWith("/")) {
+                val resolvedUri = URI(resolved)
+                "${resolvedUri.scheme}://${resolvedUri.host}$source"
+            } else {
+                source
+            }
+            val tracksBlock = Regex("""tracks:\s*\[(.*?)]""", RegexOption.DOT_MATCHES_ALL)
+                .find(script)?.groupValues?.get(1).orEmpty()
+            val subtitles = Regex(
+                """file:\s*"(.*?)"(?:,label:\s*"(.*?)")?,kind:\s*"(.*?)"""",
+                RegexOption.DOT_MATCHES_ALL,
+            ).findAll(tracksBlock)
+                .filter { it.groupValues[3] == "captions" }
+                .mapNotNull {
+                    val url = it.groupValues[1]
+                    if (url.isBlank()) return@mapNotNull null
+                    SubtitleOption(
+                        it.groupValues[2].ifBlank { "Subtitle" },
+                        resolveUrl(resolved, url),
+                        source = name,
+                    )
+                }
+                .toList()
+            val resolvedOrigin = URI(resolved).let { "${it.scheme}://${it.host}" }
+            val headers = refererHeaders(referer) + mapOf("Origin" to resolvedOrigin)
+            return ExtractionResult.Final(
+                StreamResult(finalSource, name, "direct_m3u8", headers, subtitles = subtitles),
+            )
+        }
+
+        @SuppressLint("SetJavaScriptEnabled")
+        private suspend fun resolveStreamWishRedirect(url: String, hostName: String): String {
+            return withContext(Dispatchers.Main) {
+                withTimeoutOrNull(30_000) {
+                    suspendCancellableCoroutine { continuation ->
+                        val webView = WebView(context)
+                        webView.settings.javaScriptEnabled = true
+                        webView.settings.domStorageEnabled = true
+                        webView.webViewClient = object : WebViewClient() {
+                            override fun shouldOverrideUrlLoading(
+                                view: WebView?,
+                                request: WebResourceRequest?,
+                            ): Boolean {
+                                val newUrl = request?.url.toString()
+                                if (newUrl.contains(hostName) || newUrl.contains("/e/")) {
+                                    if (continuation.isActive) continuation.resume(newUrl)
+                                    webView.post { webView.destroy() }
+                                    return true
+                                }
+                                return false
+                            }
+
+                            override fun onPageFinished(view: WebView?, url: String?) {
+                                if (url != null &&
+                                    (url.contains(hostName) || url.contains("/e/") || !url.contains("about:blank"))
+                                ) {
+                                    if (continuation.isActive) continuation.resume(url)
+                                    webView.post { webView.destroy() }
+                                }
+                            }
+                        }
+                        webView.loadUrl(url)
+                        continuation.invokeOnCancellation {
+                            webView.post {
+                                webView.stopLoading()
+                                webView.destroy()
+                            }
+                        }
+                    }
+                } ?: url
+            }
+        }
+    }
+
+    private inner class DoodLaExtractor : HostExtractor {
+        override val name = "Dood"
+        private val alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+
+        override fun supports(server: StreamServer): Boolean {
+            val domain = host(server.url)
+            return domain.contains("dood") || domain.contains("d000d") || domain == "vide0.net"
+        }
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            val embedUrl = server.url.replace("/d/", "/e/")
+            val (finalUrl, html) = httpGetFinalUrl(embedUrl, refererHeaders(server.url))
+            val md5Path = Regex("""/pass_md5/[^']*""").find(html)?.value
+                ?: throw IllegalStateException("Dood pass_md5 path was not found")
+            val finalBaseUrl = URI(finalUrl).let { "${it.scheme}://${it.host}" }
+            val videoPrefix = httpGet(
+                finalBaseUrl + md5Path,
+                refererHeaders(finalUrl),
+            )
+            val url = videoPrefix +
+                buildString { repeat(10) { append(alphabet[(Math.random() * alphabet.length).toInt()]) } } +
+                "?token=${md5Path.substringAfterLast("/")}"
+            return ExtractionResult.Final(
+                StreamResult(url, name, mediaType(url), refererHeaders(finalBaseUrl)),
+            )
+        }
+    }
+
+    private inner class VidMoLyExtractor : HostExtractor {
+        override val name = "VidMoLy"
+        private val redirectUrl = "https://vidmoly.to/"
+
+        override fun supports(server: StreamServer): Boolean = host(server.url).contains("vidmoly")
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            val html = httpGet(server.url.replace(".me/", ".to/"), refererHeaders(redirectUrl))
+            val hlsUrl = Regex("""sources:\s*\[\{file:\s*"([^"]+)"\}\]""")
+                .find(html)?.groupValues?.get(1)
+                ?: throw IllegalStateException("VidMoLy HLS source was not found")
+            return ExtractionResult.Final(
+                StreamResult(hlsUrl, name, "direct_m3u8", refererHeaders(redirectUrl)),
+            )
+        }
+    }
+
+    private inner class LuluVdoExtractor : HostExtractor {
+        override val name = "LuluVdo"
+
+        override fun supports(server: StreamServer): Boolean {
+            val domain = host(server.url)
+            return domain.contains("luluv") || domain in setOf("luluvdo.com", "luluvdoo.com", "luluvid.com")
+        }
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            val html = httpGet(server.url)
+            val source = Regex("""sources: \[\{file:"(.*?)"\}""")
+                .find(html)?.groupValues?.get(1)
+                ?: throw IllegalStateException("LuluVdo source was not found")
+            val tracksBlock = Regex("""tracks: \[(.*?)]""", RegexOption.DOT_MATCHES_ALL)
+                .find(html)?.groupValues?.get(1).orEmpty()
+            val subtitles = Regex("""file: "(.*?)", label: "(.*?)"""")
+                .findAll(tracksBlock)
+                .mapNotNull {
+                    val url = it.groupValues[1]
+                    val label = it.groupValues[2]
+                    if (url.isBlank() || label == "Upload captions") return@mapNotNull null
+                    SubtitleOption(label, resolveUrl(server.url, url), source = name)
+                }
+                .toList()
+            return ExtractionResult.Final(
+                StreamResult(
+                    source,
+                    name,
+                    mediaType(source),
+                    refererHeaders(server.url),
+                    subtitles = subtitles,
+                ),
+            )
+        }
+    }
+
+    private inner class MixDropExtractor : HostExtractor {
+        override val name = "MixDrop"
+
+        override fun supports(server: StreamServer): Boolean {
+            val domain = host(server.url)
+            return domain.contains("mixdrop") || domain.contains("mxdrop") ||
+                Regex("""^md[3bfyz][a-z0-9]*\.[a-z0-9]+""", RegexOption.IGNORE_CASE).containsMatchIn(domain)
+        }
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            val embedUrl = server.url
+                .replace("/f/", "/e/")
+                .replace(".club/", ".ag/")
+                .replace(Regex("""^(https?://[^/]+/e/[^/?#]+).*$""", RegexOption.IGNORE_CASE), "$1")
+            val html = httpGet(
+                embedUrl,
+                refererHeaders("https://mixdrop.co") +
+                    mapOf(
+                        "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                        "X-Requested-With" to "XMLHttpRequest",
+                    ),
+            )
+            val script = unpackPackedScript(html) ?: html
+            val sourceUrl = Regex("""wurl.*?=.*?"(.*?)";""")
+                .find(script)?.groupValues?.get(1)
+                ?: throw IllegalStateException("MixDrop source was not found")
+            val finalUrl = when {
+                sourceUrl.startsWith("//") -> "https:$sourceUrl"
+                sourceUrl.startsWith("http") -> sourceUrl
+                else -> "https://$sourceUrl"
+            }
+            return ExtractionResult.Final(
+                StreamResult(
+                    finalUrl,
+                    name,
+                    mediaType(finalUrl),
+                    refererHeaders("https://mixdrop.co"),
+                ),
+            )
+        }
+    }
+
+    private inner class SupervideoExtractor : HostExtractor {
+        override val name = "Supervideo"
+        private val mainUrl = "https://supervideo.cc"
+
+        override fun supports(server: StreamServer): Boolean = host(server.url).contains("supervideo")
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            val pageHtml = try {
+                httpGet(server.url)
+            } catch (_: Exception) {
+                httpGet(if (server.url.startsWith("http")) server.url else "https:${server.url}")
+            }
+            val scriptData = pageHtml
+                .substringAfter("eval(function(p,a,c,k,e,d)")
+                .substringBefore("</script>")
+                .let { "eval(function(p,a,c,k,e,d)$it" }
+            if (!scriptData.startsWith("eval")) {
+                throw IllegalStateException("Supervideo packed script was not found")
+            }
+            val unpacked = JsUnpacker(scriptData).unpack()
+                ?: throw IllegalStateException("Supervideo script unpack failed")
+            val streamUrl = Regex("""file\s*:\s*["']([^"']+)["']""")
+                .find(unpacked)?.groupValues?.get(1)
+                ?: throw IllegalStateException("Supervideo stream URL was not found")
+            val tracksBlock = Regex("""tracks\s*:\s*\[(.*?)\]""", RegexOption.DOT_MATCHES_ALL)
+                .find(unpacked)?.groupValues?.get(1).orEmpty()
+            val subtitles = Regex(
+                """file\s*:\s*"(.*?)"\s*,\s*label\s*:\s*"(.*?)"\s*,\s*kind\s*:\s*"captions"""",
+            ).findAll(tracksBlock)
+                .mapNotNull {
+                    val url = it.groupValues[1]
+                    if (url.isBlank()) return@mapNotNull null
+                    SubtitleOption(it.groupValues[2], resolveUrl(server.url, url), source = name)
+                }
+                .toList()
+            return ExtractionResult.Final(
+                StreamResult(
+                    streamUrl,
+                    name,
+                    mediaType(streamUrl),
+                    refererHeaders(mainUrl),
+                    subtitles = subtitles,
+                ),
+            )
+        }
+    }
+
+    private inner class RabbitstreamExtractor : HostExtractor {
+        override val name = "Rabbitstream"
+        private val sourceApi = "https://rabbitstream.net/ajax/v2/embed-4/"
+
+        override fun supports(server: StreamServer): Boolean {
+            val domain = host(server.url)
+            return domain.contains("rabbitstream") || domain.contains("dokicloud") ||
+                domain.contains("premiumembeding")
+        }
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            val sourceId = server.url.substringAfterLast("/").substringBefore("?")
+            val headers = refererHeaders(server.url) + mapOf(
+                "Accept" to "*/*",
+                "X-Requested-With" to "XMLHttpRequest",
+            )
+            val response = getJson(sourceApi + sourceId, headers)
+            val (streamUrl, subtitles) = parseRabbitSourcesResponse(response, server.url, name)
+            return ExtractionResult.Final(
+                StreamResult(streamUrl, name, mediaType(streamUrl), headers, subtitles = subtitles),
+            )
+        }
+    }
+
+    private inner class MegacloudExtractor : HostExtractor {
+        override val name = "Megacloud"
+
+        override fun supports(server: StreamServer): Boolean {
+            val domain = host(server.url)
+            return domain.contains("megacloud") || domain.contains("videostr")
+        }
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            val httpUrl = server.url.toHttpUrl()
+            val hostUrl = "${httpUrl.scheme}://${httpUrl.host}/"
+            val embedPath = httpUrl.pathSegments.dropLast(1).joinToString("/")
+            val embedHtml = httpGet(server.url, refererHeaders(hostUrl))
+            val token = megacloudToken(embedHtml)
+                ?: throw IllegalStateException("Megacloud embed token was not found")
+            val sourcesUrl = "$hostUrl$embedPath/getSources?id=${httpUrl.pathSegments.last()}&_k=$token"
+            val headers = refererHeaders(server.url) + mapOf(
+                "Accept" to "*/*",
+                "X-Requested-With" to "XMLHttpRequest",
+            )
+            val response = getJson(sourcesUrl, headers)
+            val sourcesValue = response.opt("sources")
+            val (streamUrl, subtitles) = if (sourcesValue is String) {
+                val (key, sources) = megacloudExtractRealKey(
+                    sourcesValue,
+                    megacloudKeys(httpUrl.scheme, httpUrl.host),
+                )
+                parseRabbitSourcesJson(sources, key, response.optJSONArray("tracks"), server.url, name)
+            } else {
+                parseRabbitSourcesJson(
+                    sourcesValue?.toString() ?: "[]",
+                    "",
+                    response.optJSONArray("tracks"),
+                    server.url,
+                    name,
+                )
+            }
+            return ExtractionResult.Final(
+                StreamResult(
+                    streamUrl,
+                    name,
+                    mediaType(streamUrl),
+                    headers + mapOf("Referer" to hostUrl),
+                    subtitles = subtitles,
+                ),
+            )
+        }
+    }
+
+    private inner class GxPlayerExtractor : HostExtractor {
+        override val name = "GxPlayer"
+
+        override fun supports(server: StreamServer): Boolean = host(server.url).contains("gxplayer")
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            val base = URI(server.url).let { "${it.scheme}://${it.host}" }
+            val html = httpGet(server.url, refererHeaders(base))
+            val script = Regex(
+                """<script[^>]*>.*?var video =.*?</script>""",
+                setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE),
+            ).find(html)?.value
+                ?: throw IllegalStateException("GxPlayer video script was not found")
+            val id = Regex("\"id\":\"([^\"]+)\"").find(script)?.groupValues?.get(1).orEmpty()
+            val uid = Regex("\"uid\":\"([^\"]+)\"").find(script)?.groupValues?.get(1).orEmpty()
+            val md5 = Regex("\"md5\":\"([^\"]+)\"").find(script)?.groupValues?.get(1).orEmpty()
+            val status = Regex("\"status\":\"([^\"]+)\"").find(script)?.groupValues?.get(1).orEmpty()
+            require(uid.isNotBlank() && md5.isNotBlank() && id.isNotBlank()) {
+                "GxPlayer video parameters were not found"
+            }
+            val streamUrl = "$base/m3u8/$uid/$md5/master.txt?s=1&id=$id&cache=$status"
+            return ExtractionResult.Final(
+                StreamResult(streamUrl, name, "direct_m3u8", refererHeaders(base)),
+            )
+        }
+    }
+
+    private inner class VeevExtractor : HostExtractor {
+        override val name = "Veev"
+        private val pattern = Regex(
+            """(?://|\.)((?:veev|kinoger|poophq|doods)\.(?:to|pw|com))/(?:e|d)/([0-9a-zA-Z]+)""",
+        )
+
+        override fun supports(server: StreamServer): Boolean {
+            return pattern.containsMatchIn(server.url) || host(server.url).contains("veev")
+        }
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            val match = pattern.find(server.url) ?: throw IllegalStateException("Invalid Veev URL")
+            val embedHost = match.groupValues[1]
+            var mediaId = match.groupValues[2]
+            val referer = server.url
+            val headers = refererHeaders(referer) + mapOf("Origin" to referer)
+            val (finalUrl, responseBody) = httpGetFinalUrl("https://$embedHost/e/$mediaId", headers)
+            pattern.find(finalUrl)?.let {
+                val newId = it.groupValues[2]
+                if (newId != mediaId) mediaId = newId
+            }
+
+            val items = Regex(
+                """[\.\s'](?:fc|_vvto\[[^\]]*)(?:['\]]*)?\s*[:=]\s*['"]([^'"]+)""",
+            ).findAll(responseBody).map { it.groupValues[1] }.toList()
+            if (items.isEmpty()) throw IllegalStateException("Veev video was removed")
+
+            val mainLink = URI(server.url).let { "${it.scheme}://${it.host}" }
+            for (f in items.asReversed()) {
+                val ch = try {
+                    veevDecode(f)
+                } catch (_: Exception) {
+                    f
+                }
+                if (ch == f) continue
+                val params = listOf(
+                    "op" to "player_api",
+                    "cmd" to "gi",
+                    "file_code" to mediaId,
+                    "r" to encode(referer),
+                    "ch" to ch,
+                    "ie" to "1",
+                )
+                val downloadUrl = "$mainLink/dl?" + params.joinToString("&") { "${it.first}=${it.second}" }
+                val fileJson = JSONObject(httpGet(downloadUrl, headers)).optJSONObject("file")
+                    ?: throw IllegalStateException("Veev video was removed")
+                if (fileJson.optString("file_status") == "OK") {
+                    val dv = fileJson.optJSONArray("dv")?.optJSONObject(0)?.optString("s")
+                        ?: throw IllegalStateException("Veev source data was not found")
+                    val sourceUrl = veevDecodeUrl(veevDecode(dv), veevBuildArray(ch)[0])
+                    return ExtractionResult.Final(
+                        StreamResult(sourceUrl, name, mediaType(sourceUrl), headers),
+                    )
+                }
+                throw IllegalStateException("Veev video was removed")
+            }
+            throw IllegalStateException("Veev returned no playable source")
+        }
+
+        private fun veevDecode(etext: String): String {
+            val result = StringBuilder()
+            val lut = mutableMapOf<Int, String>()
+            var n = 256
+            var c = etext[0].toString()
+            result.append(c)
+            for (char in etext.drop(1)) {
+                val code = char.code
+                val nc = if (code < 256) char.toString() else lut[code] ?: (c + c[0])
+                result.append(nc)
+                lut[n] = c + nc[0]
+                n += 1
+                c = nc
+            }
+            return result.toString()
+        }
+
+        private fun veevBuildArray(encodedString: String): List<List<Int>> {
+            val d = mutableListOf<List<Int>>()
+            val c = encodedString.toMutableList()
+            var count = if (c.isNotEmpty() && c[0].isDigit()) c.removeAt(0).digitToInt() else 0
+            while (count != 0) {
+                val currentArray = mutableListOf<Int>()
+                repeat(count) {
+                    currentArray.add(0, if (c.isNotEmpty() && c[0].isDigit()) c.removeAt(0).digitToInt() else 0)
+                }
+                d.add(currentArray)
+                count = if (c.isNotEmpty() && c[0].isDigit()) c.removeAt(0).digitToInt() else 0
+            }
+            return d
+        }
+
+        private fun veevDecodeUrl(etext: String, tarray: List<Int>): String {
+            var ds = etext
+            for (t in tarray) {
+                if (t == 1) ds = ds.reversed()
+                val bytes = ds.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+                ds = String(bytes, Charsets.UTF_8)
+                ds = ds.replace("dXRmOA==", "")
+            }
+            return ds
+        }
+    }
+
+    private inner class VidplayExtractor : HostExtractor {
+        override val name = "Vidplay"
+        private val keysUrl = "https://raw.githubusercontent.com/Ciarands/vidsrc-keys/main/keys.json"
+
+        override fun supports(server: StreamServer): Boolean {
+            val domain = host(server.url)
+            return domain.contains("vidplay") || domain in setOf("mcloud.bz", "vidplay.online")
+        }
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            val mainUrl = URI(server.url).let { "${it.scheme}://${it.host}" }
+            val id = server.url.substringBefore("?").substringAfterLast("/")
+            val keys = getJson(keysUrl)
+            val encrypt = keys.optJSONArray("encrypt")
+            val decrypt = keys.optJSONArray("decrypt")
+            require(encrypt != null && decrypt != null && encrypt.length() >= 3 && decrypt.length() >= 2) {
+                "Vidplay keys were incomplete"
+            }
+            val encId = rc4EncodeBase64(encrypt.getString(1), id)
+            val h = rc4EncodeBase64(encrypt.getString(2), id)
+            val query = server.url.substringAfter("?", "")
+            val mediaUrl = "$mainUrl/mediainfo/$encId?$query&autostart=true&ads=0&h=$h"
+            val headers = refererHeaders(server.url) + mapOf("X-Requested-With" to "XMLHttpRequest")
+            val response = getJson(mediaUrl, headers)
+
+            val (sources, tracks) = if (response.optJSONObject("result") != null) {
+                val result = response.optJSONObject("result")
+                (result?.optJSONArray("sources") ?: JSONArray()) to result?.optJSONArray("tracks")
+            } else {
+                val encrypted = response.optString("result")
+                require(encrypted.isNotBlank()) { "Vidplay returned no result" }
+                val result = JSONObject(decryptVidplay(decrypt.getString(1), encrypted))
+                (result.optJSONArray("sources") ?: JSONArray()) to result.optJSONArray("tracks")
+            }
+            require(sources.length() > 0) { "Vidplay returned no sources" }
+            val streamUrl = sources.optJSONObject(0).optString("file")
+            require(streamUrl.isNotBlank()) { "Vidplay returned no source URL" }
+            val subtitles = if (tracks == null) {
+                emptyList()
+            } else {
+                (0 until tracks.length()).mapNotNull { index ->
+                    val track = tracks.optJSONObject(index) ?: return@mapNotNull null
+                    if (track.optString("kind") != "captions") return@mapNotNull null
+                    val url = track.optString("file")
+                    if (url.isBlank()) return@mapNotNull null
+                    SubtitleOption(track.optString("label", "Subtitle"), resolveUrl(mainUrl, url), source = name)
+                }
+            }
+            return ExtractionResult.Final(
+                StreamResult(streamUrl, name, mediaType(streamUrl), headers, subtitles = subtitles),
+            )
+        }
+    }
+
+    private inner class StreamrubyExtractor : HostExtractor {
+        override val name = "Streamruby"
+
+        override fun supports(server: StreamServer): Boolean {
+            val domain = host(server.url)
+            return domain.contains("streamruby") || domain.contains("stmruby") ||
+                domain.contains("rubystm") || domain.contains("rubyvid") ||
+                domain.contains("moflix-stream.fans")
+        }
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            val baseUrl = URI(server.url).let { "${it.scheme}://${it.host}" }
+            val html = httpGet(server.url, refererHeaders(baseUrl))
+            val packedJS = Regex("(eval\\(function\\(p,a,c,k,e,d\\)(.|\\n)*?)</script>")
+                .find(html)?.groupValues?.get(1)
+                ?: throw IllegalStateException("Streamruby packed script was not found")
+            val unpacked = JsUnpacker(packedJS).unpack()
+                ?: throw IllegalStateException("Streamruby script unpack failed")
+            val streamUrl = Regex("""file\s*:\s*["']([^"']+)["']""")
+                .find(unpacked)?.groupValues?.get(1)
+                ?: throw IllegalStateException("Streamruby returned no source")
+            return ExtractionResult.Final(
+                StreamResult(streamUrl, name, mediaType(streamUrl), refererHeaders(baseUrl)),
+            )
+        }
+    }
+
     private inner class GenericMediaExtractor : HostExtractor {
         override val name = "Generic media"
         override fun supports(server: StreamServer) = true
@@ -1744,11 +2641,13 @@ class StreamExtractor(private val context: Context) {
         }
     }
 
-    private fun postJson(url: String, json: String): String {
+    private fun postJson(url: String, json: String, headers: Map<String, String> = emptyMap()): String {
         requireSafeOutboundUrl(url)
         val request = Request.Builder()
             .url(url)
             .header("User-Agent", userAgent)
+            .header("Accept", "*/*")
+            .apply { safeHeaders(headers).forEach { (name, value) -> header(name, value) } }
             .post(json.toRequestBody("application/json".toMediaType()))
             .build()
         client.newCall(request).execute().use { response ->
@@ -1763,6 +2662,202 @@ class StreamExtractor(private val context: Context) {
 
     private fun getJsonArray(url: String, headers: Map<String, String> = emptyMap()) =
         org.json.JSONArray(httpGet(url, headers))
+
+    private fun httpGetFinalUrl(url: String, headers: Map<String, String> = emptyMap()): Pair<String, String> {
+        requireSafeOutboundUrl(url)
+        val request = Request.Builder().url(url).apply {
+            header("User-Agent", userAgent)
+            header("Accept", "*/*")
+            safeHeaders(headers).forEach { (name, value) -> header(name, value) }
+        }.build()
+        client.newCall(request).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) throw IllegalStateException("HTTP ${response.code} from ${host(url)}")
+            return response.request.url.toString() to body
+        }
+    }
+
+    private fun unpackPackedScript(html: String, requiresM3u8: Boolean = false): String? {
+        return Regex(
+            """<script[^>]*>\s*(eval\(function\(p,a,c,k,e,[rd]\)[\s\S]*?)</script>""",
+            setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE),
+        ).findAll(html)
+            .mapNotNull { JsUnpacker(it.groupValues[1]).unpack() }
+            .firstOrNull { !requiresM3u8 || it.contains("m3u8", true) }
+    }
+
+    private fun parseRabbitSourcesResponse(
+        response: JSONObject,
+        referer: String,
+        sourceName: String,
+    ): Pair<String, List<SubtitleOption>> {
+        val sourcesValue = response.opt("sources")
+        return if (sourcesValue is String) {
+            val key = getJson("https://keys4.fun")
+                .optJSONObject("rabbitstream")
+                ?.optJSONObject("keys")
+                ?.optString("key")
+                ?: throw IllegalStateException("Rabbitstream decryption key was not found")
+            parseRabbitSourcesJson(sourcesValue, key, response.optJSONArray("tracks"), referer, sourceName)
+        } else {
+            parseRabbitSourcesJson(
+                sourcesValue?.toString() ?: "[]",
+                "",
+                response.optJSONArray("tracks"),
+                referer,
+                sourceName,
+            )
+        }
+    }
+
+    private fun parseRabbitSourcesJson(
+        sourcesValue: String,
+        secret: String,
+        tracks: JSONArray?,
+        referer: String,
+        sourceName: String,
+    ): Pair<String, List<SubtitleOption>> {
+        val sources = try {
+            JSONArray(sourcesValue)
+        } catch (_: Exception) {
+            JSONArray(decryptRabbitSources(sourcesValue, secret))
+        }
+        require(sources.length() > 0) { "Rabbitstream returned no sources" }
+        val streamUrl = sources.optJSONObject(0).optString("file")
+        require(streamUrl.isNotBlank()) { "Rabbitstream returned no source URL" }
+        val subtitles = if (tracks == null) {
+            emptyList()
+        } else {
+            (0 until tracks.length()).mapNotNull { index ->
+                val track = tracks.optJSONObject(index) ?: return@mapNotNull null
+                if (track.optString("kind") != "captions") return@mapNotNull null
+                val url = track.optString("file")
+                if (url.isBlank()) return@mapNotNull null
+                SubtitleOption(track.optString("label", "Subtitle"), resolveUrl(referer, url), source = sourceName)
+            }
+        }
+        return streamUrl to subtitles
+    }
+
+    private fun decryptRabbitSources(sources: String, secret: String): String {
+        val cipherData = Base64.decode(sources, Base64.DEFAULT)
+        require(cipherData.size > 16) { "Rabbitstream encrypted payload was incomplete" }
+        val salt = cipherData.copyOfRange(8, 16)
+        val derivedKey = rabbitKeyDerivation(salt, secret.toByteArray(Charsets.UTF_8))
+        val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
+        cipher.init(
+            Cipher.DECRYPT_MODE,
+            SecretKeySpec(derivedKey.copyOfRange(0, 32), "AES"),
+            IvParameterSpec(derivedKey.copyOfRange(32, derivedKey.size)),
+        )
+        return String(cipher.doFinal(cipherData.copyOfRange(16, cipherData.size)), Charsets.UTF_8)
+    }
+
+    private fun rabbitKeyDerivation(salt: ByteArray, secret: ByteArray): ByteArray {
+        fun md5(input: ByteArray) = MessageDigest.getInstance("MD5").digest(input)
+        var output = md5(secret + salt)
+        var currentKey = output
+        while (currentKey.size < 48) {
+            output = md5(output + secret + salt)
+            currentKey += output
+        }
+        return currentKey
+    }
+
+    private fun megacloudToken(html: String): String? {
+        Regex("""\w+\s*=\s*\{[^}]*?(\w+):\s*"([^"]+)",\s*(\w+):\s*"([^"]+)"(?:,\s*(\w+):\s*"([^"]+)")?""")
+            .find(html)?.let { match ->
+                val val1 = match.groupValues[2]
+                val val2 = match.groupValues[4]
+                val val3 = match.groupValues.getOrNull(6)
+                return val1 + val2 + (val3 ?: "")
+            }
+
+        Regex(""""([A-Za-z0-9+/=]{10,})",\s*"([A-Za-z0-9+/=]{10,})"(?:,\s*"([A-Za-z0-9+/=]{10,})")?""")
+            .find(html)?.let { match ->
+                val val1 = match.groupValues[1]
+                val val2 = match.groupValues[2]
+                val val3 = match.groupValues.getOrNull(3)
+                return val1 + val2 + (val3 ?: "")
+            }
+
+        return Regex("""[A-Za-z0-9+/=]{30,}""").findAll(html)
+            .map { it.value }
+            .maxByOrNull { it.length }
+    }
+
+    private fun megacloudKeys(scheme: String, host: String): List<List<Int>> {
+        val scriptUrl = "$scheme://$host/js/player/a/prod/e1-player.min.js?v=${System.currentTimeMillis() / 1000}"
+        val script = httpGet(scriptUrl, refererHeaders("$scheme://$host/"))
+
+        fun matchingKey(value: String): String {
+            return Regex(",$value=((?:0x)?([0-9a-fA-F]+))").find(script)?.groupValues?.get(1)
+                ?.removePrefix("0x")
+                ?: throw IllegalStateException("Failed to match the Megacloud key")
+        }
+
+        return Regex("case\\s*0x[0-9a-f]+:(?![^;]*=partKey)\\s*\\w+\\s*=\\s*(\\w+)\\s*,\\s*\\w+\\s*=\\s*(\\w+);")
+            .findAll(script).toList().map { match ->
+                val matchKey1 = matchingKey(match.groupValues[1])
+                val matchKey2 = matchingKey(match.groupValues[2])
+                try {
+                    listOf(matchKey1.toInt(16), matchKey2.toInt(16))
+                } catch (_: NumberFormatException) {
+                    emptyList()
+                }
+            }.filter { it.isNotEmpty() }
+    }
+
+    private fun megacloudExtractRealKey(sources: String, rawKeys: List<List<Int>>): Pair<String, String> {
+        val sourcesArray = sources.toCharArray()
+        var extractedKey = ""
+        var currentIndex = 0
+        for (index in rawKeys) {
+            val start = index[0] + currentIndex
+            val end = start + index[1]
+            for (i in start until end) {
+                extractedKey += sourcesArray[i].toString()
+                sourcesArray[i] = ' '
+            }
+            currentIndex += index[1]
+        }
+        return extractedKey to sourcesArray.joinToString("").replace(" ", "")
+    }
+
+    private fun rc4DecodeData(key: String, data: ByteArray): ByteArray {
+        val keyBytes = key.toByteArray(Charsets.UTF_8)
+        val s = ByteArray(256) { it.toByte() }
+        var j = 0
+        for (i in 0 until 256) {
+            j = (j + s[i].toInt() + keyBytes[i % keyBytes.size].toInt()) and 0xff
+            s[i] = s[j].also { s[j] = s[i] }
+        }
+        val decoded = ByteArray(data.size)
+        var i = 0
+        var k = 0
+        for (index in decoded.indices) {
+            i = (i + 1) and 0xff
+            k = (k + s[i].toInt()) and 0xff
+            s[i] = s[k].also { s[k] = s[i] }
+            val t = (s[i].toInt() + s[k].toInt()) and 0xff
+            decoded[index] = (data[index] xor s[t])
+        }
+        return decoded
+    }
+
+    private fun rc4EncodeBase64(key: String, value: String): String {
+        val decodedId = rc4DecodeData(key, value.toByteArray(Charsets.UTF_8))
+        return Base64.encodeToString(decodedId, Base64.NO_WRAP)
+            .replace("/", "_")
+            .replace("+", "-")
+    }
+
+    private fun decryptVidplay(key: String, encrypted: String): String {
+        val standardized = encrypted.replace('_', '/').replace('-', '+')
+        val encoded = Base64.decode(standardized, Base64.NO_WRAP)
+        val decoded = rc4DecodeData(key, encoded)
+        return URLDecoder.decode(decoded.toString(Charsets.UTF_8), Charsets.UTF_8.name())
+    }
 
     private fun followRedirect(url: String): String {
         requireSafeOutboundUrl(url)
@@ -2071,4 +3166,76 @@ class StreamExtractor(private val context: Context) {
             else -> character
         }
     }.joinToString("")
+
+    private inner class JsUnpacker(private val packedJS: String?) {
+        fun unpack(): String? {
+            val js = packedJS ?: return null
+            try {
+                val pattern = Regex(
+                    """\}\s*\('(.*)',\s*(.*?),\s*(\d+),\s*'(.*?)'\.split\('\|'\)""",
+                    RegexOption.DOT_MATCHES_ALL,
+                )
+                val match = pattern.find(js) ?: return null
+                if (match.groupValues.size < 5) return null
+                val payload = match.groupValues[1].replace("\\'", "'")
+                val radix = match.groupValues[2].toIntOrNull() ?: 36
+                val count = match.groupValues[3].toIntOrNull() ?: 0
+                val symtab = match.groupValues[4].split("|")
+                if (symtab.size != count) return null
+                val unbase = Unbase(radix)
+                val wordPattern = Regex("""\b\w+\b""")
+                val decoded = StringBuilder(payload)
+                var replaceOffset = 0
+                for (wordMatch in wordPattern.findAll(payload)) {
+                    val word = wordMatch.value
+                    val x = try {
+                        unbase.unbase(word)
+                    } catch (_: Exception) {
+                        break
+                    }
+                    val value = if (x in symtab.indices) symtab[x] else null
+                    if (value != null && value.isNotEmpty()) {
+                        decoded.replace(
+                            wordMatch.range.first + replaceOffset,
+                            wordMatch.range.last + 1 + replaceOffset,
+                            value,
+                        )
+                        replaceOffset += value.length - word.length
+                    }
+                }
+                return decoded.toString()
+            } catch (_: Exception) {
+                return null
+            }
+        }
+
+        private inner class Unbase(private val radix: Int) {
+            private val alphabet62 = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+            private val alphabet95 =
+                " !\"#$%&\\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
+            private val alphabet: String? = when {
+                radix > 36 && radix < 62 -> alphabet62.substring(0, radix)
+                radix > 36 && radix in 63..94 -> alphabet95.substring(0, radix)
+                radix == 62 -> alphabet62
+                radix == 95 -> alphabet95
+                else -> null
+            }
+            private val dictionary: HashMap<String, Int>? = alphabet?.let { alpha ->
+                HashMap<String, Int>(alpha.length).apply {
+                    for (i in alpha.indices) this[alpha.substring(i, i + 1)] = i
+                }
+            }
+
+            fun unbase(str: String): Int {
+                if (alphabet == null) return str.toInt(radix)
+                val tmp = StringBuilder(str).reverse().toString()
+                var ret = 0
+                for (i in tmp.indices) {
+                    ret += (Math.pow(radix.toDouble(), i.toDouble()) *
+                        (dictionary!![tmp.substring(i, i + 1)] ?: 0)).toInt()
+                }
+                return ret
+            }
+        }
+    }
 }
