@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../utils/index.dart';
+import 'tv_login_screen.dart';
+import 'tv_maxstream_main.dart';
 
 class TvSplashScreen extends StatefulWidget {
   const TvSplashScreen({super.key});
@@ -26,6 +29,50 @@ class _TvSplashScreenState extends State<TvSplashScreen>
     );
 
     _animationController.forward();
+    _navigateToNextScreen();
+  }
+
+  void _navigateToNextScreen() async {
+    try {
+      debugPrint("TvSplashScreen: Waiting for splash delay + auth settle...");
+
+      // Keep the logo visible for at least this long so every launch shows
+      // the splash with its loading animation, whether signed in or not.
+      final minimumDelay = Future<void>.delayed(const Duration(seconds: 3));
+
+      // Wait for Firebase to restore a cached session before routing, so a
+      // signed-in user is not briefly misrouted to the sign-in screen.
+      final auth = FirebaseAuth.instance;
+      final authSettled = auth.authStateChanges().first.timeout(
+            const Duration(seconds: 8),
+            onTimeout: () => auth.currentUser,
+          );
+
+      await Future.wait([minimumDelay, authSettled]);
+
+      if (!mounted) return;
+
+      final User? user = auth.currentUser;
+      debugPrint("TvSplashScreen: User is ${user == null ? 'not signed in' : 'signed in'}");
+
+      if (user == null) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (context) => const TvLoginScreen()),
+        );
+      } else {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const TvMaxStreamMain()),
+        );
+      }
+    } catch (e) {
+      debugPrint("TvSplashScreen Error: $e");
+      if (!mounted) return;
+
+      // In case of error, go to the login screen as fallback
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (context) => const TvLoginScreen()),
+      );
+    }
   }
 
   @override

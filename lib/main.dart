@@ -2,9 +2,7 @@ import 'firebase_options.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'screens/splash_screen.dart';
-import 'screens/maxstream_main_screen.dart';
 import 'services/notification_service.dart';
 import 'services/notification_router.dart';
 import 'services/media_download_manager.dart';
@@ -84,17 +82,9 @@ class AuthGate extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<User?>(
-      stream: FirebaseAuth.instance.authStateChanges(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const SplashScreen();
-        } else if (snapshot.hasData) {
-          return const MaxStreamMainScreen(); // signed in
-        } else {
-          return const SplashScreen(); // not signed in
-        }
-      },
-    );
+    // The SplashScreen always plays first (logo + loading animation) and routes
+    // to the right screen after the auth session settles, so the MaxStream logo
+    // is visible on every launch whether or not the user is signed in.
+    return const SplashScreen();
   }
 }

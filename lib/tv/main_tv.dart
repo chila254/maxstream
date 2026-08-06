@@ -1,10 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import '../firebase_options.dart';
 import 'screens/tv_splash_screen.dart';
-import 'screens/tv_login_screen.dart';
-import 'screens/tv_maxstream_main.dart';
 import '../services/notification_service.dart';
 import '../widgets/cloud_sync_bootstrap.dart';
 
@@ -69,17 +66,10 @@ class TvAuthGate extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<User?>(
-      stream: FirebaseAuth.instance.authStateChanges(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const TvSplashScreen();
-        } else if (snapshot.hasData) {
-          return const TvMaxStreamMain(); // signed in
-        } else {
-          return const TvLoginScreen(); // not signed in
-        }
-      },
-    );
+    // The TvSplashScreen always plays first (logo + loading animation) and
+    // routes to the right screen after the auth session settles, so the
+    // MaxStream logo is visible on every launch whether or not the user is
+    // signed in.
+    return const TvSplashScreen();
   }
 }

@@ -41,12 +41,25 @@ class _SplashScreenState extends State<SplashScreen>
 
   void _navigateToNextScreen() async {
     try {
-      debugPrint("SplashScreen: Waiting for splash delay...");
-      await Future.delayed(const Duration(seconds: 3));
+      debugPrint("SplashScreen: Waiting for splash delay + auth settle...");
+
+      // Keep the logo visible for at least this long so every launch shows
+      // the splash with its loading animation, whether signed in or not.
+      final minimumDelay = Future<void>.delayed(const Duration(seconds: 3));
+
+      // Wait for Firebase to restore a cached session before routing, so a
+      // signed-in user is not briefly misrouted to the sign-in screen.
+      final auth = FirebaseAuth.instance;
+      final authSettled = auth.authStateChanges().first.timeout(
+            const Duration(seconds: 8),
+            onTimeout: () => auth.currentUser,
+          );
+
+      await Future.wait([minimumDelay, authSettled]);
 
       if (!mounted) return;
 
-      final User? user = FirebaseAuth.instance.currentUser;
+      final User? user = auth.currentUser;
       debugPrint("SplashScreen: User is ${user == null ? 'not signed in' : 'signed in'}");
 
       if (user == null) {
@@ -54,10 +67,9 @@ class _SplashScreenState extends State<SplashScreen>
           MaterialPageRoute(builder: (context) => const SignInScreen()),
         );
       } else {
-       Navigator.pushReplacement(
-  context,
-  MaterialPageRoute(builder: (_) => const MaxStreamMainScreen()),
-);
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const MaxStreamMainScreen()),
+        );
       }
     } catch (e) {
       debugPrint("SplashScreen Error: $e");
