@@ -36,6 +36,9 @@ class AuthService {
       }
 
       return result.user;
+    } on FirebaseAuthException catch (e) {
+      print('Email sign-up error: code=${e.code} message=${e.message}');
+      rethrow;
     } catch (e) {
       print('Email sign-up error: $e');
       rethrow;

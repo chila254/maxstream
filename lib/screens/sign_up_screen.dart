@@ -76,10 +76,11 @@ class _SignUpScreenState extends State<SignUpScreen> with SingleTickerProviderSt
         String errorMessage = 'An error occurred';
         switch (e.code) {
           case 'weak-password':
-            errorMessage = 'Password is too weak';
+            errorMessage = 'Password is too weak (min 6 characters)';
             break;
           case 'email-already-in-use':
-            errorMessage = 'Email is already registered';
+            errorMessage =
+                'This email is already registered. Use Sign In instead.';
             break;
           case 'invalid-email':
             errorMessage = 'Invalid email format';
@@ -90,8 +91,17 @@ class _SignUpScreenState extends State<SignUpScreen> with SingleTickerProviderSt
           case 'network-request-failed':
             errorMessage = 'Network error. Check your connection';
             break;
+          case 'too-many-requests':
+            errorMessage = 'Too many attempts. Try again later';
+            break;
+          case 'invalid-api-key':
+            errorMessage = 'Invalid Firebase API key. Check app configuration';
+            break;
+          case 'internal-error':
+            errorMessage = 'Unexpected server error. Try again';
+            break;
           default:
-            errorMessage = e.message ?? 'Registration failed';
+            errorMessage = 'Registration failed (${e.code})';
         }
         setState(() => _errorMessage = errorMessage);
       }

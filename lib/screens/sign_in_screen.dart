@@ -94,8 +94,14 @@ class _SignInScreenState extends State<SignInScreen> with SingleTickerProviderSt
           case 'invalid-credential':
             errorMessage = 'Invalid email or password';
             break;
+          case 'invalid-api-key':
+            errorMessage = 'Invalid Firebase API key. Check app configuration';
+            break;
+          case 'internal-error':
+            errorMessage = 'Unexpected server error. Try again';
+            break;
           default:
-            errorMessage = e.message ?? 'Authentication failed';
+            errorMessage = 'Authentication failed (${e.code})';
         }
         setState(() => _errorMessage = errorMessage);
       }
