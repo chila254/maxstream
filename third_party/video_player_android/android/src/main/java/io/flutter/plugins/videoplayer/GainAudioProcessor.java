@@ -79,5 +79,9 @@ public final class GainAudioProcessor extends BaseAudioProcessor {
     }
     output.position(0);
     output.limit(frameSize * frameCount);
+    // The sink keeps re-feeding a buffer while it still has remaining input, so
+    // the whole chunk must be marked consumed. Otherwise the same data is
+    // processed over and over, which comes out as a continuous buzz.
+    inputBuffer.position(limit);
   }
 }

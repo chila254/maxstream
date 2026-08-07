@@ -11,7 +11,6 @@ import androidx.media3.common.VideoSize;
 import androidx.media3.exoplayer.ExoPlayer;
 import io.flutter.plugins.videoplayer.ExoPlayerEventListener;
 import io.flutter.plugins.videoplayer.VideoPlayerCallbacks;
-import java.util.Objects;
 
 public final class TextureExoPlayerEventListener extends ExoPlayerEventListener {
   private final boolean surfaceProducerHandlesCropAndRotation;
@@ -56,7 +55,10 @@ public final class TextureExoPlayerEventListener extends ExoPlayerEventListener 
   // the same implementation across API versions. It is possible that this logic may need
   // revisiting should the implementation change across versions of the Exoplayer API.
   private int getRotationCorrectionFromFormat(ExoPlayer exoPlayer) {
-    Format videoFormat = Objects.requireNonNull(exoPlayer.getVideoFormat());
+    Format videoFormat = exoPlayer.getVideoFormat();
+    if (videoFormat == null) {
+      return 0;
+    }
     return videoFormat.rotationDegrees;
   }
 }

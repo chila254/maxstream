@@ -11,7 +11,6 @@ import androidx.media3.common.util.UnstableApi;
 import androidx.media3.exoplayer.ExoPlayer;
 import io.flutter.plugins.videoplayer.ExoPlayerEventListener;
 import io.flutter.plugins.videoplayer.VideoPlayerCallbacks;
-import java.util.Objects;
 
 public final class PlatformViewExoPlayerEventListener extends ExoPlayerEventListener {
   public PlatformViewExoPlayerEventListener(
@@ -22,24 +21,37 @@ public final class PlatformViewExoPlayerEventListener extends ExoPlayerEventList
   @OptIn(markerClass = UnstableApi.class)
   @Override
   protected void sendInitialized() {
-    // We can't rely on VideoSize here, because at this point it is not available - the platform
-    // view was not created yet. We use the video format instead.
+    // The video format can be null or incomplete when READY is reached while a
+    // stream is still resolving (e.g. during server switches or a dead HLS
+    // playlist). Never crash on that: report a zero-size video instead, and
+    // correct the dimensions again on the next event.
     Format videoFormat = exoPlayer.getVideoFormat();
-    RotationDegrees rotationCorrection =
-        RotationDegrees.fromDegrees(Objects.requireNonNull(videoFormat).rotationDegrees);
-    int width = videoFormat.width;
-    int height = videoFormat.height;
+    int width = 0;
+    int height = 0;
+    int rotationDegrees = 0;
+    if (videoFormat != null && videoFormat.width > 0 && videoFormat.height > 0) {
+      RotationDegrees rotationCorrection = RotationDegrees.ROTATE_0;
+      try {
+        rotationCorrection = RotationDegrees.fromDegrees(videoFormat.rotationDegrees);
+      } catch (IllegalArgumentException e) {
+        // A rotation value other than 0/90/180/270 is unexpected; apply none.
+        rotationCorrection = RotationDegrees.ROTATE_0;
+      }
+      width = videoFormat.width;
+      height = videoFormat.height;
 
-    // Switch the width/height if video was taken in portrait mode and a rotation
-    // correction was detected.
-    if (rotationCorrection == RotationDegrees.ROTATE_90
-        || rotationCorrection == RotationDegrees.ROTATE_270) {
-      width = videoFormat.height;
-      height = videoFormat.width;
+      // Switch the width/height if video was taken in portrait mode and a rotation
+      // correction was detected.
+      if (rotationCorrection == RotationDegrees.ROTATE_90
+          || rotationCorrection == RotationDegrees.ROTATE_270) {
+        width = videoFormat.height;
+        height = videoFormat.width;
 
-      rotationCorrection = RotationDegrees.fromDegrees(0);
+        rotationCorrection = RotationDegrees.fromDegrees(0);
+      }
+      rotationDegrees = rotationCorrection.getDegrees();
     }
 
-    events.onInitialized(width, height, exoPlayer.getDuration(), rotationCorrection.getDegrees());
+    events.onInitialized(width, height, exoPlayer.getDuration(), rotationDegrees);
   }
 }

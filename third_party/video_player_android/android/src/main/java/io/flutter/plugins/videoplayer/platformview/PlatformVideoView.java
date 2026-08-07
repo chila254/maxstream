@@ -50,8 +50,21 @@ public final class PlatformVideoView implements PlatformView {
             new SurfaceHolder.Callback() {
               @Override
               public void surfaceCreated(@NonNull SurfaceHolder holder) {
-                bindPlayerToSurface(exoPlayer, holder.getSurface());
-                forceFirstFrameForAndroid9(exoPlayer);
+                // The surface may be created after the Dart-side controller was
+                // disposed (e.g. while a route with the player is still animating
+                // out during a server switch), so the player may already be
+                // released. Never crash on that.
+                if (disposed) {
+                  return;
+                }
+                try {
+                  bindPlayerToSurface(exoPlayer, holder.getSurface());
+                  forceFirstFrameForAndroid9(exoPlayer);
+                } catch (IllegalStateException e) {
+                  // The player has been released; there is nothing to bind.
+                } catch (RuntimeException e) {
+                  // Some devices throw during surface teardown; ignore rather than crash.
+                }
               }
 
               @Override

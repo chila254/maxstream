@@ -61,8 +61,12 @@ public class PlatformVideoViewFactory extends PlatformViewFactory {
         Objects.requireNonNull((PlatformVideoViewCreationParams) args);
     final Long playerId = params.getPlayerId();
 
+    // The player can be missing here if the Dart side disposed and recreated
+    // it while the platform view for the previous player was still being
+    // attached (rapid server switching). Never crash: return a blank view.
     final VideoPlayer player = videoPlayerProvider.getVideoPlayer(playerId);
-    final ExoPlayer exoPlayer = player.getExoPlayer();
+    final ExoPlayer exoPlayer =
+        player == null ? new ExoPlayer.Builder(context).build() : player.getExoPlayer();
 
     return new PlatformVideoView(context, exoPlayer);
   }
