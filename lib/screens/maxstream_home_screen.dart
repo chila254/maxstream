@@ -257,8 +257,8 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
             ),
             clipBehavior: Clip.antiAlias,
             child: Image.asset(
-              'assets/images/appbar_logo.png',
-              fit: BoxFit.contain,
+              'assets/images/app_icon.png',
+              fit: BoxFit.cover,
             ),
           ),
           const SizedBox(width: 10),

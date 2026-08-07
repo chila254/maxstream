@@ -68,7 +68,7 @@ flutter:
     - assets/movies.json
     - assets/images/background.jpg
     - assets/images/maxstream_logo.png
-    - assets/images/appbar_logo.png
+    - assets/images/app_icon.png
 
 flutter_launcher_icons:
   android: true

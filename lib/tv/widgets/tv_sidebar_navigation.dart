@@ -133,8 +133,8 @@ class _TvSidebarNavigationState extends State<TvSidebarNavigation>
             ),
             clipBehavior: Clip.antiAlias,
             child: Image.asset(
-              'assets/images/appbar_logo.png',
-              fit: BoxFit.contain,
+              'assets/images/app_icon.png',
+              fit: BoxFit.cover,
             ),
           ),
           const SizedBox(height: 28),
