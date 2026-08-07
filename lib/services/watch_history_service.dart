@@ -49,6 +49,18 @@ class WatchHistoryService {
   static int _integer(dynamic value, [int fallback = 0]) =>
       value is num ? value.toInt() : fallback;
 
+  /// Movies ignore season/episode entirely, so they are always stored as
+  /// season 1, episode 1. Series values are clamped to be >= 1 so a bad
+  /// cloud record (season 0 / episode 0) never produces a dead stream URL.
+  static (int, int) _normalizedSeasonEpisode(
+    bool isMovie,
+    int season,
+    int episode,
+  ) {
+    if (isMovie) return (1, 1);
+    return (season < 1 ? 1 : season, episode < 1 ? 1 : episode);
+  }
+
   static Future<Duration> loadWatchPosition(
     String tmdbId,
     bool isMovie,
@@ -75,6 +87,7 @@ class WatchHistoryService {
     String? episodeName,
   }) async {
     if (position.inSeconds <= 30) return;
+    (season, episode) = _normalizedSeasonEpisode(isMovie, season, episode);
     final percentage = duration.inSeconds > 0
         ? (position.inSeconds / duration.inSeconds * 100).clamp(0, 100)
         : 0.0;
@@ -112,9 +125,10 @@ class WatchHistoryService {
   ) async {
     final tmdbId = (history['tmdbId'] ?? '').toString();
     final isMovie = history['isMovie'] == true;
-    final season = _integer(history['season'], 0);
-    final episode = _integer(history['episode'], 0);
+    var season = _integer(history['season'], 0);
+    var episode = _integer(history['episode'], 0);
     if (tmdbId.isEmpty) return;
+    (season, episode) = _normalizedSeasonEpisode(isMovie, season, episode);
     final clean = <String, dynamic>{
       'tmdbId': tmdbId,
       'title': history['title']?.toString() ?? '',
@@ -146,11 +160,19 @@ class WatchHistoryService {
     final prefs = await SharedPreferences.getInstance();
     final list = _decodeList(prefs.getString(_historyListKey));
     list.removeWhere(
-      (item) =>
-          item['tmdbId'] == history['tmdbId'] &&
-          item['isMovie'] == history['isMovie'] &&
-          item['season'] == history['season'] &&
-          item['episode'] == history['episode'],
+      (item) {
+        if (item['tmdbId']?.toString() != history['tmdbId']?.toString()) {
+          return false;
+        }
+        if (item['isMovie'] != history['isMovie']) return false;
+        // Movies never use season/episode in their key, so the same movie can
+        // be saved with (0,0) or (1,1) depending on the entry point. Treat any
+        // movie with the same tmdbId as a duplicate to avoid showing the same
+        // movie twice in Continue Watching.
+        if (history['isMovie'] == true) return true;
+        return item['season'] == history['season'] &&
+            item['episode'] == history['episode'];
+      },
     );
     list.insert(0, history);
     if (list.length > _maxHistoryItems) {
@@ -207,16 +229,30 @@ class WatchHistoryService {
 
   static Future<List<Map<String, dynamic>>> getContinueWatching() async {
     final history = await getWatchHistory();
-    return history.where((item) {
+    final result = <Map<String, dynamic>>[];
+    for (final raw in history) {
+      final isMovie = raw['isMovie'] == true;
+      final item = Map<String, dynamic>.from(raw);
+      final (season, episode) = _normalizedSeasonEpisode(
+        isMovie,
+        _integer(item['season'], 1),
+        _integer(item['episode'], 1),
+      );
+      item['season'] = season;
+      item['episode'] = episode;
       final position = _integer(item['position']);
       final duration = _integer(item['duration']);
-      return position > 30 &&
+      if (position > 30 &&
           duration > 0 &&
           position / duration < .9 &&
-          item['isWatched'] != true;
-    }).toList()..sort(
+          item['isWatched'] != true) {
+        result.add(item);
+      }
+    }
+    result.sort(
       (a, b) => _integer(b['timestamp']).compareTo(_integer(a['timestamp'])),
     );
+    return result;
   }
 
   static Future<void> removeFromHistory(
@@ -243,11 +279,13 @@ class WatchHistoryService {
     await prefs.remove(getWatchHistoryKey(tmdbId, isMovie, season, episode));
     final list = _decodeList(prefs.getString(_historyListKey))
       ..removeWhere(
-        (item) =>
-            item['tmdbId']?.toString() == tmdbId &&
-            item['isMovie'] == isMovie &&
-            _integer(item['season']) == season &&
-            _integer(item['episode']) == episode,
+        (item) {
+          if (item['tmdbId']?.toString() != tmdbId) return false;
+          if (item['isMovie'] != isMovie) return false;
+          if (isMovie) return true;
+          return _integer(item['season']) == season &&
+              _integer(item['episode']) == episode;
+        },
       );
     await prefs.setString(_historyListKey, jsonEncode(list));
   }
@@ -357,6 +395,7 @@ class WatchHistoryService {
     int episode,
   ) async {
     final prefs = await SharedPreferences.getInstance();
+    (season, episode) = _normalizedSeasonEpisode(isMovie, season, episode);
     final key = getWatchHistoryKey(tmdbId, isMovie, season, episode);
     final history =
         _decodeMap(prefs.getString(key)) ??

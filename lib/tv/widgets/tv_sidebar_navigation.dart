@@ -128,15 +128,13 @@ class _TvSidebarNavigationState extends State<TvSidebarNavigation>
             width: 40,
             height: 40,
             decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFFE50914), Color(0xFFB20710)],
-              ),
+              color: Colors.black,
               borderRadius: BorderRadius.circular(12),
             ),
-            child: const Icon(
-              Icons.play_arrow_rounded,
-              color: Colors.white,
-              size: 24,
+            clipBehavior: Clip.antiAlias,
+            child: Image.asset(
+              'assets/images/appbar_logo.png',
+              fit: BoxFit.contain,
             ),
           ),
           const SizedBox(height: 28),

@@ -281,7 +281,9 @@ class _TvSearchScreenState extends State<TvSearchScreen> {
       _focusEntry(destination);
       return KeyEventResult.handled;
     }
-    return KeyEventResult.handled;
+    // Unhandled keys (e.g. select/enter) must fall through to the card so its
+    // own onSelect/onTap handler can navigate to the details screen.
+    return KeyEventResult.ignored;
   }
 
   Future<void> _open(_ResultEntry entry) async {

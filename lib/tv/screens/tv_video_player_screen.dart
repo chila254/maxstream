@@ -407,9 +407,9 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         );
       } else {
         result = await DirectM3u8Service.fetchSeriesStreamUrl(
-          _currentTitle ?? widget.title,
-          widget.season,
-          widget.episode,
+          _seriesTitle.isNotEmpty ? _seriesTitle : (_currentTitle ?? widget.title),
+          widget.season < 1 ? 1 : widget.season,
+          widget.episode < 1 ? 1 : widget.episode,
           widget.tmdbId,
         );
       }
@@ -425,13 +425,30 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         _showStatus(
           'Stream found from ${candidate.source}. Initializing player...',
         );
-        final initialized = await _initializePlayer(
+        var initialized = await _initializePlayer(
           candidate,
           generation: generation,
 resumePosition: null,
         );
-        if (!initialized || !_isCurrent(generation)) return;
-        _loadDefaultSubtitle(candidate);
+        if (!_isCurrent(generation)) return;
+        if (!initialized) {
+          // The primary stream was resolved but ExoPlayer rejected it
+          // (e.g. a dead HLS playlist). Fall back to the remaining servers so
+          // a single bad server never blocks playback with a source error.
+          await _discoverAvailableServers(generation);
+          if (!_isCurrent(generation)) return;
+          for (final alt in _availableServers) {
+            if (alt.url == candidate.url) continue;
+            initialized = await _initializePlayer(
+              alt,
+              generation: generation,
+resumePosition: null,
+            );
+            if (initialized || !_isCurrent(generation)) break;
+          }
+        }
+        if (!initialized) return;
+        _loadDefaultSubtitle(_currentCandidate ?? candidate);
         _discoverAvailableServers(generation);
         return;
       }
@@ -870,6 +887,18 @@ resumePosition: Duration.zero,
     return null;
   }
 
+  _StreamCandidate? _nextServerAfter(String url) {
+    if (_availableServers.length <= 1) return null;
+    final index = _availableServers.indexWhere((s) => s.url == url);
+    final start = (index < 0 ? 0 : index + 1) % _availableServers.length;
+    for (var i = 0; i < _availableServers.length; i++) {
+      final candidate =
+          _availableServers[(start + i) % _availableServers.length];
+      if (candidate.url.isNotEmpty) return candidate;
+    }
+    return null;
+  }
+
   Future<void> _discoverAvailableServers(int generation) async {
     if (!_isCurrent(generation)) return;
     setState(() => _serversLoading = true);
@@ -906,27 +935,50 @@ resumePosition: Duration.zero,
     if (!mounted || _disposed || _switchingServer) return;
     final generation = ++_operationGeneration;
     final livePosition = _position;
+    final previousSource = _selectedSource;
+    final previousUrl = _selectedServerUrl;
+    final previousQualities = _qualities;
+    final previousSubtitles = _subtitleTracks;
     _saveProgress();
     setState(() {
       _switchingServer = true;
       _isLoading = true;
     });
 
-    _showStatus('Switching to ${server.source}...');
-    final initialized = await _initializePlayer(
-      server,
-      generation: generation,
-      resumePosition: livePosition,
-    );
+    var current = server;
+    var initialized = false;
+    final tried = <String>{};
+    while (_isCurrent(generation) && !initialized) {
+      if (!tried.add(current.url)) break;
+      _showStatus('Switching to ${current.source}...');
+      initialized = await _initializePlayer(
+        current,
+        generation: generation,
+        resumePosition: livePosition,
+      );
+      if (initialized || !_isCurrent(generation)) break;
+      final next = _nextServerAfter(current.url);
+      if (next == null) break;
+      current = next;
+    }
+
     if (!_isCurrent(generation)) return;
     setState(() {
       _switchingServer = false;
       if (initialized) {
-        _selectedSource = server.source;
-        _selectedServerUrl = server.url;
-        _qualities = server.qualities;
-        _subtitleTracks = server.subtitles;
+        _selectedSource = current.source;
+        _selectedServerUrl = current.url;
+        _qualities = current.qualities;
+        _subtitleTracks = current.subtitles;
         _clearSubtitles();
+      } else {
+        // No server could start: keep the previously working stream instead of
+        // leaving the player stuck on a source error.
+        _selectedSource = previousSource;
+        _selectedServerUrl = previousUrl;
+        _qualities = previousQualities;
+        _subtitleTracks = previousSubtitles;
+        _error = null;
       }
     });
   }

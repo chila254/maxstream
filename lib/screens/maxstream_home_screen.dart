@@ -249,14 +249,19 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
       title: Row(
         children: [
           Container(
-            padding: const EdgeInsets.all(8),
+            width: 36,
+            height: 36,
             decoration: BoxDecoration(
-              color: Colors.red,
+              color: Colors.black,
               borderRadius: BorderRadius.circular(8),
             ),
-            child: const Icon(Icons.play_arrow, color: Colors.white, size: 20),
+            clipBehavior: Clip.antiAlias,
+            child: Image.asset(
+              'assets/images/appbar_logo.png',
+              fit: BoxFit.contain,
+            ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 10),
           const Text(
             'MaxStream',
             style: TextStyle(

@@ -350,16 +350,18 @@ class DBHelper {
 
     // Fix 1: Always convert id to String in mapping
     return result.map((json) {
+      final genres = json['genres'];
+      final decoded = genres is String
+          ? (jsonDecode(genres) as List?) ?? const []
+          : const [];
       return Movie(
         id: json['id'].toString(),
-        title: json['title'] as String,
-        description: json['description'] as String,
-        thumbnail: json['thumbnail'] as String,
-        videoUrl: json['videoUrl'] as String,
-        trailerUrl: json['trailerUrl'] as String,
-        genres: json['genres'] is String
-            ? List<String>.from(jsonDecode(json['genres'] as String))
-            : [],
+        title: (json['title'] as String?) ?? '',
+        description: (json['description'] as String?) ?? '',
+        thumbnail: (json['thumbnail'] as String?) ?? '',
+        videoUrl: (json['videoUrl'] as String?) ?? '',
+        trailerUrl: (json['trailerUrl'] as String?) ?? '',
+        genres: decoded.whereType<String>().toList(),
         year: json['year'] as String? ?? '',
         rating: (json['rating'] as num?)?.toDouble() ?? 0.0,
         mediaType: json['mediaType'] as String? ?? 'movie',
@@ -378,22 +380,39 @@ class DBHelper {
     );
 
     return result.map((json) {
-      return Movie(
-        id: json['id'].toString(),
-        title: json['title'] as String,
-        description: json['description'] as String,
-        thumbnail: json['thumbnail'] as String,
-        videoUrl: json['offlinePath'] as String,
-        trailerUrl: json['trailerUrl'] as String,
-        genres: json['genres'] is String
-            ? List<String>.from(jsonDecode(json['genres'] as String))
-            : [],
-        year: json['year'] as String? ?? '',
-        rating: (json['rating'] as num?)?.toDouble() ?? 0.0,
-        mediaType: json['mediaType'] as String? ?? 'movie',
-        backdrop: '',
-        country: '',
-      );
+      final genres = json['genres'];
+      try {
+        final decoded = genres is String ? jsonDecode(genres) : null;
+        return Movie(
+          id: json['id'].toString(),
+          title: (json['title'] as String?) ?? '',
+          description: (json['description'] as String?) ?? '',
+          thumbnail: (json['thumbnail'] as String?) ?? '',
+          videoUrl: (json['offlinePath'] as String?) ?? '',
+          trailerUrl: (json['trailerUrl'] as String?) ?? '',
+          genres: decoded is List ? decoded.whereType<String>().toList() : [],
+          year: json['year'] as String? ?? '',
+          rating: (json['rating'] as num?)?.toDouble() ?? 0.0,
+          mediaType: json['mediaType'] as String? ?? 'movie',
+          backdrop: '',
+          country: '',
+        );
+      } catch (_) {
+        return Movie(
+          id: json['id'].toString(),
+          title: (json['title'] as String?) ?? '',
+          description: (json['description'] as String?) ?? '',
+          thumbnail: (json['thumbnail'] as String?) ?? '',
+          videoUrl: (json['offlinePath'] as String?) ?? '',
+          trailerUrl: (json['trailerUrl'] as String?) ?? '',
+          genres: const [],
+          year: json['year'] as String? ?? '',
+          rating: (json['rating'] as num?)?.toDouble() ?? 0.0,
+          mediaType: json['mediaType'] as String? ?? 'movie',
+          backdrop: '',
+          country: '',
+        );
+      }
     }).toList();
   }
 
@@ -406,22 +425,39 @@ class DBHelper {
     );
 
     return result.map((json) {
-      return Movie(
-        id: json['id'].toString(),
-        title: json['title'] as String,
-        description: json['description'] as String,
-        thumbnail: json['thumbnail'] as String,
-        videoUrl: json['videoUrl'] as String,
-        trailerUrl: json['trailerUrl'] as String,
-        genres: json['genres'] is String
-            ? List<String>.from(jsonDecode(json['genres'] as String))
-            : [],
-        year: json['year'] as String? ?? '',
-        rating: (json['rating'] as num?)?.toDouble() ?? 0.0,
-        mediaType: json['mediaType'] as String? ?? 'movie',
-        backdrop: '',
-        country: '',
-      );
+      final genres = json['genres'];
+      try {
+        final decoded = genres is String ? jsonDecode(genres) : null;
+        return Movie(
+          id: json['id'].toString(),
+          title: (json['title'] as String?) ?? '',
+          description: (json['description'] as String?) ?? '',
+          thumbnail: (json['thumbnail'] as String?) ?? '',
+          videoUrl: (json['videoUrl'] as String?) ?? '',
+          trailerUrl: (json['trailerUrl'] as String?) ?? '',
+          genres: decoded is List ? decoded.whereType<String>().toList() : [],
+          year: json['year'] as String? ?? '',
+          rating: (json['rating'] as num?)?.toDouble() ?? 0.0,
+          mediaType: json['mediaType'] as String? ?? 'movie',
+          backdrop: '',
+          country: '',
+        );
+      } catch (_) {
+        return Movie(
+          id: json['id'].toString(),
+          title: (json['title'] as String?) ?? '',
+          description: (json['description'] as String?) ?? '',
+          thumbnail: (json['thumbnail'] as String?) ?? '',
+          videoUrl: (json['videoUrl'] as String?) ?? '',
+          trailerUrl: (json['trailerUrl'] as String?) ?? '',
+          genres: const [],
+          year: json['year'] as String? ?? '',
+          rating: (json['rating'] as num?)?.toDouble() ?? 0.0,
+          mediaType: json['mediaType'] as String? ?? 'movie',
+          backdrop: '',
+          country: '',
+        );
+      }
     }).toList();
   }
 

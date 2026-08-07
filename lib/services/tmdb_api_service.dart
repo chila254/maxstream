@@ -178,6 +178,12 @@ class TmdbApiService {
 
   static String getImageUrl(String? imagePath, {String size = 'w500'}) {
     if (imagePath == null || imagePath.isEmpty) return '';
+    // Some callers pass a fully-formed URL (e.g. a watchlist thumbnail stored
+    // as `https://image.tmdb.org/t/p/w500/...`). Return it untouched instead of
+    // double-prefixing the base URL, which produces a broken image.
+    if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
+      return imagePath;
+    }
     return Uri.https('image.tmdb.org', '/t/p/$size$imagePath').toString();
   }
 
