@@ -18,6 +18,7 @@ import androidx.media3.datasource.okhttp.OkHttpDataSource;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 import androidx.media3.exoplayer.source.MediaSource;
 import java.util.Map;
+import okhttp3.OkHttpClient;
 
 final class HttpVideoAsset extends VideoAsset {
   @NonNull private final StreamingFormat streamingFormat;
@@ -60,7 +61,7 @@ final class HttpVideoAsset extends VideoAsset {
   @NonNull
   @Override
   public MediaSource.Factory getMediaSourceFactory(@NonNull Context context) {
-    return getMediaSourceFactory(context, new OkHttpDataSource.Factory());
+    return getMediaSourceFactory(context, new OkHttpDataSource.Factory(new OkHttpClient()));
   }
 
   /**
@@ -86,7 +87,8 @@ final class HttpVideoAsset extends VideoAsset {
       @NonNull OkHttpDataSource.Factory factory,
       @NonNull Map<String, String> httpHeaders,
       @Nullable String userAgent) {
-    factory.setUserAgent(userAgent).setAllowCrossProtocolRedirects(true);
+    // OkHttp follows redirects (including cross-protocol) by default.
+    factory.setUserAgent(userAgent);
     if (!httpHeaders.isEmpty()) {
       factory.setDefaultRequestProperties(httpHeaders);
     }

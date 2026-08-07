@@ -7,7 +7,6 @@ package io.flutter.plugins.videoplayer;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -56,13 +55,12 @@ public final class VideoAssetTest {
   private static OkHttpDataSource.Factory mockHttpFactory() {
     OkHttpDataSource.Factory httpFactory = mock(OkHttpDataSource.Factory.class);
     when(httpFactory.setUserAgent(any())).thenReturn(httpFactory);
-    when(httpFactory.setAllowCrossProtocolRedirects(anyBoolean())).thenReturn(httpFactory);
     when(httpFactory.setDefaultRequestProperties(anyMap())).thenReturn(httpFactory);
     return httpFactory;
   }
 
   @Test
-  public void remoteVideoSetsUserAgentAndCrossProtocolRedirects() {
+  public void remoteVideoSetsUserAgent() {
     final String userAgent = "A User Agent";
     VideoAsset asset =
         VideoAsset.fromRemoteUrl(
@@ -78,7 +76,6 @@ public final class VideoAssetTest {
         .getMediaSourceFactory(ApplicationProvider.getApplicationContext(), mockFactory);
 
     verify(mockFactory).setUserAgent(userAgent);
-    verify(mockFactory).setAllowCrossProtocolRedirects(true);
     verify(mockFactory, never()).setDefaultRequestProperties(anyMap());
   }
 
@@ -118,7 +115,6 @@ public final class VideoAssetTest {
     ((HttpVideoAsset) asset)
         .getMediaSourceFactory(ApplicationProvider.getApplicationContext(), mockFactory);
 
-    verify(mockFactory).setAllowCrossProtocolRedirects(true);
     verify(mockFactory).setDefaultRequestProperties(headers);
   }
 
