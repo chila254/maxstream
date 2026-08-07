@@ -411,7 +411,7 @@ class _TvMoreScreenState extends State<TvMoreScreen> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.of(dialogContext).pop(),
             child: Text(
               'Cancel',
               style: TextStyle(color: Colors.grey, fontSize: fontSize),
@@ -419,7 +419,7 @@ class _TvMoreScreenState extends State<TvMoreScreen> {
           ),
           TextButton(
             onPressed: () async {
-              Navigator.pop(context);
+              Navigator.of(dialogContext).pop();
               try {
                 nav.clearState();
                 await AuthService.signOut();
