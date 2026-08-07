@@ -594,7 +594,7 @@ resumePosition: null,
                   'E$targetEpisode';
       }
       result = await DirectM3u8Service.fetchSeriesStreamUrl(
-        _currentTitle ?? widget.title,
+        _seriesTitle.isNotEmpty ? _seriesTitle : (_currentTitle ?? widget.title),
         targetSeason,
         targetEpisode,
         widget.tmdbId,
@@ -933,7 +933,9 @@ resumePosition: Duration.zero,
 
     try {
       final servers = await DirectM3u8Service.fetchAvailableStreams(
-        title: _currentTitle ?? widget.title,
+        title: _seriesTitle.isNotEmpty
+            ? _seriesTitle
+            : (_currentTitle ?? widget.title),
         tmdbId: widget.tmdbId,
         isMovie: widget.isMovie,
         season: widget.isMovie ? widget.season : _activeSeason,

@@ -50,9 +50,7 @@ class _TvSearchScreenState extends State<TvSearchScreen> {
   List<_ResultEntry> _entries = const [];
   List<Map<String, dynamic>> _movies = const [];
   List<Map<String, dynamic>> _series = const [];
-  List<Map<String, dynamic>> _trending = const [];
-  List<Map<String, dynamic>> _popular = const [];
-  List<Map<String, dynamic>> _topRated = const [];
+  List<Map<String, dynamic>> _discover = const [];
   String _query = '';
   String? _rememberedIdentity;
   bool _loading = false;
@@ -83,18 +81,42 @@ class _TvSearchScreenState extends State<TvSearchScreen> {
     super.dispose();
   }
 
+  List<Map<String, dynamic>> _tagged(List<Map<String, dynamic>> items, String type) {
+    return [
+      for (final item in items) {...item, 'media_type': type},
+    ];
+  }
+
+  List<Map<String, dynamic>> _dedupe(List<Map<String, dynamic>> items) {
+    final seen = <String>{};
+    return [
+      for (final item in items)
+        if (seen.add('${item['media_type']}:${item['id']}')) item,
+    ];
+  }
+
   Future<void> _loadRecommendations() async {
     try {
       final values = await Future.wait([
         TmdbApiService.fetchTrendingMovies(),
+        TmdbApiService.fetchTrendingSeries(),
         TmdbApiService.fetchPopularMovies(),
+        TmdbApiService.fetchPopularSeries(),
         TmdbApiService.fetchTopRatedMovies(),
+        TmdbApiService.fetchTopRatedSeries(),
       ]);
       if (!mounted) return;
       setState(() {
-        _trending = values[0].take(12).toList();
-        _popular = values[1].take(12).toList();
-        _topRated = values[2].take(12).toList();
+        // Mix movies and series from every category into one grid instead of
+        // grouping them under Trending / Popular / Top Rated headers.
+        _discover = _dedupe([
+          ..._tagged(values[0].take(12).toList(), 'movie'),
+          ..._tagged(values[1].take(12).toList(), 'tv'),
+          ..._tagged(values[2].take(12).toList(), 'movie'),
+          ..._tagged(values[3].take(12).toList(), 'tv'),
+          ..._tagged(values[4].take(12).toList(), 'movie'),
+          ..._tagged(values[5].take(12).toList(), 'tv'),
+        ]);
         _rebuildEntries();
       });
     } catch (error) {
@@ -141,11 +163,7 @@ class _TvSearchScreenState extends State<TvSearchScreen> {
 
   void _rebuildEntries() {
     final sections = _query.trim().isEmpty
-        ? [
-            ('Trending', _trending),
-            ('Popular', _popular),
-            ('Top Rated', _topRated),
-          ]
+        ? [('Discover', _discover)]
         : [('Movies', _movies), ('TV Series', _series)];
     final next = <_ResultEntry>[];
     for (final section in sections) {
