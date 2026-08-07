@@ -1157,13 +1157,30 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       episode: _currentEpisode,
     );
     if (!mounted || generation != _serverDiscoveryGeneration) return;
-    final merged = <Map<String, dynamic>>[..._availableServers, ...streams];
+    // Replace stale entries with freshly extracted URLs: stream URLs (esp.
+    // VixSrc tokens) expire quickly, so reusing them when switching servers
+    // or recovering playback causes a "Source error". Keep the currently
+    // playing server around so the server sheet stays consistent.
+    final playingUrl = _currentStreamUrl;
+    final playing = playingUrl == null
+        ? null
+        : _availableServers
+            .where((s) => s['url']?.toString() == playingUrl)
+            .firstOrNull;
     final seen = <String>{};
+    final fresh = streams
+        .where((s) => (s['url']?.toString() ?? '').isNotEmpty)
+        .where((s) => seen.add(s['url'].toString()))
+        .toList();
     setState(() {
-      _availableServers = merged.where((stream) {
-        final url = stream['url']?.toString() ?? '';
-        return url.isNotEmpty && seen.add(url);
-      }).toList();
+      _availableServers = [
+        if (playing != null &&
+            !fresh.any((s) => s['url']?.toString() == playingUrl))
+          playing,
+        ...fresh.where(
+          (s) => playing == null || s['url']?.toString() != playing['url']?.toString(),
+        ),
+      ];
       _serversLoading = false;
     });
   }
@@ -1244,9 +1261,10 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     }
     if (value.hasError && !_recoveringPlayback) {
       // Keep trying other servers so a single dead source (e.g. an expired
-      // RPM HLS URL that ExoPlayer rejects) never blocks playback.
+      // RPM HLS URL that ExoPlayer rejects) never blocks playback. Recovery
+      // re-resolves streams fresh, so allow a few rounds without a known next.
       final hasNext = _nextServerAfter(_currentStreamUrl ?? '') != null;
-      if (_playbackRetryCount < 2 || hasNext) {
+      if (_playbackRetryCount < 3 || hasNext) {
         unawaited(_recoverPlayback());
       }
     }
@@ -1306,11 +1324,16 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       });
     }
     await Future<void>.delayed(Duration(seconds: 2));
-    // After the current URL has already failed a couple of times, switch to
-    // another server instead of replaying a dead stream.
-    final nextServer = _nextServerAfter(url);
-    final shouldSwitch = _playbackRetryCount >= 2 && nextServer != null;
     try {
+      // Re-resolve streams fresh before switching: discovered URLs (esp.
+      // VixSrc tokens) expire quickly, so prefer freshly extracted servers
+      // over stale entries that ExoPlayer rejects with a source error.
+      await _discoverAvailableServers(_serverDiscoveryGeneration);
+      if (!mounted) return;
+      // After the current URL has already failed a couple of times, switch to
+      // another server instead of replaying a dead stream.
+      final nextServer = _nextServerAfter(url);
+      final shouldSwitch = _playbackRetryCount >= 2 && nextServer != null;
       if (shouldSwitch) {
         _failedServerUrls.add(url);
         _showStatus('Switching to ${nextServer['source']}...');

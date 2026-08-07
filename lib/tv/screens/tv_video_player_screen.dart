@@ -757,9 +757,10 @@ resumePosition: Duration.zero,
     }
     if (value.hasError && !_recoveringPlayback) {
       // Keep switching to other servers so a single dead source (e.g. an
-      // expired RPM HLS URL) never blocks playback.
+      // expired RPM HLS URL) never blocks playback. Recovery re-resolves
+      // streams fresh, so allow a few rounds even without a known next server.
       final hasNext = _nextServer() != null;
-      if (_playbackRetryCount < 2 || hasNext) {
+      if (_playbackRetryCount < 3 || hasNext) {
         unawaited(_recoverPlayback());
         _isBuffering = true;
       }
@@ -849,17 +850,29 @@ resumePosition: Duration.zero,
     await Future<void>.delayed(Duration(seconds: _playbackRetryCount * 2));
     try {
       if (!_isCurrent(generation)) return;
-      final next = _nextServer();
-      if (next != null) {
-        final failedUrl = _currentStreamUrl;
-        if (failedUrl != null) _failedServerUrls.add(failedUrl);
+      // Re-resolve streams fresh: discovered URLs (esp. VixSrc tokens) expire
+      // quickly, so fall back to freshly extracted servers instead of stale
+      // entries that ExoPlayer rejects with a source error.
+      await _discoverAvailableServers(generation);
+      if (!_isCurrent(generation)) return;
+      final failedUrl = _currentStreamUrl;
+      if (failedUrl != null) _failedServerUrls.add(failedUrl);
+      var next = _nextServer();
+      var initialized = false;
+      final tried = <String>{};
+      while (next != null && _isCurrent(generation) && !initialized) {
+        if (!tried.add(next.url)) break;
         _showStatus('Trying ${next.source}...');
-        await _initializePlayer(
+        initialized = await _initializePlayer(
           next,
           generation: generation,
           resumePosition: _lastStablePosition,
         );
-      } else if (_currentCandidate != null) {
+        if (initialized || !_isCurrent(generation)) break;
+        _failedServerUrls.add(next.url);
+        next = _nextServer();
+      }
+      if (!initialized && _currentCandidate != null) {
         await _initializePlayer(
           _currentCandidate!,
           generation: generation,
@@ -905,7 +918,11 @@ resumePosition: Duration.zero,
     for (var i = 0; i < _availableServers.length; i++) {
       final candidate =
           _availableServers[(start + i) % _availableServers.length];
-      if (candidate.url.isNotEmpty) return candidate;
+      if (candidate.url.isNotEmpty &&
+          candidate.url != url &&
+          !_failedServerUrls.contains(candidate.url)) {
+        return candidate;
+      }
     }
     return null;
   }
@@ -919,20 +936,31 @@ resumePosition: Duration.zero,
         title: _currentTitle ?? widget.title,
         tmdbId: widget.tmdbId,
         isMovie: widget.isMovie,
-        season: widget.season,
-        episode: widget.episode,
+        season: widget.isMovie ? widget.season : _activeSeason,
+        episode: widget.isMovie ? widget.episode : _activeEpisode,
       );
 
       if (_isCurrent(generation)) {
-        final merged = <_StreamCandidate>[
-          ..._availableServers,
-          ...servers.map(_StreamCandidate.fromMap),
-        ];
+        // Replace stale entries with freshly extracted URLs: stream URLs
+        // (esp. VixSrc tokens) expire quickly, so reusing them when switching
+        // servers or recovering causes a "Source error". Keep the currently
+        // playing server around so the menu stays consistent.
+        final playingUrl = _currentStreamUrl;
+        final playing = _currentCandidate;
         final seen = <String>{};
+        final fresh = servers
+            .map(_StreamCandidate.fromMap)
+            .where((server) => server.url.isNotEmpty && seen.add(server.url))
+            .toList();
         setState(() {
-          _availableServers = merged.where((server) {
-            return server.url.isNotEmpty && seen.add(server.url);
-          }).toList();
+          _availableServers = [
+            if (playing != null &&
+                !fresh.any((server) => server.url == playingUrl))
+              playing,
+            ...fresh.where(
+              (server) => playing == null || server.url != playing.url,
+            ),
+          ];
           _serversLoading = false;
         });
       }
@@ -956,7 +984,15 @@ resumePosition: Duration.zero,
       _isLoading = true;
     });
 
-    var current = server;
+    // Re-resolve streams fresh before switching: the server list may hold
+    // expired URLs (e.g. short-lived VixSrc tokens) that ExoPlayer rejects.
+    await _discoverAvailableServers(generation);
+    if (!_isCurrent(generation)) return;
+
+    final freshTarget = _availableServers
+        .where((s) => s.source == server.source)
+        .firstOrNull;
+    var current = freshTarget ?? server;
     var initialized = false;
     final tried = <String>{};
     while (_isCurrent(generation) && !initialized) {
@@ -968,6 +1004,7 @@ resumePosition: Duration.zero,
         resumePosition: livePosition,
       );
       if (initialized || !_isCurrent(generation)) break;
+      _failedServerUrls.add(current.url);
       final next = _nextServerAfter(current.url);
       if (next == null) break;
       current = next;
