@@ -122,81 +122,120 @@ class _TvMaxStreamMainState extends State<TvMaxStreamMain> {
 
   void _focusContent() {
     _navProvider.setFocusOnSidebar(false);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _contentFocusScope.requestFocus();
-      });
-    });
+    _requestFocusAfterFrames(_contentFocusScope, retries: 6);
   }
 
   void _focusSidebar() {
     _navProvider.setFocusOnSidebar(true);
-    TvFocusManager.focusSidebar();
+    _requestFocusAfterFrames(_sidebarFocusScope, retries: 6);
   }
 
+  /// Requests focus on [node], retrying across subsequent frames until it
+  /// succeeds. After a tab switch the content screen rebuilds and only then
+  /// attaches its focusable widgets, so a single post-frame callback is not
+  /// enough and focus can silently fail.
+  void _requestFocusAfterFrames(FocusNode node, {required int retries}) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      node.requestFocus();
+      if (retries > 1 && !node.hasFocus) {
+        _requestFocusAfterFrames(node, retries: retries - 1);
+      }
+    });
+  }
+
+  /// Unified system-back handler:
+  /// - Back on a pushed route pops that route.
+  /// - Back on a non-Home tab moves focus to the sidebar first, then the next
+  ///   back press switches to the Home tab.
+  /// - Back on the Home tab shows the exit confirmation dialog.
   void _handleSystemBack() {
     final navigator = _navigatorKey.currentState;
     if (navigator?.canPop() == true) {
       navigator!.pop();
       return;
     }
-    // On any tab other than Home, back never exits the app: it first returns
-    // focus to the sidebar, then the next back press lands on the Home tab.
     if (_navProvider.selectedTab != 0) {
-      if (!_navProvider.focusOnSidebar) {
-        _focusSidebar();
-      } else {
+      if (_sidebarFocusScope.hasFocus) {
         _navProvider.selectTab(0);
         _focusContent();
+      } else {
+        _focusSidebar();
       }
       return;
     }
-    // On Home, ask for confirmation before leaving the app.
     _confirmExit();
   }
 
+  /// Shell-level key handler. It only sees back/escape keys that every focused
+  /// widget deeper in the tree (content cards, keyboard, sidebar items) chose
+  /// not to consume, so in-screen back navigation still runs first and the
+  /// shell handles only the "leave this screen / exit the app" level.
+  KeyEventResult _onShellBackKey(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    if (event.logicalKey == LogicalKeyboardKey.goBack ||
+        event.logicalKey == LogicalKeyboardKey.escape ||
+        event.logicalKey == LogicalKeyboardKey.gameButtonB) {
+      try {
+        _handleSystemBack();
+      } catch (e, st) {
+        debugPrint('MAXSTREAM: back handler threw: $e\n$st');
+      }
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
+
+  bool _exitDialogShowing = false;
+
   Future<void> _confirmExit() async {
-    final shouldExit = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) => AlertDialog(
-        backgroundColor: const Color(0xFF1E1E1E),
-        title: const Text(
-          'Exit MaxStream?',
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 24,
-            fontWeight: FontWeight.w700,
+    if (_exitDialogShowing) return;
+    _exitDialogShowing = true;
+    try {
+      final shouldExit = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => AlertDialog(
+          backgroundColor: const Color(0xFF1E1E1E),
+          title: const Text(
+            'Exit MaxStream?',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 24,
+              fontWeight: FontWeight.w700,
+            ),
           ),
+          content: const Text(
+            'Do you want to exit the app?',
+            style: TextStyle(color: Colors.white70, fontSize: 18),
+          ),
+          actions: [
+            TextButton(
+              autofocus: true,
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text(
+                'Cancel',
+                style: TextStyle(color: Colors.grey, fontSize: 18),
+              ),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFFE50914),
+              ),
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text(
+                'Yes',
+                style: TextStyle(color: Colors.white, fontSize: 18),
+              ),
+            ),
+          ],
         ),
-        content: const Text(
-          'Do you want to exit the app?',
-          style: TextStyle(color: Colors.white70, fontSize: 18),
-        ),
-        actions: [
-          TextButton(
-            autofocus: true,
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text(
-              'Cancel',
-              style: TextStyle(color: Colors.grey, fontSize: 18),
-            ),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xFFE50914),
-            ),
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text(
-              'Yes',
-              style: TextStyle(color: Colors.white, fontSize: 18),
-            ),
-          ),
-        ],
-      ),
-    );
-    if (shouldExit == true && mounted) {
-      SystemNavigator.pop();
+      );
+      if (shouldExit == true && mounted) {
+        SystemNavigator.pop();
+      }
+    } finally {
+      _exitDialogShowing = false;
     }
   }
 
@@ -248,32 +287,35 @@ class _TvMaxStreamMainState extends State<TvMaxStreamMain> {
       backgroundColor: const Color(0xFF0F0F0F),
       body: Consumer<TvNavigationProvider>(
         builder: (context, navProvider, _) {
-          return Row(
-            children: [
-              FocusScope(
-                node: _sidebarFocusScope,
-                onFocusChange: (hasFocus) {
-                  if (hasFocus) navProvider.setFocusOnSidebar(true);
-                },
-                child: TvSidebarNavigation(
-                  selectedIndex: navProvider.selectedTab,
-                  titles: _navTitles,
-                  icons: _navIcons,
-                  onItemSelected: _onNavItemSelected,
-                  onExitToContent: _focusContent,
-                  active: navProvider.focusOnSidebar,
-                ),
-              ),
-              Expanded(
-                child: FocusScope(
-                  node: _contentFocusScope,
+          return Focus(
+            onKeyEvent: _onShellBackKey,
+            child: Row(
+              children: [
+                FocusScope(
+                  node: _sidebarFocusScope,
                   onFocusChange: (hasFocus) {
-                    if (hasFocus) navProvider.setFocusOnSidebar(false);
+                    if (hasFocus) navProvider.setFocusOnSidebar(true);
                   },
-                  child: _buildCurrentScreen(),
+                  child: TvSidebarNavigation(
+                    selectedIndex: navProvider.selectedTab,
+                    titles: _navTitles,
+                    icons: _navIcons,
+                    onItemSelected: _onNavItemSelected,
+                    onExitToContent: _focusContent,
+                    active: navProvider.focusOnSidebar,
+                  ),
                 ),
-              ),
-            ],
+                Expanded(
+                  child: FocusScope(
+                    node: _contentFocusScope,
+                    onFocusChange: (hasFocus) {
+                      if (hasFocus) navProvider.setFocusOnSidebar(false);
+                    },
+                    child: _buildCurrentScreen(),
+                  ),
+                ),
+              ],
+            ),
           );
         },
       ),
