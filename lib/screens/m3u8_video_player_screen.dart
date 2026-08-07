@@ -569,6 +569,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   Duration _lastStablePosition = Duration.zero;
   bool _recoveringPlayback = false;
   int _playbackRetryCount = 0;
+  final Set<String> _failedServerUrls = {};
   double? _downloadProgress;
   bool _downloadCompleted = false;
   late int _downloadCompletionVersion;
@@ -669,6 +670,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         final qualities = _parseQualities(result['qualities']);
         final subtitleTracks = _parseSubtitleTracks(result['subtitles']);
         _playbackRetryCount = 0;
+        _failedServerUrls.clear();
         _availableServers = [result];
         _serversLoading = true;
         _selectedServerUrl = url;
@@ -1240,8 +1242,13 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       });
       return;
     }
-    if (value.hasError && !_recoveringPlayback && _playbackRetryCount < 2) {
-      unawaited(_recoverPlayback());
+    if (value.hasError && !_recoveringPlayback) {
+      // Keep trying other servers so a single dead source (e.g. an expired
+      // RPM HLS URL that ExoPlayer rejects) never blocks playback.
+      final hasNext = _nextServerAfter(_currentStreamUrl ?? '') != null;
+      if (_playbackRetryCount < 2 || hasNext) {
+        unawaited(_recoverPlayback());
+      }
     }
     final isBuffering = value.isBuffering;
     var shouldRebuild = isBuffering != _isBuffering;
@@ -1267,9 +1274,29 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     if (shouldRebuild) setState(() {});
   }
 
+  Map<String, dynamic>? _nextServerAfter(String currentUrl) {
+    if (_availableServers.length <= 1 || currentUrl.isEmpty) return null;
+    final currentIndex = _availableServers.indexWhere(
+      (s) => s['url']?.toString() == currentUrl,
+    );
+    final start =
+        (currentIndex < 0 ? 0 : currentIndex + 1) % _availableServers.length;
+    for (var i = 0; i < _availableServers.length; i++) {
+      final server = _availableServers[(start + i) % _availableServers.length];
+      final serverUrl = server['url']?.toString() ?? '';
+      if (serverUrl.isEmpty ||
+          serverUrl == currentUrl ||
+          _failedServerUrls.contains(serverUrl)) {
+        continue;
+      }
+      return server;
+    }
+    return null;
+  }
+
   Future<void> _recoverPlayback() async {
     final url = _currentStreamUrl;
-    if (url == null || _recoveringPlayback || _playbackRetryCount >= 2) return;
+    if (url == null || _recoveringPlayback) return;
     _recoveringPlayback = true;
     _playbackRetryCount++;
     if (mounted) {
@@ -1278,18 +1305,39 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         _statusMessage = 'Recovering playback...';
       });
     }
-    await Future<void>.delayed(Duration(seconds: _playbackRetryCount * 2));
+    await Future<void>.delayed(Duration(seconds: 2));
+    // After the current URL has already failed a couple of times, switch to
+    // another server instead of replaying a dead stream.
+    final nextServer = _nextServerAfter(url);
+    final shouldSwitch = _playbackRetryCount >= 2 && nextServer != null;
     try {
-      await _replacePlayer(
-        url,
-        headers: _streamHeaders,
-        source: _currentSource ?? 'Unknown',
-        qualities: _qualities,
-        selectedQuality: _selectedQuality,
-        isHls: _currentStreamIsHls,
-        position: _lastStablePosition,
-        shouldPlay: true,
-      );
+      if (shouldSwitch) {
+        _failedServerUrls.add(url);
+        _showStatus('Switching to ${nextServer['source']}...');
+        await _replacePlayer(
+          nextServer['url'].toString(),
+          headers: _parseStreamHeaders(nextServer),
+          source: nextServer['source']?.toString() ?? 'Server',
+          qualities: _parseQualities(nextServer['qualities']),
+          selectedQuality: 'Auto',
+          isHls: nextServer['type'] == 'direct_m3u8' ||
+              nextServer['url'].toString().toLowerCase().contains('.m3u8'),
+          position: _lastStablePosition,
+          shouldPlay: true,
+        );
+      } else {
+        await _replacePlayer(
+          url,
+          headers: _streamHeaders,
+          source: _currentSource ?? 'Unknown',
+          qualities: _qualities,
+          selectedQuality: _selectedQuality,
+          isHls: _currentStreamIsHls,
+          position: _lastStablePosition,
+          shouldPlay: true,
+        );
+      }
+      _playbackRetryCount = 0;
     } catch (error) {
       debugPrint('M3U8Player: Playback recovery failed: $error');
       if (mounted && _playbackRetryCount >= 2) {

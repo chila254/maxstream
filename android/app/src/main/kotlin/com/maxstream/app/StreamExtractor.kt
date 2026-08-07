@@ -1010,10 +1010,7 @@ class StreamExtractor(private val context: Context) {
             val frameUrl = resolveUrl(embedUrl, framePath.replace("&amp;", "&"))
 
             val playerHtml = httpGet(frameUrl, refererHeaders(embedUrl))
-            val configPayload = Regex(
-                """const\s+CONFIG\s*=\s*(\{.*?\});""",
-                setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL),
-            ).find(playerHtml)?.groupValues?.get(1)
+            val configPayload = extractJsObject(playerHtml, "CONFIG")
                 ?: throw IllegalStateException("Alternate Vidflix player configuration was not found")
             val config = JSONObject(configPayload)
             val apiBase = config.optString("streamDataApiUrl")
@@ -1032,13 +1029,23 @@ class StreamExtractor(private val context: Context) {
                 }
             }.build().toString()
             val response = getJson(apiUrl, refererHeaders(frameUrl))
-            val streams = response.optJSONObject("data")?.optJSONArray("stream_urls")
+            val data = response.optJSONObject("data") ?: response.optJSONObject("result")
+            val streams = data?.optJSONArray("stream_urls")
+                ?: data?.optJSONArray("streams")
+                ?: response.optJSONArray("stream_urls")
                 ?: throw IllegalStateException("Alternate Vidflix source returned no stream list")
             val frameOrigin = URI(frameUrl).let { "${it.scheme}://${it.host}" }
             val headers = refererHeaders(frameUrl) + mapOf("Origin" to frameOrigin)
 
             for (index in 0 until streams.length()) {
-                val streamUrl = streams.optString(index)
+                val raw = streams.opt(index)
+                val streamUrl = when (raw) {
+                    is String -> raw
+                    is JSONObject -> {
+                        raw.optString("url").ifBlank { raw.optString("src") }
+                    }
+                    else -> ""
+                }
                 if (streamUrl.isBlank()) continue
                 val candidate = StreamResult(
                     streamUrl,
@@ -1116,6 +1123,9 @@ class StreamExtractor(private val context: Context) {
                                 val url = request?.url?.toString() ?: ""
                                 val isMediaRequest = url.contains(".m3u8", true) ||
                                     url.contains(".mp4", true) ||
+                                    url.contains(".ts?", true) ||
+                                    url.contains("/playlist", true) ||
+                                    url.contains("/master.", true) ||
                                     url.contains("videoplayback", true)
                                 if (isMediaRequest && continuation.isActive) {
                                     val origin = URI(url).let { "${it.scheme}://${it.host}" }
@@ -3148,6 +3158,40 @@ class StreamExtractor(private val context: Context) {
         val contentStart = start + before.length
         val end = value.indexOf(after, contentStart)
         return if (end < 0) null else value.substring(contentStart, end).trim()
+    }
+
+    /// Extracts the balanced JSON object assigned to `const <name> = {...};`
+    /// from embedded JavaScript. A naive non-greedy regex truncates the object
+    /// at the first `};`, which breaks pages whose CONFIG contains nested
+    /// objects (e.g. Mov2Day player configs).
+    private fun extractJsObject(html: String, name: String): String? {
+        val match = Regex(
+            """const\s+$name\s*=\s*\{""",
+            setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL),
+        ).find(html) ?: return null
+        var depth = 0
+        var inString = false
+        var escaped = false
+        for (index in match.range.last + 1 until html.length) {
+            val char = html[index]
+            if (inString) {
+                when {
+                    escaped -> escaped = false
+                    char == '\\' -> escaped = true
+                    char == '"' -> inString = false
+                }
+                continue
+            }
+            when (char) {
+                '"' -> inString = true
+                '{' -> depth++
+                '}' -> {
+                    depth--
+                    if (depth == 0) return html.substring(match.range.last, index + 1)
+                }
+            }
+        }
+        return null
     }
 
     private fun decryptVoe(value: String): JSONObject {

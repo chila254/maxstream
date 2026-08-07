@@ -204,6 +204,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
   bool _disposed = false;
   bool _recoveringPlayback = false;
   int _playbackRetryCount = 0;
+  final Set<String> _failedServerUrls = {};
   bool _completionHandled = false;
   Duration _lastReportedPosition = Duration.zero;
   Duration _lastStablePosition = Duration.zero;
@@ -715,6 +716,7 @@ resumePosition: Duration.zero,
         _isBuffering = controller.value.isBuffering;
         _isLoading = false;
         _playbackRetryCount = 0;
+        _failedServerUrls.clear();
         _rebufferCount = 0;
         _lastRebufferTime = null;
         _lastReportedPosition = Duration.zero;
@@ -753,9 +755,14 @@ resumePosition: Duration.zero,
     if (value.isPlaying) {
       _isLoading = false;
     }
-    if (value.hasError && !_recoveringPlayback && _playbackRetryCount < 2) {
-      unawaited(_recoverPlayback());
-      _isBuffering = true;
+    if (value.hasError && !_recoveringPlayback) {
+      // Keep switching to other servers so a single dead source (e.g. an
+      // expired RPM HLS URL) never blocks playback.
+      final hasNext = _nextServer() != null;
+      if (_playbackRetryCount < 2 || hasNext) {
+        unawaited(_recoverPlayback());
+        _isBuffering = true;
+      }
     }
     final shouldRebuild = _isBuffering != wasBuffering || _isPlaying != wasPlaying || value.isInitialized;
     if (shouldRebuild && mounted) setState(() {});
@@ -829,7 +836,7 @@ resumePosition: Duration.zero,
   }
 
   Future<void> _recoverPlayback() async {
-    if (_recoveringPlayback || _playbackRetryCount >= 2) return;
+    if (_recoveringPlayback) return;
     final generation = _operationGeneration;
     _recoveringPlayback = true;
     _playbackRetryCount++;
@@ -844,6 +851,8 @@ resumePosition: Duration.zero,
       if (!_isCurrent(generation)) return;
       final next = _nextServer();
       if (next != null) {
+        final failedUrl = _currentStreamUrl;
+        if (failedUrl != null) _failedServerUrls.add(failedUrl);
         _showStatus('Trying ${next.source}...');
         await _initializePlayer(
           next,
@@ -880,7 +889,9 @@ resumePosition: Duration.zero,
     for (var i = 0; i < _availableServers.length; i++) {
       final candidate =
           _availableServers[(start + i) % _availableServers.length];
-      if (candidate.url.isNotEmpty && candidate.url != currentUrl) {
+      if (candidate.url.isNotEmpty &&
+          candidate.url != currentUrl &&
+          !_failedServerUrls.contains(candidate.url)) {
         return candidate;
       }
     }
