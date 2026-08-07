@@ -10,6 +10,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import '../providers/tv_navigation_provider.dart';
 import '../../services/direct_m3u8_service.dart';
 import '../../services/tmdb_api_service.dart';
+import '../../services/volume_boost_service.dart';
 import '../../services/watch_history_service.dart';
 
 class _QualityOption {
@@ -147,7 +148,7 @@ enum _Pc {
   subtitles(4, 0),
   quality(5, 0),
   server(6, 0),
-  volume(4, 1),
+  boost(4, 1),
   slider(0, 2);
 
   const _Pc(this.col, this.row);
@@ -180,6 +181,10 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
   bool _isLoading = true;
   String? _error;
   String _statusMessage = '';
+  double _boostDb = 0;
+
+  String get _boostLabel =>
+      _boostDb == 0 ? 'Off' : '+${_boostDb.round()} dB';
 
   List<_StreamCandidate> _availableServers = [];
   bool _serversLoading = false;
@@ -307,6 +312,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       _onPositionTick();
     });
 
+    _initVolumeBoost();
     _loadStream();
   }
 
@@ -381,6 +387,16 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     if (mounted) {
       setState(() => _statusMessage = message);
     }
+  }
+
+  /// Restores the persisted volume boost and applies it to the native player.
+  /// The gain processor reads the level per audio buffer, so playback that is
+  /// already starting picks it up immediately.
+  Future<void> _initVolumeBoost() async {
+    final saved = await VolumeBoostService.loadPersistedGainDb();
+    if (!mounted) return;
+    setState(() => _boostDb = saved);
+    await VolumeBoostService.setGainDb(saved);
   }
 
   bool _isCurrent(int generation) =>
@@ -1637,7 +1653,7 @@ resumePosition: Duration.zero,
         break;
       case _Pc.quality:
         if (key == LogicalKeyboardKey.arrowLeft) {
-          next = _Pc.volume;
+          next = _Pc.boost;
         } else if (key == LogicalKeyboardKey.arrowRight) {
           next = _Pc.subtitles;
         } else if (key == LogicalKeyboardKey.arrowUp) {
@@ -1646,12 +1662,12 @@ resumePosition: Duration.zero,
         break;
       case _Pc.server:
         if (key == LogicalKeyboardKey.arrowRight) {
-          next = _Pc.volume;
+          next = _Pc.boost;
         } else if (key == LogicalKeyboardKey.arrowUp) {
           next = _Pc.slider;
         }
         break;
-      case _Pc.volume:
+      case _Pc.boost:
         if (key == LogicalKeyboardKey.arrowLeft) {
           next = _Pc.server;
         } else if (key == LogicalKeyboardKey.arrowRight) {
@@ -1664,7 +1680,7 @@ resumePosition: Duration.zero,
         if (key == LogicalKeyboardKey.arrowUp) {
           next = _Pc.playPause;
         } else if (key == LogicalKeyboardKey.arrowDown) {
-          next = _Pc.volume;
+          next = _Pc.boost;
         }
         break;
     }
@@ -1707,21 +1723,23 @@ if (next != _currentControl) {
       case _Pc.server:
         _openMenu(_Pc.server);
         break;
-      case _Pc.volume:
-        _stepVolume();
+      case _Pc.boost:
+        unawaited(_cycleBoost());
         break;
       case _Pc.slider:
         break;
     }
   }
 
-  void _stepVolume() {
-    final player = _controller;
-    if (player == null) return;
-    final current = player.value.volume;
-    final next = current >= 1.0 ? 0.0 : 1.0;
-    player.setVolume(next);
-    _showStatus(next >= 1.0 ? 'Unmuted' : 'Muted');
+  Future<void> _cycleBoost() async {
+    final levels = VolumeBoostService.levels;
+    final currentIndex = levels.indexOf(_boostDb);
+    final nextIndex = (currentIndex < 0 ? -1 : currentIndex) + 1;
+    final next = levels[nextIndex % levels.length];
+    setState(() => _boostDb = next);
+    await VolumeBoostService.setGainDb(next);
+    await VolumeBoostService.persistGainDb(next);
+    _showStatus(next == 0 ? 'Volume boost off' : 'Volume boost +${next.round()} dB');
     _resetHideTimer();
   }
 
@@ -2030,15 +2048,14 @@ if (next != _currentControl) {
       onPress: () => _openMenu(_Pc.server),
     );
 
-    final volumeButton = _controlButton(
-      _Pc.volume,
-      (_controller?.value.volume ?? 1) == 0
-          ? Icons.volume_off
-          : Icons.volume_up,
-      'Volume',
+    final boostButton = _controlButton(
+      _Pc.boost,
+      _boostDb == 0 ? Icons.volume_up : Icons.graphic_eq,
+      'Boost',
       width: 112,
       height: 64,
-      onPress: _stepVolume,
+      label: _boostLabel,
+      onPress: _cycleBoost,
     );
 
     return Positioned.fill(
@@ -2113,7 +2130,7 @@ if (next != _currentControl) {
                       final startX = (constraints.maxWidth - rowWidth) / 2;
                       const menuIndex = <_Pc, int>{
                         _Pc.server: 0,
-                        _Pc.volume: 1,
+                        _Pc.boost: 1,
                         _Pc.quality: 2,
                         _Pc.subtitles: 3,
                       };
@@ -2130,7 +2147,7 @@ if (next != _currentControl) {
                                 children: [
                                   serverButton,
                                   const SizedBox(width: gap),
-                                  volumeButton,
+                                  boostButton,
                                   const SizedBox(width: gap),
                                   qualityButton,
                                   const SizedBox(width: gap),
@@ -2499,7 +2516,7 @@ if (next != _currentControl) {
       case _Pc.back:
       case _Pc.rewind:
       case _Pc.forward:
-      case _Pc.volume:
+      case _Pc.boost:
       case _Pc.slider:
         return const [];
     }
