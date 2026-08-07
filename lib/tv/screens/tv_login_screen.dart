@@ -291,7 +291,7 @@ class _TvLoginScreenState extends State<TvLoginScreen> {
       _showError('Please enter your email and password');
       return;
     }
-    if (!email.contains('@')) {
+    if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email)) {
       _showError('Please enter a valid email address');
       return;
     }

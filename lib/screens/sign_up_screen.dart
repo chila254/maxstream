@@ -214,8 +214,13 @@ class _SignUpScreenState extends State<SignUpScreen> with SingleTickerProviderSt
                                     style: const TextStyle(color: Colors.white),
                                     autofillHints: const [AutofillHints.email],
                                     decoration: _inputDecoration(label: 'Email'),
-                                    validator: (value) =>
-                                        value == null || !value.contains('@') ? 'Enter a valid email' : null,
+                                    validator: (value) {
+                                      final email = value?.trim() ?? '';
+                                      final valid = RegExp(
+                                        r'^[^@\s]+@[^@\s]+\.[^@\s]+$',
+                                      ).hasMatch(email);
+                                      return valid ? null : 'Enter a valid email';
+                                    },
                                   ),
                                   const SizedBox(height: 12),
                                   TextFormField(

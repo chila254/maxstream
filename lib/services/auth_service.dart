@@ -5,7 +5,16 @@ import 'secure_password_service.dart';
 
 class AuthService {
   static final FirebaseAuth _auth = FirebaseAuth.instance;
-  static final GoogleSignIn _googleSignIn = GoogleSignIn();
+
+  // Web OAuth client ID (client_type 3 in google-services.json). Required so
+  // google_sign_in returns an idToken that Firebase Auth can verify; without
+  // it `googleUser.authentication` may return a null idToken on Android.
+  static const String _googleServerClientId =
+      '799710852137-csceotikflpa96b2b8j6pdbjqimbngt7.apps.googleusercontent.com';
+
+  static final GoogleSignIn _googleSignIn = GoogleSignIn(
+    serverClientId: _googleServerClientId,
+  );
 
   static Future<User?> signUpWithEmail(String email, String password) async {
     try {
@@ -78,11 +87,15 @@ class AuthService {
       final GoogleSignInAuthentication googleAuth =
           await googleUser.authentication;
 
-      // Verify we have the required tokens
-      if (googleAuth.accessToken == null || googleAuth.idToken == null) {
+      // Verify we have at least one usable token. Firebase can exchange either
+      // the idToken or the accessToken.
+      if (googleAuth.accessToken == null && googleAuth.idToken == null) {
         print('Failed to retrieve Google authentication tokens');
         throw Exception(
-          'Failed to retrieve Google authentication tokens. Please try again.',
+          'Failed to retrieve Google authentication token. Please try again '
+          'later. If this persists, make sure the app\'s SHA-1 signing '
+          'fingerprint is registered under Google Sign-In in the Firebase '
+          'console, then rebuild the app.',
         );
       }
 
