@@ -79,7 +79,7 @@ class _TvSidebarNavigationState extends State<TvSidebarNavigation>
 
   KeyEventResult _handleKeyEvent(KeyEvent event, int itemIndex) {
     if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
-      return KeyEventResult.handled;
+      return KeyEventResult.ignored;
     }
 
     if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
@@ -103,7 +103,11 @@ class _TvSidebarNavigationState extends State<TvSidebarNavigation>
       return KeyEventResult.handled;
     }
 
-    return KeyEventResult.handled;
+    // Unhandled keys (back/escape in particular) must bubble up so the
+    // app-level PopScope handler can run: on a non-Home tab a second back
+    // press should switch to the Home tab, and on Home it shows the exit
+    // dialog. Returning handled here swallows back entirely.
+    return KeyEventResult.ignored;
   }
 
   @override

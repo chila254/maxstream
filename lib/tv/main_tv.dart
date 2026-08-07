@@ -1,10 +1,14 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:ui' show PlatformDispatcher;
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../firebase_options.dart';
+import '../services/logger_service.dart';
 import '../services/notification_service.dart';
 import '../widgets/cloud_sync_bootstrap.dart';
 import 'screens/tv_login_screen.dart';
@@ -13,7 +17,13 @@ import 'screens/tv_splash_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await _installCrashLogger();
+  runZonedGuarded(_bootstrap, (error, stack) {
+    _reportCrash('UncaughtZone', error, stack);
+  });
+}
 
+Future<void> _bootstrap() async {
   try {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
@@ -25,6 +35,43 @@ void main() async {
     runApp(const MaxStreamTV());
   } catch (e) {
     runApp(ErrorApp(error: e));
+  }
+}
+
+File? _crashLogFile;
+
+Future<void> _installCrashLogger() async {
+  try {
+    final dir = await getApplicationDocumentsDirectory();
+    _crashLogFile = File('${dir.path}/maxstream_crash.log');
+  } catch (_) {
+    _crashLogFile = null;
+  }
+
+  FlutterError.onError = (FlutterErrorDetails details) {
+    _reportCrash(
+      'FlutterError',
+      details.exception,
+      details.stack ?? StackTrace.current,
+    );
+  };
+
+  PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
+    _reportCrash('PlatformDispatcher', error, stack);
+    // Mark as handled so the error does not terminate the Flutter engine.
+    return true;
+  };
+}
+
+Future<void> _reportCrash(String tag, Object error, StackTrace stack) async {
+  final line = '[${DateTime.now()}] [$tag] $error\n$stack\n';
+  LoggerService.error('[$tag] $error', error, stack);
+  final file = _crashLogFile;
+  if (file == null) return;
+  try {
+    await file.writeAsString(line, mode: FileMode.append);
+  } catch (_) {
+    // Logging must never crash the app.
   }
 }
 

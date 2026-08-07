@@ -221,7 +221,13 @@ class _TvMaxStreamMainState extends State<TvMaxStreamMain> {
       child: PopScope(
         canPop: false,
         onPopInvokedWithResult: (didPop, result) {
-          if (!didPop) _handleSystemBack();
+          if (!didPop) {
+            try {
+              _handleSystemBack();
+            } catch (e, st) {
+              debugPrint('MAXSTREAM: back handler threw: $e\n$st');
+            }
+          }
         },
         child: Navigator(
           key: _navigatorKey,

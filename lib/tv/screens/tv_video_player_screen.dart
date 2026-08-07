@@ -355,7 +355,11 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         state == AppLifecycleState.inactive ||
         state == AppLifecycleState.detached) {
       _saveProgress();
-      _controller?.pause();
+      try {
+        _controller?.pause();
+      } catch (e, st) {
+        debugPrint('TvVideoPlayer: lifecycle pause failed: $e\n$st');
+      }
     }
   }
 
@@ -1767,12 +1771,16 @@ if (next != _currentControl) {
     final controller = _controller;
     if (controller == null || _disposed || !mounted) return;
     final isCurrentlyPlaying = controller.value.isPlaying;
-    if (isCurrentlyPlaying) {
-      controller.pause();
-      _showStatus('Paused');
-    } else if (!isCurrentlyPlaying && !controller.value.isBuffering) {
-      _unpauseWithWake();
-      _showStatus('Playing');
+    try {
+      if (isCurrentlyPlaying) {
+        controller.pause();
+        _showStatus('Paused');
+      } else if (!isCurrentlyPlaying && !controller.value.isBuffering) {
+        _unpauseWithWake();
+        _showStatus('Playing');
+      }
+    } catch (e, st) {
+      debugPrint('TvVideoPlayer: play/pause failed: $e\n$st');
     }
     _resetHideTimer();
   }
@@ -2539,9 +2547,13 @@ if (next != _currentControl) {
     final controller = _controller;
     if (controller == null) return;
     if (!controller.value.isPlaying && !controller.value.isBuffering) {
-      controller.play();
-      _isPlaying = true;
-      _isLoading = false;
+      try {
+        controller.play();
+        _isPlaying = true;
+        _isLoading = false;
+      } catch (e, st) {
+        debugPrint('TvVideoPlayer: resume failed: $e\n$st');
+      }
     }
   }
 
