@@ -22,6 +22,7 @@ import io.flutter.plugin.platform.PlatformView;
  */
 public final class PlatformVideoView implements PlatformView {
   @NonNull private final SurfaceView surfaceView;
+  private boolean disposed = false;
 
   /**
    * Constructs a new PlatformVideoView.
@@ -61,7 +62,20 @@ public final class PlatformVideoView implements PlatformView {
               public void surfaceDestroyed(@NonNull SurfaceHolder holder) {
                 // Use clearVideoSurface to ensure we only unbind if this surface is currently
                 // active.
-                exoPlayer.clearVideoSurface(holder.getSurface());
+                if (disposed) {
+                  return;
+                }
+                Surface surface = holder.getSurface();
+                if (surface == null || !surface.isValid()) {
+                  return;
+                }
+                try {
+                  exoPlayer.clearVideoSurface(surface);
+                } catch (IllegalStateException e) {
+                  // The player may already be released if the Flutter engine disposes the
+                  // platform view after the Dart-side controller.dispose() released it.
+                  // Ignore, as there is nothing left to unbind.
+                }
               }
             });
   }
@@ -101,7 +115,15 @@ public final class PlatformVideoView implements PlatformView {
       super.onVisibilityChanged(changedView, visibility);
       // When the view becomes visible again, re-attach the current surface.
       if (visibility == View.VISIBLE && isShown()) {
-        bindPlayerToSurface(exoPlayer, getHolder().getSurface());
+        Surface surface = getHolder().getSurface();
+        if (surface == null || !surface.isValid()) {
+          return;
+        }
+        try {
+          bindPlayerToSurface(exoPlayer, surface);
+        } catch (IllegalStateException e) {
+          // The player may already be released while this view is being torn down.
+        }
       }
     }
   }
@@ -120,6 +142,16 @@ public final class PlatformVideoView implements PlatformView {
   /** Disposes of the resources used by this PlatformView. */
   @Override
   public void dispose() {
-    surfaceView.getHolder().getSurface().release();
+    disposed = true;
+    Surface surface = surfaceView.getHolder().getSurface();
+    if (surface == null || !surface.isValid()) {
+      return;
+    }
+    try {
+      surface.release();
+    } catch (RuntimeException e) {
+      // The surface may have already been released by the engine during teardown.
+      // Ignore, as the surface is no longer usable.
+    }
   }
 }

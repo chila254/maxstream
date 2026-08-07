@@ -14,7 +14,7 @@ import androidx.media3.common.MimeTypes;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.datasource.DataSource;
 import androidx.media3.datasource.DefaultDataSource;
-import androidx.media3.datasource.DefaultHttpDataSource;
+import androidx.media3.datasource.okhttp.OkHttpDataSource;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 import androidx.media3.exoplayer.source.MediaSource;
 import java.util.Map;
@@ -60,7 +60,7 @@ final class HttpVideoAsset extends VideoAsset {
   @NonNull
   @Override
   public MediaSource.Factory getMediaSourceFactory(@NonNull Context context) {
-    return getMediaSourceFactory(context, new DefaultHttpDataSource.Factory());
+    return getMediaSourceFactory(context, new OkHttpDataSource.Factory());
   }
 
   /**
@@ -74,7 +74,7 @@ final class HttpVideoAsset extends VideoAsset {
    */
   @VisibleForTesting
   MediaSource.Factory getMediaSourceFactory(
-      Context context, DefaultHttpDataSource.Factory initialFactory) {
+      Context context, OkHttpDataSource.Factory initialFactory) {
     unstableUpdateDataSourceFactory(initialFactory, httpHeaders, userAgent);
     DataSource.Factory dataSourceFactory = new DefaultDataSource.Factory(context, initialFactory);
     return new DefaultMediaSourceFactory(context).setDataSourceFactory(dataSourceFactory);
@@ -83,7 +83,7 @@ final class HttpVideoAsset extends VideoAsset {
   // TODO: Migrate to stable API, see https://github.com/flutter/flutter/issues/147039.
   @OptIn(markerClass = UnstableApi.class)
   private static void unstableUpdateDataSourceFactory(
-      @NonNull DefaultHttpDataSource.Factory factory,
+      @NonNull OkHttpDataSource.Factory factory,
       @NonNull Map<String, String> httpHeaders,
       @Nullable String userAgent) {
     factory.setUserAgent(userAgent).setAllowCrossProtocolRedirects(true);

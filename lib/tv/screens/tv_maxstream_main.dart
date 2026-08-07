@@ -140,9 +140,62 @@ class _TvMaxStreamMainState extends State<TvMaxStreamMain> {
       navigator!.pop();
       return;
     }
-    if (!_navProvider.focusOnSidebar) {
-      _focusSidebar();
-    } else {
+    // On any tab other than Home, back never exits the app: it first returns
+    // focus to the sidebar, then the next back press lands on the Home tab.
+    if (_navProvider.selectedTab != 0) {
+      if (!_navProvider.focusOnSidebar) {
+        _focusSidebar();
+      } else {
+        _navProvider.selectTab(0);
+        _focusContent();
+      }
+      return;
+    }
+    // On Home, ask for confirmation before leaving the app.
+    _confirmExit();
+  }
+
+  Future<void> _confirmExit() async {
+    final shouldExit = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E1E),
+        title: const Text(
+          'Exit MaxStream?',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 24,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        content: const Text(
+          'Do you want to exit the app?',
+          style: TextStyle(color: Colors.white70, fontSize: 18),
+        ),
+        actions: [
+          TextButton(
+            autofocus: true,
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(color: Colors.grey, fontSize: 18),
+            ),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFFE50914),
+            ),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text(
+              'Yes',
+              style: TextStyle(color: Colors.white, fontSize: 18),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (shouldExit == true && mounted) {
       SystemNavigator.pop();
     }
   }
