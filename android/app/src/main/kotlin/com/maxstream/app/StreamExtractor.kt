@@ -757,7 +757,133 @@ class StreamExtractor(private val context: Context) {
         override val name = "VidLink"
         override fun supports(server: StreamServer) = host(server.url).endsWith("vidlink.pro")
 
+        private val vidLinkKey = hexToBytes(
+            "c75136c5668bbfe65a7ecad431a745db68b5f381555b38d8f6c699449cf11fcd"
+        )
+
         override suspend fun extract(server: StreamServer): ExtractionResult {
+            runCatching { extractViaHttp(server) }
+                .getOrNull()
+                ?.let { return it }
+            Log.i(tag, "VidLink HTTP extraction failed; falling back to WebView hook")
+            return extractViaWebView(server)
+        }
+
+        /** Native VidLink bypass: XSalsa20 token -> /api/b/ -> plaintext JSON MP4 playlist. */
+        private suspend fun extractViaHttp(server: StreamServer): ExtractionResult {
+            return withContext(Dispatchers.IO) {
+                val path = URI(server.url).path.orEmpty()
+                val segments = path.split('/').filter { it.isNotBlank() }
+                val isMovie = segments.firstOrNull().equals("movie", true)
+                val isTv = segments.firstOrNull().equals("tv", true)
+                require(isMovie || isTv) { "Unsupported VidLink URL: $path" }
+                require(segments.size >= 2) { "VidLink URL missing media id" }
+                val mediaId = segments[1]
+
+                val timestamp = System.currentTimeMillis() / 1000 + 480
+                val message = mediaId.toByteArray(Charsets.UTF_8) + byteArrayOf(
+                    ((timestamp ushr 56) and 0xff).toByte(),
+                    ((timestamp ushr 48) and 0xff).toByte(),
+                    ((timestamp ushr 40) and 0xff).toByte(),
+                    ((timestamp ushr 32) and 0xff).toByte(),
+                    ((timestamp ushr 24) and 0xff).toByte(),
+                    ((timestamp ushr 16) and 0xff).toByte(),
+                    ((timestamp ushr 8) and 0xff).toByte(),
+                    (timestamp and 0xff).toByte(),
+                )
+                val nonce = ByteArray(24)
+                val token = Base64.encodeToString(
+                    nonce + SalsaSecretBox.secretboxDetached(message, vidLinkKey, nonce),
+                    Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING,
+                )
+
+                val apiUrl = if (isMovie) {
+                    "https://vidlink.pro/api/b/movie/$token?multiLang=1"
+                } else {
+                    require(segments.size >= 4) { "VidLink TV URL missing season/episode" }
+                    "https://vidlink.pro/api/b/tv/$token/${segments[2]}/${segments[3]}?multiLang=1"
+                }
+
+                requireSafeOutboundUrl(apiUrl)
+                val request = Request.Builder()
+                    .url(apiUrl)
+                    .header("User-Agent", userAgent)
+                    .header("Origin", "https://vidlink.pro")
+                    .header("Referer", "https://vidlink.pro/")
+                    .build()
+                val response = client.newCall(request).execute()
+                require(response.isSuccessful) { "VidLink /api/b/ HTTP ${response.code}" }
+                val body = response.body?.string() ?: throw IllegalStateException("VidLink empty response")
+                val json = JSONObject(body)
+                val stream = json.optJSONObject("stream")
+                    ?: throw IllegalStateException("VidLink response has no stream")
+
+                val qualities = stream.optJSONObject("qualities")
+                require(qualities != null && qualities.length() > 0) {
+                    "VidLink stream has no playable qualities"
+                }
+
+                var bestUrl: String? = null
+                var bestHeight = -1
+                var bestHeaders: Map<String, String> = refererHeaders("https://vidlink.pro/")
+                val qualityOptions = mutableListOf<QualityOption>()
+                val iterator = qualities.keys()
+                while (iterator.hasNext()) {
+                    val label = iterator.next()
+                    val entry = qualities.optJSONObject(label) ?: continue
+                    val url = entry.optString("url").ifBlank { continue }
+                    val height = label.toIntOrNull() ?: 0
+                    val entryHeaders = entry.optJSONObject("headers")?.let { h ->
+                        buildMap {
+                            h.keys().forEach { key ->
+                                val value = h.optString(key)
+                                if (value.isNotBlank()) put(key, value)
+                            }
+                        }
+                    } ?: emptyMap()
+                    val mediaHeaders = if (entry.optBoolean("requiresProxy", false)) {
+                        refererHeaders(entryHeaders["referer"] ?: "https://filmboom.top/") + entryHeaders
+                    } else {
+                        refererHeaders("https://vidlink.pro/")
+                    }
+                    qualityOptions += QualityOption("${label}p", url, height)
+                    if (height > bestHeight) {
+                        bestHeight = height
+                        bestUrl = url
+                        bestHeaders = mediaHeaders
+                    }
+                }
+
+                val captions = stream.optJSONArray("captions")?.let { items ->
+                    (0 until items.length()).mapNotNull { index ->
+                        val item = items.optJSONObject(index) ?: return@mapNotNull null
+                        val rawUrl = item.optString("url").ifBlank { item.optString("id") }
+                        if (rawUrl.isBlank()) return@mapNotNull null
+                        val captionUrl = if (rawUrl.startsWith("http")) rawUrl
+                            else resolveUrl(server.url, rawUrl)
+                        SubtitleOption(
+                            item.optString("language", "Subtitle"),
+                            captionUrl,
+                            source = "VidLink",
+                        )
+                    }
+                }.orEmpty()
+
+                val url = bestUrl ?: throw IllegalStateException("VidLink no quality URL")
+                ExtractionResult.Final(
+                    StreamResult(
+                        url,
+                        name,
+                        mediaType(url),
+                        bestHeaders,
+                        qualities = qualityOptions.sortedByDescending { it.height },
+                        subtitles = captions,
+                    )
+                )
+            }
+        }
+
+        private suspend fun extractViaWebView(server: StreamServer): ExtractionResult {
             return withContext(Dispatchers.Main) {
                 withTimeout(45_000) {
                     suspendCancellableCoroutine { continuation ->
@@ -3187,6 +3313,14 @@ class StreamExtractor(private val context: Context) {
     private fun encode(value: String) = URLEncoder.encode(value, Charsets.UTF_8.name())
     private fun isMediaUrl(url: String) = url.contains(".m3u8", true) || url.contains(".mp4", true)
     private fun mediaType(url: String) = if (url.contains(".m3u8", true)) "direct_m3u8" else "direct_video"
+
+    private fun hexToBytes(hex: String): ByteArray {
+        val normalized = hex.removePrefix("0x").trim()
+        require(normalized.length % 2 == 0) { "Invalid hex string" }
+        return ByteArray(normalized.length / 2) { index ->
+            normalized.substring(index * 2, index * 2 + 2).toInt(16).toByte()
+        }
+    }
 
     private fun aesCbcEncrypt(value: String, passphrase: String): String {
         val key = passphrase.toByteArray()
