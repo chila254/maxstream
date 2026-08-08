@@ -756,7 +756,11 @@ resumePosition: Duration.zero,
       });
 
       previous?.removeListener(_handlePlaybackChanged);
-      await previous?.dispose();
+      try {
+        await previous?.dispose();
+      } catch (e, st) {
+        debugPrint('TvVideoPlayer: disposing previous player failed: $e\n$st');
+      }
       _startProgressSaving();
       _showControlsAndFocus();
       return true;
@@ -881,6 +885,28 @@ resumePosition: Duration.zero,
     await Future<void>.delayed(Duration(seconds: _playbackRetryCount * 2));
     try {
       if (!_isCurrent(generation)) return;
+
+      // Tear down the failed player's platform view BEFORE creating the next
+      // one. Overlapping a fresh SurfaceView with the old one's teardown (and
+      // the old ExoPlayer's release) crashes the fragile compositor on some TV
+      // boxes; mobile uses the texture path so it never hits this. Serialize
+      // the lifecycle so a new view is only ever created once the old one is
+      // fully gone.
+      if (_controller != null) {
+        final stale = _controller;
+        _controller?.removeListener(_handlePlaybackChanged);
+        setState(() {
+          _controller = null;
+          _isBuffering = true;
+          _statusMessage = 'Recovering playback...';
+        });
+        try {
+          await stale?.dispose();
+        } catch (e, st) {
+          debugPrint('TvVideoPlayer: dispose during recovery failed: $e\n$st');
+        }
+      }
+
       // Re-resolve streams fresh: discovered URLs (esp. VixSrc tokens) expire
       // quickly, so fall back to freshly extracted servers instead of stale
       // entries that ExoPlayer rejects with a source error.
@@ -902,6 +928,9 @@ resumePosition: Duration.zero,
         if (initialized || !_isCurrent(generation)) break;
         _failedServerUrls.add(next.url);
         next = _nextServer();
+        if (next != null) {
+          await Future<void>.delayed(const Duration(milliseconds: 500));
+        }
       }
       if (!initialized && _currentCandidate != null) {
         await _initializePlayer(
