@@ -204,6 +204,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
   Timer? _progressTimer;
   Timer? _positionTimer;
   Timer? _initTimeout;
+  Timer? _statusTimer;
   int _operationGeneration = 0;
   bool _switchingServer = false;
   bool _findingFallback = false;
@@ -326,6 +327,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     _progressTimer?.cancel();
     _positionTimer?.cancel();
     _initTimeout?.cancel();
+    _statusTimer?.cancel();
     _popGuardTimer?.cancel();
     _saveProgress();
     _controller?.removeListener(_handlePlaybackChanged);
@@ -389,9 +391,16 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
 
   void _showStatus(String message) {
     debugPrint('TvVideoPlayer: $message');
-    if (mounted) {
-      setState(() => _statusMessage = message);
-    }
+    if (!mounted) return;
+    setState(() => _statusMessage = message);
+    // Auto-dismiss transient feedback (Paused/Playing/volume/seek) so it never
+    // lingers at the center of the screen. Persistent states (loading a
+    // stream, recovering) write _statusMessage directly instead of relying on
+    // this timer.
+    _statusTimer?.cancel();
+    _statusTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted) setState(() => _statusMessage = '');
+    });
   }
 
   /// Restores the persisted volume boost and applies it to the native player.
@@ -450,7 +459,11 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         );
         // Pre-flight the stream before ExoPlayer ever sees it so a dead or
         // expired-token URL falls through to a working server instead of
-        // surfacing a source error.
+        // surfacing a source error. The whole resolution-to-play path below is
+        // one continuous "find a working stream" attempt, so even a failure of
+        // the primary candidate must keep the friendly waiting state rather
+        // than flashing a terminal error.
+        _findingFallback = true;
         var initialized = false;
         if (await _isStreamPlayable(candidate)) {
           initialized = await _initializePlayer(
@@ -467,7 +480,6 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
           setState(() {
             _statusMessage = 'That stream is unavailable. Finding a working one...';
           });
-          _findingFallback = true;
           await _discoverAvailableServers(generation);
           if (!_isCurrent(generation)) return;
           // Prefer servers that pass the pre-flight check, but never block the
@@ -480,15 +492,20 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
             (await _isStreamPlayable(alt) ? validated : unvalidated).add(alt);
           }
           for (final alt in [...validated, ...unvalidated]) {
+            if (!_isCurrent(generation) || initialized) break;
+            // Let a failed platform view fully release before the next
+            // SurfaceView is created; overlapping them crashes the compositor
+            // on some TV boxes.
+            await Future<void>.delayed(const Duration(milliseconds: 400));
+            if (!_isCurrent(generation) || initialized) break;
             initialized = await _initializePlayer(
               alt,
               generation: generation,
               resumePosition: null,
             );
-            if (initialized || !_isCurrent(generation)) break;
           }
-          _findingFallback = false;
         }
+        _findingFallback = false;
         if (!initialized) return;
         _loadDefaultSubtitle(_currentCandidate ?? candidate);
         _discoverAvailableServers(generation);
@@ -651,11 +668,13 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         return;
       }
       final candidate = _StreamCandidate.fromMap(result);
+      _findingFallback = true;
       final initialized = await _initializePlayer(
         candidate,
         generation: generation,
-resumePosition: Duration.zero,
+        resumePosition: Duration.zero,
       );
+      _findingFallback = false;
       if (!initialized || !_isCurrent(generation)) {
         _loadingNext = false;
         return;
@@ -793,6 +812,7 @@ resumePosition: Duration.zero,
           // working stream" state instead of flashing a terminal error between
           // server attempts.
           setState(() {
+            _error = null;
             _isLoading = true;
             _statusMessage =
                 'That stream is unavailable. Finding a working one...';
@@ -825,12 +845,11 @@ resumePosition: Duration.zero,
     if (value.hasError && !_recoveringPlayback) {
       // Keep switching to other servers so a single dead source (e.g. an
       // expired RPM HLS URL) never blocks playback. Recovery re-resolves
-      // streams fresh, so allow a few rounds even without a known next server.
-      final hasNext = _nextServer() != null;
-      if (_playbackRetryCount < 3 || hasNext) {
-        unawaited(_recoverPlayback());
-        _isBuffering = true;
-      }
+      // streams fresh and is the one that decides when every server has truly
+      // failed, so never suppress it here: leaving the dead player on screen is
+      // exactly the "error in the middle" bug.
+      unawaited(_recoverPlayback());
+      _isBuffering = true;
     }
     final shouldRebuild = _isBuffering != wasBuffering || _isPlaying != wasPlaying || value.isInitialized;
     if (shouldRebuild && mounted) setState(() {});
@@ -910,6 +929,7 @@ resumePosition: Duration.zero,
     _playbackRetryCount++;
     if (mounted) {
       setState(() {
+        _error = null;
         _isBuffering = true;
         _statusMessage = 'The stream stopped. Finding a working one...';
       });
@@ -960,6 +980,11 @@ resumePosition: Duration.zero,
       for (final next in [...validated, ...unvalidated]) {
         if (!_isCurrent(generation) || initialized) break;
         if (!tried.add(next.url)) continue;
+        // Give the torn-down platform view a moment to fully release before a
+        // new SurfaceView is created; overlapping them crashes the compositor
+        // on some TV boxes.
+        await Future<void>.delayed(const Duration(milliseconds: 400));
+        if (!_isCurrent(generation) || initialized) break;
         _showStatus('Loading a working stream from ${next.source}...');
         initialized = await _initializePlayer(
           next,
@@ -995,42 +1020,6 @@ resumePosition: Duration.zero,
       candidate.url,
       headers: candidate.headers,
     );
-  }
-
-  _StreamCandidate? _nextServer() {
-    final currentUrl = _currentStreamUrl;
-    if (_availableServers.length <= 1 || currentUrl == null) return null;
-    final currentIndex = _availableServers.indexWhere(
-      (s) => s.url == currentUrl,
-    );
-    final start =
-        (currentIndex < 0 ? 0 : currentIndex + 1) % _availableServers.length;
-    for (var i = 0; i < _availableServers.length; i++) {
-      final candidate =
-          _availableServers[(start + i) % _availableServers.length];
-      if (candidate.url.isNotEmpty &&
-          candidate.url != currentUrl &&
-          !_failedServerUrls.contains(candidate.url)) {
-        return candidate;
-      }
-    }
-    return null;
-  }
-
-  _StreamCandidate? _nextServerAfter(String url) {
-    if (_availableServers.length <= 1) return null;
-    final index = _availableServers.indexWhere((s) => s.url == url);
-    final start = (index < 0 ? 0 : index + 1) % _availableServers.length;
-    for (var i = 0; i < _availableServers.length; i++) {
-      final candidate =
-          _availableServers[(start + i) % _availableServers.length];
-      if (candidate.url.isNotEmpty &&
-          candidate.url != url &&
-          !_failedServerUrls.contains(candidate.url)) {
-        return candidate;
-      }
-    }
-    return null;
   }
 
   Future<void> _discoverAvailableServers(int generation) async {
@@ -1100,30 +1089,38 @@ resumePosition: Duration.zero,
     final freshTarget = _availableServers
         .where((s) => s.source == server.source)
         .firstOrNull;
-    var current = freshTarget ?? server;
+    final current = freshTarget ?? server;
+    // Prefer servers that pass the pre-flight check, but never block the player
+    // from trying the rest: validation can miss streams a CDN will happily
+    // serve to ExoPlayer, which is the final arbiter.
+    final validated = <_StreamCandidate>[];
+    final unvalidated = <_StreamCandidate>[];
+    for (final s in _availableServers) {
+      if (s.url == current.url) continue;
+      (await _isStreamPlayable(s) ? validated : unvalidated).add(s);
+    }
     var initialized = false;
     final tried = <String>{};
-    while (_isCurrent(generation) && !initialized) {
-      if (!tried.add(current.url)) break;
-      // Skip dead or expired-token servers before ExoPlayer ever sees them.
-      if (!await _isStreamPlayable(current)) {
-        _failedServerUrls.add(current.url);
-        final nextAfter = _nextServerAfter(current.url);
-        if (nextAfter == null) break;
-        current = nextAfter;
+    for (final candidate in [current, ...validated, ...unvalidated]) {
+      if (!_isCurrent(generation) || initialized) break;
+      if (!tried.add(candidate.url)) continue;
+      if (candidate.url == current.url && !await _isStreamPlayable(candidate)) {
+        _failedServerUrls.add(candidate.url);
         continue;
       }
-      _showStatus('Loading a working stream from ${current.source}...');
+      // Let a torn-down platform view fully release before the next
+      // SurfaceView is created; overlapping them crashes the compositor on
+      // some TV boxes.
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      if (!_isCurrent(generation) || initialized) break;
+      _showStatus('Loading a working stream from ${candidate.source}...');
       initialized = await _initializePlayer(
-        current,
+        candidate,
         generation: generation,
         resumePosition: livePosition,
       );
       if (initialized || !_isCurrent(generation)) break;
-      _failedServerUrls.add(current.url);
-      final next = _nextServerAfter(current.url);
-      if (next == null) break;
-      current = next;
+      _failedServerUrls.add(candidate.url);
     }
 
     if (!_isCurrent(generation)) return;
