@@ -685,43 +685,54 @@ resumePosition: Duration.zero,
         formatHint: isHls ? VideoFormat.hls : null,
         viewType: VideoViewType.platformView,
         videoPlayerOptions: VideoPlayerOptions(
-          backBufferDurationMs: 15000,
+          backBufferDurationMs: 3000,
           allowBackgroundPlayback: false,
         ),
       );
 
-      await controller.initialize();
-      if (!_isCurrent(generation)) {
-        await controller.dispose();
-        return false;
-      }
-
-      final target =
-          resumePosition ??
-          await WatchHistoryService.loadWatchPosition(
-            widget.tmdbId,
-            widget.isMovie,
-            widget.season,
-            widget.episode,
-          );
-      if (!_isCurrent(generation)) {
-        await controller.dispose();
-        return false;
-      }
-      if (target > Duration.zero) {
-        await controller.seekTo(target);
+      try {
+        await controller.initialize();
         if (!_isCurrent(generation)) {
           await controller.dispose();
           return false;
         }
-      }
 
-      controller.addListener(_handlePlaybackChanged);
-      await controller.play();
-      if (!_isCurrent(generation)) {
-        controller.removeListener(_handlePlaybackChanged);
-        await controller.dispose();
-        return false;
+        final target =
+            resumePosition ??
+            await WatchHistoryService.loadWatchPosition(
+              widget.tmdbId,
+              widget.isMovie,
+              widget.season,
+              widget.episode,
+            );
+        if (!_isCurrent(generation)) {
+          await controller.dispose();
+          return false;
+        }
+        if (target > Duration.zero) {
+          await controller.seekTo(target);
+          if (!_isCurrent(generation)) {
+            await controller.dispose();
+            return false;
+          }
+        }
+
+        controller.addListener(_handlePlaybackChanged);
+        await controller.play();
+        if (!_isCurrent(generation)) {
+          controller.removeListener(_handlePlaybackChanged);
+          await controller.dispose();
+          return false;
+        }
+      } catch (e) {
+        // Never leak the native player: a failed start (e.g. a dead HLS
+        // playlist) would otherwise leave an ExoPlayer + MediaCodec + audio
+        // sink behind, and the server-switch/recovery loops repeat this many
+        // times, exhausting memory and MediaCodec slots on TV boxes.
+        try {
+          await controller.dispose();
+        } catch (_) {}
+        rethrow;
       }
 
       _initTimeout?.cancel();

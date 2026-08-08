@@ -44,7 +44,12 @@ public final class GainAudioProcessor extends BaseAudioProcessor {
   @UnstableApi
   @Override
   public boolean isActive() {
-    return isSupportedEncoding() && Math.abs(VolumeBoost.getGainDb()) > 1e-3f;
+    // Only apply the gain once a valid PCM format is configured; a missing
+    // sample rate or channel count would otherwise produce a bogus frame size.
+    return isSupportedEncoding()
+        && sampleRate != Format.NO_VALUE
+        && channelCount > 0
+        && Math.abs(VolumeBoost.getGainDb()) > 1e-3f;
   }
 
   @UnstableApi
@@ -56,8 +61,14 @@ public final class GainAudioProcessor extends BaseAudioProcessor {
     int position = inputBuffer.position();
     int limit = inputBuffer.limit();
     int frameSize = Util.getPcmFrameSize(encoding, channelCount);
+    if (frameSize <= 0) {
+      // Invalid frame size; consume the chunk so the sink does not re-feed it.
+      inputBuffer.position(limit);
+      return;
+    }
     int frameCount = (limit - position) / frameSize;
     if (frameCount == 0) {
+      inputBuffer.position(limit);
       return;
     }
     final float scale = (float) Math.pow(10.0, VolumeBoost.getGainDb() / 20.0);

@@ -22,6 +22,8 @@ import io.flutter.plugin.platform.PlatformView;
  */
 public final class PlatformVideoView implements PlatformView {
   @NonNull private final SurfaceView surfaceView;
+  @NonNull private final ExoPlayer exoPlayer;
+  private final boolean ownsExoPlayer;
   private boolean disposed = false;
 
   /**
@@ -32,7 +34,23 @@ public final class PlatformVideoView implements PlatformView {
    */
   @OptIn(markerClass = UnstableApi.class)
   public PlatformVideoView(@NonNull Context context, @NonNull ExoPlayer exoPlayer) {
+    this(context, exoPlayer, false);
+  }
+
+  /**
+   * Constructs a new PlatformVideoView.
+   *
+   * @param ownsExoPlayer whether this view created the player itself and must release it on
+   *     dispose. Only the fallback player built when no active player exists (rapid server
+   *     switching) is owned; a real player is owned and released by the plugin's {@link
+   *     VideoPlayer}, so it must not be released here or it would be double-released.
+   */
+  @OptIn(markerClass = UnstableApi.class)
+  public PlatformVideoView(
+      @NonNull Context context, @NonNull ExoPlayer exoPlayer, boolean ownsExoPlayer) {
     this.surfaceView = new VideoSurfaceView(context, exoPlayer);
+    this.exoPlayer = exoPlayer;
+    this.ownsExoPlayer = ownsExoPlayer;
 
     setupSurfaceWithCallback(exoPlayer);
 
@@ -157,14 +175,20 @@ public final class PlatformVideoView implements PlatformView {
   public void dispose() {
     disposed = true;
     Surface surface = surfaceView.getHolder().getSurface();
-    if (surface == null || !surface.isValid()) {
-      return;
+    if (surface != null && surface.isValid()) {
+      try {
+        surface.release();
+      } catch (RuntimeException e) {
+        // The surface may have already been released by the engine during teardown.
+        // Ignore, as the surface is no longer usable.
+      }
     }
-    try {
-      surface.release();
-    } catch (RuntimeException e) {
-      // The surface may have already been released by the engine during teardown.
-      // Ignore, as the surface is no longer usable.
+    if (ownsExoPlayer) {
+      try {
+        exoPlayer.release();
+      } catch (RuntimeException e) {
+        // The fallback player may already be released; ignore.
+      }
     }
   }
 }

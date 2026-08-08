@@ -65,9 +65,13 @@ public class PlatformVideoViewFactory extends PlatformViewFactory {
     // it while the platform view for the previous player was still being
     // attached (rapid server switching). Never crash: return a blank view.
     final VideoPlayer player = videoPlayerProvider.getVideoPlayer(playerId);
-    final ExoPlayer exoPlayer =
-        player == null ? new ExoPlayer.Builder(context).build() : player.getExoPlayer();
+    if (player != null) {
+      return new PlatformVideoView(context, player.getExoPlayer());
+    }
 
-    return new PlatformVideoView(context, exoPlayer);
+    // No active player: return a blank view that owns its fallback player so
+    // the player is released on dispose and never leaks an ExoPlayer during
+    // rapid server switches.
+    return new PlatformVideoView(context, new ExoPlayer.Builder(context).build(), true);
   }
 }

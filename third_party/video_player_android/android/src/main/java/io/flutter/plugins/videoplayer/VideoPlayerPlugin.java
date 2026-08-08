@@ -74,6 +74,7 @@ public class VideoPlayerPlugin implements FlutterPlugin, AndroidVideoPlayerApi {
   public void onDetachedFromEngine(@NonNull FlutterPluginBinding binding) {
     if (flutterState == null) {
       Log.wtf(TAG, "Detached from the engine before registering to it.");
+      return;
     }
     flutterState.stopListening(binding.getBinaryMessenger());
     new MethodChannel(binding.getBinaryMessenger(), "maxstream/volume_boost")
