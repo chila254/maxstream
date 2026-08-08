@@ -88,6 +88,16 @@ export default {
         console.log(`${server} failed: ${e.message}`);
       }
 
+      // Fall back to an embeddable player page when direct extraction is blocked.
+      const embed = this.embedUrl(server, tmdbId, isMovie, season, episode);
+      if (embed) {
+        console.log(`${server} embed fallback: ${embed}`);
+        return new Response(
+          JSON.stringify({ url: embed, source: server, type: "embed" }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
       return new Response(JSON.stringify({ error: `${server} failed` }), {
         status: 404,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -95,65 +105,62 @@ export default {
     }
 
     // Try all servers in order
-    try {
-      const result = await this.extractVixSrc(tmdbId, isMovie, season, episode);
-      if (result) {
-        console.log(`VixSrc success: ${result.url}`);
-        const publicResult = await this.createPublicResult(result, env, workerOrigin);
-        return new Response(JSON.stringify(publicResult), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+    for (const { id, extractor } of [
+      { id: "vixsrc", extractor: "extractVixSrc" },
+      { id: "vidlink", extractor: "extractVidLink" },
+      { id: "2embed", extractor: "extract2Embed" },
+      { id: "goodstream", extractor: "extractGoodstream" },
+    ]) {
+      try {
+        const result = await this[extractor](tmdbId, isMovie, season, episode);
+        if (result) {
+          console.log(`${id} success: ${result.url}`);
+          const publicResult = await this.createPublicResult(result, env, workerOrigin);
+          return new Response(JSON.stringify(publicResult), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+      } catch (e) {
+        console.log(`${id} failed: ${e.message}`);
       }
-    } catch (e) {
-      console.log(`VixSrc failed: ${e.message}`);
     }
 
-    // Try VidLink (fetch page, look for /api/b/ pattern)
-    try {
-      const result = await this.extractVidLink(tmdbId, isMovie, season, episode);
-      if (result) {
-        console.log(`VidLink success: ${result.url}`);
-        const publicResult = await this.createPublicResult(result, env, workerOrigin);
-        return new Response(JSON.stringify(publicResult), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+    // No direct HLS source could be extracted from the worker. Fall back to an
+    // embeddable player page: the user's browser (residential IP + JS engine)
+    // can pass the anti-bot challenges the worker cannot.
+    for (const id of ["vidlink", "goodstream", "2embed"]) {
+      const embed = this.embedUrl(id, tmdbId, isMovie, season, episode);
+      if (embed) {
+        console.log(`${id} embed fallback: ${embed}`);
+        return new Response(
+          JSON.stringify({ url: embed, source: id, type: "embed" }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
       }
-    } catch (e) {
-      console.log(`VidLink failed: ${e.message}`);
-    }
-
-    // Try 2Embed
-    try {
-      const result = await this.extract2Embed(tmdbId, isMovie, season, episode);
-      if (result) {
-        console.log(`2Embed success: ${result.url}`);
-        const publicResult = await this.createPublicResult(result, env, workerOrigin);
-        return new Response(JSON.stringify(publicResult), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-    } catch (e) {
-      console.log(`2Embed failed: ${e.message}`);
-    }
-
-    // Try Goodstream
-    try {
-      const result = await this.extractGoodstream(tmdbId, isMovie, season, episode);
-      if (result) {
-        console.log(`Goodstream success: ${result.url}`);
-        const publicResult = await this.createPublicResult(result, env, workerOrigin);
-        return new Response(JSON.stringify(publicResult), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-    } catch (e) {
-      console.log(`Goodstream failed: ${e.message}`);
     }
 
     return new Response(JSON.stringify({ error: "No stream found" }), {
       status: 404,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
+  },
+
+  // Returns an embeddable player page URL for a server when direct extraction
+  // from the worker is not possible. VixSrc is excluded because its embed page
+  // requires a token from the worker-blocked /api/ endpoint.
+  embedUrl(server, tmdbId, isMovie, season, episode) {
+    const pages = {
+      vidlink: isMovie
+        ? `https://vidlink.pro/movie/${tmdbId}`
+        : `https://vidlink.pro/tv/${tmdbId}/${season}/${episode}`,
+      goodstream: isMovie
+        ? `https://goodstream.one/movie/${tmdbId}`
+        : `https://goodstream.one/tv/${tmdbId}/${season}/${episode}`,
+      "2embed": isMovie
+        ? `https://www.2embed.cc/embed/${tmdbId}`
+        : `https://www.2embed.cc/embedtv/${tmdbId}&s=${season}&e=${episode}`,
+    };
+    return pages[server] || null;
   },
 
   async createPublicResult(result, env, workerOrigin) {

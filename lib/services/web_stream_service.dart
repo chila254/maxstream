@@ -80,9 +80,22 @@ class WebStreamService {
             'headers': <String, String>{},
           });
         }
-        debugPrint(
-          '$_tag: Worker returned an unsafe or unsupported stream URL',
-        );
+        if (data['type'] == 'embed') {
+          final embed = _sanitizeEmbedUrl(streamUrl);
+          if (embed != null) {
+            return StreamSecurity.sanitizeResolverResult({
+              'url': embed,
+              'source': data['source'] as String? ?? serverId,
+              'type': 'embed',
+              'headers': <String, String>{},
+            });
+          }
+          debugPrint('$_tag: Worker returned an unsafe embed URL');
+        } else {
+          debugPrint(
+            '$_tag: Worker returned an unsafe or unsupported stream URL',
+          );
+        }
       }
     } catch (e) {
       debugPrint('$_tag: Worker call failed: $e');
@@ -121,5 +134,26 @@ class WebStreamService {
   /// Get server list for UI picker.
   static List<Map<String, String>> getServerList() {
     return servers.map((s) => {'name': s['name']!, 'id': s['id']!}).toList();
+  }
+
+  /// Allowed hosts for embed player URLs. The embed page is loaded in an
+  /// iframe in the user's browser, so the URL must point at a trusted,
+  /// known player host over HTTPS.
+  static const List<String> _embedAllowedHosts = [
+    'vidlink.pro',
+    'goodstream.one',
+    'www.2embed.cc',
+    '2embed.cc',
+  ];
+
+  static String? _sanitizeEmbedUrl(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null) return null;
+    if (uri.scheme != 'https') return null;
+    final host = uri.host.toLowerCase();
+    if (!_embedAllowedHosts.any((allowed) => host == allowed || host.endsWith('.$allowed'))) {
+      return null;
+    }
+    return uri.toString();
   }
 }
