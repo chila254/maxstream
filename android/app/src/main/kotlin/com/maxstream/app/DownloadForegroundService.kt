@@ -71,7 +71,7 @@ class DownloadForegroundService : Service() {
                 if (downloadCount == 1) "Downloading: $title"
                 else "Downloading $downloadCount items"
             )
-            .setSmallIcon(android.R.drawable.stat_sys_download)
+            .setSmallIcon(R.drawable.ic_notification)
             .setOngoing(true)
             .setContentIntent(pendingIntent)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
