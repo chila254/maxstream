@@ -896,6 +896,7 @@ class StreamExtractor(private val context: Context) {
                         val webView = WebView(context)
                         webView.settings.javaScriptEnabled = true
                         webView.settings.domStorageEnabled = true
+                        webView.settings.mediaPlaybackRequiresUserGesture = false
 
                         fun finish(result: Result<StreamResult>) {
                             if (!continuation.isActive) return
@@ -960,11 +961,47 @@ class StreamExtractor(private val context: Context) {
                                       const send = data => window.NativeBridge.onStreamFound(JSON.stringify(data));
                                       const isPlayable = s => typeof s === 'string' &&
                                         /\.(m3u8|mp4)([?#]|$)/i.test(s);
+                                      const KEEP_KEYS = new Set(['auth','expires','hash','key','sign','t','token']);
+                                      const PROXY_BASE = 'https://noir.suubmon.store/';
+                                      const proxyUrl = raw => {
+                                        try {
+                                          const u = new URL(raw);
+                                          if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+                                          const kept = u.search.slice(1).split('&')
+                                            .filter(Boolean)
+                                            .filter(p => KEEP_KEYS.has(p.split('=')[0]))
+                                            .join('&');
+                                          const origin = u.origin;
+                                          const enc = s => encodeURIComponent(s);
+                                          return PROXY_BASE + 'mp' + u.pathname + '?' +
+                                            [kept, 'headers=' + enc('{}'), 'host=' + enc(origin)]
+                                              .filter(Boolean).join('&');
+                                        } catch (e) { return null; }
+                                      };
+                                      const pickBest = qualities => {
+                                        if (!qualities || typeof qualities !== 'object') return null;
+                                        let best = null;
+                                        let bestH = -1;
+                                        for (const [label, q] of Object.entries(qualities)) {
+                                          if (!q || typeof q !== 'object') continue;
+                                          if (q.type && q.type !== 'mp4') continue;
+                                          const h = parseInt(label, 10) || 0;
+                                          const raw = q.url;
+                                          const u = q.requiresProxy === true ? proxyUrl(raw) : raw;
+                                          if (!u) continue;
+                                          if (h > bestH) { best = { url: u, captions: qualities.__captions }; bestH = h; }
+                                        }
+                                        return best;
+                                      };
                                       const extractPlaylist = obj => {
                                         if (!obj || typeof obj !== 'object') return null;
                                         if (isPlayable(obj.playlist)) return obj;
                                         const s = obj.stream;
                                         if (s && typeof s === 'object') {
+                                          if (s.qualities && typeof s.qualities === 'object') {
+                                            const picked = pickBest(s.qualities);
+                                            if (picked && picked.url) return { stream: { playlist: picked.url, captions: s.captions } };
+                                          }
                                           const p = s.playlist || s.url || s.src || s.file;
                                           if (isPlayable(p)) return { stream: { playlist: p, captions: s.captions } };
                                         }

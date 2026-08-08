@@ -2378,7 +2378,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         source: _currentSource ?? 'Unknown',
         qualities: _qualities,
         selectedQuality: quality.label,
-        isHls: true,
+        isHls: quality.url.toLowerCase().contains('.m3u8'),
         position: position,
         shouldPlay: shouldPlay,
       );
