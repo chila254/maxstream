@@ -5,6 +5,7 @@ import 'dart:ui' show PlatformDispatcher;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../firebase_options.dart';
@@ -109,6 +110,13 @@ class MaxStreamTV extends StatelessWidget {
       title: 'MaxStream TV',
       theme: ThemeData.dark(),
       debugShowCheckedModeBanner: false,
+      // This app routes every back press through its own unified handler. If
+      // the framework ever declines back handling the OS finishes the activity
+      // directly, which is what made back exit the app. Always claim it.
+      onNavigationNotification: (notification) {
+        SystemNavigator.setFrameworkHandlesBack(true);
+        return true;
+      },
       home: const CloudSyncBootstrap(child: TvAuthGate()),
     );
   }

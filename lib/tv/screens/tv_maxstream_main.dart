@@ -29,7 +29,8 @@ class TvMaxStreamMain extends StatefulWidget {
   State<TvMaxStreamMain> createState() => _TvMaxStreamMainState();
 }
 
-class _TvMaxStreamMainState extends State<TvMaxStreamMain> {
+class _TvMaxStreamMainState extends State<TvMaxStreamMain>
+    with WidgetsBindingObserver {
   late TvNavigationProvider _navProvider;
   late GlobalKey<NavigatorState> _navigatorKey;
   late FocusScopeNode _sidebarFocusScope;
@@ -69,6 +70,12 @@ class _TvMaxStreamMainState extends State<TvMaxStreamMain> {
       contentFocusNode: _contentFocusScope,
     );
 
+    WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      SystemNavigator.setFrameworkHandlesBack(true);
+    });
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _scheduleUpdateCheck();
     });
@@ -77,11 +84,26 @@ class _TvMaxStreamMainState extends State<TvMaxStreamMain> {
   @override
   void dispose() {
     _updateTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     _sidebarFocusScope.dispose();
     _contentFocusScope.dispose();
     TvFocusManager.dispose();
     _navProvider.dispose();
     super.dispose();
+  }
+
+  /// Last-resort system-back hook. When the platform delivers back as a
+  /// popRoute message instead of a goBack key event, this consumes it so it
+  /// can never fall through to [SystemNavigator.pop].
+  @override
+  Future<bool> didPopRoute() async {
+    try {
+      debugPrint('MAXSTREAM: system back via didPopRoute');
+      _handleSystemBack();
+    } catch (e, st) {
+      debugPrint('MAXSTREAM: didPopRoute handler threw: $e\n$st');
+    }
+    return true;
   }
 
   void _scheduleUpdateCheck() {
@@ -177,6 +199,7 @@ class _TvMaxStreamMainState extends State<TvMaxStreamMain> {
         event.logicalKey == LogicalKeyboardKey.escape ||
         event.logicalKey == LogicalKeyboardKey.gameButtonB) {
       try {
+        debugPrint('MAXSTREAM: shell back key handled');
         _handleSystemBack();
       } catch (e, st) {
         debugPrint('MAXSTREAM: back handler threw: $e\n$st');
@@ -262,6 +285,7 @@ class _TvMaxStreamMainState extends State<TvMaxStreamMain> {
         onPopInvokedWithResult: (didPop, result) {
           if (!didPop) {
             try {
+              debugPrint('MAXSTREAM: PopScope onPopInvokedWithResult');
               _handleSystemBack();
             } catch (e, st) {
               debugPrint('MAXSTREAM: back handler threw: $e\n$st');
