@@ -446,24 +446,34 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         _showStatus(
           'Stream found from ${candidate.source}. Initializing player...',
         );
-        var initialized = await _initializePlayer(
-          candidate,
-          generation: generation,
-resumePosition: null,
-        );
+        // Pre-flight the stream before ExoPlayer ever sees it so a dead or
+        // expired-token URL falls through to a working server instead of
+        // surfacing a source error.
+        var initialized = false;
+        if (await _isStreamPlayable(candidate)) {
+          initialized = await _initializePlayer(
+            candidate,
+            generation: generation,
+            resumePosition: null,
+          );
+        }
         if (!_isCurrent(generation)) return;
         if (!initialized) {
-          // The primary stream was resolved but ExoPlayer rejected it
-          // (e.g. a dead HLS playlist). Fall back to the remaining servers so
-          // a single bad server never blocks playback with a source error.
+          // The primary stream was resolved but is dead (e.g. an expired HLS
+          // token). Fall back to the remaining servers so a single bad server
+          // never blocks playback with a source error.
+          setState(() {
+            _statusMessage = 'That stream is unavailable. Finding a working one...';
+          });
           await _discoverAvailableServers(generation);
           if (!_isCurrent(generation)) return;
           for (final alt in _availableServers) {
             if (alt.url == candidate.url) continue;
+            if (!await _isStreamPlayable(alt)) continue;
             initialized = await _initializePlayer(
               alt,
               generation: generation,
-resumePosition: null,
+              resumePosition: null,
             );
             if (initialized || !_isCurrent(generation)) break;
           }
@@ -767,11 +777,22 @@ resumePosition: Duration.zero,
     } catch (e) {
       debugPrint('TvVideoPlayer: Error initializing player: $e');
       if (_isCurrent(generation)) {
-        setState(() {
-          _error = 'Failed to play video: $e';
-          _isLoading = false;
-        });
-        _focusAfterFrames(_retryNode);
+        if (_recoveringPlayback || _switchingServer) {
+          // Automatic retry is in progress: keep the friendly "waiting for a
+          // working stream" state instead of flashing a terminal error between
+          // server attempts.
+          setState(() {
+            _isLoading = true;
+            _statusMessage =
+                'That stream is unavailable. Finding a working one...';
+          });
+        } else {
+          setState(() {
+            _error = 'Failed to play video: $e';
+            _isLoading = false;
+          });
+          _focusAfterFrames(_retryNode);
+        }
       }
       return false;
     }
@@ -879,7 +900,7 @@ resumePosition: Duration.zero,
     if (mounted) {
       setState(() {
         _isBuffering = true;
-        _statusMessage = 'Recovering playback...';
+        _statusMessage = 'The stream stopped. Finding a working one...';
       });
     }
     await Future<void>.delayed(Duration(seconds: _playbackRetryCount * 2));
@@ -898,7 +919,7 @@ resumePosition: Duration.zero,
         setState(() {
           _controller = null;
           _isBuffering = true;
-          _statusMessage = 'Recovering playback...';
+          _statusMessage = 'The stream stopped. Finding a working one...';
         });
         try {
           await stale?.dispose();
@@ -919,7 +940,13 @@ resumePosition: Duration.zero,
       final tried = <String>{};
       while (next != null && _isCurrent(generation) && !initialized) {
         if (!tried.add(next.url)) break;
-        _showStatus('Trying ${next.source}...');
+        // Skip dead or expired-token servers before ExoPlayer ever sees them.
+        if (!await _isStreamPlayable(next)) {
+          _failedServerUrls.add(next.url);
+          next = _nextServer();
+          continue;
+        }
+        _showStatus('Loading a working stream from ${next.source}...');
         initialized = await _initializePlayer(
           next,
           generation: generation,
@@ -933,11 +960,20 @@ resumePosition: Duration.zero,
         }
       }
       if (!initialized && _currentCandidate != null) {
-        await _initializePlayer(
-          _currentCandidate!,
-          generation: generation,
-          resumePosition: _lastStablePosition,
-        );
+        if (await _isStreamPlayable(_currentCandidate!)) {
+          initialized = await _initializePlayer(
+            _currentCandidate!,
+            generation: generation,
+            resumePosition: _lastStablePosition,
+          );
+        }
+      }
+      if (!initialized && mounted && _isCurrent(generation)) {
+        setState(() {
+          _isLoading = false;
+          _error = 'All streams are unavailable right now. Please try again later.';
+        });
+        _focusAfterFrames(_retryNode);
       }
     } catch (error) {
       debugPrint('TvVideoPlayer: Playback recovery failed: $error');
@@ -949,6 +985,16 @@ resumePosition: Duration.zero,
     } finally {
       _recoveringPlayback = false;
     }
+  }
+
+  /// Pre-flight check that a server is actually playable before ExoPlayer is
+  /// handed its URL, so a dead or expired-token stream is skipped and the next
+  /// working server is tried instead of surfacing a source error.
+  Future<bool> _isStreamPlayable(_StreamCandidate candidate) {
+    return DirectM3u8Service.validateStream(
+      candidate.url,
+      headers: candidate.headers,
+    );
   }
 
   _StreamCandidate? _nextServer() {
@@ -1059,7 +1105,15 @@ resumePosition: Duration.zero,
     final tried = <String>{};
     while (_isCurrent(generation) && !initialized) {
       if (!tried.add(current.url)) break;
-      _showStatus('Switching to ${current.source}...');
+      // Skip dead or expired-token servers before ExoPlayer ever sees them.
+      if (!await _isStreamPlayable(current)) {
+        _failedServerUrls.add(current.url);
+        final nextAfter = _nextServerAfter(current.url);
+        if (nextAfter == null) break;
+        current = nextAfter;
+        continue;
+      }
+      _showStatus('Loading a working stream from ${current.source}...');
       initialized = await _initializePlayer(
         current,
         generation: generation,
@@ -2016,17 +2070,22 @@ if (next != _currentControl) {
   }
 
   Widget _buildLoadingWidget() {
-    return const Center(
+    final message = _statusMessage.isEmpty ? 'Loading stream...' : _statusMessage;
+    return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          SizedBox(
+          const SizedBox(
             width: 64,
             height: 64,
             child: CircularProgressIndicator(strokeWidth: 4),
           ),
-          SizedBox(height: 24),
-          Text('Loading stream...', style: TextStyle(color: Colors.white)),
+          const SizedBox(height: 24),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Colors.white, fontSize: 18),
+          ),
         ],
       ),
     );
@@ -2655,9 +2714,30 @@ if (next != _currentControl) {
                   ),
                 ),
               if (_isLoading && _error == null) _buildLoadingWidget(),
-              if (_isBuffering && _error == null && !_showControls)
-                const Center(
-                  child: CircularProgressIndicator(color: Colors.white),
+              if (_isBuffering && _error == null && !_showControls && !_isLoading)
+                Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const SizedBox(
+                        width: 56,
+                        height: 56,
+                        child:
+                            CircularProgressIndicator(color: Colors.white),
+                      ),
+                      if (_statusMessage.isNotEmpty) ...[
+                        const SizedBox(height: 20),
+                        Text(
+                          _statusMessage,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
                 ),
               if (_error != null) _buildErrorWidget(),
               if (_showControls) _buildControlsOverlay(),
