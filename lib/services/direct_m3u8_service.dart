@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
@@ -111,13 +109,16 @@ class DirectM3u8Service {
 
   /// Pre-flight check that a resolved stream URL will actually play before we
   /// hand it to ExoPlayer. Downloads only the head of the resource (the HLS
-  /// manifest is small; a direct file is capped at 64KB) and rejects dead,
-  /// expired-token or misconfigured URLs so a broken server is never sent to
-  /// the player and playback falls through to the next working source.
+  /// manifest is small; a direct file is capped at 64KB) so it is fast, and
+  /// rejects only URLs that are definitively dead (unreachable, non-2xx, or
+  /// empty body). It deliberately errs on the side of passing: CDNs often
+  /// behave differently for different clients, so a stream that merely looks
+  /// odd is still handed to the player, which is the final arbiter. The caller
+  /// uses this to prefer working servers, never to block every server.
   static Future<bool> validateStream(
     String url, {
     Map<String, String> headers = const {},
-    Duration timeout = const Duration(seconds: 12),
+    Duration timeout = const Duration(seconds: 10),
   }) async {
     if (kIsWeb) return true;
     if (url.isEmpty) return false;
@@ -126,7 +127,13 @@ class DirectM3u8Service {
 
     final client = http.Client();
     try {
-      final request = http.Request('GET', uri)..headers.addAll(headers);
+      final request = http.Request('GET', uri)
+        ..headers.addAll(headers)
+        ..headers.putIfAbsent(
+          'User-Agent',
+          () => 'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 '
+              '(KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36',
+        );
       final response = await client.send(request).timeout(timeout);
       if (response.statusCode < 200 || response.statusCode >= 300) {
         debugPrint('$_tag: reject $url -> HTTP ${response.statusCode}');
@@ -140,19 +147,6 @@ class DirectM3u8Service {
       if (bytes.isEmpty) {
         debugPrint('$_tag: reject $url -> empty body');
         return false;
-      }
-      final body = utf8.decode(bytes, allowMalformed: true);
-      final looksHls = url.toLowerCase().contains('.m3u8') ||
-          body.trimLeft().toUpperCase().startsWith('#EXTM3U');
-      if (looksHls) {
-        // The body must be a real playlist referencing media segments, not an
-        // HTML error page or a stale/empty manifest.
-        final isPlaylist = body.contains('#EXTM3U') ||
-            RegExp(r'\.(ts|m4s|mp4|aac)([?#]|$)').hasMatch(body);
-        if (!isPlaylist) {
-          debugPrint('$_tag: reject $url -> body is not an HLS playlist');
-          return false;
-        }
       }
       return true;
     } catch (e) {

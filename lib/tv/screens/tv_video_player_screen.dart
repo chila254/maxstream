@@ -206,6 +206,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
   Timer? _initTimeout;
   int _operationGeneration = 0;
   bool _switchingServer = false;
+  bool _findingFallback = false;
   bool _disposed = false;
   bool _recoveringPlayback = false;
   int _playbackRetryCount = 0;
@@ -414,6 +415,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       _error = null;
       _statusMessage = 'Fetching servers...';
     });
+    _findingFallback = false;
 
     try {
       await _loadMediaMetadata();
@@ -465,11 +467,19 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
           setState(() {
             _statusMessage = 'That stream is unavailable. Finding a working one...';
           });
+          _findingFallback = true;
           await _discoverAvailableServers(generation);
           if (!_isCurrent(generation)) return;
+          // Prefer servers that pass the pre-flight check, but never block the
+          // player from trying the rest: validation can miss streams a CDN
+          // will happily serve to ExoPlayer, which is the final arbiter.
+          final validated = <_StreamCandidate>[];
+          final unvalidated = <_StreamCandidate>[];
           for (final alt in _availableServers) {
             if (alt.url == candidate.url) continue;
-            if (!await _isStreamPlayable(alt)) continue;
+            (await _isStreamPlayable(alt) ? validated : unvalidated).add(alt);
+          }
+          for (final alt in [...validated, ...unvalidated]) {
             initialized = await _initializePlayer(
               alt,
               generation: generation,
@@ -477,6 +487,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
             );
             if (initialized || !_isCurrent(generation)) break;
           }
+          _findingFallback = false;
         }
         if (!initialized) return;
         _loadDefaultSubtitle(_currentCandidate ?? candidate);
@@ -777,7 +788,7 @@ resumePosition: Duration.zero,
     } catch (e) {
       debugPrint('TvVideoPlayer: Error initializing player: $e');
       if (_isCurrent(generation)) {
-        if (_recoveringPlayback || _switchingServer) {
+        if (_recoveringPlayback || _switchingServer || _findingFallback) {
           // Automatic retry is in progress: keep the friendly "waiting for a
           // working stream" state instead of flashing a terminal error between
           // server attempts.
@@ -935,38 +946,27 @@ resumePosition: Duration.zero,
       if (!_isCurrent(generation)) return;
       final failedUrl = _currentStreamUrl;
       if (failedUrl != null) _failedServerUrls.add(failedUrl);
-      var next = _nextServer();
+      // Prefer servers that pass the pre-flight check, but never block the
+      // player from trying the rest: validation can miss streams a CDN will
+      // happily serve to ExoPlayer, which is the final arbiter.
+      final validated = <_StreamCandidate>[];
+      final unvalidated = <_StreamCandidate>[];
+      for (final server in _availableServers) {
+        if (server.url == failedUrl) continue;
+        (await _isStreamPlayable(server) ? validated : unvalidated).add(server);
+      }
       var initialized = false;
       final tried = <String>{};
-      while (next != null && _isCurrent(generation) && !initialized) {
-        if (!tried.add(next.url)) break;
-        // Skip dead or expired-token servers before ExoPlayer ever sees them.
-        if (!await _isStreamPlayable(next)) {
-          _failedServerUrls.add(next.url);
-          next = _nextServer();
-          continue;
-        }
+      for (final next in [...validated, ...unvalidated]) {
+        if (!_isCurrent(generation) || initialized) break;
+        if (!tried.add(next.url)) continue;
         _showStatus('Loading a working stream from ${next.source}...');
         initialized = await _initializePlayer(
           next,
           generation: generation,
           resumePosition: _lastStablePosition,
         );
-        if (initialized || !_isCurrent(generation)) break;
-        _failedServerUrls.add(next.url);
-        next = _nextServer();
-        if (next != null) {
-          await Future<void>.delayed(const Duration(milliseconds: 500));
-        }
-      }
-      if (!initialized && _currentCandidate != null) {
-        if (await _isStreamPlayable(_currentCandidate!)) {
-          initialized = await _initializePlayer(
-            _currentCandidate!,
-            generation: generation,
-            resumePosition: _lastStablePosition,
-          );
-        }
+        if (!initialized) _failedServerUrls.add(next.url);
       }
       if (!initialized && mounted && _isCurrent(generation)) {
         setState(() {
@@ -2015,21 +2015,17 @@ if (next != _currentControl) {
     if (_statusMessage.isEmpty) {
       return const SizedBox.shrink();
     }
-    return Positioned(
-      top: 90,
-      left: 0,
-      right: 0,
-      child: Center(
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-          decoration: BoxDecoration(
-            color: const Color(0xCC000000),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Text(
-            _statusMessage,
-            style: const TextStyle(color: Colors.white, fontSize: 18),
-          ),
+    return Center(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+        decoration: BoxDecoration(
+          color: const Color(0xCC000000),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(
+          _statusMessage,
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: Colors.white, fontSize: 18),
         ),
       ),
     );
@@ -2742,7 +2738,14 @@ if (next != _currentControl) {
               if (_error != null) _buildErrorWidget(),
               if (_showControls) _buildControlsOverlay(),
               _buildSubtitleWidget(),
-              if (_statusMessage.isNotEmpty && _showControls)
+              // Status messages (e.g. "Finding a working stream...") belong in
+              // the middle of the screen on TV, visible regardless of whether
+              // the controls overlay is up. Skip the duplicate when the loading
+              // or buffering spinner is already showing the same message.
+              if (_statusMessage.isNotEmpty &&
+                  _error == null &&
+                  !_isLoading &&
+                  !(_isBuffering && !_showControls))
                 _buildStatusWidget(),
             ],
           ),

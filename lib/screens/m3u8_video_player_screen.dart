@@ -734,36 +734,35 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
           _showStatus('That stream is unavailable. Finding a working stream...');
           discoveredServers = true;
           await _discoverAvailableServers(discoveryGeneration);
-          for (final server in _availableServers) {
-            final fallbackUrl = server['url']?.toString() ?? '';
-            if (fallbackUrl.isEmpty || fallbackUrl == url) continue;
-            if (!await DirectM3u8Service.validateStream(
-              fallbackUrl,
+          final candidates = _availableServers
+              .where(
+                (s) =>
+                    (s['url']?.toString() ?? '').isNotEmpty &&
+                    s['url']?.toString() != url,
+              )
+              .toList();
+          // Prefer servers that pass the pre-flight check, but never block the
+          // player from trying the rest: validation can miss streams a CDN
+          // will happily serve to ExoPlayer.
+          final validated = <Map<String, dynamic>>[];
+          final unvalidated = <Map<String, dynamic>>[];
+          for (final server in candidates) {
+            if (await DirectM3u8Service.validateStream(
+              server['url'].toString(),
               headers: _parseStreamHeaders(server),
             )) {
-              _showStatus('That stream is unavailable. Finding a working stream...');
-              continue;
+              validated.add(server);
+            } else {
+              unvalidated.add(server);
             }
-            final fallbackSource = server['source']?.toString() ?? 'Server';
-            final fallbackQualities = _parseQualities(server['qualities']);
-            _subtitleTracks = _parseSubtitleTracks(server['subtitles']);
-            _selectedSubtitle.value = 'Off';
-            _activeSubtitles.value = const [];
-            initialized = await _initializePlayer(
-              fallbackUrl,
-              headers: _parseStreamHeaders(server),
-              source: fallbackSource,
-              qualities: fallbackQualities,
-              selectedQuality: 'Auto',
+          }
+          for (final server in [...validated, ...unvalidated]) {
+            initialized = await _tryPlayServer(
+              server,
               position: resumePosition,
-              isHls:
-                  server['type'] == 'direct_m3u8' ||
-                  fallbackUrl.toLowerCase().contains('.m3u8'),
+              primaryUrl: url,
             );
-            if (initialized) {
-              _selectedServerUrl = fallbackUrl;
-              break;
-            }
+            if (initialized) break;
           }
         }
         if (!initialized) {
@@ -810,6 +809,37 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         });
       }
     }
+  }
+
+  /// Tries to start playback for a candidate server, returning true on success
+  /// so the caller can stop falling through the server list.
+  Future<bool> _tryPlayServer(
+    Map<String, dynamic> server, {
+    required Duration position,
+    required String primaryUrl,
+  }) async {
+    final fallbackUrl = server['url']?.toString() ?? '';
+    if (fallbackUrl.isEmpty || fallbackUrl == primaryUrl) return false;
+    final fallbackSource = server['source']?.toString() ?? 'Server';
+    final fallbackQualities = _parseQualities(server['qualities']);
+    _subtitleTracks = _parseSubtitleTracks(server['subtitles']);
+    _selectedSubtitle.value = 'Off';
+    _activeSubtitles.value = const [];
+    final ok = await _initializePlayer(
+      fallbackUrl,
+      headers: _parseStreamHeaders(server),
+      source: fallbackSource,
+      qualities: fallbackQualities,
+      selectedQuality: 'Auto',
+      position: position,
+      isHls:
+          server['type'] == 'direct_m3u8' ||
+          fallbackUrl.toLowerCase().contains('.m3u8'),
+    );
+    if (ok) {
+      _selectedServerUrl = fallbackUrl;
+    }
+    return ok;
   }
 
   Future<void> _loadOfflineStream(String path, {required bool resume}) async {
@@ -1344,35 +1374,43 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       await _discoverAvailableServers(_serverDiscoveryGeneration);
       if (!mounted) return;
       // After the current URL has already failed a couple of times, switch to
-      // another server instead of replaying a dead stream. Pre-flight each
-      // candidate so a dead or expired URL never reaches the player.
+      // another server instead of replaying a dead stream. Prefer servers that
+      // pass the pre-flight check, but never block the player from trying the
+      // rest: validation can miss streams a CDN will happily serve.
       final shouldSwitch = _playbackRetryCount >= 2;
       if (shouldSwitch) {
         _failedServerUrls.add(url);
-        var target = _nextServerAfter(url);
-        while (target != null &&
-            !await DirectM3u8Service.validateStream(
-              target['url'].toString(),
-              headers: _parseStreamHeaders(target),
-            )) {
-          _failedServerUrls.add(target['url'].toString());
-          target = _nextServerAfter(url);
+        final candidates = _availableServers
+            .where(
+              (s) =>
+                  (s['url']?.toString() ?? '').isNotEmpty &&
+                  s['url']?.toString() != url,
+            )
+            .toList();
+        final validated = <Map<String, dynamic>>[];
+        final unvalidated = <Map<String, dynamic>>[];
+        for (final server in candidates) {
+          if (await DirectM3u8Service.validateStream(
+            server['url'].toString(),
+            headers: _parseStreamHeaders(server),
+          )) {
+            validated.add(server);
+          } else {
+            unvalidated.add(server);
+          }
         }
-        if (target == null) {
-          _showStatus('All streams are unavailable right now. Please try again later.');
-        } else {
-          _showStatus('Loading a working stream from ${target['source']}...');
-          await _replacePlayer(
-            target['url'].toString(),
-            headers: _parseStreamHeaders(target),
-            source: target['source']?.toString() ?? 'Server',
-            qualities: _parseQualities(target['qualities']),
-            selectedQuality: 'Auto',
-            isHls: target['type'] == 'direct_m3u8' ||
-                target['url'].toString().toLowerCase().contains('.m3u8'),
+        var switched = false;
+        for (final server in [...validated, ...unvalidated]) {
+          _showStatus('Loading a working stream from ${server['source']}...');
+          switched = await _tryPlayServer(
+            server,
             position: _lastStablePosition,
-            shouldPlay: true,
+            primaryUrl: url,
           );
+          if (switched) break;
+        }
+        if (!switched) {
+          _showStatus('All streams are unavailable right now. Please try again later.');
         }
       } else {
         await _replacePlayer(
