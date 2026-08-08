@@ -759,7 +759,7 @@ class StreamExtractor(private val context: Context) {
 
         override suspend fun extract(server: StreamServer): ExtractionResult {
             return withContext(Dispatchers.Main) {
-                withTimeout(30_000) {
+                withTimeout(45_000) {
                     suspendCancellableCoroutine { continuation ->
                         val webView = WebView(context)
                         webView.settings.javaScriptEnabled = true
@@ -777,13 +777,24 @@ class StreamExtractor(private val context: Context) {
                         webView.addJavascriptInterface(object {
                             @JavascriptInterface
                             fun onStreamFound(payload: String) {
-                                runCatching {
-                                    val stream = JSONObject(payload).getJSONObject("stream")
-                                    val playlist = stream.getString("playlist")
+                                val parsed = runCatching {
+                                    val json = JSONObject(payload)
+                                    val stream = json.optJSONObject("stream") ?: json
+                                    val playlist = listOf(
+                                        stream.optString("playlist"),
+                                        stream.optString("url"),
+                                        stream.optString("src"),
+                                        stream.optString("file"),
+                                    ).firstOrNull { it.isNotBlank() }
+                                    require(!playlist.isNullOrBlank()) {
+                                        "VidLink stream has no playlist URL"
+                                    }
                                     val captions = stream.optJSONArray("captions")?.let { items ->
                                         (0 until items.length()).mapNotNull { index ->
                                             val item = items.optJSONObject(index) ?: return@mapNotNull null
-                                            val rawUrl = item.optString("id")
+                                            val rawUrl = item.optString("id").ifBlank {
+                                                item.optString("url")
+                                            }
                                             if (rawUrl.isBlank()) return@mapNotNull null
                                             val captionUrl = if (rawUrl.startsWith("http")) rawUrl
                                                 else resolveUrl(server.url, rawUrl)
@@ -801,7 +812,10 @@ class StreamExtractor(private val context: Context) {
                                         refererHeaders("https://vidlink.pro/"),
                                         subtitles = captions,
                                     )
-                                }.let(::finish)
+                                }
+                                if (parsed.isSuccess) {
+                                    finish(parsed)
+                                }
                             }
                         }, "NativeBridge")
 
@@ -812,17 +826,60 @@ class StreamExtractor(private val context: Context) {
                                       if (window.__nativeStreamHook) return;
                                       window.__nativeStreamHook = true;
                                       const send = data => window.NativeBridge.onStreamFound(JSON.stringify(data));
+                                      const isPlayable = s => typeof s === 'string' &&
+                                        /\.(m3u8|mp4)([?#]|$)/i.test(s);
+                                      const extractPlaylist = obj => {
+                                        if (!obj || typeof obj !== 'object') return null;
+                                        if (isPlayable(obj.playlist)) return obj;
+                                        const s = obj.stream;
+                                        if (s && typeof s === 'object') {
+                                          const p = s.playlist || s.url || s.src || s.file;
+                                          if (isPlayable(p)) return { stream: { playlist: p, captions: s.captions } };
+                                        }
+                                        const p = obj.url || obj.src || obj.file || obj.hls;
+                                        if (isPlayable(p)) return { stream: { playlist: p } };
+                                        return null;
+                                      };
                                       const originalFetch = window.fetch.bind(window);
                                       window.fetch = async (...args) => {
                                         const response = await originalFetch(...args);
-                                        if (response.url.includes('/api/b/')) {
-                                          response.clone().json().then(send).catch(() => {});
-                                        }
+                                        try {
+                                          const u = response.url || '';
+                                          if (u.includes('/api/b/')) {
+                                            response.clone().text().then(text => {
+                                              try {
+                                                const payload = extractPlaylist(JSON.parse(text));
+                                                if (payload) send(payload);
+                                              } catch (e) {}
+                                            }).catch(() => {});
+                                          }
+                                          if (isPlayable(u)) send({ stream: { playlist: u } });
+                                        } catch (e) {}
                                         return response;
                                       };
-                                      const resource = performance.getEntriesByType('resource')
-                                        .map(entry => entry.name).find(url => url.includes('/api/b/'));
-                                      if (resource) originalFetch(resource).then(r => r.json()).then(send).catch(() => {});
+                                      const origOpen = XMLHttpRequest.prototype.open;
+                                      XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+                                        this.addEventListener('load', function() {
+                                          try {
+                                            if (isPlayable(url)) send({ stream: { playlist: url } });
+                                            if ((url || '').includes('/api/b/')) {
+                                              const payload = extractPlaylist(JSON.parse(this.responseText));
+                                              if (payload) send(payload);
+                                            }
+                                          } catch (e) {}
+                                        });
+                                        return origOpen.apply(this, [method, url, ...rest]);
+                                      };
+                                      setInterval(() => {
+                                        try {
+                                          const v = document.querySelector('video');
+                                          if (!v) return;
+                                          const src = v.currentSrc || v.src || '';
+                                          if (isPlayable(src) && !src.startsWith('blob:')) {
+                                            send({ stream: { playlist: src } });
+                                          }
+                                        } catch (e) {}
+                                      }, 1500);
                                     })();
                                 """.trimIndent()
                                 view.evaluateJavascript(script, null)
