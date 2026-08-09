@@ -569,7 +569,13 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   Duration _lastStablePosition = Duration.zero;
   bool _recoveringPlayback = false;
   int _playbackRetryCount = 0;
-  final Set<String> _failedServerUrls = {};
+  // Failure tracking is identity-based: re-discovery hands every server a new
+  // signed URL, so URL-keyed entries would never match the fresh list and a
+  // dead server would keep getting retried (or the current one never skipped).
+  final Set<String> _failedServerKeys = {};
+  // Identity of the server currently playing, so the sheet can keep the
+  // highlight on it even after its URL is re-extracted fresh.
+  String? _selectedServerKey;
   double? _downloadProgress;
   bool _downloadCompleted = false;
   late int _downloadCompletionVersion;
@@ -577,7 +583,6 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   List<Map<String, dynamic>> _offlineSubtitles = const [];
   List<Map<String, dynamic>> _availableServers = const [];
   bool _serversLoading = false;
-  String? _selectedServerUrl;
   int _serverDiscoveryGeneration = 0;
 
   @override
@@ -630,7 +635,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       _statusMessage = 'Fetching servers...';
       _availableServers = const [];
       _serversLoading = false;
-      _selectedServerUrl = null;
+      _selectedServerKey = null;
     });
 
     try {
@@ -670,10 +675,10 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         final qualities = _parseQualities(result['qualities']);
         final subtitleTracks = _parseSubtitleTracks(result['subtitles']);
         _playbackRetryCount = 0;
-        _failedServerUrls.clear();
+        _failedServerKeys.clear();
         _availableServers = [result];
         _serversLoading = true;
-        _selectedServerUrl = url;
+        _selectedServerKey = _serverIdentity(result);
         _SubtitleTrack? initialSubtitle;
         for (final track in subtitleTracks) {
           if (track.isDefault) {
@@ -731,7 +736,9 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
           );
         }
         if (!initialized) {
-          _showStatus('That stream is unavailable. Finding a working stream...');
+          _showStatus(
+            'That stream is unavailable. Finding a working stream...',
+          );
           discoveredServers = true;
           await _discoverAvailableServers(discoveryGeneration);
           final candidates = _availableServers
@@ -837,7 +844,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
           fallbackUrl.toLowerCase().contains('.m3u8'),
     );
     if (ok) {
-      _selectedServerUrl = fallbackUrl;
+      _selectedServerKey = _serverIdentity(server);
     }
     return ok;
   }
@@ -898,6 +905,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         _selectedSubtitle.value = 'Off';
         _activeSubtitles.value = const [];
         _nextEpisodeCancelled = false;
+        _selectedServerKey = null;
       });
       previousVideo?.removeListener(_handlePlaybackChanged);
       await previousVideo?.dispose();
@@ -1202,30 +1210,47 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     if (!mounted || generation != _serverDiscoveryGeneration) return;
     // Replace stale entries with freshly extracted URLs: stream URLs (esp.
     // VixSrc tokens) expire quickly, so reusing them when switching servers
-    // or recovering playback causes a "Source error". Keep the currently
-    // playing server around so the server sheet stays consistent.
-    final playingUrl = _currentStreamUrl;
-    final playing = playingUrl == null
-        ? null
-        : _availableServers
-            .where((s) => s['url']?.toString() == playingUrl)
-            .firstOrNull;
+    // or recovering playback causes a "Source error". Servers are keyed by
+    // identity (their provider/server name) rather than URL, because the same
+    // server gets a brand-new signed URL on every extraction: matching by URL
+    // would drop the currently playing server from the sheet or duplicate it,
+    // and the selection highlight would never land.
     final seen = <String>{};
     final fresh = streams
         .where((s) => (s['url']?.toString() ?? '').isNotEmpty)
         .where((s) => seen.add(s['url'].toString()))
         .toList();
     setState(() {
-      _availableServers = [
-        if (playing != null &&
-            !fresh.any((s) => s['url']?.toString() == playingUrl))
-          playing,
-        ...fresh.where(
-          (s) => playing == null || s['url']?.toString() != playing['url']?.toString(),
-        ),
-      ];
+      final byIdentity = <String, Map<String, dynamic>>{};
+      for (final stream in fresh) {
+        byIdentity[_serverIdentity(stream)] = stream;
+      }
+      // Keep the currently playing server in the sheet so it is always shown
+      // and highlighted, even when this round of extraction dropped it. Match
+      // by identity, not URL: the playing URL may already be a fresh one from
+      // an earlier discovery round, so URL matching would drop it again.
+      final playingKey = _selectedServerKey;
+      final playing = playingKey == null
+          ? null
+          : _availableServers
+                .where((s) => _serverIdentity(s) == playingKey)
+                .firstOrNull;
+      if (playing != null) {
+        byIdentity.putIfAbsent(_serverIdentity(playing), () => playing);
+      }
+      _availableServers = byIdentity.values.toList();
       _serversLoading = false;
     });
+  }
+
+  /// Stable identity for a server entry: the provider/server name from the
+  /// extractor (e.g. "RPM video"), falling back to the source name or URL.
+  String _serverIdentity(Map<String, dynamic> stream) {
+    final server = stream['server']?.toString();
+    if (server != null && server.isNotEmpty) return server;
+    final source = stream['source']?.toString();
+    if (source != null && source.isNotEmpty) return source;
+    return stream['url']?.toString() ?? '';
   }
 
   Future<void> _replacePlayer(
@@ -1337,17 +1362,18 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
 
   Map<String, dynamic>? _nextServerAfter(String currentUrl) {
     if (_availableServers.length <= 1 || currentUrl.isEmpty) return null;
+    final currentKey = _selectedServerKey;
     final currentIndex = _availableServers.indexWhere(
-      (s) => s['url']?.toString() == currentUrl,
+      (s) => _serverIdentity(s) == currentKey,
     );
     final start =
         (currentIndex < 0 ? 0 : currentIndex + 1) % _availableServers.length;
     for (var i = 0; i < _availableServers.length; i++) {
       final server = _availableServers[(start + i) % _availableServers.length];
-      final serverUrl = server['url']?.toString() ?? '';
-      if (serverUrl.isEmpty ||
-          serverUrl == currentUrl ||
-          _failedServerUrls.contains(serverUrl)) {
+      final serverKey = _serverIdentity(server);
+      if (serverKey.isEmpty ||
+          serverKey == currentKey ||
+          _failedServerKeys.contains(serverKey)) {
         continue;
       }
       return server;
@@ -1379,12 +1405,13 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       // rest: validation can miss streams a CDN will happily serve.
       final shouldSwitch = _playbackRetryCount >= 2;
       if (shouldSwitch) {
-        _failedServerUrls.add(url);
+        final currentKey = _selectedServerKey;
+        if (currentKey != null) _failedServerKeys.add(currentKey);
         final candidates = _availableServers
             .where(
               (s) =>
                   (s['url']?.toString() ?? '').isNotEmpty &&
-                  s['url']?.toString() != url,
+                  _serverIdentity(s) != currentKey,
             )
             .toList();
         final validated = <Map<String, dynamic>>[];
@@ -1410,7 +1437,9 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
           if (switched) break;
         }
         if (!switched) {
-          _showStatus('All streams are unavailable right now. Please try again later.');
+          _showStatus(
+            'All streams are unavailable right now. Please try again later.',
+          );
         }
       } else {
         await _replacePlayer(
@@ -1575,10 +1604,9 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
             ),
             ..._availableServers.asMap().entries.map((entry) {
               final stream = entry.value;
-              final url = stream['url']?.toString() ?? '';
               final source = stream['source']?.toString() ?? 'Server';
               final server = stream['server']?.toString() ?? source;
-              final selected = url == _selectedServerUrl;
+              final selected = _serverIdentity(stream) == _selectedServerKey;
               return ListTile(
                 leading: Icon(
                   selected ? Icons.check_circle : Icons.play_circle_outline,
@@ -1612,7 +1640,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   Future<void> _switchServer(Map<String, dynamic> stream) async {
     if (_isSwitchingServer) return;
     final url = stream['url']?.toString() ?? '';
-    if (url.isEmpty || url == _selectedServerUrl) return;
+    if (url.isEmpty || _serverIdentity(stream) == _selectedServerKey) return;
     final current = _videoPlayerController;
     if (current == null) return;
 
@@ -1648,7 +1676,9 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         position: position,
         shouldPlay: shouldPlay,
       );
-      if (mounted) setState(() => _selectedServerUrl = url);
+      if (mounted) {
+        setState(() => _selectedServerKey = _serverIdentity(stream));
+      }
     } catch (error) {
       if (!mounted) return;
       setState(() {
