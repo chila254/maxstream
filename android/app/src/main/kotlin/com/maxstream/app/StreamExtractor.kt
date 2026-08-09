@@ -842,19 +842,18 @@ class StreamExtractor(private val context: Context) {
                         }
                     } ?: emptyMap()
                     val requiresProxy = entry.optBoolean("requiresProxy", false)
-                    val mediaUrl = if (requiresProxy) {
-                        // VidLink's CDN serves these only through its noir.suubmon.store
-                        // relay; the page rewrites the URL exactly like the JS m() helper.
-                        vidLinkProxyUrl(url, entryHeaders) ?: continue
+                    val mediaHeaders = if (requiresProxy) {
+                        // VidLink's CDN serves these only when the request carries the
+                        // filmboom.top referer; fetch the MP4 directly like the older
+                        // native path did (the noir.suubmon.store relay currently 428s).
+                        refererHeaders(entryHeaders["referer"] ?: "https://filmboom.top/") + entryHeaders
                     } else {
-                        url
+                        refererHeaders("https://vidlink.pro/")
                     }
-                    // The proxy relay needs the vidlink referer (matches the browser).
-                    val mediaHeaders = refererHeaders("https://vidlink.pro/") + entryHeaders
-                    qualityOptions += QualityOption("${label}p", mediaUrl, height)
+                    qualityOptions += QualityOption("${label}p", url, height)
                     if (height > bestHeight) {
                         bestHeight = height
-                        bestUrl = mediaUrl
+                        bestUrl = url
                         bestHeaders = mediaHeaders
                     }
                 }
@@ -938,11 +937,16 @@ class StreamExtractor(private val context: Context) {
                                             )
                                         }
                                     }.orEmpty()
+                                    val referer = if (host(playlist).endsWith("hakunaymatata.com")) {
+                                        "https://filmboom.top/"
+                                    } else {
+                                        "https://vidlink.pro/"
+                                    }
                                     StreamResult(
                                         playlist,
                                         name,
                                         mediaType(playlist),
-                                        refererHeaders("https://vidlink.pro/"),
+                                        refererHeaders(referer),
                                         subtitles = captions,
                                     )
                                 }
@@ -960,24 +964,8 @@ class StreamExtractor(private val context: Context) {
                                       window.__nativeStreamHook = true;
                                       const send = data => window.NativeBridge.onStreamFound(JSON.stringify(data));
                                       const isPlayable = s => typeof s === 'string' &&
+                                        !s.includes('noir.suubmon.store') &&
                                         /\.(m3u8|mp4)([?#]|$)/i.test(s);
-                                      const KEEP_KEYS = new Set(['auth','expires','hash','key','sign','t','token']);
-                                      const PROXY_BASE = 'https://noir.suubmon.store/';
-                                      const proxyUrl = raw => {
-                                        try {
-                                          const u = new URL(raw);
-                                          if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
-                                          const kept = u.search.slice(1).split('&')
-                                            .filter(Boolean)
-                                            .filter(p => KEEP_KEYS.has(p.split('=')[0]))
-                                            .join('&');
-                                          const origin = u.origin;
-                                          const enc = s => encodeURIComponent(s);
-                                          return PROXY_BASE + 'mp' + u.pathname + '?' +
-                                            [kept, 'headers=' + enc('{}'), 'host=' + enc(origin)]
-                                              .filter(Boolean).join('&');
-                                        } catch (e) { return null; }
-                                      };
                                       const pickBest = qualities => {
                                         if (!qualities || typeof qualities !== 'object') return null;
                                         let best = null;
@@ -986,8 +974,7 @@ class StreamExtractor(private val context: Context) {
                                           if (!q || typeof q !== 'object') continue;
                                           if (q.type && q.type !== 'mp4') continue;
                                           const h = parseInt(label, 10) || 0;
-                                          const raw = q.url;
-                                          const u = q.requiresProxy === true ? proxyUrl(raw) : raw;
+                                          const u = q.url;
                                           if (!u) continue;
                                           if (h > bestH) { best = { url: u, captions: qualities.__captions }; bestH = h; }
                                         }
@@ -3356,58 +3343,6 @@ class StreamExtractor(private val context: Context) {
     private fun encode(value: String) = URLEncoder.encode(value, Charsets.UTF_8.name())
     private fun isMediaUrl(url: String) = url.contains(".m3u8", true) || url.contains(".mp4", true)
     private fun mediaType(url: String) = if (url.contains(".m3u8", true)) "direct_m3u8" else "direct_video"
-
-    /** Mirror of the vidlink bundle's encodeURIComponent() used to build proxy URLs. */
-    private fun encodeURIComponent(value: String): String {
-        val allowed = ('A'..'Z') + ('a'..'z') + ('0'..'9') + listOf('-', '_', '.', '!', '~', '*', '\'', '(', ')')
-        return buildString {
-            value.forEach { ch ->
-                val c = ch.code
-                if (c in 0x21..0x7E) {
-                    val ascii = ch.toChar()
-                    if (ascii in allowed) {
-                        append(ascii)
-                    } else {
-                        val bytes = ch.toString().toByteArray(Charsets.UTF_8)
-                        bytes.forEach { b -> append('%').append("%02X".format(b.toInt() and 0xff)) }
-                    }
-                } else {
-                    val bytes = ch.toString().toByteArray(Charsets.UTF_8)
-                    bytes.forEach { b -> append('%').append("%02X".format(b.toInt() and 0xff)) }
-                }
-            }
-        }
-    }
-
-    /**
-     * Rewrites a VidLink media URL that the API marked `requiresProxy: true` into the
-     * noir.suubmon.store relay URL, matching the page's JS `m()` helper:
-     *
-     *   {proxy}/mp{path}?{keptQuery}&headers={encodeURIComponent(JSON.stringify(headers))}&host={encodeURIComponent(origin)}
-     *
-     * Only auth/expires/hash/key/sign/t/token query params are preserved (JS `l` set).
-     */
-    private fun vidLinkProxyUrl(url: String, headers: Map<String, String>): String? {
-        val parsed = runCatching { URI(url) }.getOrNull() ?: return null
-        if (!parsed.scheme.equals("http", true) && !parsed.scheme.equals("https", true)) return null
-        if (parsed.rawUserInfo != null) return null
-        val allowedKeys = setOf("auth", "expires", "hash", "key", "sign", "t", "token")
-        val keptQuery = parsed.rawQuery.orEmpty()
-            .split("&")
-            .filter { it.isNotBlank() }
-            .filter { it.substringBefore("=") in allowedKeys }
-            .joinToString("&")
-        val sortedHeaders = JSONObject().apply {
-            headers.toSortedMap().forEach { (name, value) -> put(name, value) }
-        }.toString()
-        val origin = "${parsed.scheme}://${parsed.host}"
-        val query = listOf(
-            keptQuery.takeIf { it.isNotBlank() },
-            "headers=${encodeURIComponent(sortedHeaders)}",
-            "host=${encodeURIComponent(origin)}",
-        ).filterNotNull().joinToString("&")
-        return "https://noir.suubmon.store/mp${parsed.rawPath}?$query"
-    }
 
     private fun hexToBytes(hex: String): ByteArray {
         val normalized = hex.removePrefix("0x").trim()
