@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'firebase_options.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -11,28 +13,64 @@ import 'widgets/cloud_sync_bootstrap.dart';
 
 final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
 
-void main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  runZonedGuarded(() {
+    runApp(const _StartupGate());
+  }, (error, stack) {
+    debugPrint('MaxStream uncaught zone error: $error\n$stack');
+  });
+}
 
-  try {
-    // Remove name: 'MaxStreamApp' – only needed if initializing multiple apps
-    await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform,
-    );
+/// Shows the MaxStream splash immediately and finishes network-backed service
+/// initialization in the background, so a slow first launch (e.g. Firebase on a
+/// cold start) can never leave the app frozen on the native splash drawable.
+class _StartupGate extends StatefulWidget {
+  const _StartupGate();
 
-    if (!kIsWeb) await NotificationService().initialize();
-    if (!kIsWeb) await MediaDownloadManager.instance.initialize();
-    await ThemeService.instance.loadTheme();
+  @override
+  State<_StartupGate> createState() => _StartupGateState();
+}
 
-    runApp(const MaxStreamApp());
+class _StartupGateState extends State<_StartupGate> {
+  Object? _fatal;
+  bool _ready = false;
 
-    // Attach the navigator once the first frame is up so notification taps
-    // (including cold-start taps) can be routed to the right screen.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      NotificationRouter.registerNavigator(appNavigatorKey);
-    });
-  } catch (e) {
-    runApp(ErrorApp(error: e));
+  @override
+  void initState() {
+    super.initState();
+    _initialize();
+  }
+
+  Future<void> _initialize() async {
+    try {
+      // Remove name: 'MaxStreamApp' – only needed if initializing multiple apps
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
+
+      if (!kIsWeb) await NotificationService().initialize();
+      if (!kIsWeb) await MediaDownloadManager.instance.initialize();
+      await ThemeService.instance.loadTheme();
+    } catch (e) {
+      _fatal = e;
+    }
+    if (!mounted) return;
+    setState(() => _ready = true);
+    if (_fatal == null) {
+      // Attach the navigator once the first frame is up so notification taps
+      // (including cold-start taps) can be routed to the right screen.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        NotificationRouter.registerNavigator(appNavigatorKey);
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_fatal != null) return ErrorApp(error: _fatal!);
+    if (!_ready) return const SplashScreen();
+    return const MaxStreamApp();
   }
 }
 

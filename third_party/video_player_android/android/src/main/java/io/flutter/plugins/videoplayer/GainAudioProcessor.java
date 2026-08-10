@@ -85,7 +85,10 @@ public final class GainAudioProcessor extends BaseAudioProcessor {
       FloatBuffer in = inputBuffer.asFloatBuffer();
       FloatBuffer out = output.asFloatBuffer();
       for (int i = 0; i < frameCount * channelCount; i++) {
-        out.put(in.get() * scale);
+        // Clamp like the 16-bit path: samples beyond +-1.0 are clipped by the
+        // DAC into harsh crackling, which boost users can hear as "scratches".
+        float scaled = in.get() * scale;
+        out.put(Math.max(-1.0f, Math.min(1.0f, scaled)));
       }
     }
     output.position(0);

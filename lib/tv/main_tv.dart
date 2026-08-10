@@ -19,23 +19,57 @@ import 'screens/tv_splash_screen.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await _installCrashLogger();
-  runZonedGuarded(_bootstrap, (error, stack) {
+  runZonedGuarded(() {
+    // Analyze "opening" stability: render the splash immediately instead of
+    // waiting for network-backed services before the first frame, and surface
+    // any init failure inside the app rather than stalling on the native
+    // splash drawable.
+    runApp(const _TvStartupGate());
+  }, (error, stack) {
     _reportCrash('UncaughtZone', error, stack);
   });
 }
 
-Future<void> _bootstrap() async {
-  try {
-    await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform,
-    );
+class _TvStartupGate extends StatefulWidget {
+  const _TvStartupGate();
 
-    // Initialize notification service
-    await NotificationService().initialize();
+  @override
+  State<_TvStartupGate> createState() => _TvStartupGateState();
+}
 
-    runApp(const MaxStreamTV());
-  } catch (e) {
-    runApp(ErrorApp(error: e));
+class _TvStartupGateState extends State<_TvStartupGate> {
+  Object? _fatal;
+  bool _ready = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _initialize();
+  }
+
+  Future<void> _initialize() async {
+    try {
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
+
+      // Initialize notification service
+      await NotificationService().initialize();
+    } catch (e, stack) {
+      _reportCrash('Bootstrap', e, stack);
+      _fatal = e;
+    }
+    if (!mounted) return;
+    setState(() => _ready = true);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_fatal != null) return ErrorApp(error: _fatal!);
+    // The splash is shown the moment the app opens, so a slow or unavailable
+    // network during Firebase init can never leave the TV on a blank window.
+    if (!_ready) return const TvSplashScreen();
+    return const MaxStreamTV();
   }
 }
 
