@@ -8,6 +8,10 @@ import 'package:path_provider/path_provider.dart';
 
 import '../services/logger_service.dart';
 
+const MethodChannel _nativeCrashChannel = MethodChannel(
+  'com.maxstream.app/crashlog',
+);
+
 void installGlobalCrashHandlers() {
   FlutterError.onError = (FlutterErrorDetails details) {
     recordCrash(
@@ -20,6 +24,49 @@ void installGlobalCrashHandlers() {
     recordCrash('PlatformDispatcher', error, stack);
     return true;
   };
+}
+
+/// Surfaces a *native* (JVM) crash that happened in a previous process run.
+///
+/// Dart-level hooks ([FlutterError], [PlatformDispatcher], the zone) can never
+/// see a hard process death, so MainActivity writes an uncaught-exception
+/// tombstone before aborting. This reads (and clears) that tombstone; the run
+/// then boots straight into the crash screen. Called before runApp so the gate
+/// is already populated when the first frame renders.
+Future<void> checkForNativeCrash() async {
+  if (crashReport.value != null) return;
+  try {
+    final text = await _nativeCrashChannel.invokeMethod<String>(
+      'getNativeCrashTombstone',
+    );
+    if (text == null || !text.contains('[NativeCrash]')) return;
+    final lines = text.split('\n');
+    final errorLine = lines.firstWhere(
+      (line) => line.contains('[NativeCrash]'),
+      orElse: () => 'Native crash',
+    );
+    final error = errorLine.replaceFirst('[NativeCrash]', '').trim();
+    final stackLines = <String>[];
+    var inStack = false;
+    for (final line in lines) {
+      if (line.startsWith('Stack:')) {
+        inStack = true;
+        continue;
+      }
+      if (inStack) stackLines.add(line);
+    }
+    crashReport.value = CrashInfo(
+      tag: 'NativeCrash',
+      error: error.isEmpty ? 'Native crash' : error,
+      stack: StackTrace.fromString(
+        stackLines.isEmpty ? text : stackLines.join('\n'),
+      ),
+      time: DateTime.now(),
+    );
+  } catch (_) {
+    // No native handler / channel unavailable: the run continues normally and
+    // any Dart errors still report through the in-memory crash screen.
+  }
 }
 
 class CrashInfo {
@@ -43,7 +90,12 @@ Future<void> recordCrash(String tag, Object error, StackTrace stack) async {
   LoggerService.error('[$tag] $error', error, stack);
   unawaited(_appendCrashLog('[$time] [$tag] $error\n$stack\n'));
   if (crashReport.value == null) {
-    crashReport.value = CrashInfo(tag: tag, error: error, stack: stack, time: time);
+    crashReport.value = CrashInfo(
+      tag: tag,
+      error: error,
+      stack: stack,
+      time: time,
+    );
   }
 }
 
@@ -153,41 +205,41 @@ class CrashScreen extends StatelessWidget {
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 16),
-Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF1A1A1A),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      shortSummary,
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 14,
-                        fontFamily: 'monospace',
-                      ),
-                    ),
-                  ),
-                  if (_origin != null) ...[
-                    const SizedBox(height: 12),
                     Container(
                       padding: const EdgeInsets.all(14),
                       decoration: BoxDecoration(
-                        color: const Color(0x33FF5252),
-                        border: Border.all(color: const Color(0x66FF5252)),
+                        color: const Color(0xFF1A1A1A),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Text(
-                        'Crashed in: $_origin',
+                        shortSummary,
                         style: const TextStyle(
-                          color: Colors.white,
+                          color: Colors.white70,
                           fontSize: 14,
                           fontFamily: 'monospace',
-                          fontWeight: FontWeight.bold,
                         ),
                       ),
                     ),
-                  ],
+                    if (_origin != null) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: const Color(0x33FF5252),
+                          border: Border.all(color: const Color(0x66FF5252)),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          'Crashed in: $_origin',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontFamily: 'monospace',
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 12),
                     Container(
                       padding: const EdgeInsets.all(14),

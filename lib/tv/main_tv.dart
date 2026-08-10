@@ -16,15 +16,22 @@ import 'screens/tv_splash_screen.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   installGlobalCrashHandlers();
-  runZonedGuarded(() {
-    // Analyze "opening" stability: render the splash immediately instead of
-    // waiting for network-backed services before the first frame, and surface
-    // any init failure inside the app rather than stalling on the native
-    // splash drawable.
-    runApp(const CrashReportGate(child: _TvStartupGate()));
-  }, (error, stack) {
-    recordCrash('UncaughtZone', error, stack);
-  });
+  // A crash that killed the previous process (native/JVM) only exists as a
+  // tombstone on disk; load it before the first frame so the report gate can
+  // show it on this boot instead of silently relaunching.
+  await checkForNativeCrash();
+  runZonedGuarded(
+    () {
+      // Analyze "opening" stability: render the splash immediately instead of
+      // waiting for network-backed services before the first frame, and surface
+      // any init failure inside the app rather than stalling on the native
+      // splash drawable.
+      runApp(const CrashReportGate(child: _TvStartupGate()));
+    },
+    (error, stack) {
+      recordCrash('UncaughtZone', error, stack);
+    },
+  );
 }
 
 class _TvStartupGate extends StatefulWidget {

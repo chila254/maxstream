@@ -14,14 +14,20 @@ import 'widgets/crash_screen.dart';
 
 final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   installGlobalCrashHandlers();
-  runZonedGuarded(() {
-    runApp(const CrashReportGate(child: _StartupGate()));
-  }, (error, stack) {
-    recordCrash('UncaughtZone', error, stack);
-  });
+  // Surface the previous process's native crash before the first frame (see
+  // checkForNativeCrash in widgets/crash_screen.dart).
+  await checkForNativeCrash();
+  runZonedGuarded(
+    () {
+      runApp(const CrashReportGate(child: _StartupGate()));
+    },
+    (error, stack) {
+      recordCrash('UncaughtZone', error, stack);
+    },
+  );
 }
 
 /// Shows the MaxStream splash immediately and finishes network-backed service

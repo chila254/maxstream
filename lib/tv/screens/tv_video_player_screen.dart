@@ -2905,7 +2905,10 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         child: Column(
           children: [
             AnimatedContainer(
-              duration: const Duration(milliseconds: 150),
+              // Animation disabled: every animated transition over the video
+              // texture stalls the weak TV GPU (the "scratch"), so highlights
+              // jump instantly instead of tweening.
+              duration: Duration.zero,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 3),
               decoration: BoxDecoration(
                 color: focused ? Colors.white10 : Colors.transparent,
@@ -3055,7 +3058,10 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
             child: InkWell(
               onTap: _closeMenus,
               child: AnimatedContainer(
-                duration: const Duration(milliseconds: 150),
+                // Animation disabled: every animated transition over the video
+                // texture stalls the weak TV GPU (the "scratch"), so highlights
+                // jump instantly instead of tweening.
+                duration: Duration.zero,
                 padding: const EdgeInsets.fromLTRB(20, 14, 20, 10),
                 decoration: BoxDecoration(
                   color: _menuHeaderNode.hasFocus
@@ -3179,7 +3185,10 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
             child: InkWell(
               onTap: _closeMenus,
               child: AnimatedContainer(
-                duration: const Duration(milliseconds: 150),
+                // Animation disabled: every animated transition over the video
+                // texture stalls the weak TV GPU (the "scratch"), so highlights
+                // jump instantly instead of tweening.
+                duration: Duration.zero,
                 padding: const EdgeInsets.fromLTRB(20, 14, 20, 10),
                 decoration: BoxDecoration(
                   color: _menuHeaderNode.hasFocus
@@ -3277,7 +3286,10 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       child: InkWell(
         onTap: () => _selectMenuSeason(season),
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
+          // Animation disabled: every animated transition over the video
+          // texture stalls the weak TV GPU (the "scratch"), so highlights
+          // jump instantly instead of tweening.
+          duration: Duration.zero,
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
           decoration: BoxDecoration(
             color: isActive
@@ -3540,51 +3552,61 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
           child: Stack(
             fit: StackFit.expand,
             children: [
+              // RepaintBoundary isolates the video texture from Flutter UI
+              // repaints: on the low-end TV GPU, every overlay/slider repaint
+              // over the texture stalls a frame ("scratch"). Isolating the
+              // layers means UI redraws no longer invalidate the video.
               if (_controller != null)
                 Positioned.fill(
-                  child: Center(
-                    child: AspectRatio(
-                      aspectRatio: _controller!.value.aspectRatio == 0
-                          ? 16 / 9
-                          : _controller!.value.aspectRatio,
-                      child: VideoPlayer(
-                        _controller!,
-                        key: ObjectKey(_controller),
+                  child: RepaintBoundary(
+                    child: Center(
+                      child: AspectRatio(
+                        aspectRatio: _controller!.value.aspectRatio == 0
+                            ? 16 / 9
+                            : _controller!.value.aspectRatio,
+                        child: VideoPlayer(
+                          _controller!,
+                          key: ObjectKey(_controller),
+                        ),
                       ),
                     ),
                   ),
                 ),
-              if (_isLoading && _error == null) _buildLoadingWidget(),
+              if (_isLoading && _error == null)
+                RepaintBoundary(child: _buildLoadingWidget()),
               if (_isBuffering &&
                   _error == null &&
                   !_showControls &&
                   !_isLoading)
-                Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const SizedBox(
-                        width: 56,
-                        height: 56,
-                        child: CircularProgressIndicator(color: Colors.white),
-                      ),
-                      if (_statusMessage.isNotEmpty) ...[
-                        const SizedBox(height: 20),
-                        Text(
-                          _statusMessage,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 18,
-                          ),
+                RepaintBoundary(
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const SizedBox(
+                          width: 56,
+                          height: 56,
+                          child: CircularProgressIndicator(color: Colors.white),
                         ),
+                        if (_statusMessage.isNotEmpty) ...[
+                          const SizedBox(height: 20),
+                          Text(
+                            _statusMessage,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                            ),
+                          ),
+                        ],
                       ],
-                    ],
+                    ),
                   ),
                 ),
-              if (_error != null) _buildErrorWidget(),
-              if (_showControls) _buildControlsOverlay(),
-              _buildSubtitleWidget(),
+              if (_error != null) RepaintBoundary(child: _buildErrorWidget()),
+              if (_showControls)
+                RepaintBoundary(child: _buildControlsOverlay()),
+              RepaintBoundary(child: _buildSubtitleWidget()),
               // Status messages (e.g. "Finding a working stream...") belong in
               // the middle of the screen on TV, visible regardless of whether
               // the controls overlay is up. Skip the duplicate when the loading
@@ -3593,7 +3615,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
                   _error == null &&
                   !_isLoading &&
                   !(_isBuffering && !_showControls))
-                _buildStatusWidget(),
+                RepaintBoundary(child: _buildStatusWidget()),
             ],
           ),
         ),

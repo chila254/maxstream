@@ -6,16 +6,91 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import kotlinx.coroutines.*
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class MainActivity : FlutterActivity() {
     private val EXTRACTOR_CHANNEL = "com.maxstream.app/extractor"
     private val DOWNLOAD_SERVICE_CHANNEL = "com.maxstream.app/download_service"
     private val RESTART_CHANNEL = "com.maxstream.app/restart"
+    private val CRASHLOG_CHANNEL = "com.maxstream.app/crashlog"
     private val extractor by lazy { StreamExtractor(this) }
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
+    override fun onCreate(savedInstanceState: android.os.Bundle?) {
+        installNativeCrashHandler()
+        super.onCreate(savedInstanceState)
+    }
+
+    /**
+     * Captures JVM-level crashes (uncaught exceptions thrown off the Flutter
+     * thread, e.g. in ExoPlayer/MediaCodec callbacks or our extractors) into a
+     * tombstone file. The crash screen has no chance to show for a hard process
+     * death, so the report is persisted here and surfaced by Dart on next boot.
+     *
+     * Note: a Low Memory Killer SIGKILL or a pure native SIGSEGV never runs a
+     * JVM handler, so those cannot be recorded this way - but the most common
+     * Android crashes are still Java exceptions and will now produce a report.
+     */
+    private fun installNativeCrashHandler() {
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            try {
+                val file = File(filesDir, "maxstream_native_crash.txt")
+                file.parentFile?.mkdirs()
+                val time = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
+                val entry = buildString {
+                    append(time).append('\n')
+                    append("[NativeCrash] ")
+                    append(throwable.javaClass.name)
+                    append(": ")
+                    append(throwable.message ?: "")
+                    append('\n')
+                    append("Thread: ").append(thread.name).append('\n')
+                    append("Stack:\n")
+                    for (el in throwable.stackTrace) {
+                        append("  at ").append(el.toString()).append('\n')
+                    }
+                    throwable.cause?.let { cause ->
+                        append("Caused by: ").append(cause).append('\n')
+                    }
+                    append('\n')
+                }
+                file.appendText(entry)
+            } catch (_: Throwable) {
+                // Crash handling must never crash.
+            }
+            // Let the default handler do its job (abort the process, logcat).
+            previous?.uncaughtException(thread, throwable)
+        }
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CRASHLOG_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "getNativeCrashTombstone" -> {
+                        // Return (and clear) the tombstone written by
+                        // installNativeCrashHandler so Dart can show the crash
+                        // screen once for a previous-process death. Deleting on
+                        // read means a restart after "Restart app" won't re-show
+                        // the same crash.
+                        val file = File(filesDir, "maxstream_native_crash.txt")
+                        if (file.exists() && file.isFile) {
+                            val text = file.readText()
+                            file.delete()
+                            result.success(text)
+                        } else {
+                            result.success("")
+                        }
+                    }
+                    else -> result.notImplemented()
+                }
+            }
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, EXTRACTOR_CHANNEL)
             .setMethodCallHandler { call, result ->
