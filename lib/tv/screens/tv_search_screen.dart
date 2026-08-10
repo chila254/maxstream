@@ -57,13 +57,19 @@ class _TvSearchScreenState extends State<TvSearchScreen> {
   String? _error;
   int _generation = 0;
 
+  TvNavigationProvider? _navProvider;
+
   @override
   void initState() {
     super.initState();
     _keyboardManager.activateKeyboard();
+    // Resolve the provider in initState so dispose() never does a context
+    // lookup: by the time dispose runs the inherited element is already torn
+    // down, and Provider.of returns null there.
+    _navProvider = context.read<TvNavigationProvider>();
+    _navProvider?.setSearchFocused(true);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      context.read<TvNavigationProvider>().setSearchFocused(true);
       _keyboardNode.requestFocus();
     });
     _loadRecommendations();
@@ -71,7 +77,7 @@ class _TvSearchScreenState extends State<TvSearchScreen> {
 
   @override
   void dispose() {
-    context.read<TvNavigationProvider>().setSearchFocused(false);
+    _navProvider?.setSearchFocused(false);
     for (final node in _cardNodes.values) {
       node.dispose();
     }

@@ -718,8 +718,16 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     // players (server switch, quality change, next episode, recovery).
     if (previous != null) {
       previous.removeListener(_handlePlaybackChanged);
+      // Null the controller FIRST so the old VideoPlayer widget unmounts from
+      // the tree (releasing its platform view) before the native player is
+      // released. Disposing the player while its widget could still rebuild
+      // makes AndroidVideoPlayer build viewWithOptions against a disposed
+      // player id and throws "Bad state: No active player with ID N".
       if (_isCurrent(generation) && mounted) {
-        setState(() => _isBuffering = true);
+        setState(() {
+          _controller = null;
+          _isBuffering = true;
+        });
       }
       try {
         await previous.dispose();

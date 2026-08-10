@@ -96,6 +96,21 @@ class CrashScreen extends StatelessWidget {
 
   final CrashInfo report;
 
+  /// First app-owned frame in the stack, e.g.
+  /// `lib/tv/screens/tv_search_screen.dart:74  TvSearchScreenState.dispose`.
+  /// Null-able formatting in a tiny box so the report names the widget/screen
+  /// that crashed instead of burying it in the long stack below.
+  String? get _origin {
+    final frames = report.stack.toString().split('\n');
+    for (final frame in frames) {
+      final app = RegExp(r'package:maxstream/([^\s]+)').firstMatch(frame);
+      if (app == null) continue;
+      final symbol = frame.trim().split(' (')[0];
+      return '${app.group(1)}${symbol.isNotEmpty ? '  $symbol' : ''}';
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     final summary = '${report.tag}: ${report.error}';
@@ -138,21 +153,41 @@ class CrashScreen extends StatelessWidget {
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 16),
+Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1A1A1A),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      shortSummary,
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 14,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                  ),
+                  if (_origin != null) ...[
+                    const SizedBox(height: 12),
                     Container(
                       padding: const EdgeInsets.all(14),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF1A1A1A),
+                        color: const Color(0x33FF5252),
+                        border: Border.all(color: const Color(0x66FF5252)),
                         borderRadius: BorderRadius.circular(8),
-                    ),
+                      ),
                       child: Text(
-                        shortSummary,
+                        'Crashed in: $_origin',
                         style: const TextStyle(
-                          color: Colors.white70,
+                          color: Colors.white,
                           fontSize: 14,
                           fontFamily: 'monospace',
+                          fontWeight: FontWeight.bold,
                         ),
                       ),
                     ),
+                  ],
                     const SizedBox(height: 12),
                     Container(
                       padding: const EdgeInsets.all(14),
