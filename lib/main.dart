@@ -72,7 +72,16 @@ class _StartupGateState extends State<_StartupGate> {
   @override
   Widget build(BuildContext context) {
     if (_fatal != null) return ErrorApp(error: _fatal!);
-    if (!_ready) return const SplashScreen();
+    if (!_ready) {
+      // SplashScreen is a Scaffold and needs a MaterialApp ancestor before the
+      // main MaterialApp is ready; building it bare at the runApp root crashes
+      // with a missing Directionality.
+      return MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: ThemeService.darkTheme,
+        home: const SplashScreen(),
+      );
+    }
     return const MaxStreamApp();
   }
 }

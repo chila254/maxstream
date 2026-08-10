@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -710,6 +711,29 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     final isHls = url.toLowerCase().contains('.m3u8');
     final previous = _controller;
 
+    // Fully tear down the previous platform view (SurfaceView) BEFORE creating
+    // a replacement. Overlapping two live platform views crashes the fragile
+    // compositor on some TV boxes, so the old player must be fully gone before
+    // the next line creates a new view. This applies to every path that swaps
+    // players (server switch, quality change, next episode, recovery).
+    if (previous != null) {
+      previous.removeListener(_handlePlaybackChanged);
+      if (_isCurrent(generation) && mounted) {
+        setState(() => _isBuffering = true);
+      }
+      try {
+        await previous.dispose();
+      } catch (e, st) {
+        debugPrint('TvVideoPlayer: disposing previous player failed: $e\n$st');
+      }
+      if (!_isCurrent(generation)) return false;
+      // Give the torn-down platform view a moment to fully release before a
+      // new SurfaceView is created; overlapping them crashes the compositor
+      // on some TV boxes.
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      if (!_isCurrent(generation)) return false;
+    }
+
     try {
       _showStatus('Loading video...');
       _initTimeout?.cancel();
@@ -795,12 +819,6 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         _wasBufferingAtLastCheck = controller.value.isBuffering;
       });
 
-      previous?.removeListener(_handlePlaybackChanged);
-      try {
-        await previous?.dispose();
-      } catch (e, st) {
-        debugPrint('TvVideoPlayer: disposing previous player failed: $e\n$st');
-      }
       _startProgressSaving();
       _showControlsAndFocus();
       return true;
@@ -1272,7 +1290,10 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         if (response.statusCode >= 200 && response.statusCode < 300) {
           final body = utf8.decode(response.bodyBytes, allowMalformed: true);
           if (body.trim().isNotEmpty) {
-            final cues = _parseSubtitleFile(body);
+            // Subtitle parsing is pure CPU work (regex loops over every cue) and
+            // runs fit-for-purpose on a background isolate so a large subtitle
+            // file can never jank the playback UI thread.
+            final cues = await compute(_parseSubtitleFile, body);
             if (cues.isNotEmpty) return cues;
             lastError = const FormatException(
               'The subtitle file contained no valid timed cues',
@@ -1299,14 +1320,14 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     return '';
   }
 
-  String _stripTags(String input) {
+  static String _stripTags(String input) {
     return input
         .replaceAll(RegExp(r'<[^>]+>'), '')
         .replaceAll(r'{\w[^}]*}', '')
         .trim();
   }
 
-  String _decodeHtmlEntities(String input) => input
+  static String _decodeHtmlEntities(String input) => input
       .replaceAll('&amp;', '&')
       .replaceAll('&lt;', '<')
       .replaceAll('&gt;', '>')
@@ -1314,7 +1335,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       .replaceAll('&#39;', "'")
       .replaceAll('&nbsp;', ' ');
 
-  List<_SubtitleCue> _parseSubtitleFile(String input) {
+  static List<_SubtitleCue> _parseSubtitleFile(String input) {
     final normalized = input
         .replaceFirst('\uFEFF', '')
         .replaceAll('\r\n', '\n')
@@ -1343,7 +1364,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     return srt;
   }
 
-  List<_SubtitleCue>? _tryParseJson(String input) {
+  static List<_SubtitleCue>? _tryParseJson(String input) {
     try {
       final decoded = jsonDecode(input);
       final dynamic rawCues = decoded is List
@@ -1381,7 +1402,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     }
   }
 
-  Duration? _parseJsonCueTime(dynamic value) {
+  static Duration? _parseJsonCueTime(dynamic value) {
     if (value is num) {
       return Duration(milliseconds: (value.toDouble() * 1000).round());
     }
@@ -1394,7 +1415,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         : Duration(milliseconds: (seconds * 1000).round());
   }
 
-  List<_SubtitleCue> _parseVtt(String input) {
+  static List<_SubtitleCue> _parseVtt(String input) {
     final lines = input.split('\n');
     final cues = <_SubtitleCue>[];
     var i = 0;
@@ -1442,7 +1463,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     return cues;
   }
 
-  List<_SubtitleCue> _parseSrt(String input) {
+  static List<_SubtitleCue> _parseSrt(String input) {
     final blocks = input.split(RegExp(r'\n\s*\n'));
     final cues = <_SubtitleCue>[];
     for (final block in blocks) {
@@ -1469,7 +1490,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     return cues;
   }
 
-  List<_SubtitleCue> _parseTtml(String input) {
+  static List<_SubtitleCue> _parseTtml(String input) {
     final cues = <_SubtitleCue>[];
     final pTag = RegExp(
       r'<p\b[^>]*begin="([^"]+)"[^>]*end="([^"]+)"[^>]*>(.*?)</p>',
@@ -1486,7 +1507,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     return cues;
   }
 
-  Duration? _parseTtmlTime(String raw) {
+  static Duration? _parseTtmlTime(String raw) {
     final t = raw.trim();
     final m = RegExp(r'(?:(\d+):)?(\d+):(\d+)[.,](\d+)').firstMatch(t);
     if (m != null) {
@@ -1508,7 +1529,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         : Duration(milliseconds: (seconds * 1000).round());
   }
 
-  List<_SubtitleCue> _parseAss(String input) {
+  static List<_SubtitleCue> _parseAss(String input) {
     final cues = <_SubtitleCue>[];
     for (final line in input.split('\n')) {
       if (!line.startsWith('Dialogue:')) continue;
@@ -1524,7 +1545,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     return cues;
   }
 
-  List<String> _splitDialogue(String line) {
+  static List<String> _splitDialogue(String line) {
     // Dialect is: Dialogue: Marked=0,0:00:00.00,0:00:05.00,Style,Name,...
     // Split only: keep commas after 9 fields.
     final body = line.substring('Dialogue:'.length).trim();
@@ -1536,7 +1557,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     return fields;
   }
 
-  Duration? _parseAssTime(String raw) {
+  static Duration? _parseAssTime(String raw) {
     final m = RegExp(r'(\d+):(\d+):(\d+)[.:](\d+)').firstMatch(raw.trim());
     if (m == null) return null;
     final h = int.tryParse(m.group(1)!);
@@ -1558,7 +1579,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     return val;
   }
 
-  Duration? _parseSubTime(String raw) {
+  static Duration? _parseSubTime(String raw) {
     final t = raw.trim();
     final m = RegExp(
       r'(?:(\d+):)?(\d{1,2}):(\d{2})[.,](\d{1,3})',

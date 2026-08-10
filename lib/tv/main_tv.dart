@@ -62,7 +62,15 @@ class _TvStartupGateState extends State<_TvStartupGate> {
   Widget build(BuildContext context) {
     // The splash is shown the moment the app opens, so a slow or unavailable
     // network during Firebase init can never leave the TV on a blank window.
-    if (!_ready) return const TvSplashScreen();
+    // It is a Scaffold, so it needs a MaterialApp ancestor before the main
+    // TV MaterialApp is ready; building it bare at the runApp root crashes.
+    if (!_ready) {
+      return MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData.dark(),
+        home: const TvSplashScreen(),
+      );
+    }
     return const MaxStreamTV();
   }
 }
