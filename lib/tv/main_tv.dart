@@ -1,32 +1,29 @@
 import 'dart:async';
-import 'dart:io';
-import 'dart:ui' show PlatformDispatcher;
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:path_provider/path_provider.dart';
 
 import '../firebase_options.dart';
-import '../services/logger_service.dart';
 import '../services/notification_service.dart';
 import '../widgets/cloud_sync_bootstrap.dart';
+import '../widgets/crash_screen.dart';
 import 'screens/tv_login_screen.dart';
 import 'screens/tv_maxstream_main.dart';
 import 'screens/tv_splash_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await _installCrashLogger();
+  installGlobalCrashHandlers();
   runZonedGuarded(() {
     // Analyze "opening" stability: render the splash immediately instead of
     // waiting for network-backed services before the first frame, and surface
     // any init failure inside the app rather than stalling on the native
     // splash drawable.
-    runApp(const _TvStartupGate());
+    runApp(const CrashReportGate(child: _TvStartupGate()));
   }, (error, stack) {
-    _reportCrash('UncaughtZone', error, stack);
+    recordCrash('UncaughtZone', error, stack);
   });
 }
 
@@ -38,7 +35,6 @@ class _TvStartupGate extends StatefulWidget {
 }
 
 class _TvStartupGateState extends State<_TvStartupGate> {
-  Object? _fatal;
   bool _ready = false;
 
   @override
@@ -56,8 +52,7 @@ class _TvStartupGateState extends State<_TvStartupGate> {
       // Initialize notification service
       await NotificationService().initialize();
     } catch (e, stack) {
-      _reportCrash('Bootstrap', e, stack);
-      _fatal = e;
+      recordCrash('Bootstrap', e, stack);
     }
     if (!mounted) return;
     setState(() => _ready = true);
@@ -65,73 +60,10 @@ class _TvStartupGateState extends State<_TvStartupGate> {
 
   @override
   Widget build(BuildContext context) {
-    if (_fatal != null) return ErrorApp(error: _fatal!);
     // The splash is shown the moment the app opens, so a slow or unavailable
     // network during Firebase init can never leave the TV on a blank window.
     if (!_ready) return const TvSplashScreen();
     return const MaxStreamTV();
-  }
-}
-
-File? _crashLogFile;
-
-Future<void> _installCrashLogger() async {
-  try {
-    final dir = await getApplicationDocumentsDirectory();
-    _crashLogFile = File('${dir.path}/maxstream_crash.log');
-  } catch (_) {
-    _crashLogFile = null;
-  }
-
-  FlutterError.onError = (FlutterErrorDetails details) {
-    _reportCrash(
-      'FlutterError',
-      details.exception,
-      details.stack ?? StackTrace.current,
-    );
-  };
-
-  PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
-    _reportCrash('PlatformDispatcher', error, stack);
-    // Mark as handled so the error does not terminate the Flutter engine.
-    return true;
-  };
-}
-
-Future<void> _reportCrash(String tag, Object error, StackTrace stack) async {
-  final line = '[${DateTime.now()}] [$tag] $error\n$stack\n';
-  LoggerService.error('[$tag] $error', error, stack);
-  final file = _crashLogFile;
-  if (file == null) return;
-  try {
-    await file.writeAsString(line, mode: FileMode.append);
-  } catch (_) {
-    // Logging must never crash the app.
-  }
-}
-
-class ErrorApp extends StatelessWidget {
-  final Object error;
-
-  const ErrorApp({super.key, required this.error});
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      home: Scaffold(
-        backgroundColor: Colors.black,
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Text(
-              'Failed to initialize the app:\n$error',
-              style: const TextStyle(color: Colors.white, fontSize: 16),
-              textAlign: TextAlign.center,
-            ),
-          ),
-        ),
-      ),
-    );
   }
 }
 

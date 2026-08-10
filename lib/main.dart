@@ -10,15 +10,17 @@ import 'services/notification_router.dart';
 import 'services/media_download_manager.dart';
 import 'services/theme_service.dart';
 import 'widgets/cloud_sync_bootstrap.dart';
+import 'widgets/crash_screen.dart';
 
 final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  installGlobalCrashHandlers();
   runZonedGuarded(() {
-    runApp(const _StartupGate());
+    runApp(const CrashReportGate(child: _StartupGate()));
   }, (error, stack) {
-    debugPrint('MaxStream uncaught zone error: $error\n$stack');
+    recordCrash('UncaughtZone', error, stack);
   });
 }
 
@@ -52,7 +54,8 @@ class _StartupGateState extends State<_StartupGate> {
       if (!kIsWeb) await NotificationService().initialize();
       if (!kIsWeb) await MediaDownloadManager.instance.initialize();
       await ThemeService.instance.loadTheme();
-    } catch (e) {
+    } catch (e, stack) {
+      recordCrash('Bootstrap', e, stack);
       _fatal = e;
     }
     if (!mounted) return;

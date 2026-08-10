@@ -10,6 +10,7 @@ import kotlinx.coroutines.*
 class MainActivity : FlutterActivity() {
     private val EXTRACTOR_CHANNEL = "com.maxstream.app/extractor"
     private val DOWNLOAD_SERVICE_CHANNEL = "com.maxstream.app/download_service"
+    private val RESTART_CHANNEL = "com.maxstream.app/restart"
     private val extractor by lazy { StreamExtractor(this) }
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
@@ -79,6 +80,27 @@ class MainActivity : FlutterActivity() {
                             } catch (e: Exception) {
                                 result.error("EXTRACT_ERROR", e.message, null)
                             }
+                        }
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, RESTART_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "restartApp" -> {
+                        // Relaunch the activity as a cold start so the crash
+                        // report restart button fully resets the app state.
+                        val intent = packageManager.getLaunchIntentForPackage(packageName)
+                        if (intent != null) {
+                            intent.addFlags(
+                                Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK,
+                            )
+                            startActivity(intent)
+                            result.success(null)
+                        } else {
+                            result.error("NO_LAUNCH_INTENT", "No launch intent found", null)
                         }
                     }
                     else -> result.notImplemented()
