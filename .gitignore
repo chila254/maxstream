@@ -12,6 +12,14 @@
 .swiftpm/
 migrate_working_dir/
 
+# Generated platform plugin registrants (recreated by flutter pub get)
+linux/flutter/ephemeral/
+macos/Flutter/ephemeral/
+linux/flutter/generated_plugin_registrant.cc
+linux/flutter/generated_plugin_registrant.h
+linux/flutter/generated_plugins.cmake
+macos/Flutter/GeneratedPluginRegistrant.swift
+
 # IntelliJ related
 *.iml
 *.ipr
