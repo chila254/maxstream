@@ -12,6 +12,69 @@ const MethodChannel _nativeCrashChannel = MethodChannel(
   'com.maxstream.app/crashlog',
 );
 
+/// Playback heartbeat file. Written while a video plays; cleared on a clean
+/// player dispose and on app backgrounding. Its mere presence at a cold start
+/// means the previous process died in the foreground without a chance to shut
+/// down - the Low-Memory-Killer SIGKILL that no JVM/Dart handler can observe.
+Future<File?> _heartbeatFile() async {
+  try {
+    final dir = await getApplicationDocumentsDirectory();
+    return File('${dir.path}/maxstream_heartbeat.txt');
+  } catch (_) {
+    return null;
+  }
+}
+
+Future<void> heartbeatTouch() async {
+  try {
+    final file = await _heartbeatFile();
+    await file?.writeAsString('${DateTime.now().millisecondsSinceEpoch}');
+  } catch (_) {
+    // Never crash the player over the heartbeat.
+  }
+}
+
+Future<void> heartbeatClear() async {
+  try {
+    await (await _heartbeatFile())?.delete();
+  } catch (_) {}
+}
+
+/// Surfaces a playback session that was killed without a clean exit.
+///
+/// Called at every cold start after [checkForNativeCrash]. If the heartbeat is
+/// still on disk, the last run's player was active when the process died
+/// (Low Memory Killer, power cut to the TV while foregrounded, reboot). The
+/// marker is consumed on read so it only reports once.
+Future<void> checkUnexpectedExit() async {
+  if (crashReport.value != null) return;
+  try {
+    final file = await _heartbeatFile();
+    if (file == null || !await file.exists()) return;
+    final stat = await file.stat();
+    final age = DateTime.now().difference(stat.modified).inHours;
+    if (age > 24) {
+      // Leftover from an old session (e.g. after a version bump removed a
+      // cleanup path) - not a fresh death, so don't bother the user with it.
+      await file.delete();
+      return;
+    }
+    crashReport.value = CrashInfo(
+      tag: 'UnexpectedExit',
+      error:
+          'Your TV closed MaxStream while you were watching (usually '
+          'because it ran low on memory, or the device restarted).',
+      stack: StackTrace.fromString(
+        'The player was active when the previous process was terminated '
+        'without a clean shutdown - this is typically the system\'s Low '
+        'Memory Killer, which no crash handler can intercept.',
+      ),
+      time: DateTime.now(),
+    );
+    await file.delete();
+  } catch (_) {}
+}
+
 void installGlobalCrashHandlers() {
   FlutterError.onError = (FlutterErrorDetails details) {
     recordCrash(

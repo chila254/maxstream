@@ -14,12 +14,14 @@ import '../providers/tv_navigation_provider.dart';
 import '../../services/direct_m3u8_service.dart';
 import '../../services/tmdb_api_service.dart';
 import '../../services/watch_history_service.dart';
+import '../../widgets/crash_screen.dart';
 
 class _QualityOption {
   const _QualityOption({
     required this.label,
     required this.url,
     this.height = 0,
+    this.codec = '',
   });
 
   final String label;
@@ -28,11 +30,18 @@ class _QualityOption {
   /// Variant height in pixels (0 for the synthetic "Auto" entry).
   final int height;
 
+  /// Video codec family from the HLS master `CODECS` attribute: "h264",
+  /// "hevc", "av1", "vp9" or "" when unknown (direct MP4, VidLink, etc.).
+  final String codec;
+
+  bool get isAvc => codec == 'h264';
+
   factory _QualityOption.fromMap(Map<String, dynamic> value) {
     return _QualityOption(
       label: value['label']?.toString() ?? 'Auto',
       url: value['url']?.toString() ?? '',
       height: (value['height'] as num?)?.toInt() ?? 0,
+      codec: value['codec']?.toString() ?? '',
     );
   }
 }
@@ -141,15 +150,29 @@ class _StreamCandidate {
   /// makes ExoPlayer run adaptive bitrate selection: it switches variants
   /// mid-playback, and each switch forces a decoder reconfiguration that
   /// crashes the fragile TV compositor/decoder path (same failure the
-  /// software-decoder fallback in the vendored plugin targets). Pinning the
-  /// highest available variant keeps one codec active for the whole play.
+  /// software-decoder fallback in the vendored plugin targets). Pinning a
+  /// single variant keeps one codec active for the whole play.
+  ///
+  /// When codec info is available (from the extractor's master CODECS parse),
+  /// the highest *H.264/AVC* rendition is preferred over a taller HEVC/AV1
+  /// stream, whose firmware hardware decoders are the box's main native-crash
+  /// source. Streams without codec info fall back to the plain highest variant.
   _StreamCandidate pinnedToHighestQuality() {
-    _QualityOption? best;
-    for (final q in qualities) {
-      if (q.url.isEmpty || q.height <= 0) continue;
-      if (best == null || q.height > best.height) best = q;
+    final available = <_QualityOption>[
+      for (final q in qualities)
+        if (q.url.isNotEmpty && q.height > 0) q,
+    ];
+    if (available.isEmpty) return this;
+    final avc = [
+      for (final q in available)
+        if (q.isAvc) q,
+    ];
+    final pool = avc.isNotEmpty ? avc : available;
+    var best = pool.first;
+    for (final q in pool) {
+      if (q.height > best.height) best = q;
     }
-    if (best == null || best.url == url) return this;
+    if (best.url == url) return this;
     return _StreamCandidate(
       url: best.url,
       source: source,
@@ -252,6 +275,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
   String? _selectedServerUrl;
   String? _currentTitle;
   _StreamCandidate? _currentCandidate;
+  DateTime? _lastHeartbeat;
 
   VideoPlayerController? _controller;
   String? _currentStreamUrl;
@@ -430,6 +454,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
   @override
   void dispose() {
     _disposed = true;
+    unawaited(heartbeatClear());
     _operationGeneration++;
     WidgetsBinding.instance.removeObserver(this);
     _hideTimer?.cancel();
@@ -465,9 +490,11 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused ||
-        state == AppLifecycleState.inactive ||
         state == AppLifecycleState.detached) {
       _saveProgress();
+      // The app is leaving the foreground by our hand (Home/standby), not by
+      // a kill - so a background-process death is not reported as a crash.
+      unawaited(heartbeatClear());
       try {
         _controller?.pause();
       } catch (e, st) {
@@ -1022,6 +1049,15 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       _lastRebufferTime = DateTime.now();
     }
     _wasBufferingAtLastCheck = isBuffering;
+
+    // Refresh the playback heartbeat (throttled) so a Low-Memory-Killer death
+    // while watching leaves a marker that the next cold start can report.
+    final now = DateTime.now();
+    if (_lastHeartbeat == null ||
+        now.difference(_lastHeartbeat!) >= const Duration(seconds: 10)) {
+      _lastHeartbeat = now;
+      unawaited(heartbeatTouch());
+    }
 
     final positionChanged = (_position - _lastReportedPosition).inSeconds >= 1;
     if (_showControls && positionChanged) {
@@ -2718,139 +2754,144 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     );
 
     return Positioned.fill(
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: _toggleControls,
-        child: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                Color(0xB8000000),
-                Colors.transparent,
-                Color(0xE6000000),
-              ],
-              stops: [0, .42, 1],
+      // RepaintBoundary is INSIDE the Positioned: a Positioned must stay a
+      // direct child of the outer Stack (it sets the Stack's parent data), so
+      // the isolation boundary wraps the painted controls, not the positioner.
+      child: RepaintBoundary(
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: _toggleControls,
+          child: Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Color(0xB8000000),
+                  Colors.transparent,
+                  Color(0xE6000000),
+                ],
+                stops: [0, .42, 1],
+              ),
             ),
-          ),
-          child: Focus(
-            onKeyEvent: _onBaselineAmbitKey,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                Positioned(
-                  top: 22,
-                  left: 28,
-                  right: 28,
-                  child: Row(
-                    children: [
-                      backButton,
-                      const SizedBox(width: 18),
-                      Expanded(
-                        child: Text(
-                          _currentTitle ?? widget.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 20,
-                            fontWeight: FontWeight.w600,
+            child: Focus(
+              onKeyEvent: _onBaselineAmbitKey,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  Positioned(
+                    top: 22,
+                    left: 28,
+                    right: 28,
+                    child: Row(
+                      children: [
+                        backButton,
+                        const SizedBox(width: 18),
+                        Expanded(
+                          child: Text(
+                            _currentTitle ?? widget.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 20,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-                Positioned(
-                  bottom: 174,
-                  left: 0,
-                  right: 0,
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      rewindButton,
-                      const SizedBox(width: 14),
-                      playPauseButton,
-                      const SizedBox(width: 14),
-                      forwardButton,
-                    ],
+                  Positioned(
+                    bottom: 174,
+                    left: 0,
+                    right: 0,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        rewindButton,
+                        const SizedBox(width: 14),
+                        playPauseButton,
+                        const SizedBox(width: 14),
+                        forwardButton,
+                      ],
+                    ),
                   ),
-                ),
-                Positioned(
-                  bottom: 0,
-                  left: 0,
-                  right: 0,
-                  child: LayoutBuilder(
-                    builder: (context, constraints) {
-                      const buttonWidth = 112.0;
-                      const gap = 18.0;
-                      final hasEpisodesButton = !widget.isMovie;
-                      final rowWidth =
-                          buttonWidth * (hasEpisodesButton ? 4 : 3) +
-                          gap * (hasEpisodesButton ? 3 : 2);
-                      final startX = (constraints.maxWidth - rowWidth) / 2;
-                      final menuIndex = <_Pc, int>{
-                        _Pc.server: 0,
-                        _Pc.quality: 1,
-                        _Pc.subtitles: 2,
-                        if (hasEpisodesButton) _Pc.episodes: 3,
-                      };
-                      final openMenu = _activeMenu;
-                      return Stack(
-                        clipBehavior: Clip.none,
-                        children: [
-                          Column(
-                            children: [
-                              _buildProgressBar(),
-                              const SizedBox(height: 12),
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  serverButton,
-                                  const SizedBox(width: gap),
-                                  qualityButton,
-                                  const SizedBox(width: gap),
-                                  subtitlesButton,
-                                  if (hasEpisodesButton) ...[
+                  Positioned(
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        const buttonWidth = 112.0;
+                        const gap = 18.0;
+                        final hasEpisodesButton = !widget.isMovie;
+                        final rowWidth =
+                            buttonWidth * (hasEpisodesButton ? 4 : 3) +
+                            gap * (hasEpisodesButton ? 3 : 2);
+                        final startX = (constraints.maxWidth - rowWidth) / 2;
+                        final menuIndex = <_Pc, int>{
+                          _Pc.server: 0,
+                          _Pc.quality: 1,
+                          _Pc.subtitles: 2,
+                          if (hasEpisodesButton) _Pc.episodes: 3,
+                        };
+                        final openMenu = _activeMenu;
+                        return Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            Column(
+                              children: [
+                                _buildProgressBar(),
+                                const SizedBox(height: 12),
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    serverButton,
                                     const SizedBox(width: gap),
-                                    episodesButton,
+                                    qualityButton,
+                                    const SizedBox(width: gap),
+                                    subtitlesButton,
+                                    if (hasEpisodesButton) ...[
+                                      const SizedBox(width: gap),
+                                      episodesButton,
+                                    ],
                                   ],
-                                ],
-                              ),
-                              const SizedBox(height: 20),
-                            ],
-                          ),
-                          if (openMenu == _Pc.episodes)
-                            Positioned(
-                              left: 48,
-                              right: 48,
-                              bottom: 96,
-                              child: _buildEpisodeMenuPanel(),
-                            )
-                          else if (openMenu != null)
-                            Positioned(
-                              bottom: 88,
-                              left:
-                                  (startX +
-                                          menuIndex[openMenu]! *
-                                              (buttonWidth + gap) +
-                                          buttonWidth / 2 -
-                                          170)
-                                      .clamp(
-                                        8,
-                                        constraints.maxWidth >= 356
-                                            ? constraints.maxWidth - 348
-                                            : 8,
-                                      ),
-                              child: _buildMenuPanel(openMenu),
+                                ),
+                                const SizedBox(height: 20),
+                              ],
                             ),
-                        ],
-                      );
-                    },
+                            if (openMenu == _Pc.episodes)
+                              Positioned(
+                                left: 48,
+                                right: 48,
+                                bottom: 96,
+                                child: _buildEpisodeMenuPanel(),
+                              )
+                            else if (openMenu != null)
+                              Positioned(
+                                bottom: 88,
+                                left:
+                                    (startX +
+                                            menuIndex[openMenu]! *
+                                                (buttonWidth + gap) +
+                                            buttonWidth / 2 -
+                                            170)
+                                        .clamp(
+                                          8,
+                                          constraints.maxWidth >= 356
+                                              ? constraints.maxWidth - 348
+                                              : 8,
+                                        ),
+                                child: _buildMenuPanel(openMenu),
+                              ),
+                          ],
+                        );
+                      },
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -3604,8 +3645,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
                   ),
                 ),
               if (_error != null) RepaintBoundary(child: _buildErrorWidget()),
-              if (_showControls)
-                RepaintBoundary(child: _buildControlsOverlay()),
+              if (_showControls) _buildControlsOverlay(),
               RepaintBoundary(child: _buildSubtitleWidget()),
               // Status messages (e.g. "Finding a working stream...") belong in
               // the middle of the screen on TV, visible regardless of whether

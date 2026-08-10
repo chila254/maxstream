@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../firebase_options.dart';
+import '../services/crashlytics_service.dart';
+import '../services/memory_service.dart';
 import '../services/notification_service.dart';
 import '../widgets/cloud_sync_bootstrap.dart';
 import '../widgets/crash_screen.dart';
@@ -16,10 +18,13 @@ import 'screens/tv_splash_screen.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   installGlobalCrashHandlers();
-  // A crash that killed the previous process (native/JVM) only exists as a
-  // tombstone on disk; load it before the first frame so the report gate can
-  // show it on this boot instead of silently relaunching.
+  installMemoryTrimHandler();
+  // A crash that killed the previous process (a native/JVM tombstone, or a
+  // Low-Memory-Killer SIGKILL during playback) only exists as a file on disk;
+  // load it before the first frame so the report gate can show it on this boot
+  // instead of silently relaunching.
   await checkForNativeCrash();
+  await checkUnexpectedExit();
   runZonedGuarded(
     () {
       // Analyze "opening" stability: render the splash immediately instead of
@@ -30,6 +35,7 @@ void main() async {
     },
     (error, stack) {
       recordCrash('UncaughtZone', error, stack);
+      unawaited(reportCrashlytics('UncaughtZone', error, stack));
     },
   );
 }
@@ -55,6 +61,11 @@ class _TvStartupGateState extends State<_TvStartupGate> {
       await Firebase.initializeApp(
         options: DefaultFirebaseOptions.currentPlatform,
       );
+
+      // Crashlytics captures native crashes (which Dart can never see) and
+      // receives fatal Dart errors once initialized.
+      await enableCrashlyticsReporting();
+      attachCrashlyticsFatalHandlers();
 
       // Initialize notification service
       await NotificationService().initialize();

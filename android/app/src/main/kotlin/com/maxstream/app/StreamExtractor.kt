@@ -42,6 +42,7 @@ import java.security.MessageDigest
 import java.security.Signature
 import java.security.interfaces.ECPublicKey
 import java.security.spec.ECGenParameterSpec
+import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
@@ -115,11 +116,13 @@ class StreamExtractor(private val context: Context) {
         val label: String,
         val url: String,
         val height: Int,
+        val codec: String = "",
     ) {
         fun toMap(): Map<String, Any> = mapOf(
             "label" to label,
             "url" to url,
             "height" to height,
+            "codec" to codec,
         )
     }
 
@@ -3113,7 +3116,7 @@ class StreamExtractor(private val context: Context) {
         val subtitles: List<SubtitleOption>,
     )
 
-    private data class HlsVariant(val url: String, val height: Int)
+    private data class HlsVariant(val url: String, val height: Int, val codec: String = "")
 
     private suspend fun validateHls(url: String, headers: Map<String, String>): HlsValidation {
         val master = getValidationResponse(url, headers)
@@ -3156,7 +3159,11 @@ class StreamExtractor(private val context: Context) {
             if (allVariantsPlayable && playableVariants.size > 1) {
                 add(QualityOption("Auto", master.url, 0))
             }
-            addAll(playableVariants.map { QualityOption("${it.height}p", it.url, it.height) })
+            addAll(
+                playableVariants.map {
+                    QualityOption("${it.height}p", it.url, it.height, it.codec)
+                },
+            )
         }
         return HlsValidation(playbackUrl, qualities, subtitles)
     }
@@ -3194,7 +3201,25 @@ class StreamExtractor(private val context: Context) {
                 .find(line)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: return@mapIndexedNotNull null
             val uri = lines.drop(index + 1).firstOrNull { it.isNotEmpty() && !it.startsWith('#') }
                 ?: return@mapIndexedNotNull null
-            HlsVariant(resolveUrl(masterUrl, uri), height)
+            HlsVariant(resolveUrl(masterUrl, uri), height, hlsCodec(line))
+        }
+    }
+
+    /**
+     * Reduces the variant's CODECS attribute (e.g. "avc1.640028,mp4a.40.2") to
+     * a family token so the TV player can prefer a codec the box's hardware is
+     * known to decode stably (H.264/AVC) instead of blindly pinning the tallest
+     * HEVC/AV1 variant, whose firmware decoders are a common native-crash source.
+     */
+    private fun hlsCodec(streamInfLine: String): String {
+        val codecs = Regex("""CODECS="([^"]*)"""", RegexOption.IGNORE_CASE)
+            .find(streamInfLine)?.groupValues?.getOrNull(1)?.lowercase(Locale.US) ?: return ""
+        return when {
+            codecs.contains("avc") -> "h264"
+            codecs.contains("hev1") || codecs.contains("hvc1") -> "hevc"
+            codecs.contains("av01") -> "av1"
+            codecs.contains("vp9") -> "vp9"
+            else -> ""
         }
     }
 

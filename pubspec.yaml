@@ -50,6 +50,7 @@ dependencies:
   google_fonts: ^6.1.0
   wakelock_plus: ^1.2.1
   web: ^1.1.1
+  firebase_crashlytics: ^4.3.10
 
 dev_dependencies:
   flutter_test:

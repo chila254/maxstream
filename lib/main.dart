@@ -9,6 +9,8 @@ import 'services/notification_service.dart';
 import 'services/notification_router.dart';
 import 'services/media_download_manager.dart';
 import 'services/theme_service.dart';
+import 'services/crashlytics_service.dart';
+import 'services/memory_service.dart';
 import 'widgets/cloud_sync_bootstrap.dart';
 import 'widgets/crash_screen.dart';
 
@@ -17,15 +19,18 @@ final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   installGlobalCrashHandlers();
-  // Surface the previous process's native crash before the first frame (see
-  // checkForNativeCrash in widgets/crash_screen.dart).
+  installMemoryTrimHandler();
+  // Surface the previous process's native crash / unexpected exit before the
+  // first frame (see checkForNativeCrash in widgets/crash_screen.dart).
   await checkForNativeCrash();
+  await checkUnexpectedExit();
   runZonedGuarded(
     () {
       runApp(const CrashReportGate(child: _StartupGate()));
     },
     (error, stack) {
       recordCrash('UncaughtZone', error, stack);
+      unawaited(reportCrashlytics('UncaughtZone', error, stack));
     },
   );
 }
@@ -56,6 +61,11 @@ class _StartupGateState extends State<_StartupGate> {
       await Firebase.initializeApp(
         options: DefaultFirebaseOptions.currentPlatform,
       );
+
+      // Crashlytics captures native crashes (which Dart can never see) and
+      // receives fatal Dart errors once initialized.
+      await enableCrashlyticsReporting();
+      attachCrashlyticsFatalHandlers();
 
       if (!kIsWeb) await NotificationService().initialize();
       if (!kIsWeb) await MediaDownloadManager.instance.initialize();

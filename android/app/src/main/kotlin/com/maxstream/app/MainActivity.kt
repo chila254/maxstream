@@ -1,5 +1,6 @@
 package com.maxstream.app
 
+import android.content.ComponentCallbacks2
 import android.content.Intent
 import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
@@ -16,12 +17,33 @@ class MainActivity : FlutterActivity() {
     private val DOWNLOAD_SERVICE_CHANNEL = "com.maxstream.app/download_service"
     private val RESTART_CHANNEL = "com.maxstream.app/restart"
     private val CRASHLOG_CHANNEL = "com.maxstream.app/crashlog"
+    private val MEMORY_CHANNEL = "com.maxstream.app/memory"
     private val extractor by lazy { StreamExtractor(this) }
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private var memoryChannel: MethodChannel? = null
 
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         installNativeCrashHandler()
         super.onCreate(savedInstanceState)
+    }
+
+    /**
+     * Dart caches (decoded posters, subtitle buffers) can be released when the
+     * system warns about memory pressure, which is the main thing we control to
+     * keep the Low Memory Killer from killing the process while a video is
+     * buffered 300s ahead. Forward the warning to Dart; JVM-level trim also gets
+     * a GC hint because a chunk of the footprint lives in the video decoder.
+     */
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        try {
+            memoryChannel?.invokeMethod("onTrimMemory", level)
+        } catch (_: Throwable) {
+            // Best-effort; never let memory handling crash the app.
+        }
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+            System.gc()
+        }
     }
 
     /**
@@ -69,6 +91,9 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+
+        memoryChannel =
+            MethodChannel(flutterEngine.dartExecutor.binaryMessenger, MEMORY_CHANNEL)
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CRASHLOG_CHANNEL)
             .setMethodCallHandler { call, result ->
