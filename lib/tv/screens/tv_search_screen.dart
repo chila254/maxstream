@@ -67,9 +67,13 @@ class _TvSearchScreenState extends State<TvSearchScreen> {
     // lookup: by the time dispose runs the inherited element is already torn
     // down, and Provider.of returns null there.
     _navProvider = context.read<TvNavigationProvider>();
-    _navProvider?.setSearchFocused(true);
+    // Delay the search-focused flag until after the first frame completes.
+    // Flipping it during initState (mid-build) can desync the navigation
+    // provider's reconstruction and block the unified back handler from
+    // restoring the sidebar.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
+      _navProvider?.setSearchFocused(true);
       _keyboardNode.requestFocus();
     });
     _loadRecommendations();
@@ -87,7 +91,10 @@ class _TvSearchScreenState extends State<TvSearchScreen> {
     super.dispose();
   }
 
-  List<Map<String, dynamic>> _tagged(List<Map<String, dynamic>> items, String type) {
+  List<Map<String, dynamic>> _tagged(
+    List<Map<String, dynamic>> items,
+    String type,
+  ) {
     return [
       for (final item in items) {...item, 'media_type': type},
     ];
@@ -237,14 +244,19 @@ class _TvSearchScreenState extends State<TvSearchScreen> {
     });
   }
 
+  void _returnToSidebar() {
+    widget.onReturnToSidebar?.call();
+    TvFocusManager.focusSidebar();
+    _navProvider?.setFocusOnSidebar(true);
+  }
+
   KeyEventResult _onCardKey(_ResultEntry entry, KeyEvent event) {
     if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
       return KeyEventResult.ignored;
     }
     final key = event.logicalKey;
     if (key == LogicalKeyboardKey.escape || key == LogicalKeyboardKey.goBack) {
-      _keyboardManager.activateKeyboard();
-      _keyboardNode.requestFocus();
+      _returnToSidebar();
       return KeyEventResult.handled;
     }
     if (key == LogicalKeyboardKey.arrowLeft && entry.column == 0) {
@@ -394,11 +406,7 @@ class _TvSearchScreenState extends State<TvSearchScreen> {
           focusManager: _keyboardManager,
           focusNode: _keyboardNode,
           onMoveRight: _focusResults,
-          onMoveLeft: () {
-            widget.onReturnToSidebar?.call();
-            TvFocusManager.focusSidebar();
-            context.read<TvNavigationProvider>().setFocusOnSidebar(true);
-          },
+          onMoveLeft: _returnToSidebar,
         ),
       ),
     ],

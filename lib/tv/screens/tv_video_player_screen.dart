@@ -184,8 +184,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
   String _statusMessage = '';
   double _boostDb = 0;
 
-  String get _boostLabel =>
-      _boostDb == 0 ? 'Off' : '+${_boostDb.round()} dB';
+  String get _boostLabel => _boostDb == 0 ? 'Off' : '+${_boostDb.round()} dB';
 
   List<_StreamCandidate> _availableServers = [];
   bool _serversLoading = false;
@@ -200,6 +199,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
   bool _isPlaying = false;
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
+  Duration _buffered = Duration.zero;
   bool _isBuffering = false;
   Timer? _hideTimer;
   Timer? _progressTimer;
@@ -440,7 +440,9 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         );
       } else {
         result = await DirectM3u8Service.fetchSeriesStreamUrl(
-          _seriesTitle.isNotEmpty ? _seriesTitle : (_currentTitle ?? widget.title),
+          _seriesTitle.isNotEmpty
+              ? _seriesTitle
+              : (_currentTitle ?? widget.title),
           widget.season < 1 ? 1 : widget.season,
           widget.episode < 1 ? 1 : widget.episode,
           widget.tmdbId,
@@ -479,7 +481,8 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
           // token). Fall back to the remaining servers so a single bad server
           // never blocks playback with a source error.
           setState(() {
-            _statusMessage = 'That stream is unavailable. Finding a working one...';
+            _statusMessage =
+                'That stream is unavailable. Finding a working one...';
           });
           await _discoverAvailableServers(generation);
           if (!_isCurrent(generation)) return;
@@ -653,7 +656,9 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
                   'E$targetEpisode';
       }
       result = await DirectM3u8Service.fetchSeriesStreamUrl(
-        _seriesTitle.isNotEmpty ? _seriesTitle : (_currentTitle ?? widget.title),
+        _seriesTitle.isNotEmpty
+            ? _seriesTitle
+            : (_currentTitle ?? widget.title),
         targetSeason,
         targetEpisode,
         widget.tmdbId,
@@ -861,6 +866,9 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     final value = controller.value;
     if (value.position > Duration.zero) _lastStablePosition = value.position;
     if (value.duration > Duration.zero) _duration = value.duration;
+    if (value.buffered.isNotEmpty) {
+      _buffered = value.buffered.last.end;
+    }
     final wasBuffering = _isBuffering;
     final wasPlaying = _isPlaying;
     _isBuffering = value.isBuffering;
@@ -877,7 +885,10 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       unawaited(_recoverPlayback());
       _isBuffering = true;
     }
-    final shouldRebuild = _isBuffering != wasBuffering || _isPlaying != wasPlaying || value.isInitialized;
+    final shouldRebuild =
+        _isBuffering != wasBuffering ||
+        _isPlaying != wasPlaying ||
+        value.isInitialized;
     if (shouldRebuild && mounted) setState(() {});
   }
 
@@ -890,7 +901,9 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       _lastStablePosition = value.position;
     }
     if (value.duration > Duration.zero) _duration = value.duration;
-
+    if (value.buffered.isNotEmpty) {
+      _buffered = value.buffered.last.end;
+    }
     final newText = _findSubtitleText(value.position);
     if (_subtitleText.value != newText) {
       _subtitleText.value = newText;
@@ -1022,7 +1035,8 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       if (!initialized && mounted && _isCurrent(generation)) {
         setState(() {
           _isLoading = false;
-          _error = 'All streams are unavailable right now. Please try again later.';
+          _error =
+              'All streams are unavailable right now. Please try again later.';
         });
         _focusAfterFrames(_retryNode);
       }
@@ -1278,12 +1292,13 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       }
       throw Exception('Invalid subtitle URL: ${track.url}');
     }
-    final inheritedHeaders = _currentCandidate?.headers ?? const <String, String>{};
+    final inheritedHeaders =
+        _currentCandidate?.headers ?? const <String, String>{};
     final headers = <String, String>{
       if (track.source != 'Vidflix') ...inheritedHeaders,
       'User-Agent':
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
-              '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+          '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
       'Accept': 'text/vtt, application/x-subrip, text/plain, */*',
     };
     final urlsToTry = <String>[track.url];
@@ -1355,7 +1370,8 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       final json = _tryParseJson(normalized);
       if (json != null && json.isNotEmpty) return json;
     }
-    if (normalized.contains('[Script Info]') || normalized.contains('[Events]')) {
+    if (normalized.contains('[Script Info]') ||
+        normalized.contains('[Events]')) {
       return _parseAss(normalized);
     }
     if (normalized.contains('<tt') ||
@@ -1427,7 +1443,8 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     final lines = input.split('\n');
     final cues = <_SubtitleCue>[];
     var i = 0;
-    if (lines.isNotEmpty && lines[0].trim().toUpperCase().startsWith('WEBVTT')) {
+    if (lines.isNotEmpty &&
+        lines[0].trim().toUpperCase().startsWith('WEBVTT')) {
       i = 1;
     }
     while (i < lines.length) {
@@ -1809,7 +1826,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         break;
     }
 
-if (next != _currentControl) {
+    if (next != _currentControl) {
       _currentControl = next;
       _resetHideTimer();
       _requestFocusFor(next);
@@ -1863,7 +1880,9 @@ if (next != _currentControl) {
     setState(() => _boostDb = next);
     await VolumeBoostService.setGainDb(next);
     await VolumeBoostService.persistGainDb(next);
-    _showStatus(next == 0 ? 'Volume boost off' : 'Volume boost +${next.round()} dB');
+    _showStatus(
+      next == 0 ? 'Volume boost off' : 'Volume boost +${next.round()} dB',
+    );
     _resetHideTimer();
   }
 
@@ -2092,7 +2111,9 @@ if (next != _currentControl) {
   }
 
   Widget _buildLoadingWidget() {
-    final message = _statusMessage.isEmpty ? 'Loading stream...' : _statusMessage;
+    final message = _statusMessage.isEmpty
+        ? 'Loading stream...'
+        : _statusMessage;
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -2289,17 +2310,18 @@ if (next != _currentControl) {
                           if (openMenu != null)
                             Positioned(
                               bottom: 88,
-                              left: (startX +
+                              left:
+                                  (startX +
                                           menuIndex[openMenu]! *
                                               (buttonWidth + gap) +
                                           buttonWidth / 2 -
                                           170)
-                                  .clamp(
-                                    8,
-                                    constraints.maxWidth >= 356
-                                        ? constraints.maxWidth - 348
-                                        : 8,
-                                  ),
+                                      .clamp(
+                                        8,
+                                        constraints.maxWidth >= 356
+                                            ? constraints.maxWidth - 348
+                                            : 8,
+                                      ),
                               child: _buildMenuPanel(openMenu),
                             ),
                         ],
@@ -2316,9 +2338,14 @@ if (next != _currentControl) {
   }
 
   Widget _buildProgressBar() {
-    final value = !_hasDuration || _duration == Duration.zero
-        ? 0.0
-        : (_position.inMilliseconds / _duration.inMilliseconds).clamp(0.0, 1.0);
+    final totalMs = _duration.inMilliseconds;
+    final hasTotal = _hasDuration && totalMs > 0;
+    final played = hasTotal
+        ? (_position.inMilliseconds / totalMs).clamp(0.0, 1.0)
+        : 0.0;
+    final buffered = hasTotal
+        ? (_buffered.inMilliseconds / totalMs).clamp(0.0, 1.0)
+        : 0.0;
     final focused = _controlFocusNodes[_Pc.slider]?.hasFocus ?? false;
     return Focus(
       focusNode: _controlFocusNodes[_Pc.slider],
@@ -2367,12 +2394,28 @@ if (next != _currentControl) {
                   width: 2,
                 ),
               ),
-              child: LinearProgressIndicator(
-                value: value,
-                minHeight: focused ? 8 : 6,
-                backgroundColor: Colors.white24,
-                valueColor: const AlwaysStoppedAnimation<Color>(
-                  Color(0xFFE50914),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: SizedBox(
+                  height: focused ? 8 : 6,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      // Buffered (loaded) portion — same safety indicator the
+                      // mobile player shows via VideoProgressIndicator.
+                      FractionallySizedBox(
+                        alignment: Alignment.centerLeft,
+                        widthFactor: (buffered < played ? played : buffered),
+                        child: ColoredBox(color: Colors.white38),
+                      ),
+                      // Played portion.
+                      FractionallySizedBox(
+                        alignment: Alignment.centerLeft,
+                        widthFactor: played,
+                        child: const ColoredBox(color: Color(0xFFE50914)),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -2609,7 +2652,8 @@ if (next != _currentControl) {
                   ? '${track.source}/${track.label}'
                   : track.label,
               onSelect: () => _selectSubtitle(track),
-              selected: _activeSubtitles.isNotEmpty &&
+              selected:
+                  _activeSubtitles.isNotEmpty &&
                   track.label == _selectedSubtitleLabel,
             ),
         ];
@@ -2637,8 +2681,8 @@ if (next != _currentControl) {
             _MenuOption(
               label: server.source,
               onSelect: () => _switchServer(server),
-              selected: server.url == _selectedServerUrl ||
-                  streamEquals(server),
+              selected:
+                  server.url == _selectedServerUrl || streamEquals(server),
             ),
         ];
       case _Pc.playPause:
@@ -2736,7 +2780,10 @@ if (next != _currentControl) {
                   ),
                 ),
               if (_isLoading && _error == null) _buildLoadingWidget(),
-              if (_isBuffering && _error == null && !_showControls && !_isLoading)
+              if (_isBuffering &&
+                  _error == null &&
+                  !_showControls &&
+                  !_isLoading)
                 Center(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -2744,8 +2791,7 @@ if (next != _currentControl) {
                       const SizedBox(
                         width: 56,
                         height: 56,
-                        child:
-                            CircularProgressIndicator(color: Colors.white),
+                        child: CircularProgressIndicator(color: Colors.white),
                       ),
                       if (_statusMessage.isNotEmpty) ...[
                         const SizedBox(height: 20),
