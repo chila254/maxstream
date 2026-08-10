@@ -15,7 +15,6 @@ import androidx.media3.common.util.UnstableApi;
 import androidx.media3.exoplayer.DefaultLoadControl;
 import androidx.media3.exoplayer.ExoPlayer;
 import io.flutter.plugins.videoplayer.ExoPlayerEventListener;
-import io.flutter.plugins.videoplayer.GainRenderersFactory;
 import io.flutter.plugins.videoplayer.VideoAsset;
 import io.flutter.plugins.videoplayer.VideoPlayer;
 import io.flutter.plugins.videoplayer.VideoPlayerCallbacks;
@@ -59,7 +58,7 @@ public final class TextureVideoPlayer extends VideoPlayer implements SurfaceProd
         options,
         () -> {
           androidx.media3.exoplayer.DefaultRenderersFactory renderersFactory =
-              new GainRenderersFactory(context);
+              new androidx.media3.exoplayer.DefaultRenderersFactory(context);
           ExoPlayer.Builder builder = new ExoPlayer.Builder(context, renderersFactory);
           DefaultLoadControl.Builder loadControlBuilder = new DefaultLoadControl.Builder();
           boolean hasLoadControlOptions = false;

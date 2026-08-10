@@ -13,7 +13,6 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import '../providers/tv_navigation_provider.dart';
 import '../../services/direct_m3u8_service.dart';
 import '../../services/tmdb_api_service.dart';
-import '../../services/volume_boost_service.dart';
 import '../../services/watch_history_service.dart';
 
 class _QualityOption {
@@ -151,7 +150,6 @@ enum _Pc {
   subtitles(4, 0),
   quality(5, 0),
   server(6, 0),
-  boost(4, 1),
   slider(0, 2);
 
   const _Pc(this.col, this.row);
@@ -184,9 +182,6 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
   bool _isLoading = true;
   String? _error;
   String _statusMessage = '';
-  double _boostDb = 0;
-
-  String get _boostLabel => _boostDb == 0 ? 'Off' : '+${_boostDb.round()} dB';
 
   List<_StreamCandidate> _availableServers = [];
   bool _serversLoading = false;
@@ -325,7 +320,6 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       _onPositionTick();
     });
 
-    _initVolumeBoost();
     _loadStream();
   }
 
@@ -410,16 +404,6 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     _statusTimer = Timer(const Duration(seconds: 3), () {
       if (mounted) setState(() => _statusMessage = '');
     });
-  }
-
-  /// Restores the persisted volume boost and applies it to the native player.
-  /// The gain processor reads the level per audio buffer, so playback that is
-  /// already starting picks it up immediately.
-  Future<void> _initVolumeBoost() async {
-    final saved = await VolumeBoostService.loadPersistedGainDb();
-    if (!mounted) return;
-    setState(() => _boostDb = saved);
-    await VolumeBoostService.setGainDb(saved);
   }
 
   bool _isCurrent(int generation) =>
@@ -1861,7 +1845,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         break;
       case _Pc.quality:
         if (key == LogicalKeyboardKey.arrowLeft) {
-          next = _Pc.boost;
+          next = _Pc.server;
         } else if (key == LogicalKeyboardKey.arrowRight) {
           next = _Pc.subtitles;
         } else if (key == LogicalKeyboardKey.arrowUp) {
@@ -1870,15 +1854,6 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         break;
       case _Pc.server:
         if (key == LogicalKeyboardKey.arrowRight) {
-          next = _Pc.boost;
-        } else if (key == LogicalKeyboardKey.arrowUp) {
-          next = _Pc.slider;
-        }
-        break;
-      case _Pc.boost:
-        if (key == LogicalKeyboardKey.arrowLeft) {
-          next = _Pc.server;
-        } else if (key == LogicalKeyboardKey.arrowRight) {
           next = _Pc.quality;
         } else if (key == LogicalKeyboardKey.arrowUp) {
           next = _Pc.slider;
@@ -1887,8 +1862,6 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       case _Pc.slider:
         if (key == LogicalKeyboardKey.arrowUp) {
           next = _Pc.playPause;
-        } else if (key == LogicalKeyboardKey.arrowDown) {
-          next = _Pc.boost;
         }
         break;
     }
@@ -1931,26 +1904,9 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       case _Pc.server:
         _openMenu(_Pc.server);
         break;
-      case _Pc.boost:
-        unawaited(_cycleBoost());
-        break;
       case _Pc.slider:
         break;
     }
-  }
-
-  Future<void> _cycleBoost() async {
-    final levels = VolumeBoostService.levels;
-    final currentIndex = levels.indexOf(_boostDb);
-    final nextIndex = (currentIndex < 0 ? -1 : currentIndex) + 1;
-    final next = levels[nextIndex % levels.length];
-    setState(() => _boostDb = next);
-    await VolumeBoostService.setGainDb(next);
-    await VolumeBoostService.persistGainDb(next);
-    _showStatus(
-      next == 0 ? 'Volume boost off' : 'Volume boost +${next.round()} dB',
-    );
-    _resetHideTimer();
   }
 
   void _seekBy(int seconds) {
@@ -2265,16 +2221,6 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       onPress: () => _openMenu(_Pc.server),
     );
 
-    final boostButton = _controlButton(
-      _Pc.boost,
-      _boostDb == 0 ? Icons.volume_up : Icons.graphic_eq,
-      'Boost',
-      width: 112,
-      height: 64,
-      label: _boostLabel,
-      onPress: _cycleBoost,
-    );
-
     return Positioned.fill(
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
@@ -2343,13 +2289,12 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
                     builder: (context, constraints) {
                       const buttonWidth = 112.0;
                       const gap = 18.0;
-                      const rowWidth = buttonWidth * 4 + gap * 3;
+                      const rowWidth = buttonWidth * 3 + gap * 2;
                       final startX = (constraints.maxWidth - rowWidth) / 2;
                       const menuIndex = <_Pc, int>{
                         _Pc.server: 0,
-                        _Pc.boost: 1,
-                        _Pc.quality: 2,
-                        _Pc.subtitles: 3,
+                        _Pc.quality: 1,
+                        _Pc.subtitles: 2,
                       };
                       final openMenu = _activeMenu;
                       return Stack(
@@ -2363,8 +2308,6 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
                                   serverButton,
-                                  const SizedBox(width: gap),
-                                  boostButton,
                                   const SizedBox(width: gap),
                                   qualityButton,
                                   const SizedBox(width: gap),
@@ -2756,7 +2699,6 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       case _Pc.back:
       case _Pc.rewind:
       case _Pc.forward:
-      case _Pc.boost:
       case _Pc.slider:
         return const [];
     }

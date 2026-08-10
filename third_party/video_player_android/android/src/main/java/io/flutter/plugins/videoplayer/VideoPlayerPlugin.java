@@ -14,7 +14,6 @@ import io.flutter.FlutterInjector;
 import io.flutter.Log;
 import io.flutter.embedding.engine.plugins.FlutterPlugin;
 import io.flutter.plugin.common.BinaryMessenger;
-import io.flutter.plugin.common.MethodChannel;
 import io.flutter.plugins.videoplayer.platformview.PlatformVideoViewFactory;
 import io.flutter.plugins.videoplayer.platformview.PlatformViewVideoPlayer;
 import io.flutter.plugins.videoplayer.texture.TextureVideoPlayer;
@@ -43,26 +42,6 @@ public class VideoPlayerPlugin implements FlutterPlugin, AndroidVideoPlayerApi {
             binding.getTextureRegistry());
     flutterState.startListening(this, binding.getBinaryMessenger());
 
-    new MethodChannel(binding.getBinaryMessenger(), "maxstream/volume_boost")
-        .setMethodCallHandler(
-            (call, result) -> {
-              if (call == null) {
-                return;
-              }
-              switch (call.method) {
-                case "setGainDb":
-                  Number db = (Number) call.arguments();
-                  VolumeBoost.setGainDb(db == null ? 0f : db.floatValue());
-                  result.success(null);
-                  break;
-                case "getGainDb":
-                  result.success(VolumeBoost.getGainDb());
-                  break;
-                default:
-                  result.notImplemented();
-              }
-            });
-
     binding
         .getPlatformViewRegistry()
         .registerViewFactory(
@@ -77,8 +56,6 @@ public class VideoPlayerPlugin implements FlutterPlugin, AndroidVideoPlayerApi {
       return;
     }
     flutterState.stopListening(binding.getBinaryMessenger());
-    new MethodChannel(binding.getBinaryMessenger(), "maxstream/volume_boost")
-        .setMethodCallHandler(null);
     flutterState = null;
     onDestroy();
   }
