@@ -16,15 +16,23 @@ import '../../services/tmdb_api_service.dart';
 import '../../services/watch_history_service.dart';
 
 class _QualityOption {
-  const _QualityOption({required this.label, required this.url});
+  const _QualityOption({
+    required this.label,
+    required this.url,
+    this.height = 0,
+  });
 
   final String label;
   final String url;
+
+  /// Variant height in pixels (0 for the synthetic "Auto" entry).
+  final int height;
 
   factory _QualityOption.fromMap(Map<String, dynamic> value) {
     return _QualityOption(
       label: value['label']?.toString() ?? 'Auto',
       url: value['url']?.toString() ?? '',
+      height: (value['height'] as num?)?.toInt() ?? 0,
     );
   }
 }
@@ -124,6 +132,32 @@ class _StreamCandidate {
         )
         .where((s) => s.url.isNotEmpty)
         .toList();
+  }
+
+  /// Returns a copy of this candidate that pins ExoPlayer to a single,
+  /// fixed-quality rendition instead of the multi-variant master playlist.
+  ///
+  /// The resolvers hand us the HLS master URL as the primary stream, which
+  /// makes ExoPlayer run adaptive bitrate selection: it switches variants
+  /// mid-playback, and each switch forces a decoder reconfiguration that
+  /// crashes the fragile TV compositor/decoder path (same failure the
+  /// software-decoder fallback in the vendored plugin targets). Pinning the
+  /// highest available variant keeps one codec active for the whole play.
+  _StreamCandidate pinnedToHighestQuality() {
+    _QualityOption? best;
+    for (final q in qualities) {
+      if (q.url.isEmpty || q.height <= 0) continue;
+      if (best == null || q.height > best.height) best = q;
+    }
+    if (best == null || best.url == url) return this;
+    return _StreamCandidate(
+      url: best.url,
+      source: source,
+      headers: headers,
+      route: route,
+      qualities: qualities,
+      subtitles: subtitles,
+    );
   }
 }
 
@@ -518,7 +552,9 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
 
       if (result != null && result['url'] != null) {
         if (!_isCurrent(generation)) return;
-        final candidate = _StreamCandidate.fromMap(result);
+        final candidate = _StreamCandidate.fromMap(
+          result,
+        ).pinnedToHighestQuality();
         _availableServers = [candidate];
         _qualities = candidate.qualities;
         _subtitleTracks = candidate.subtitles;
@@ -738,7 +774,9 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         }
         return;
       }
-      final candidate = _StreamCandidate.fromMap(result);
+      final candidate = _StreamCandidate.fromMap(
+        result,
+      ).pinnedToHighestQuality();
       _findingFallback = true;
       final initialized = await _initializePlayer(
         candidate,
@@ -1210,7 +1248,10 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         final playing = _currentCandidate;
         final seen = <String>{};
         final fresh = servers
-            .map(_StreamCandidate.fromMap)
+            .map(
+              (server) =>
+                  _StreamCandidate.fromMap(server).pinnedToHighestQuality(),
+            )
             .where((server) => server.url.isNotEmpty && seen.add(server.url))
             .toList();
         setState(() {
@@ -2440,7 +2481,9 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         }
         return;
       }
-      final candidate = _StreamCandidate.fromMap(result);
+      final candidate = _StreamCandidate.fromMap(
+        result,
+      ).pinnedToHighestQuality();
       var initialized = await _reloadPlayback(
         candidate,
         generation: generation,
