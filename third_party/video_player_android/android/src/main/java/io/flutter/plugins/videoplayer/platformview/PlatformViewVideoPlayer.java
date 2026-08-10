@@ -33,7 +33,19 @@ public class PlatformViewVideoPlayer extends VideoPlayer {
       @NonNull MediaItem mediaItem,
       @NonNull VideoPlayerOptions options,
       @NonNull ExoPlayerProvider exoPlayerProvider) {
-    super(events, mediaItem, options, /* surfaceProducer */ null, exoPlayerProvider);
+    this(events, mediaItem, options, exoPlayerProvider, null);
+  }
+
+  // TODO: Migrate to stable API, see https://github.com/flutter/flutter/issues/147039.
+  @UnstableApi
+  @VisibleForTesting
+  public PlatformViewVideoPlayer(
+      @NonNull VideoPlayerCallbacks events,
+      @NonNull MediaItem mediaItem,
+      @NonNull VideoPlayerOptions options,
+      @NonNull ExoPlayerProvider exoPlayerProvider,
+      @Nullable Context context) {
+    super(events, mediaItem, options, /* surfaceProducer */ null, exoPlayerProvider, context);
   }
 
   /**
@@ -61,6 +73,8 @@ public class PlatformViewVideoPlayer extends VideoPlayer {
           androidx.media3.exoplayer.DefaultRenderersFactory renderersFactory =
               new GainRenderersFactory(context);
           ExoPlayer.Builder builder = new ExoPlayer.Builder(context, renderersFactory);
+          DefaultLoadControl.Builder loadControlBuilder = new DefaultLoadControl.Builder();
+          boolean hasLoadControlOptions = false;
           if (options.backBufferDurationMs != null) {
             if (options.backBufferDurationMs < 0) {
               throw new IllegalArgumentException("backBufferDurationMs must be at least 0");
@@ -70,12 +84,32 @@ public class PlatformViewVideoPlayer extends VideoPlayer {
               // DefaultLoadControl.
               int backBufferInt =
                   (int) Math.min(options.backBufferDurationMs.longValue(), Integer.MAX_VALUE);
-              DefaultLoadControl loadControl =
-                  new DefaultLoadControl.Builder()
-                      .setBackBuffer(backBufferInt, /* retainBackBufferFromKeyframe= */ true)
-                      .build();
-              builder.setLoadControl(loadControl);
+              loadControlBuilder.setBackBuffer(
+                  backBufferInt, /* retainBackBufferFromKeyframe= */ true);
+              hasLoadControlOptions = true;
             }
+          }
+          if (options.maxBufferDurationMs != null) {
+            if (options.maxBufferDurationMs < 0) {
+              throw new IllegalArgumentException("maxBufferDurationMs must be at least 0");
+            }
+            if (options.maxBufferDurationMs > 0) {
+              // Let the player buffer far ahead of the current position so slow
+              // CDN bursts don't stall playback. This is especially useful for TV
+              // devices with slower CPUs where decode + network compete.
+              int maxBufferInt =
+                  (int) Math.min(options.maxBufferDurationMs.longValue(), Integer.MAX_VALUE);
+              loadControlBuilder
+                  .setBufferDurationsMs(
+                      DefaultLoadControl.DEFAULT_MIN_BUFFER_MS,
+                      maxBufferInt,
+                      DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_MS,
+                      DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS);
+              hasLoadControlOptions = true;
+            }
+          }
+          if (hasLoadControlOptions) {
+            builder.setLoadControl(loadControlBuilder.build());
           }
           androidx.media3.exoplayer.trackselection.DefaultTrackSelector trackSelector =
               new androidx.media3.exoplayer.trackselection.DefaultTrackSelector(context);
@@ -83,7 +117,8 @@ public class PlatformViewVideoPlayer extends VideoPlayer {
               .setTrackSelector(trackSelector)
               .setMediaSourceFactory(asset.getMediaSourceFactory(context));
           return builder.build();
-        });
+        },
+        context);
   }
 
   @NonNull

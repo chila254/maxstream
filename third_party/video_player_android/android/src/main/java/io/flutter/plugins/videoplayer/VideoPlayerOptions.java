@@ -15,11 +15,18 @@ public class VideoPlayerOptions {
    */
   @Nullable public Long backBufferDurationMs;
 
+  /**
+   * The maximum duration to buffer ahead of the current position, in milliseconds, used to configure
+   * ExoPlayer's load control. Defaults to ExoPlayer's own default (50s) when null.
+   */
+  @Nullable public Long maxBufferDurationMs;
+
   public VideoPlayerOptions() {}
 
   /** Copy constructor to ensure all options are reliably copied. */
   public VideoPlayerOptions(@NonNull VideoPlayerOptions other) {
     this.mixWithOthers = other.mixWithOthers;
     this.backBufferDurationMs = other.backBufferDurationMs;
+    this.maxBufferDurationMs = other.maxBufferDurationMs;
   }
 }

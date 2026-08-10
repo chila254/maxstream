@@ -7,6 +7,7 @@ package io.flutter.plugins.videoplayer;
 import static androidx.media3.common.Player.REPEAT_MODE_ALL;
 import static androidx.media3.common.Player.REPEAT_MODE_OFF;
 
+import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
 import androidx.annotation.NonNull;
@@ -21,6 +22,7 @@ import androidx.media3.common.TrackSelectionOverride;
 import androidx.media3.common.Tracks;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.source.MediaSource;
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
 import io.flutter.view.TextureRegistry.SurfaceProducer;
 import java.util.ArrayList;
@@ -38,6 +40,8 @@ public abstract class VideoPlayer implements VideoPlayerInstanceApi {
   @NonNull protected ExoPlayer exoPlayer;
   // TODO: Migrate to stable API, see https://github.com/flutter/flutter/issues/147039.
   @UnstableApi @Nullable protected DefaultTrackSelector trackSelector;
+  @Nullable protected ExoPlayerEventListener eventListener;
+  @Nullable protected final Context appContext;
 
   private final Handler mainHandler = new Handler(Looper.getMainLooper());
   private boolean isDisposed = false;
@@ -71,8 +75,20 @@ public abstract class VideoPlayer implements VideoPlayerInstanceApi {
       @NonNull VideoPlayerOptions options,
       @Nullable SurfaceProducer surfaceProducer,
       @NonNull ExoPlayerProvider exoPlayerProvider) {
+    this(events, mediaItem, options, surfaceProducer, exoPlayerProvider, null);
+  }
+
+  @SuppressWarnings("this-escape")
+  public VideoPlayer(
+      @NonNull VideoPlayerCallbacks events,
+      @NonNull MediaItem mediaItem,
+      @NonNull VideoPlayerOptions options,
+      @Nullable SurfaceProducer surfaceProducer,
+      @NonNull ExoPlayerProvider exoPlayerProvider,
+      @Nullable Context appContext) {
     this.videoPlayerEvents = events;
     this.surfaceProducer = surfaceProducer;
+    this.appContext = appContext;
     exoPlayer = exoPlayerProvider.get();
 
     // Try to get the track selector from the ExoPlayer if it was built with one
@@ -82,7 +98,8 @@ public abstract class VideoPlayer implements VideoPlayerInstanceApi {
 
     exoPlayer.setMediaItem(mediaItem);
     exoPlayer.prepare();
-    exoPlayer.addListener(createExoPlayerEventListener(exoPlayer, surfaceProducer));
+    eventListener = createExoPlayerEventListener(exoPlayer, surfaceProducer);
+    exoPlayer.addListener(eventListener);
     setAudioAttributes(exoPlayer, options.mixWithOthers);
   }
 
@@ -170,6 +187,65 @@ public abstract class VideoPlayer implements VideoPlayerInstanceApi {
   @NonNull
   public ExoPlayer getExoPlayer() {
     return exoPlayer;
+  }
+
+  /**
+   * Re-queues the player with a new media item built from {@code options}, keeping the same
+   * ExoPlayer instance (and therefore the same underlying surface / player view) alive. This
+   * avoids tearing down the platform view or texture between server switches and mid-playback
+   * recovery, which can crash the compositor on some TV boxes when two views overlap.
+   */
+  @Override
+  public void setMediaItem(@NonNull CreationOptions options) {
+    if (appContext == null) {
+      throw new IllegalStateException(
+          "Cannot re-queue media: no application context available for this player.");
+    }
+
+    VideoAsset asset = assetFromOptions(options);
+    MediaSource mediaSource =
+        asset.getMediaSourceFactory(appContext).createMediaSource(asset.getMediaItem());
+
+    // Reset the initialization flag so the ready state emits a fresh
+    // InitializationEvent, updating duration/size on the Dart side for the new
+    // source. Then swap the media source and prepare in place.
+    if (eventListener != null) {
+      eventListener.markForMediaChange();
+    }
+    exoPlayer.setMediaSource(mediaSource);
+    exoPlayer.prepare();
+  }
+
+  /**
+   * Converts spread-out {@link CreationOptions} (uri + format hint + headers + user agent) into a
+   * {@link VideoAsset}, mirroring {@link VideoPlayerPlugin#videoAssetWithOptions}.
+   */
+  @NonNull
+  private static VideoAsset assetFromOptions(@NonNull CreationOptions options) {
+    String uri = options.getUri();
+    if (uri.startsWith("asset:")) {
+      return VideoAsset.fromAssetUrl(uri);
+    } else if (uri.startsWith("rtsp:")) {
+      return VideoAsset.fromRtspUrl(uri);
+    } else {
+      VideoAsset.StreamingFormat streamingFormat = VideoAsset.StreamingFormat.UNKNOWN;
+      PlatformVideoFormat formatHint = options.getFormatHint();
+      if (formatHint != null) {
+        switch (formatHint) {
+          case SS:
+            streamingFormat = VideoAsset.StreamingFormat.SMOOTH;
+            break;
+          case DASH:
+            streamingFormat = VideoAsset.StreamingFormat.DYNAMIC_ADAPTIVE;
+            break;
+          case HLS:
+            streamingFormat = VideoAsset.StreamingFormat.HTTP_LIVE;
+            break;
+        }
+      }
+      return VideoAsset.fromRemoteUrl(
+          uri, streamingFormat, options.getHttpHeaders(), options.getUserAgent());
+    }
   }
 
   // TODO: Migrate to stable API, see https://github.com/flutter/flutter/issues/147039.

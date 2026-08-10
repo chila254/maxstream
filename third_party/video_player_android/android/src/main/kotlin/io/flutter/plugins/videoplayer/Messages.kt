@@ -496,7 +496,8 @@ data class CreationOptions(
     val formatHint: PlatformVideoFormat? = null,
     val httpHeaders: Map<String, String>,
     val userAgent: String? = null,
-    val backBufferDurationMs: Long? = null
+    val backBufferDurationMs: Long? = null,
+    val maxBufferDurationMs: Long? = null
 ) {
   companion object {
     fun fromList(pigeonVar_list: List<Any?>): CreationOptions {
@@ -505,7 +506,9 @@ data class CreationOptions(
       val httpHeaders = pigeonVar_list[2] as Map<String, String>
       val userAgent = pigeonVar_list[3] as String?
       val backBufferDurationMs = pigeonVar_list[4] as Long?
-      return CreationOptions(uri, formatHint, httpHeaders, userAgent, backBufferDurationMs)
+      val maxBufferDurationMs = pigeonVar_list[5] as Long?
+      return CreationOptions(
+          uri, formatHint, httpHeaders, userAgent, backBufferDurationMs, maxBufferDurationMs)
     }
   }
 
@@ -516,6 +519,7 @@ data class CreationOptions(
         httpHeaders,
         userAgent,
         backBufferDurationMs,
+        maxBufferDurationMs,
     )
   }
 
@@ -531,7 +535,8 @@ data class CreationOptions(
         MessagesPigeonUtils.deepEquals(this.formatHint, other.formatHint) &&
         MessagesPigeonUtils.deepEquals(this.httpHeaders, other.httpHeaders) &&
         MessagesPigeonUtils.deepEquals(this.userAgent, other.userAgent) &&
-        MessagesPigeonUtils.deepEquals(this.backBufferDurationMs, other.backBufferDurationMs)
+        MessagesPigeonUtils.deepEquals(this.backBufferDurationMs, other.backBufferDurationMs) &&
+        MessagesPigeonUtils.deepEquals(this.maxBufferDurationMs, other.maxBufferDurationMs)
   }
 
   override fun hashCode(): Int {
@@ -541,6 +546,7 @@ data class CreationOptions(
     result = 31 * result + MessagesPigeonUtils.deepHash(this.httpHeaders)
     result = 31 * result + MessagesPigeonUtils.deepHash(this.userAgent)
     result = 31 * result + MessagesPigeonUtils.deepHash(this.backBufferDurationMs)
+    result = 31 * result + MessagesPigeonUtils.deepHash(this.maxBufferDurationMs)
     return result
   }
 }
@@ -1274,6 +1280,8 @@ interface VideoPlayerInstanceApi {
    * available video tracks based on network conditions.
    */
   fun enableAutoVideoQuality()
+  /** Re-queues the player with a new media item while keeping the same ExoPlayer instance. */
+  fun setMediaItem(options: CreationOptions)
 
   companion object {
     /** The codec used by VideoPlayerInstanceApi. */
@@ -1563,6 +1571,29 @@ interface VideoPlayerInstanceApi {
             val wrapped: List<Any?> =
                 try {
                   api.enableAutoVideoQuality()
+                  listOf(null)
+                } catch (exception: Throwable) {
+                  MessagesPigeonUtils.wrapError(exception)
+                }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel =
+            BasicMessageChannel<Any?>(
+                binaryMessenger,
+                "dev.flutter.pigeon.video_player_android.VideoPlayerInstanceApi.setMediaItem$separatedMessageChannelSuffix",
+                codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val optionsArg = args[0] as CreationOptions
+            val wrapped: List<Any?> =
+                try {
+                  api.setMediaItem(optionsArg)
                   listOf(null)
                 } catch (exception: Throwable) {
                   MessagesPigeonUtils.wrapError(exception)

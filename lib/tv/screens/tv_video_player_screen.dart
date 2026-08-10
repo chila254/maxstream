@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:video_player/video_player.dart';
+import 'package:video_player_android/video_player_android.dart';
+import 'package:video_player_platform_interface/video_player_platform_interface.dart';
 import 'package:provider/provider.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import '../providers/tv_navigation_provider.dart';
@@ -281,6 +283,12 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
   String _movieBackdropUrl = '';
   String _currentEpisodeName = '';
 
+  // Resolved in initState so dispose() never does a context lookup: by the
+  // time dispose runs the inherited element is already torn down and
+  // Provider.of returns null, crashing the "Null check operator" (the old
+  // `context.read` in dispose crashed when exiting the player).
+  TvNavigationProvider? _navProvider;
+
   void _populateControlFocusNodes() {
     for (final pc in _Pc.values) {
       _controlFocusNodes[pc] = FocusNode(debugLabel: 'Player control $pc');
@@ -305,7 +313,9 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     WakelockPlus.enable();
 
-    context.read<TvNavigationProvider>().setDeepNavigating(true);
+    final navProvider = context.read<TvNavigationProvider>();
+    _navProvider = navProvider;
+    navProvider.setDeepNavigating(true);
 
     _progressTimer = Timer.periodic(const Duration(seconds: 25), (_) {
       _saveProgress();
@@ -336,9 +346,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     _controller = null;
     _subtitleText.dispose();
     WakelockPlus.disable();
-    if (mounted) {
-      context.read<TvNavigationProvider>().setDeepNavigating(false);
-    }
+    _navProvider?.setDeepNavigating(false);
     for (final node in [
       _surfaceNode,
       _retryNode,
@@ -764,6 +772,10 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         videoPlayerOptions: VideoPlayerOptions(
           backBufferDurationMs: 3000,
           allowBackgroundPlayback: false,
+          // Buffer up to ~5 minutes ahead so slow CDN bursts don't stall
+          // playback on TV boxes. The vendored ExoPlayer plugin configures
+          // DefaultLoadControl with this as the max buffer duration.
+          maxBufferDurationMs: 300000,
         ),
       );
 
@@ -961,6 +973,64 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     }
   }
 
+  /// Re-queues [candidate] on the *existing* controller/player instead of
+  /// tearing it down and creating a new one. Native side keeps the same
+  /// ExoPlayer (and its SurfaceView), so there's no platform-view gap where
+  /// overlapping views crash the TV compositor, and recovery is near-atomic.
+  ///
+  /// Returns false (and never throws) when the current controller can't be
+  /// reused, so [ _recoverPlayback] can fall back to the full teardown path.
+  Future<bool> _reloadPlayback(
+    _StreamCandidate candidate, {
+    required int generation,
+    required Duration? resumePosition,
+  }) async {
+    final controller = _controller;
+    if (_disposed || !mounted || controller == null) return false;
+    if (!controller.value.isInitialized) return false;
+    final platform = VideoPlayerPlatform.instance;
+    if (platform is! AndroidVideoPlayer) return false;
+
+    try {
+      final isHls = candidate.url.toLowerCase().contains('.m3u8');
+      await platform.reloadMedia(
+        controller.playerId,
+        url: Uri.parse(candidate.url),
+        httpHeaders: candidate.headers,
+        formatHint: isHls ? VideoFormat.hls : null,
+      );
+      if (!_isCurrent(generation)) return false;
+
+      final target = resumePosition ?? Duration.zero;
+      if (target > Duration.zero) {
+        await controller.seekTo(target);
+        if (!_isCurrent(generation)) return false;
+      }
+      await controller.play();
+      if (!_isCurrent(generation)) return false;
+
+      setState(() {
+        _currentStreamUrl = candidate.url;
+        _currentCandidate = candidate;
+        _selectedSource = candidate.source;
+        _selectedServerUrl = candidate.url;
+        _error = null;
+        _statusMessage = '';
+        _isBuffering = true;
+        _isLoading = false;
+        _playbackRetryCount = 0;
+        _failedServerUrls.clear();
+        _rebufferCount = 0;
+        _lastRebufferTime = null;
+        _lastReportedPosition = Duration.zero;
+      });
+      return true;
+    } catch (e) {
+      debugPrint('TvVideoPlayer: reload onto existing player failed: $e');
+      return false;
+    }
+  }
+
   Future<void> _recoverPlayback() async {
     if (_recoveringPlayback) return;
     final generation = _operationGeneration;
@@ -977,26 +1047,12 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     try {
       if (!_isCurrent(generation)) return;
 
-      // Tear down the failed player's platform view BEFORE creating the next
-      // one. Overlapping a fresh SurfaceView with the old one's teardown (and
-      // the old ExoPlayer's release) crashes the fragile compositor on some TV
-      // boxes; mobile uses the texture path so it never hits this. Serialize
-      // the lifecycle so a new view is only ever created once the old one is
-      // fully gone.
-      if (_controller != null) {
-        final stale = _controller;
-        _controller?.removeListener(_handlePlaybackChanged);
-        setState(() {
-          _controller = null;
-          _isBuffering = true;
-          _statusMessage = 'The stream stopped. Finding a working one...';
-        });
-        try {
-          await stale?.dispose();
-        } catch (e, st) {
-          debugPrint('TvVideoPlayer: dispose during recovery failed: $e\n$st');
-        }
-      }
+      // Do NOT tear down the failed player up front: when the error was
+      // transient we want to re-queue the next candidate onto the SAME
+      // ExoPlayer + SurfaceView (see _reloadPlayback). Tearing down a view
+      // and creating a new one overlaps two live platform views, which crashes
+      // the fragile compositor on some TV boxes, so the full teardown path is
+      // only used as a fallback when reuse is impossible.
 
       // Re-resolve streams fresh: discovered URLs (esp. VixSrc tokens) expire
       // quickly, so fall back to freshly extracted servers instead of stale
@@ -1019,18 +1075,29 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       for (final next in [...validated, ...unvalidated]) {
         if (!_isCurrent(generation) || initialized) break;
         if (!tried.add(next.url)) continue;
-        // Give the torn-down platform view a moment to fully release before a
-        // new SurfaceView is created; overlapping them crashes the compositor
-        // on some TV boxes.
-        await Future<void>.delayed(const Duration(milliseconds: 400));
-        if (!_isCurrent(generation) || initialized) break;
         _showStatus('Loading a working stream from ${next.source}...');
-        initialized = await _initializePlayer(
+        // Preferred path: re-queue onto the existing player, keeping its
+        // SurfaceView alive. Only when that's not possible do we fall back to
+        // a full teardown + fresh create (serialized so the old platform view
+        // is fully gone before a new one is created).
+        initialized = await _reloadPlayback(
           next,
           generation: generation,
           resumePosition: _lastStablePosition,
         );
-        if (!initialized) _failedServerUrls.add(next.url);
+        if (!initialized && _isCurrent(generation)) {
+          await Future<void>.delayed(const Duration(milliseconds: 400));
+          if (_isCurrent(generation)) {
+            initialized = await _initializePlayer(
+              next,
+              generation: generation,
+              resumePosition: _lastStablePosition,
+            );
+          }
+        }
+        if (!initialized && _isCurrent(generation)) {
+          _failedServerUrls.add(next.url);
+        }
       }
       if (!initialized && mounted && _isCurrent(generation)) {
         setState(() {

@@ -366,6 +366,7 @@ class CreationOptions {
     required this.httpHeaders,
     this.userAgent,
     this.backBufferDurationMs,
+    this.maxBufferDurationMs,
   });
 
   String uri;
@@ -378,8 +379,17 @@ class CreationOptions {
 
   int? backBufferDurationMs;
 
+  int? maxBufferDurationMs;
+
   List<Object?> _toList() {
-    return <Object?>[uri, formatHint, httpHeaders, userAgent, backBufferDurationMs];
+    return <Object?>[
+      uri,
+      formatHint,
+      httpHeaders,
+      userAgent,
+      backBufferDurationMs,
+      maxBufferDurationMs,
+    ];
   }
 
   Object encode() {
@@ -394,6 +404,7 @@ class CreationOptions {
       httpHeaders: (result[2]! as Map<Object?, Object?>).cast<String, String>(),
       userAgent: result[3] as String?,
       backBufferDurationMs: result[4] as int?,
+      maxBufferDurationMs: result[5] as int?,
     );
   }
 
@@ -410,7 +421,8 @@ class CreationOptions {
         _deepEquals(formatHint, other.formatHint) &&
         _deepEquals(httpHeaders, other.httpHeaders) &&
         _deepEquals(userAgent, other.userAgent) &&
-        _deepEquals(backBufferDurationMs, other.backBufferDurationMs);
+        _deepEquals(backBufferDurationMs, other.backBufferDurationMs) &&
+        _deepEquals(maxBufferDurationMs, other.maxBufferDurationMs);
   }
 
   @override
@@ -1283,6 +1295,22 @@ class VideoPlayerInstanceApi {
       binaryMessenger: pigeonVar_binaryMessenger,
     );
     final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(null);
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    _extractReplyValueOrThrow(pigeonVar_replyList, pigeonVar_channelName, isNullValid: true);
+  }
+
+  /// Re-queues the player with a new media item while keeping the same
+  /// ExoPlayer instance (and therefore the same underlying surface/player view).
+  Future<void> setMediaItem(CreationOptions options) async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.video_player_android.VideoPlayerInstanceApi.setMediaItem$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(<Object?>[options]);
     final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
 
     _extractReplyValueOrThrow(pigeonVar_replyList, pigeonVar_channelName, isNullValid: true);

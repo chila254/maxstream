@@ -104,6 +104,7 @@ class AndroidVideoPlayer extends VideoPlayerPlatform {
       userAgent: userAgent,
       formatHint: formatHint,
       backBufferDurationMs: options.videoPlayerOptions?.backBufferDurationMs,
+      maxBufferDurationMs: options.videoPlayerOptions?.maxBufferDurationMs,
     );
 
     final int playerId;
@@ -151,6 +152,27 @@ class AndroidVideoPlayer extends VideoPlayerPlatform {
   @override
   Future<void> setLooping(int playerId, bool looping) {
     return _playerWith(id: playerId).setLooping(looping);
+  }
+
+  /// Re-queues the existing [playerId] with a new media URL without tearing
+  /// down its underlying view. The same ExoPlayer instance keeps the surface,
+  /// so there is no platform-view teardown/recreate gap (the overlapping-view
+  /// crash on some TV boxes) and no rebuffer during recovery.
+  Future<void> reloadMedia(
+    int playerId, {
+    required Uri url,
+    Map<String, String> httpHeaders = const {},
+    VideoFormat? formatHint,
+  }) {
+    final platformFormat = _platformVideoFormatFromVideoFormat(formatHint);
+    return _playerWith(id: playerId).setMediaItem(
+      CreationOptions(
+        uri: url.toString(),
+        httpHeaders: httpHeaders,
+        formatHint: platformFormat,
+        userAgent: _userAgentFromHeaders(httpHeaders),
+      ),
+    );
   }
 
   @override
@@ -345,6 +367,10 @@ class _PlayerInstance {
 
   Future<void> setLooping(bool looping) {
     return _api.setLooping(looping);
+  }
+
+  Future<void> setMediaItem(CreationOptions options) {
+    return _api.setMediaItem(options);
   }
 
   Future<void> play() {

@@ -51,6 +51,15 @@ public abstract class ExoPlayerEventListener implements Player.Listener {
 
   protected abstract void sendInitialized();
 
+  /**
+   * Resets the initialized flag so the next {@link Player.STATE_READY} emits a fresh {@code
+   * InitializationEvent}. Called when a new media item is queued on the same player (see {@link
+   * VideoPlayer#setMediaItem}), so clients pick up the new duration/size.
+   */
+  public void markForMediaChange() {
+    isInitialized = false;
+  }
+
   @Override
   public void onPlaybackStateChanged(final int playbackState) {
     PlatformPlaybackState platformState = PlatformPlaybackState.UNKNOWN;
