@@ -139,6 +139,34 @@ class _MenuOption {
   final bool selected;
 }
 
+/// A single episode shown in the "Episodes" menu (series only).
+class _EpisodeInfo {
+  const _EpisodeInfo({
+    required this.number,
+    required this.name,
+    this.stillUrl = '',
+  });
+
+  final int number;
+  final String name;
+
+  /// Episode still-frame thumbnail URL (may be empty when the source has none).
+  final String stillUrl;
+}
+
+/// A season tab shown in the "Episodes" menu.
+class _SeasonInfo {
+  const _SeasonInfo({
+    required this.number,
+    required this.name,
+    required this.episodeCount,
+  });
+
+  final int number;
+  final String name;
+  final int episodeCount;
+}
+
 /// Player control areas laid out on a coarse grid so the D-pad can move
 /// predictably between them (mirroring the focus model used on the TV home
 /// screen).
@@ -150,6 +178,7 @@ enum _Pc {
   subtitles(4, 0),
   quality(5, 0),
   server(6, 0),
+  episodes(7, 0),
   slider(0, 2);
 
   const _Pc(this.col, this.row);
@@ -242,6 +271,47 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     } else if (count > _menuOptionNodes.length) {
       for (var i = _menuOptionNodes.length; i < count; i++) {
         _menuOptionNodes.add(FocusNode(debugLabel: 'player menu option $i'));
+      }
+    }
+  }
+
+  // Episodes menu (series only): a seasons rail + episode list with
+  // thumbnails. Driven by _activeMenu == _Pc.episodes so the hide timer and
+  // back-navigation already treat it like the other menus.
+  List<_SeasonInfo> _menuSeasons = const [];
+  final Map<int, List<_EpisodeInfo>> _menuEpisodeCache = {};
+  int _menuSeason = 1;
+  bool _episodeMenuLoading = false;
+  final ScrollController _episodeScroll = ScrollController();
+  final List<FocusNode> _seasonTabNodes = [];
+  final List<FocusNode> _episodeItemNodes = [];
+  final List<GlobalKey> _episodeItemKeys = [];
+  FocusNode _seasonTabNode(int index) => _seasonTabNodes[index];
+  FocusNode _episodeItemNode(int index) => _episodeItemNodes[index];
+  void _rebuildSeasonTabNodes(int count) {
+    if (count < _seasonTabNodes.length) {
+      for (var i = count; i < _seasonTabNodes.length; i++) {
+        _seasonTabNodes[i].dispose();
+      }
+      _seasonTabNodes.removeRange(count, _seasonTabNodes.length);
+    } else if (count > _seasonTabNodes.length) {
+      for (var i = _seasonTabNodes.length; i < count; i++) {
+        _seasonTabNodes.add(FocusNode(debugLabel: 'episode menu season $i'));
+      }
+    }
+  }
+
+  void _rebuildEpisodeItemNodes(int count) {
+    if (count < _episodeItemNodes.length) {
+      for (var i = count; i < _episodeItemNodes.length; i++) {
+        _episodeItemNodes[i].dispose();
+      }
+      _episodeItemNodes.removeRange(count, _episodeItemNodes.length);
+      _episodeItemKeys.removeRange(count, _episodeItemKeys.length);
+    } else if (count > _episodeItemNodes.length) {
+      for (var i = _episodeItemNodes.length; i < count; i++) {
+        _episodeItemNodes.add(FocusNode(debugLabel: 'episode menu item $i'));
+        _episodeItemKeys.add(GlobalKey());
       }
     }
   }
@@ -341,6 +411,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     _subtitleText.dispose();
     WakelockPlus.disable();
     _navProvider?.setDeepNavigating(false);
+    _episodeScroll.dispose();
     for (final node in [
       _surfaceNode,
       _retryNode,
@@ -348,6 +419,8 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       _menuHeaderNode,
       ..._controlFocusNodes.values,
       ..._menuOptionNodes,
+      ..._seasonTabNodes,
+      ..._episodeItemNodes,
     ]) {
       node.dispose();
     }
@@ -1839,6 +1912,15 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       case _Pc.subtitles:
         if (key == LogicalKeyboardKey.arrowLeft) {
           next = _Pc.quality;
+        } else if (key == LogicalKeyboardKey.arrowRight) {
+          if (!widget.isMovie) next = _Pc.episodes;
+        } else if (key == LogicalKeyboardKey.arrowUp) {
+          next = _Pc.slider;
+        }
+        break;
+      case _Pc.episodes:
+        if (key == LogicalKeyboardKey.arrowLeft) {
+          next = _Pc.subtitles;
         } else if (key == LogicalKeyboardKey.arrowUp) {
           next = _Pc.slider;
         }
@@ -1903,6 +1985,9 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         break;
       case _Pc.server:
         _openMenu(_Pc.server);
+        break;
+      case _Pc.episodes:
+        _openEpisodeMenu();
         break;
       case _Pc.slider:
         break;
@@ -1969,11 +2054,24 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
     final key = event.logicalKey;
     if (key == LogicalKeyboardKey.arrowDown) {
-      if (_menuOptionNodes.isNotEmpty) _focusMenuOption(_focusedMenuIndex);
+      if (_activeMenu == _Pc.episodes) {
+        if (_seasonTabNodes.isNotEmpty) {
+          _seasonTabNode(0).requestFocus();
+        } else if (_episodeItemNodes.isNotEmpty) {
+          _setFocusedEpisode(0);
+          _episodeItemNode(0).requestFocus();
+        }
+      } else if (_menuOptionNodes.isNotEmpty) {
+        _focusMenuOption(_focusedMenuIndex);
+      }
       return KeyEventResult.handled;
     }
     if (key == LogicalKeyboardKey.arrowUp) {
-      if (_menuOptionNodes.isNotEmpty) {
+      if (_activeMenu == _Pc.episodes) {
+        if (_seasonTabNodes.isNotEmpty) {
+          _seasonTabNode(_seasonTabNodes.length - 1).requestFocus();
+        }
+      } else if (_menuOptionNodes.isNotEmpty) {
         _focusMenuOption(_menuOptionNodes.length - 1);
       }
       return KeyEventResult.handled;
@@ -2045,6 +2143,351 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       return KeyEventResult.handled;
     }
     return KeyEventResult.ignored;
+  }
+
+  /// Opens the season/episode picker. Keeps playback running underneath;
+  /// selecting an episode re-queues the SAME native player (see
+  /// [_playSpecificEpisode]), so the picker is crash-safe on TV boxes.
+  Future<void> _openEpisodeMenu() async {
+    if (!mounted || _disposed || widget.isMovie) return;
+    if (_episodeMenuLoading) return;
+    final id = int.tryParse(widget.tmdbId);
+    if (id == null) return;
+    _episodeMenuLoading = true;
+    setState(() {
+      _activeMenu = _Pc.episodes;
+      _currentControl = _Pc.episodes;
+      _focusedMenuIndex = 0;
+    });
+    _resetHideTimer();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !_disposed && _activeMenu == _Pc.episodes) {
+        _menuHeaderNode.requestFocus();
+      }
+    });
+    try {
+      final details = await TmdbApiService.getSeriesDetails(id);
+      if (_disposed || !mounted || _activeMenu != _Pc.episodes) return;
+      final raw = details?['seasons'] as List<dynamic>? ?? const [];
+      final seasons = <_SeasonInfo>[];
+      for (final s in raw) {
+        if (s is! Map<dynamic, dynamic>) continue;
+        final number = (s['season_number'] as num?)?.toInt() ?? 0;
+        if (number <= 0) continue;
+        seasons.add(
+          _SeasonInfo(
+            number: number,
+            name: s['name']?.toString() ?? 'Season $number',
+            episodeCount: (s['episode_count'] as num?)?.toInt() ?? 0,
+          ),
+        );
+      }
+      if (_disposed || !mounted || _activeMenu != _Pc.episodes) return;
+      setState(() {
+        _menuSeasons = seasons.isNotEmpty
+            ? seasons
+            : [
+                _SeasonInfo(
+                  number: _activeSeason,
+                  name: 'Season $_activeSeason',
+                  episodeCount: 0,
+                ),
+              ];
+        _menuSeason = _activeSeason;
+      });
+      await _loadMenuEpisodes(_menuSeason, focusCurrent: true);
+    } catch (e, st) {
+      debugPrint('TvVideoPlayer: opening episode menu failed: $e\n$st');
+    } finally {
+      _episodeMenuLoading = false;
+      if (mounted) setState(() {});
+    }
+  }
+
+  /// Loads (and caches) the episodes for [season] for the picker.
+  Future<void> _loadMenuEpisodes(
+    int season, {
+    bool focusCurrent = false,
+  }) async {
+    final id = int.tryParse(widget.tmdbId);
+    if (id == null || _disposed || !mounted) return;
+    if (!_menuEpisodeCache.containsKey(season)) {
+      List<Map<String, dynamic>> episodes;
+      try {
+        episodes = await TmdbApiService.getSeasonEpisodes(id, season);
+      } catch (e, st) {
+        debugPrint(
+          'TvVideoPlayer: loading season $season episodes failed: $e\n$st',
+        );
+        episodes = const [];
+      }
+      if (_disposed || !mounted) return;
+      _menuEpisodeCache[season] = [
+        for (final e in episodes)
+          if (((e['episode_number'] as num?)?.toInt() ?? 0) > 0)
+            _EpisodeInfo(
+              number: (e['episode_number'] as num?)?.toInt() ?? 0,
+              name: e['name']?.toString() ?? 'Season $season',
+              stillUrl: TmdbApiService.getImageUrl(e['still_path']?.toString()),
+            ),
+      ];
+    }
+    if (_disposed || !mounted) return;
+    setState(() {});
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_disposed || !mounted || _activeMenu != _Pc.episodes) return;
+      final episodes = _menuEpisodeCache[season] ?? const <_EpisodeInfo>[];
+      var index = 0;
+      if (focusCurrent) {
+        final playing = episodes.indexWhere((e) => e.number == _activeEpisode);
+        if (playing >= 0) index = playing;
+      }
+      _setFocusedEpisode(index);
+      if (_episodeItemNodes.isNotEmpty) {
+        _episodeItemNode(index).requestFocus();
+        _ensureEpisodeVisible(index);
+      }
+    });
+  }
+
+  void _selectMenuSeason(_SeasonInfo season) {
+    if (!mounted || _disposed || _episodeMenuLoading) return;
+    if (season.number == _menuSeason) {
+      _setFocusedEpisode(0);
+      if (_episodeItemNodes.isNotEmpty) {
+        _ensureEpisodeVisible(0);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && _activeMenu == _Pc.episodes) {
+            _episodeItemNode(0).requestFocus();
+          }
+        });
+      }
+      return;
+    }
+    setState(() => _menuSeason = season.number);
+    _loadMenuEpisodes(season.number);
+  }
+
+  KeyEventResult _onSeasonTabKey(
+    int index,
+    KeyEvent event,
+    _SeasonInfo season,
+  ) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.arrowRight &&
+        index + 1 < _seasonTabNodes.length) {
+      _seasonTabNode(index + 1).requestFocus();
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.arrowLeft && index > 0) {
+      _seasonTabNode(index - 1).requestFocus();
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.arrowDown) {
+      if (_episodeItemNodes.isNotEmpty) {
+        _setFocusedEpisode(0);
+        _episodeItemNode(0).requestFocus();
+        _ensureEpisodeVisible(0);
+      }
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.arrowUp) {
+      _menuHeaderNode.requestFocus();
+      return KeyEventResult.handled;
+    }
+    if (keyIsEnter(event)) {
+      _selectMenuSeason(season);
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.escape ||
+        key == LogicalKeyboardKey.goBack ||
+        key == LogicalKeyboardKey.gameButtonB) {
+      _closeMenus();
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
+
+  KeyEventResult _onEpisodeItemKey(
+    int index,
+    KeyEvent event,
+    _EpisodeInfo episode,
+    int season,
+  ) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    final key = event.logicalKey;
+    final episodes = _menuEpisodeCache[season] ?? const <_EpisodeInfo>[];
+    if (key == LogicalKeyboardKey.arrowDown) {
+      final next = index + 1 < episodes.length ? index + 1 : index;
+      _setFocusedEpisode(next);
+      if (next != index) {
+        _episodeItemNode(next).requestFocus();
+        _ensureEpisodeVisible(next);
+      }
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.arrowUp) {
+      if (index > 0) {
+        _setFocusedEpisode(index - 1);
+        _episodeItemNode(index - 1).requestFocus();
+        _ensureEpisodeVisible(index - 1);
+      } else if (_seasonTabNodes.isNotEmpty) {
+        _seasonTabNode(0).requestFocus();
+      } else {
+        _menuHeaderNode.requestFocus();
+      }
+      return KeyEventResult.handled;
+    }
+    if (keyIsEnter(event)) {
+      _playEpisodeFromMenu(season, episode);
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.escape ||
+        key == LogicalKeyboardKey.goBack ||
+        key == LogicalKeyboardKey.gameButtonB) {
+      _closeMenus();
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
+
+  void _setFocusedEpisode(int index) {
+    if (!mounted) return;
+    setState(() => _focusedMenuIndex = index);
+  }
+
+  Future<void> _ensureEpisodeVisible(int index) async {
+    final keys = _episodeItemKeys;
+    if (index < 0 || index >= keys.length) return;
+    final ctx = keys[index].currentContext;
+    if (ctx == null) return;
+    await Scrollable.ensureVisible(
+      ctx,
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOut,
+      alignment: 0.2,
+    );
+  }
+
+  void _playEpisodeFromMenu(int season, _EpisodeInfo episode) {
+    _closeMenus();
+    if (_disposed || !mounted) return;
+    unawaited(_playSpecificEpisode(season, episode.number, episode.name));
+  }
+
+  /// Plays a chosen episode, mirroring [_playNextEpisode]'s metadata/fetch
+  /// steps but preferring [_reloadPlayback] (same ExoPlayer + surface) and
+  /// only falling back to a full teardown + re-init when reuse is impossible.
+  Future<void> _playSpecificEpisode(
+    int season,
+    int episode,
+    String episodeName,
+  ) async {
+    if (_disposed || !mounted) return;
+    if (_loadingNext || _switchingServer) return;
+    _loadingNext = true;
+    final generation = ++_operationGeneration;
+    final id = int.tryParse(widget.tmdbId);
+    final seriesTitle = _seriesTitle.isNotEmpty
+        ? _seriesTitle
+        : (_currentTitle?.split(' - ').first ?? widget.title);
+    if (mounted) {
+      setState(() {
+        _isLoading = true;
+        _error = null;
+        _statusMessage = 'Loading S$season E$episode...';
+      });
+    }
+    var resolvedName = episodeName;
+    var resolvedStill = '';
+    try {
+      if (id != null) {
+        final seasonEpisodes = await TmdbApiService.getSeasonEpisodes(
+          id,
+          season,
+        );
+        if (_isCurrent(generation)) {
+          _seasonEpisodes = seasonEpisodes;
+          final epsData = seasonEpisodes
+              .where(
+                (e) => ((e['episode_number'] as num?)?.toInt() ?? 0) == episode,
+              )
+              .firstOrNull;
+          resolvedName = epsData?['name']?.toString() ?? episodeName;
+          resolvedStill = TmdbApiService.getImageUrl(
+            epsData?['still_path']?.toString(),
+          );
+        }
+      }
+      if (!_isCurrent(generation)) return;
+
+      final result = await DirectM3u8Service.fetchSeriesStreamUrl(
+        seriesTitle,
+        season,
+        episode,
+        widget.tmdbId,
+      );
+      if (!_isCurrent(generation)) return;
+      if (result == null || result['url'] == null) {
+        _loadingNext = false;
+        if (mounted && _isCurrent(generation)) {
+          setState(() {
+            _error = 'Could not load S$season E$episode. Please try again.';
+            _isLoading = false;
+            _statusMessage = '';
+          });
+        }
+        return;
+      }
+      final candidate = _StreamCandidate.fromMap(result);
+      var initialized = await _reloadPlayback(
+        candidate,
+        generation: generation,
+        resumePosition: Duration.zero,
+      );
+      if (!initialized && _isCurrent(generation)) {
+        initialized = await _initializePlayer(
+          candidate,
+          generation: generation,
+          resumePosition: Duration.zero,
+        );
+      }
+      _loadingNext = false;
+      if (!initialized || !_isCurrent(generation)) return;
+      setState(() {
+        _activeSeason = season;
+        _activeEpisode = episode;
+        _currentEpisodeName = resolvedName;
+        _episodeStillUrl = resolvedStill;
+        _currentTitle = resolvedName.isNotEmpty
+            ? '$seriesTitle - S$season'
+                  'E$episode: $resolvedName'
+            : '$seriesTitle - S$season'
+                  'E$episode';
+        _nextSeason = season;
+        _nextEpisode = episode;
+        _completionHandled = false;
+        _isLoading = false;
+        _statusMessage = '';
+      });
+      if (id != null) {
+        _resolveNextEpisode(id, seriesTitle);
+      }
+      _loadDefaultSubtitle(candidate);
+      _discoverAvailableServers(generation);
+      _saveProgress();
+    } catch (e, st) {
+      debugPrint('TvVideoPlayer: switching episode failed: $e\n$st');
+      _loadingNext = false;
+      if (mounted && _isCurrent(generation)) {
+        setState(() {
+          _error = 'Could not load S$season E$episode. Please try again.';
+          _isLoading = false;
+          _statusMessage = '';
+        });
+      }
+    }
   }
 
   Widget _buildSubtitleWidget() {
@@ -2221,6 +2664,16 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       onPress: () => _openMenu(_Pc.server),
     );
 
+    final episodesButton = _controlButton(
+      _Pc.episodes,
+      Icons.video_library,
+      'Episodes',
+      width: 112,
+      height: 64,
+      label: 'S$_activeSeason  E$_activeEpisode',
+      onPress: () => _openEpisodeMenu(),
+    );
+
     return Positioned.fill(
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
@@ -2289,12 +2742,16 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
                     builder: (context, constraints) {
                       const buttonWidth = 112.0;
                       const gap = 18.0;
-                      const rowWidth = buttonWidth * 3 + gap * 2;
+                      final hasEpisodesButton = !widget.isMovie;
+                      final rowWidth =
+                          buttonWidth * (hasEpisodesButton ? 4 : 3) +
+                          gap * (hasEpisodesButton ? 3 : 2);
                       final startX = (constraints.maxWidth - rowWidth) / 2;
-                      const menuIndex = <_Pc, int>{
+                      final menuIndex = <_Pc, int>{
                         _Pc.server: 0,
                         _Pc.quality: 1,
                         _Pc.subtitles: 2,
+                        if (hasEpisodesButton) _Pc.episodes: 3,
                       };
                       final openMenu = _activeMenu;
                       return Stack(
@@ -2312,12 +2769,23 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
                                   qualityButton,
                                   const SizedBox(width: gap),
                                   subtitlesButton,
+                                  if (hasEpisodesButton) ...[
+                                    const SizedBox(width: gap),
+                                    episodesButton,
+                                  ],
                                 ],
                               ),
                               const SizedBox(height: 20),
                             ],
                           ),
-                          if (openMenu != null)
+                          if (openMenu == _Pc.episodes)
+                            Positioned(
+                              left: 48,
+                              right: 48,
+                              bottom: 96,
+                              child: _buildEpisodeMenuPanel(),
+                            )
+                          else if (openMenu != null)
                             Positioned(
                               bottom: 88,
                               left:
@@ -2647,6 +3115,260 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     );
   }
 
+  Widget _buildEpisodeMenuPanel() {
+    final episodes = _menuEpisodeCache[_menuSeason] ?? const <_EpisodeInfo>[];
+    _rebuildSeasonTabNodes(_menuSeasons.length);
+    _rebuildEpisodeItemNodes(episodes.length);
+    return Container(
+      height: 380,
+      decoration: BoxDecoration(
+        color: const Color(0xF2181818),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white24),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Focus(
+            focusNode: _menuHeaderNode,
+            onKeyEvent: _onMenuHeaderKey,
+            child: InkWell(
+              onTap: _closeMenus,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 150),
+                padding: const EdgeInsets.fromLTRB(20, 14, 20, 10),
+                decoration: BoxDecoration(
+                  color: _menuHeaderNode.hasFocus
+                      ? Colors.white12
+                      : Colors.transparent,
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.video_library,
+                      color: Colors.redAccent,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _seriesTitle.isNotEmpty ? _seriesTitle : widget.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.redAccent,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    const Text(
+                      'Episodes',
+                      style: TextStyle(
+                        color: Colors.redAccent,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const Divider(height: 1, color: Colors.white24),
+          if (_menuSeasons.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    for (var i = 0; i < _menuSeasons.length; i++) ...[
+                      if (i > 0) const SizedBox(width: 10),
+                      _seasonTab(i, _menuSeasons[i]),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          const Divider(height: 1, color: Colors.white24),
+          Expanded(
+            child: _episodeMenuLoading && episodes.isEmpty
+                ? const Center(
+                    child: CircularProgressIndicator(color: Colors.redAccent),
+                  )
+                : episodes.isEmpty
+                ? const Center(
+                    child: Text(
+                      'No episodes found',
+                      style: TextStyle(color: Colors.white70, fontSize: 16),
+                    ),
+                  )
+                : SingleChildScrollView(
+                    controller: _episodeScroll,
+                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    child: Column(
+                      children: [
+                        for (var i = 0; i < episodes.length; i++)
+                          _episodeTile(i, episodes[i], _menuSeason),
+                      ],
+                    ),
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _seasonTab(int index, _SeasonInfo season) {
+    final node = _seasonTabNode(index);
+    final isActive = season.number == _menuSeason;
+    final isFocused = node.hasFocus;
+    final label = season.name.isNotEmpty && season.name.length <= 14
+        ? season.name
+        : 'Season ${season.number}';
+    return Focus(
+      focusNode: node,
+      onKeyEvent: (_, event) => _onSeasonTabKey(index, event, season),
+      child: InkWell(
+        onTap: () => _selectMenuSeason(season),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+          decoration: BoxDecoration(
+            color: isActive
+                ? const Color(0xFFE50914)
+                : (isFocused ? Colors.white12 : Colors.transparent),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: isFocused ? Colors.redAccent : Colors.white24,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  color: isActive || isFocused ? Colors.white : Colors.white70,
+                  fontSize: 16,
+                  fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
+                ),
+              ),
+              if (season.episodeCount > 0) ...[
+                const SizedBox(width: 6),
+                Text(
+                  '(${season.episodeCount})',
+                  style: TextStyle(
+                    color: isActive || isFocused
+                        ? Colors.white70
+                        : Colors.white38,
+                    fontSize: 13,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _episodeTile(int index, _EpisodeInfo episode, int season) {
+    final node = _episodeItemNode(index);
+    final isPlaying =
+        season == _activeSeason && episode.number == _activeEpisode;
+    final isFocused = node.hasFocus || index == _focusedMenuIndex;
+    return Focus(
+      key: _episodeItemKeys[index],
+      focusNode: node,
+      onKeyEvent: (_, event) =>
+          _onEpisodeItemKey(index, event, episode, season),
+      child: InkWell(
+        onTap: () => _playEpisodeFromMenu(season, episode),
+        child: Container(
+          height: 96,
+          margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: isPlaying
+                ? const Color(0x33E50914)
+                : (isFocused ? Colors.white12 : Colors.transparent),
+            borderRadius: BorderRadius.circular(8),
+            border: isFocused
+                ? Border.all(color: Colors.redAccent, width: 2)
+                : null,
+          ),
+          child: Row(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: SizedBox(
+                  width: 148,
+                  height: 80,
+                  child: episode.stillUrl.isNotEmpty
+                      ? Image.network(
+                          episode.stillUrl,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stack) =>
+                              _episodeThumbPlaceholder(),
+                        )
+                      : _episodeThumbPlaceholder(),
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'S$season  E${episode.number}',
+                      style: TextStyle(
+                        color: isPlaying ? Colors.redAccent : Colors.white70,
+                        fontSize: 15,
+                        fontWeight: isPlaying
+                            ? FontWeight.bold
+                            : FontWeight.normal,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      episode.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: Colors.white, fontSize: 16),
+                    ),
+                  ],
+                ),
+              ),
+              if (isPlaying)
+                const Icon(
+                  Icons.play_circle_fill,
+                  color: Colors.white,
+                  size: 30,
+                )
+              else if (isFocused)
+                const Icon(
+                  Icons.play_circle_outline,
+                  color: Colors.white70,
+                  size: 30,
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _episodeThumbPlaceholder() {
+    return Container(
+      color: const Color(0xFF2A2A2A),
+      child: const Icon(Icons.movie, color: Colors.white38, size: 32),
+    );
+  }
+
   List<_MenuOption> _buildMenuOptions(_Pc pc) {
     switch (pc) {
       case _Pc.subtitles:
@@ -2699,6 +3421,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       case _Pc.back:
       case _Pc.rewind:
       case _Pc.forward:
+      case _Pc.episodes:
       case _Pc.slider:
         return const [];
     }
