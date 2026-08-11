@@ -544,6 +544,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   String _selectedQuality = 'Auto';
   Map<String, String> _streamHeaders = const {};
   List<_StreamQuality> _qualities = const [];
+  bool _separateAudio = false;
   List<_SubtitleTrack> _subtitleTracks = const [];
   final ValueNotifier<List<Subtitle>> _activeSubtitles =
       ValueNotifier<List<Subtitle>>(const []);
@@ -674,6 +675,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         }
         final qualities = _parseQualities(result['qualities']);
         final subtitleTracks = _parseSubtitleTracks(result['subtitles']);
+        _separateAudio = result['separateAudio'] == true;
         _playbackRetryCount = 0;
         _failedServerKeys.clear();
         _availableServers = [result];
@@ -1650,6 +1652,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     final oldSubtitles = _activeSubtitles.value;
     final headers = _parseStreamHeaders(stream);
     final qualities = _parseQualities(stream['qualities']);
+    _separateAudio = stream['separateAudio'] == true;
     var selectedQuality = 'Auto';
     for (final quality in qualities) {
       if (quality.url == url) selectedQuality = quality.label;
@@ -2478,6 +2481,14 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       return;
     }
 
+    // When the stream uses separate audio renditions (e.g. VixSrc), variant
+    // media-playlist URLs have no audio groups.  ExoPlayer throws Source
+    // error if given a variant directly.  Always reload the master URL so
+    // ExoPlayer can mux audio + video itself.
+    final playUrl = _separateAudio
+        ? (_qualities.isNotEmpty ? _qualities.first.url : quality.url)
+        : quality.url;
+
     final position = current.value.position;
     final shouldPlay = current.value.isPlaying || current.value.isBuffering;
     setState(() {
@@ -2486,12 +2497,12 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     });
     try {
       await _replacePlayer(
-        quality.url,
+        playUrl,
         headers: _streamHeaders,
         source: _currentSource ?? 'Unknown',
         qualities: _qualities,
         selectedQuality: quality.label,
-        isHls: quality.url.toLowerCase().contains('.m3u8'),
+        isHls: playUrl.toLowerCase().contains('.m3u8'),
         position: position,
         shouldPlay: shouldPlay,
       );
