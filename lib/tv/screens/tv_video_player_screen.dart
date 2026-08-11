@@ -153,10 +153,16 @@ class _StreamCandidate {
   /// software-decoder fallback in the vendored plugin targets). Pinning a
   /// single variant keeps one codec active for the whole play.
   ///
+  /// To keep decode load safe on low-end boxes (e.g. Vitron TVs), boot at
+  /// **720p or below**: the breaker picks the highest rendition capped at
+  /// 720p, so weak decoders get headroom instead of slamming a 1080p stream.
+  /// Only if every variant exceeds 720p does it drop to the lowest available
+  /// (the least demanding option of what exists).
+  ///
   /// When codec info is available (from the extractor's master CODECS parse),
-  /// the highest *H.264/AVC* rendition is preferred over a taller HEVC/AV1
-  /// stream, whose firmware hardware decoders are the box's main native-crash
-  /// source. Streams without codec info fall back to the plain highest variant.
+  /// the *H.264/AVC* renditions are preferred over HEVC/AV1 streams, whose
+  /// firmware hardware decoders are the box's main native-crash source.
+  /// Streams without codec info fall back to the same height-capped logic.
   _StreamCandidate pinnedToHighestQuality() {
     final available = <_QualityOption>[
       for (final q in qualities)
@@ -168,11 +174,26 @@ class _StreamCandidate {
         if (q.isAvc) q,
     ];
     final pool = avc.isNotEmpty ? avc : available;
-    var best = pool.first;
-    for (final q in pool) {
-      if (q.height > best.height) best = q;
+
+    final cappedAt720 = [
+      for (final q in pool)
+        if (q.height <= 720) q,
+    ];
+    _QualityOption? best;
+    for (final q in (cappedAt720.isNotEmpty ? cappedAt720 : pool)) {
+      if (best == null) {
+        best = q;
+        continue;
+      }
+      // Within the 720p cap, take the highest; otherwise (all >720p) take the
+      // lowest - both target the least demanding stable variant.
+      if (cappedAt720.isNotEmpty) {
+        if (q.height > best.height) best = q;
+      } else if (q.height < best.height) {
+        best = q;
+      }
     }
-    if (best.url == url) return this;
+    if (best == null || best.url == url) return this;
     return _StreamCandidate(
       url: best.url,
       source: source,

@@ -617,20 +617,20 @@ class VideoPlayerController extends ValueNotifier<VideoPlayerValue> {
             errorDescription: null,
             isCompleted: false,
           );
-          assert(
-            !initializingCompleter.isCompleted,
-            'VideoPlayerController already initialized. This is typically a '
-            'sign that an implementation of the VideoPlayerPlatform '
-            '(${_videoPlayerPlatform.runtimeType}) has a bug and is sending '
-            'more than one initialized event per instance.',
-          );
-          if (initializingCompleter.isCompleted) {
-            throw StateError('VideoPlayerController already initialized');
+          // Vendor patch: when media is re-queued on the SAME native player
+          // (our Android reloadMedia path used for recovery and episode
+          // changes), the plugin intentionally re-emits 'initialized' so the
+          // Dart side refreshes duration/size for the new source. A second
+          // event is therefore expected - not the plugin bug upstream guards
+          // against - so update value instead of throwing. The one-per-boot
+          // apply steps only run on the first init (the re-queued player keeps
+          // volume/looping and reloadPlayback drives play state explicitly).
+          if (!initializingCompleter.isCompleted) {
+            initializingCompleter.complete(null);
+            _applyLooping();
+            _applyVolume();
+            _applyPlayPause();
           }
-          initializingCompleter.complete(null);
-          _applyLooping();
-          _applyVolume();
-          _applyPlayPause();
         case platform_interface.VideoEventType.completed:
           // In this case we need to stop _timer, set isPlaying=false, and
           // position=value.duration. Instead of setting the values directly,

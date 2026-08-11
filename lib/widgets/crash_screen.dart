@@ -126,6 +126,10 @@ Future<void> checkForNativeCrash() async {
       ),
       time: DateTime.now(),
     );
+    // A native tombstone already explains the death - consume the playback
+    // heartbeat too so the same boot can't also show 'UnexpectedExit'. (LMK
+    // kills have no tombstone, so checkUnexpectedExit still owns that case.)
+    await heartbeatClear();
   } catch (_) {
     // No native handler / channel unavailable: the run continues normally and
     // any Dart errors still report through the in-memory crash screen.
@@ -152,6 +156,9 @@ Future<void> recordCrash(String tag, Object error, StackTrace stack) async {
   final time = DateTime.now();
   LoggerService.error('[$tag] $error', error, stack);
   unawaited(_appendCrashLog('[$time] [$tag] $error\n$stack\n'));
+  // The user is about to see the report screen for this crash - don't also
+  // flag the now-dead process as an "unexpected exit" on the next boot.
+  unawaited(heartbeatClear());
   if (crashReport.value == null) {
     crashReport.value = CrashInfo(
       tag: tag,
