@@ -81,9 +81,15 @@ public final class TextureVideoPlayer extends VideoPlayer implements SurfaceProd
             if (options.maxBufferDurationMs > 0) {
               int maxBufferInt =
                   (int) Math.min(options.maxBufferDurationMs.longValue(), Integer.MAX_VALUE);
+              // Use 25% of max buffer as min buffer (at least 15s, at most 25s).
+              // The default 50s min buffer is far too large for 1GB TV devices —
+              // it alone can consume ~30MB of native memory before playback even
+              // starts.  A 15–25s min gives HLS enough runway to start while
+              // keeping the total buffer footprint under ~60MB at 1080p.
+              int minBufferMs = Math.max(15000, Math.min(25000, maxBufferInt / 4));
               loadControlBuilder
                   .setBufferDurationsMs(
-                      DefaultLoadControl.DEFAULT_MIN_BUFFER_MS,
+                      minBufferMs,
                       maxBufferInt,
                       DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_MS,
                       DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS);

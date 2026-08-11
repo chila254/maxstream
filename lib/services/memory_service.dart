@@ -45,3 +45,11 @@ void installMemoryTrimHandler({MemoryPressureCallback? onPressure}) {
 /// (`TRIM_MEMORY_RUNNING_CRITICAL` = 15 or higher).  The TV player screen
 /// can poll this before creating a second platform view or switching servers.
 bool isMemoryCritical(int level) => level >= 15;
+
+/// Allows a screen (e.g. the video player) to register or clear its memory
+/// pressure callback **after** [installMemoryTrimHandler] has been called.
+/// Only one screen is active at a time, so this simply replaces the previous
+/// callback.
+void setMemoryPressureCallback(MemoryPressureCallback? callback) {
+  _onPressure = callback;
+}

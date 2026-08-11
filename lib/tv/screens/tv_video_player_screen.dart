@@ -12,6 +12,7 @@ import 'package:provider/provider.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import '../providers/tv_navigation_provider.dart';
 import '../../services/direct_m3u8_service.dart';
+import '../../services/memory_service.dart';
 import '../../services/tmdb_api_service.dart';
 import '../../services/watch_history_service.dart';
 import '../../widgets/crash_screen.dart';
@@ -454,6 +455,12 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
 
+    // Proactively release native ExoPlayer buffers when Android signals
+    // critical memory pressure (level ≥ 15).  Without this, the LMK will
+    // SIGKILL the process while ExoPlayer still holds 40-60 MB of decoded
+    // video frames in native memory.
+    setMemoryPressureCallback(_onMemoryPressure);
+
     _populateControlFocusNodes();
     _activeSeason = widget.season;
     _activeEpisode = widget.episode;
@@ -483,6 +490,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
   @override
   void dispose() {
     _disposed = true;
+    setMemoryPressureCallback(null);
     unawaited(heartbeatClear());
     _operationGeneration++;
     WidgetsBinding.instance.removeObserver(this);
@@ -514,6 +522,15 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     }
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     super.dispose();
+  }
+
+  void _onMemoryPressure(int level) {
+    if (_disposed || !mounted) return;
+    if (isMemoryCritical(level) && _controller != null) {
+      debugPrint('MaxStream TV: critical memory (level=$level) – releasing player');
+      _saveProgress();
+      unawaited(_releaseForBackground());
+    }
   }
 
   @override
@@ -999,13 +1016,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         videoPlayerOptions: VideoPlayerOptions(
           backBufferDurationMs: 3000,
           allowBackgroundPlayback: false,
-          // Cap the look-ahead buffer at ~90s. Google's budget for a 1GB TV is
-          // roughly a minute of buffered media (~40-60MB at 1080p); buffering
-          // five minutes ahead makes this app the largest background memory
-          // consumer and the Low-Memory Killer's first target on low-RAM boxes
-          // like the Vitron. The vendored ExoPlayer plugin configures
-          // DefaultLoadControl with this as the max buffer duration.
-          maxBufferDurationMs: 90000,
+          maxBufferDurationMs: 60000,
         ),
       );
 

@@ -99,9 +99,10 @@ public class PlatformViewVideoPlayer extends VideoPlayer {
               // devices with slower CPUs where decode + network compete.
               int maxBufferInt =
                   (int) Math.min(options.maxBufferDurationMs.longValue(), Integer.MAX_VALUE);
+              int minBufferMs = Math.max(15000, Math.min(25000, maxBufferInt / 4));
               loadControlBuilder
                   .setBufferDurationsMs(
-                      DefaultLoadControl.DEFAULT_MIN_BUFFER_MS,
+                      minBufferMs,
                       maxBufferInt,
                       DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_MS,
                       DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS);
