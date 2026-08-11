@@ -1271,6 +1271,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       videoPlayerOptions: VideoPlayerOptions(
         backBufferDurationMs: 60000,
         allowBackgroundPlayback: false,
+        maxBufferDurationMs: 90000,
       ),
     );
 

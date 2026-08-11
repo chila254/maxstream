@@ -67,8 +67,6 @@ public final class TextureVideoPlayer extends VideoPlayer implements SurfaceProd
               throw new IllegalArgumentException("backBufferDurationMs must be at least 0");
             }
             if (options.backBufferDurationMs > 0) {
-              // Clamp the value to ensure it fits within the int range expected by
-              // DefaultLoadControl.
               int backBufferInt =
                   (int) Math.min(options.backBufferDurationMs.longValue(), Integer.MAX_VALUE);
               loadControlBuilder.setBackBuffer(
@@ -81,14 +79,17 @@ public final class TextureVideoPlayer extends VideoPlayer implements SurfaceProd
               throw new IllegalArgumentException("maxBufferDurationMs must be at least 0");
             }
             if (options.maxBufferDurationMs > 0) {
-              // Let the player buffer far ahead of the current position so slow
-              // CDN bursts don't stall playback. This is especially useful for TV
-              // devices with slower CPUs where decode + network compete.
               int maxBufferInt =
                   (int) Math.min(options.maxBufferDurationMs.longValue(), Integer.MAX_VALUE);
+              // Pin min buffer to 15s (down from the 50s ExoPlayer default) so
+              // low-RAM Android TV boxes (1 GB Vitron-class) don't hit the
+              // Low-Memory Killer while ExoPlayer hoards decoded frames. The
+              // player will still rebuffer at 15s of runway, which is fine for
+              // most CDN burst profiles.
+              int minBufferInt = Math.min(maxBufferInt, 15_000);
               loadControlBuilder
                   .setBufferDurationsMs(
-                      DefaultLoadControl.DEFAULT_MIN_BUFFER_MS,
+                      minBufferInt,
                       maxBufferInt,
                       DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_MS,
                       DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS);

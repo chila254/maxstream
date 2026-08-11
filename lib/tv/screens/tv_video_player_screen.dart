@@ -993,13 +993,13 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         videoPlayerOptions: VideoPlayerOptions(
           backBufferDurationMs: 3000,
           allowBackgroundPlayback: false,
-          // Cap the look-ahead buffer at ~90s. Google's budget for a 1GB TV is
-          // roughly a minute of buffered media (~40-60MB at 1080p); buffering
-          // five minutes ahead makes this app the largest background memory
-          // consumer and the Low-Memory Killer's first target on low-RAM boxes
-          // like the Vitron. The vendored ExoPlayer plugin configures
-          // DefaultLoadControl with this as the max buffer duration.
-          maxBufferDurationMs: 90000,
+          // Cap the look-ahead buffer at ~45s. A 1 GB Android 14 TV
+          // (Vitron-class) has ~300-400 MB free after the OS + Flutter engine;
+          // 45s of 1080p HLS (~45 MB) keeps ExoPlayer below the LMK threshold
+          // while still surviving short CDN rebuffer spikes. The native
+          // DefaultLoadControl clamps minBuffer to 15s so playback won't stall
+          // on slow connections.
+          maxBufferDurationMs: 45000,
         ),
       );
 

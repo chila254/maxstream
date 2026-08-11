@@ -3153,19 +3153,23 @@ class StreamExtractor(private val context: Context) {
         }.distinctBy { it.height }.sortedByDescending { it.height }
 
         require(playableVariants.isNotEmpty()) { "No playable HLS quality variants" }
-        val allVariantsPlayable = playableVariants.size == variants.distinctBy { it.height }.size
-        val playbackUrl = if (allVariantsPlayable) master.url else playableVariants.first().url
         val qualities = buildList {
-            if (allVariantsPlayable && playableVariants.size > 1) {
-                add(QualityOption("Auto", master.url, 0))
-            }
+            add(QualityOption("Auto", master.url, 0))
             addAll(
                 playableVariants.map {
                     QualityOption("${it.height}p", it.url, it.height, it.codec)
                 },
             )
         }
-        return HlsValidation(playbackUrl, qualities, subtitles)
+        // Always pin to the lowest playable variant instead of returning the
+        // master playlist.  Adaptive bitrate switching forces MediaCodec decoder
+        // reconfiguration mid-playback, which crashes the hardware decoder on
+        // Android 14 TV boxes (Vitron-class).  Pinning a single variant keeps
+        // one codec instance active for the entire play session.  The Dart-side
+        // `pinnedToHighestQuality()` may upgrade this later if it determines the
+        // device has enough headroom.
+        val pinnedUrl = playableVariants.minByOrNull { it.height }?.url ?: master.url
+        return HlsValidation(pinnedUrl, qualities, subtitles)
     }
 
     private fun validateMediaPlaylist(

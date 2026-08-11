@@ -31,8 +31,13 @@ class MainActivity : FlutterActivity() {
      * Dart caches (decoded posters, subtitle buffers) can be released when the
      * system warns about memory pressure, which is the main thing we control to
      * keep the Low Memory Killer from killing the process while a video is
-     * buffered 300s ahead. Forward the warning to Dart; JVM-level trim also gets
+     * buffered 45s ahead. Forward the warning to Dart; JVM-level trim also gets
      * a GC hint because a chunk of the footprint lives in the video decoder.
+     *
+     * On Android 14 TV boxes (Vitron-class, 1 GB RAM) the LMK is the #1 cause
+     * of mid-playback crashes: once the system crosses the critical threshold
+     * it sends SIGKILL without any JVM callback, so we must act on the
+     * *running-low* signal before it is too late.
      */
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
@@ -42,7 +47,17 @@ class MainActivity : FlutterActivity() {
             // Best-effort; never let memory handling crash the app.
         }
         if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+            // Hint the GC to reclaim unreachable bitmap / codec buffers before
+            // the LMK picks our process as its next target.
             System.gc()
+        }
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL) {
+            // At the critical threshold the process is seconds away from being
+            // killed.  A second GC after a short delay lets finalizers run and
+            // recover native codec memory that the first pass could not free.
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                try { System.gc() } catch (_: Throwable) {}
+            }, 200)
         }
     }
 
