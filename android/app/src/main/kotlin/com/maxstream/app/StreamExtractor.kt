@@ -3367,19 +3367,7 @@ class StreamExtractor(private val context: Context) {
         ""
     }
 
-    private fun resolveUrl(base: String, value: String): String {
-        if (value.startsWith("http")) return value
-        val resolved = URI(base).resolve(value)
-        // java.net.URI.resolve() drops the base query string when the reference
-        // is a relative path.  Signed HLS URLs (VixSrc etc.) carry auth tokens
-        // in the query — losing them makes ExoPlayer get a 401/403.
-        val baseQuery = URI(base).query
-        return if (baseQuery != null && resolved.query == null) {
-            "$resolved?$baseQuery"
-        } else {
-            resolved.toString()
-        }
-    }
+    private fun resolveUrl(base: String, value: String): String = URI(base).resolve(value).toString()
     private fun absoluteMediaUrl(origin: String, value: String) =
         if (value.startsWith("http")) value else "$origin${if (value.startsWith('/')) "" else "/"}$value"
 
