@@ -3730,14 +3730,20 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
               // repaints: on the low-end TV GPU, every overlay/slider repaint
               // over the texture stalls a frame ("scratch"). Isolating the
               // layers means UI redraws no longer invalidate the video.
+              //
+              // The surface aspect ratio is pinned to a stable 16:9. The live
+              // _controller.aspectRatio would resize the SurfaceView platform
+              // view every time the reported ratio changes (including the
+              // 0 -> real jump when buffering starts), and resizing a
+              // hybrid-composition SurfaceView mid-playback is exactly what
+              // crashes the Android 14 TV compositor. ExoPlayer letterboxes
+              // non-16:9 content inside the fixed surface (resize-mode FIT).
               if (_controller != null)
                 Positioned.fill(
                   child: RepaintBoundary(
                     child: Center(
                       child: AspectRatio(
-                        aspectRatio: _controller!.value.aspectRatio == 0
-                            ? 16 / 9
-                            : _controller!.value.aspectRatio,
+                        aspectRatio: 16 / 9,
                         child: VideoPlayer(
                           _controller!,
                           key: ObjectKey(_controller),
