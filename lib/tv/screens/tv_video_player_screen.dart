@@ -840,9 +840,10 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       final targetSeason = _nextSeason;
       final targetEpisode = _nextEpisode;
       _showStatus('Auto-playing S${targetSeason}E$targetEpisode...');
-      _controller?.removeListener(_handlePlaybackChanged);
-      await _controller?.dispose();
-      _controller = null;
+      // Keep the existing player (and its SurfaceView) alive while the next
+      // episode's stream is fetched; re-queuing onto it avoids tearing down and
+      // re-creating the platform view, which crashes the Android 14 TV
+      // compositor mid-playback.
       final generation = ++_operationGeneration;
 
       final id = int.tryParse(widget.tmdbId);
@@ -893,11 +894,21 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         result,
       ).pinnedToHighestQuality();
       _findingFallback = true;
-      final initialized = await _initializePlayer(
+      var initialized = await _reloadPlayback(
         candidate,
         generation: generation,
         resumePosition: Duration.zero,
       );
+      if (!initialized && _isCurrent(generation)) {
+        await Future<void>.delayed(const Duration(milliseconds: 400));
+        if (_isCurrent(generation)) {
+          initialized = await _initializePlayer(
+            candidate,
+            generation: generation,
+            resumePosition: Duration.zero,
+          );
+        }
+      }
       _findingFallback = false;
       if (!initialized || !_isCurrent(generation)) {
         _loadingNext = false;
@@ -1440,17 +1451,30 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         _failedServerUrls.add(candidate.url);
         continue;
       }
-      // Let a torn-down platform view fully release before the next
-      // SurfaceView is created; overlapping them crashes the compositor on
-      // some TV boxes.
-      await Future<void>.delayed(const Duration(milliseconds: 400));
-      if (!_isCurrent(generation) || initialized) break;
       _showStatus('Loading a working stream from ${candidate.source}...');
-      initialized = await _initializePlayer(
+      // Preferred path: re-queue onto the existing player so the SurfaceView
+      // stays alive. Android 14's hybrid-composition platform views crash the
+      // TV compositor when the SurfaceView is torn down and re-created
+      // mid-playback (the "scratch" then app close), so only fall back to the
+      // full teardown + fresh create when reuse is impossible.
+      initialized = await _reloadPlayback(
         candidate,
         generation: generation,
         resumePosition: livePosition,
       );
+      if (!initialized && _isCurrent(generation)) {
+        // Let a torn-down platform view fully release before the next
+        // SurfaceView is created; overlapping them crashes the compositor on
+        // some TV boxes.
+        await Future<void>.delayed(const Duration(milliseconds: 400));
+        if (_isCurrent(generation)) {
+          initialized = await _initializePlayer(
+            candidate,
+            generation: generation,
+            resumePosition: livePosition,
+          );
+        }
+      }
       if (initialized || !_isCurrent(generation)) break;
       _failedServerUrls.add(candidate.url);
     }
@@ -1487,23 +1511,39 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     });
     _showStatus('Switching to ${quality.label}...');
     final generation = ++_operationGeneration;
-    await _initializePlayer(
-      _StreamCandidate(
-        url: quality.url,
-        source: candidate.source,
-        headers: candidate.headers,
-        route: candidate.route,
-        qualities: candidate.qualities,
-        subtitles: candidate.subtitles,
-      ),
+    final target = _StreamCandidate(
+      url: quality.url,
+      source: candidate.source,
+      headers: candidate.headers,
+      route: candidate.route,
+      qualities: candidate.qualities,
+      subtitles: candidate.subtitles,
+    );
+    // Re-queue onto the existing player so the SurfaceView never gets torn
+    // down mid-playback (Android 14 hybrid-composition compositor crash), only
+    // recreating from scratch when reuse is impossible.
+    var initialized = await _reloadPlayback(
+      target,
       generation: generation,
       resumePosition: livePosition,
     );
+    if (!initialized && _isCurrent(generation)) {
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      if (_isCurrent(generation)) {
+        initialized = await _initializePlayer(
+          target,
+          generation: generation,
+          resumePosition: livePosition,
+        );
+      }
+    }
     if (!_isCurrent(generation)) return;
     setState(() {
       _switchingServer = false;
-      _currentStreamUrl = quality.url;
-      _selectedServerUrl = quality.url;
+      if (initialized) {
+        _currentStreamUrl = quality.url;
+        _selectedServerUrl = quality.url;
+      }
     });
     _showControlsAndFocus();
   }

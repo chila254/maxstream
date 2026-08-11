@@ -71,6 +71,7 @@ public class PlatformViewVideoPlayer extends VideoPlayer {
         () -> {
           androidx.media3.exoplayer.DefaultRenderersFactory renderersFactory =
               new androidx.media3.exoplayer.DefaultRenderersFactory(context);
+          renderersFactory.setEnableDecoderFallback(true);
           ExoPlayer.Builder builder = new ExoPlayer.Builder(context, renderersFactory);
           DefaultLoadControl.Builder loadControlBuilder = new DefaultLoadControl.Builder();
           boolean hasLoadControlOptions = false;
