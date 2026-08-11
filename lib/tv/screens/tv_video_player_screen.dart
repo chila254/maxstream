@@ -324,6 +324,8 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
   int _rebufferCount = 0;
   DateTime? _lastRebufferTime;
   bool _wasBufferingAtLastCheck = false;
+  bool _releasedForBackground = false;
+  Future<void>? _backgroundRelease;
 
   List<_QualityOption> _qualities = const [];
   List<_SubtitleTrack> _subtitleTracks = const [];
@@ -516,11 +518,76 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       // The app is leaving the foreground by our hand (Home/standby), not by
       // a kill - so a background-process death is not reported as a crash.
       unawaited(heartbeatClear());
-      try {
-        _controller?.pause();
-      } catch (e, st) {
-        debugPrint('TvVideoPlayer: lifecycle pause failed: $e\n$st');
+      // Release the decoder and the buffered media now instead of just
+      // pausing: a backgrounded ExoPlayer that keeps playing/reserving its
+      // SurfaceView stays the biggest memory consumer and is the Low-Memory
+      // Killer's first target on a 1GB TV (Vitron-class boxes crash
+      // mid-playback from this). Everything is rebuilt from _lastStablePosition
+      // when the user returns, and only for a real paused/standby transition.
+      _releasedForBackground = state == AppLifecycleState.paused;
+      if (_releasedForBackground) unawaited(_releaseForBackground());
+    } else if (state == AppLifecycleState.resumed) {
+      if (_releasedForBackground) {
+        _releasedForBackground = false;
+        unawaited(_resumeFromBackground());
       }
+    }
+  }
+
+  Future<void> _disposeForBackground(VideoPlayerController controller) async {
+    try {
+      await controller.dispose();
+    } catch (e, st) {
+      debugPrint('TvVideoPlayer: background release failed: $e\n$st');
+    }
+  }
+
+  Future<void> _releaseForBackground() async {
+    final controller = _controller;
+    if (controller == null) return;
+    controller.removeListener(_handlePlaybackChanged);
+    // Unmount the platform view first so the native player is released while
+    // no widget can rebuild against it.
+    if (mounted) {
+      setState(() {
+        _controller = null;
+        _isPlaying = false;
+        _isBuffering = false;
+      });
+    }
+    _backgroundRelease = _disposeForBackground(controller);
+    await _backgroundRelease;
+  }
+
+  Future<void> _resumeFromBackground() async {
+    final release = _backgroundRelease;
+    _backgroundRelease = null;
+    if (release != null) await release;
+    if (!mounted || _disposed) return;
+    final candidate = _currentCandidate;
+    if (candidate == null) return;
+    final position = _lastStablePosition;
+    final generation = ++_operationGeneration;
+    if (mounted) {
+      setState(() {
+        _isLoading = true;
+        _isBuffering = true;
+        _statusMessage = 'Resuming...';
+      });
+    }
+    var ok = false;
+    try {
+      ok = await _initializePlayer(
+        candidate,
+        generation: generation,
+        resumePosition: position > Duration.zero ? position : null,
+      );
+    } catch (e, st) {
+      debugPrint('TvVideoPlayer: background resume failed: $e\n$st');
+    }
+    if (!ok && mounted && _isCurrent(generation)) {
+      // The stored URL may have expired while backgrounded; resolve fresh.
+      await _loadStream();
     }
   }
 
@@ -915,10 +982,13 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         videoPlayerOptions: VideoPlayerOptions(
           backBufferDurationMs: 3000,
           allowBackgroundPlayback: false,
-          // Buffer up to ~5 minutes ahead so slow CDN bursts don't stall
-          // playback on TV boxes. The vendored ExoPlayer plugin configures
+          // Cap the look-ahead buffer at ~90s. Google's budget for a 1GB TV is
+          // roughly a minute of buffered media (~40-60MB at 1080p); buffering
+          // five minutes ahead makes this app the largest background memory
+          // consumer and the Low-Memory Killer's first target on low-RAM boxes
+          // like the Vitron. The vendored ExoPlayer plugin configures
           // DefaultLoadControl with this as the max buffer duration.
-          maxBufferDurationMs: 300000,
+          maxBufferDurationMs: 90000,
         ),
       );
 
@@ -2884,9 +2954,11 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
                             ),
                             if (openMenu == _Pc.episodes)
                               Positioned(
-                                left: 48,
-                                right: 48,
+                                // Right-anchored so the episode list doesn't
+                                // cover the middle of the video frame.
+                                right: 24,
                                 bottom: 96,
+                                width: 480,
                                 child: _buildEpisodeMenuPanel(),
                               )
                             else if (openMenu != null)

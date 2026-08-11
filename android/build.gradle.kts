@@ -37,11 +37,11 @@ subprojects {
                     if (line.contains(".setBackBuffer(backBufferInt")) {
                         """                      .setBufferDurationsMs(
                           50_000,
-                          300_000,
+                          90_000,
                           4_000,
                           10_000)
                       .setPrioritizeTimeOverSizeThresholds(true)
-$line"""
+ $line"""
                     } else {
                         line
                     }
