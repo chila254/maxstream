@@ -1992,6 +1992,23 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         if (response.statusCode >= 200 && response.statusCode < 300) {
           final body = utf8.decode(response.bodyBytes, allowMalformed: true);
           if (body.trim().isNotEmpty) {
+            // HLS subtitle playlists (source == 'HLS') return an M3U8 that
+            // references individual .vtt segment files.  Fetch each segment
+            // and concatenate into a single WEBVTT document.
+            if (track.source == 'HLS' ||
+                body.trimLeft().toUpperCase().startsWith('#EXTM3U')) {
+              try {
+                final vtt = await _resolveHlsSubtitlePlaylist(
+                  body,
+                  url,
+                  headers,
+                );
+                final subtitles = _parseSubtitleFile(vtt);
+                if (subtitles.isNotEmpty) return subtitles;
+              } catch (_) {
+                // Fall through to normal parsing below.
+              }
+            }
             final subtitles = _parseSubtitleFile(body);
             if (subtitles.isNotEmpty) return subtitles;
             lastError = const FormatException(
@@ -2006,6 +2023,71 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       }
     }
     throw lastError ?? Exception('Failed to load subtitles');
+  }
+
+  /// Resolves an HLS subtitle playlist (M3U8) into a single WEBVTT string.
+  ///
+  /// HLS subtitle tracks declare `#EXT-X-MEDIA:TYPE=SUBTITLES` in the master
+  /// with a URI pointing to an M3U8 segment playlist.  That playlist
+  /// references individual `.vtt` files.  This method fetches each VTT segment
+  /// and concatenates them into one WEBVTT document that our VTT parser can
+  /// handle.
+  Future<String> _resolveHlsSubtitlePlaylist(
+    String m3u8Body,
+    String playlistUrl,
+    Map<String, String> headers,
+  ) async {
+    final baseUri = Uri.parse(playlistUrl);
+    final segmentUrls = <String>[];
+    for (final raw in m3u8Body.split('\n')) {
+      final line = raw.trim();
+      if (line.isEmpty || line.startsWith('#')) continue;
+      // Non-comment, non-empty line = segment reference
+      final resolved = baseUri.resolve(line);
+      segmentUrls.add(resolved.toString());
+    }
+    if (segmentUrls.isEmpty) {
+      throw const FormatException('HLS subtitle playlist contained no segments');
+    }
+
+    final parts = <String>[];
+    for (final segUrl in segmentUrls) {
+      try {
+        final resp = await http
+            .get(
+              Uri.parse(segUrl),
+              headers: {
+                ...headers,
+                'User-Agent':
+                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+              },
+            )
+            .timeout(const Duration(seconds: 5));
+        if (resp.statusCode >= 200 && resp.statusCode < 300) {
+          parts.add(utf8.decode(resp.bodyBytes, allowMalformed: true));
+        }
+      } catch (_) {
+        // Skip failed segments; partial subtitles are better than none.
+      }
+    }
+    if (parts.isEmpty) {
+      throw const FormatException('No HLS subtitle segments could be fetched');
+    }
+    // Concatenate into a single WEBVTT document.  Strip per-segment WEBVTT
+    // headers/footers since _parseVtt expects one document.
+    final buffer = StringBuffer('WEBVTT\n\n');
+    for (final part in parts) {
+      final cleaned = part
+          .replaceAll(RegExp(r'WEBVTT[\s\S]*?\n\n'), '')
+          .replaceAll(RegExp(r'^NOTE.*$', multiLine: true), '')
+          .trim();
+      if (cleaned.isNotEmpty) {
+        buffer
+          ..write(cleaned)
+          ..write('\n\n');
+      }
+    }
+    return buffer.toString();
   }
 
   List<Subtitle> _parseSubtitleFile(String input) {

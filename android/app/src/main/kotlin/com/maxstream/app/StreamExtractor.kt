@@ -3161,14 +3161,19 @@ class StreamExtractor(private val context: Context) {
                 },
             )
         }
-        // Always pin to the lowest playable variant instead of returning the
-        // master playlist.  Adaptive bitrate switching forces MediaCodec decoder
-        // reconfiguration mid-playback, which crashes the hardware decoder on
-        // Android 14 TV boxes (Vitron-class).  Pinning a single variant keeps
-        // one codec instance active for the entire play session.  The Dart-side
-        // `pinnedToHighestQuality()` may upgrade this later if it determines the
-        // device has enough headroom.
-        val pinnedUrl = playableVariants.minByOrNull { it.height }?.url ?: master.url
+        // When the master declares separate audio renditions
+        // (#EXT-X-MEDIA:TYPE=AUDIO with URIs), pinning to a single variant
+        // strips audio from the playback — ExoPlayer never sees the audio
+        // groups.  In that case, return the master URL so ExoPlayer can mux
+        // audio + video itself.  For multiplexed streams (audio embedded in
+        // each variant), pin to the lowest variant to avoid adaptive bitrate
+        // switching that crashes Android 14 HW decoders.
+        val separateAudio = hasSeparateAudioGroups(master.body)
+        val pinnedUrl = if (separateAudio) {
+            master.url
+        } else {
+            playableVariants.minByOrNull { it.height }?.url ?: master.url
+        }
         return HlsValidation(pinnedUrl, qualities, subtitles)
     }
 
@@ -3247,6 +3252,20 @@ class StreamExtractor(private val context: Context) {
             )
         }.distinctBy { it.url }.toList()
     }
+
+    /**
+     * Returns `true` when the HLS master playlist declares at least one
+     * `#EXT-X-MEDIA:TYPE=AUDIO` entry with a URI, meaning audio is served
+     * on a separate rendition.  In this case pinning to a single video
+     * variant strips audio from playback because ExoPlayer never sees the
+     * audio groups defined in the master.
+     */
+    private fun hasSeparateAudioGroups(body: String): Boolean =
+        body.lineSequence().any { line ->
+            line.startsWith("#EXT-X-MEDIA", true) &&
+                line.contains("TYPE=AUDIO", true) &&
+                Regex("""URI="[^"]+"""", RegexOption.IGNORE_CASE).containsMatchIn(line)
+        }
 
     private data class ValidationResponse(
         val url: String,
@@ -3345,7 +3364,19 @@ class StreamExtractor(private val context: Context) {
         ""
     }
 
-    private fun resolveUrl(base: String, value: String): String = URI(base).resolve(value).toString()
+    private fun resolveUrl(base: String, value: String): String {
+        if (value.startsWith("http")) return value
+        val resolved = URI(base).resolve(value)
+        // java.net.URI.resolve() drops the base query string when the reference
+        // is a relative path.  Signed HLS URLs (VixSrc etc.) carry auth tokens
+        // in the query — losing them makes ExoPlayer get a 401/403.
+        val baseQuery = URI(base).query
+        return if (baseQuery != null && resolved.query == null) {
+            "$resolved?$baseQuery"
+        } else {
+            resolved.toString()
+        }
+    }
     private fun absoluteMediaUrl(origin: String, value: String) =
         if (value.startsWith("http")) value else "$origin${if (value.startsWith('/')) "" else "/"}$value"
 
