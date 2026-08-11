@@ -81,15 +81,9 @@ public final class TextureVideoPlayer extends VideoPlayer implements SurfaceProd
             if (options.maxBufferDurationMs > 0) {
               int maxBufferInt =
                   (int) Math.min(options.maxBufferDurationMs.longValue(), Integer.MAX_VALUE);
-              // Pin min buffer to 15s (down from the 50s ExoPlayer default) so
-              // low-RAM Android TV boxes (1 GB Vitron-class) don't hit the
-              // Low-Memory Killer while ExoPlayer hoards decoded frames. The
-              // player will still rebuffer at 15s of runway, which is fine for
-              // most CDN burst profiles.
-              int minBufferInt = Math.min(maxBufferInt, 15_000);
               loadControlBuilder
                   .setBufferDurationsMs(
-                      minBufferInt,
+                      DefaultLoadControl.DEFAULT_MIN_BUFFER_MS,
                       maxBufferInt,
                       DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_MS,
                       DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS);
