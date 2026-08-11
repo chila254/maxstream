@@ -85,6 +85,7 @@ class StreamExtractor(private val context: Context) {
         val qualities: List<QualityOption> = emptyList(),
         val subtitles: List<SubtitleOption> = emptyList(),
         val server: String = source,
+        val separateAudio: Boolean = false,
     ) {
         fun toMap(): Map<String, Any> = mapOf(
             "url" to url,
@@ -95,6 +96,7 @@ class StreamExtractor(private val context: Context) {
             "referer" to (headers["Referer"] ?: ""),
             "qualities" to qualities.map(QualityOption::toMap),
             "subtitles" to subtitles.map(SubtitleOption::toMap),
+            "separateAudio" to separateAudio,
         )
     }
 
@@ -395,7 +397,17 @@ class StreamExtractor(private val context: Context) {
 
             when (result) {
                 is ExtractionResult.Final -> {
-                    return validateStream(result.stream.copy(server = initialServer.name))
+                    // If the extractor already validated the stream (has
+                    // qualities populated), skip the second validateHls()
+                    // call.  Re-validating an already-pinned variant URL
+                    // as a media playlist wipes the qualities list and
+                    // destroys the quality picker.
+                    val stream = result.stream.copy(server = initialServer.name)
+                    return if (stream.qualities.isNotEmpty()) {
+                        stream
+                    } else {
+                        validateStream(stream)
+                    }
                 }
                 is ExtractionResult.Redirect -> server = result.server
             }
@@ -3107,6 +3119,7 @@ class StreamExtractor(private val context: Context) {
             url = validation.playbackUrl,
             qualities = validation.qualities,
             subtitles = (sanitizedStream.subtitles + validation.subtitles).distinctBy { it.url },
+            separateAudio = validation.separateAudio,
         )
     }
 
@@ -3114,6 +3127,7 @@ class StreamExtractor(private val context: Context) {
         val playbackUrl: String,
         val qualities: List<QualityOption>,
         val subtitles: List<SubtitleOption>,
+        val separateAudio: Boolean = false,
     )
 
     private data class HlsVariant(val url: String, val height: Int, val codec: String = "")
@@ -3174,7 +3188,7 @@ class StreamExtractor(private val context: Context) {
         } else {
             playableVariants.minByOrNull { it.height }?.url ?: master.url
         }
-        return HlsValidation(pinnedUrl, qualities, subtitles)
+        return HlsValidation(pinnedUrl, qualities, subtitles, separateAudio = separateAudio)
     }
 
     private fun validateMediaPlaylist(

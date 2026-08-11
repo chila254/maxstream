@@ -88,6 +88,7 @@ class _StreamCandidate {
     this.route,
     this.qualities = const [],
     this.subtitles = const [],
+    this.separateAudio = false,
   });
 
   final String url;
@@ -96,6 +97,7 @@ class _StreamCandidate {
   final String? route;
   final List<_QualityOption> qualities;
   final List<_SubtitleTrack> subtitles;
+  final bool separateAudio;
 
   factory _StreamCandidate.fromMap(Map<String, dynamic> value) {
     final headers = <String, String>{};
@@ -114,6 +116,7 @@ class _StreamCandidate {
       headers: headers,
       qualities: _parseQualities(value['qualities']),
       subtitles: _parseSubtitleTracks(value['subtitles']),
+      separateAudio: value['separateAudio'] == true,
     );
   }
 
@@ -164,6 +167,12 @@ class _StreamCandidate {
   /// firmware hardware decoders are the box's main native-crash source.
   /// Streams without codec info fall back to the same height-capped logic.
   _StreamCandidate pinnedToHighestQuality() {
+    // When the stream has separate audio renditions (e.g. RPM, VixSrc),
+    // the Kotlin side already returned the master URL so ExoPlayer can
+    // mux audio + video.  Overriding it with a variant URL would strip
+    // the audio groups — skip pinning entirely in this case.
+    if (separateAudio) return this;
+
     final available = <_QualityOption>[
       for (final q in qualities)
         if (q.url.isNotEmpty && q.height > 0) q,
