@@ -397,17 +397,7 @@ class StreamExtractor(private val context: Context) {
 
             when (result) {
                 is ExtractionResult.Final -> {
-                    // If the extractor already validated the stream (has
-                    // qualities populated), skip the second validateHls()
-                    // call.  Re-validating an already-pinned variant URL
-                    // as a media playlist wipes the qualities list and
-                    // destroys the quality picker.
-                    val stream = result.stream.copy(server = initialServer.name)
-                    return if (stream.qualities.isNotEmpty()) {
-                        stream
-                    } else {
-                        validateStream(stream)
-                    }
+                    return validateStream(result.stream.copy(server = initialServer.name))
                 }
                 is ExtractionResult.Redirect -> server = result.server
             }
@@ -3175,18 +3165,17 @@ class StreamExtractor(private val context: Context) {
                 },
             )
         }
-        // When the master declares separate audio renditions
-        // (#EXT-X-MEDIA:TYPE=AUDIO with URIs), pinning to a single variant
-        // strips audio from the playback — ExoPlayer never sees the audio
-        // groups.  In that case, return the master URL so ExoPlayer can mux
-        // audio + video itself.  For multiplexed streams (audio embedded in
-        // each variant), pin to the lowest variant to avoid adaptive bitrate
-        // switching that crashes Android 14 HW decoders.
+        // Restore original behaviour: return the master URL when every
+        // variant is reachable so ExoPlayer can do adaptive bitrate
+        // selection.  Only pin to a single variant when some are dead
+        // (forcing a known-good route) or when the master has separate
+        // audio renditions that would be lost by pinning.
+        val allPlayable = playableVariants.size == variants.distinctBy { it.height }.size
         val separateAudio = hasSeparateAudioGroups(master.body)
-        val pinnedUrl = if (separateAudio) {
-            master.url
-        } else {
-            playableVariants.minByOrNull { it.height }?.url ?: master.url
+        val pinnedUrl = when {
+            separateAudio -> master.url
+            allPlayable -> master.url
+            else -> playableVariants.minByOrNull { it.height }?.url ?: master.url
         }
         return HlsValidation(pinnedUrl, qualities, subtitles, separateAudio = separateAudio)
     }

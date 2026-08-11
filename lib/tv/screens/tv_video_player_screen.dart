@@ -167,12 +167,9 @@ class _StreamCandidate {
   /// firmware hardware decoders are the box's main native-crash source.
   /// Streams without codec info fall back to the same height-capped logic.
   _StreamCandidate pinnedToHighestQuality() {
-    // When the stream has separate audio renditions (e.g. RPM, VixSrc),
-    // the Kotlin side already returned the master URL so ExoPlayer can
-    // mux audio + video.  Overriding it with a variant URL would strip
-    // the audio groups — skip pinning entirely in this case.
-    if (separateAudio) return this;
-
+    // Always pin on TV to avoid adaptive bitrate switching that crashes
+    // or hangs the HW decoder on Android 14 TV boxes.  Mobile skips this
+    // method entirely and uses the raw URL from the native extractor.
     final available = <_QualityOption>[
       for (final q in qualities)
         if (q.url.isNotEmpty && q.height > 0) q,
