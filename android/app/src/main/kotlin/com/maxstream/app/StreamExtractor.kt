@@ -1506,10 +1506,26 @@ class StreamExtractor(private val context: Context) {
                 "VixSrc player parameters were not found"
             }
 
-            val query = mutableListOf("token=${encode(token)}", "expires=${encode(expires)}", "lang=en")
-            if (html.contains("b=1")) query += "b=1"
+            // The page's masterPlaylist.url is the authoritative playlist base:
+            // it already carries the per-title flags the player needs ("?b=1" is
+            // baked in for some TV titles and absent for movies and others).
+            // Rebuilding the URL from scratch and adding "b=1" from a page-wide
+            // substring match was wrong: the "?ub=1"/"?ab=1" stream entries also
+            // contain "b=1", so movies and b=1-less TV titles got a bogus "b=1"
+            // and vixsrc.to answered 403 - series intermittently failed to
+            // fetch. Append only token/expires/lang (+h=1 when the page
+            // advertises FHD) onto the page's own URL.
+            val masterUrl =
+                between(playlistSection, "url: '", "'") ?: "https://vixsrc.to/playlist/$videoId"
+            val query =
+                mutableListOf(
+                    "token=${encode(token)}",
+                    "expires=${encode(expires)}",
+                    "lang=en",
+                )
             if (html.contains("window.canPlayFHD = true")) query += "h=1"
-            val streamUrl = "https://vixsrc.to/playlist/$videoId?${query.joinToString("&")}"
+            val separator = if (masterUrl.contains("?")) "&" else "?"
+            val streamUrl = "$masterUrl$separator${query.joinToString("&")}"
             // ExoPlayer uses a different HTTP stack than OkHttp and won't have the cookies
             // that were set during API/embed page fetching. Forward them explicitly.
             val vixCookies = client.cookieJar.loadForRequest("https://vixsrc.to".toHttpUrl())
