@@ -9,6 +9,7 @@ import com.maxstream.app.data.model.MediaItem
 import com.maxstream.app.di.Modules
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
+import androidx.annotation.SuppressLint
 
 class HomeViewModel(application: Application) : AndroidViewModel(application) {
     private val repo = Modules.catalogRepository
@@ -34,6 +35,28 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     init {
         loadAll()
     }
+
+    @SuppressLint("NullSafeMutableLiveData")
+    fun loadAll() {
+        _loading.value = true
+        _error.value = null
+        viewModelScope.launch {
+            val trendingMovies = async<List<MediaItem>> { repo.trendingMovies() ?: emptyList() }
+            val trendingSeries = async<List<MediaItem>> { repo.trendingSeries() ?: emptyList() }
+            val popularMovies = async<List<MediaItem>> { repo.popularMovies() ?: emptyList() }
+            val popularSeries = async<List<MediaItem>> { repo.popularSeries() ?: emptyList() }
+            val topRatedMovies = async<List<MediaItem>> { repo.topRatedMovies() ?: emptyList() }
+            val topRatedSeries = async<List<MediaItem>> { repo.topRatedSeries() ?: emptyList() }
+            _trendingMovies.value = trendingMovies.await()
+            _trendingSeries.value = trendingSeries.await()
+            _popularMovies.value = popularMovies.await()
+            _popularSeries.value = popularSeries.await()
+            _topRatedMovies.value = topRatedMovies.await()
+            _topRatedSeries.value = topRatedSeries.await()
+            _loading.value = false
+        }
+    }
+}
 
     fun loadAll() {
         _loading.value = true
