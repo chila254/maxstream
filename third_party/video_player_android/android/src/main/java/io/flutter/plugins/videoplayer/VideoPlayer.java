@@ -141,27 +141,32 @@ public abstract class VideoPlayer implements VideoPlayerInstanceApi {
 
   @Override
   public void play() {
+    if (isDisposed) return;
     exoPlayer.play();
   }
 
   @Override
   public void pause() {
+    if (isDisposed) return;
     exoPlayer.pause();
   }
 
   @Override
   public void setLooping(boolean looping) {
+    if (isDisposed) return;
     exoPlayer.setRepeatMode(looping ? REPEAT_MODE_ALL : REPEAT_MODE_OFF);
   }
 
   @Override
   public void setVolume(double volume) {
+    if (isDisposed) return;
     float bracketedValue = (float) Math.max(0.0, Math.min(1.0, volume));
     exoPlayer.setVolume(bracketedValue);
   }
 
   @Override
   public void setPlaybackSpeed(double speed) {
+    if (isDisposed) return;
     // We do not need to consider pitch and skipSilence for now as we do not handle them and
     // therefore never diverge from the default values.
     final PlaybackParameters playbackParameters = new PlaybackParameters((float) speed);
@@ -171,16 +176,19 @@ public abstract class VideoPlayer implements VideoPlayerInstanceApi {
 
   @Override
   public long getCurrentPosition() {
+    if (isDisposed) return 0;
     return exoPlayer.getCurrentPosition();
   }
 
   @Override
   public long getBufferedPosition() {
+    if (isDisposed) return 0;
     return exoPlayer.getBufferedPosition();
   }
 
   @Override
   public void seekTo(long position) {
+    if (isDisposed) return;
     exoPlayer.seekTo(position);
   }
 
