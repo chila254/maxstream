@@ -53,12 +53,22 @@ class _SubtitleTrack {
     required this.url,
     this.source = '',
     this.isDefault = false,
+    this.group = '',
+    this.headers = const {},
   });
 
   final String label;
   final String url;
   final String source;
   final bool isDefault;
+
+  /// Server display label the track belongs to (e.g. "RPM via Vidflix"),
+  /// used to group cross-server subtitle fallback options.
+  final String group;
+
+  /// HTTP headers of the server that provided this track, so a subtitle
+  /// picked from another server is fetched with the right referer/cookies.
+  final Map<String, String> headers;
 }
 
 class _SubtitleCue {
@@ -90,6 +100,7 @@ class _StreamCandidate {
     this.qualities = const [],
     this.subtitles = const [],
     this.separateAudio = false,
+    this.type = '',
   });
 
   final String url;
@@ -99,6 +110,11 @@ class _StreamCandidate {
   final List<_QualityOption> qualities;
   final List<_SubtitleTrack> subtitles;
   final bool separateAudio;
+
+  /// Stream type tag from the extractor ("direct_m3u8" / "direct_video").
+  /// VixSrc/VidLink HLS playlists have no `.m3u8` in their URLs, so this tag
+  /// is what lets the player send the correct HLS format hint to ExoPlayer.
+  final String type;
 
   /// Display label like mobile's "RPM via Vidflix": the extractor name plus
   /// the upstream server/host the stream was routed through, when they differ
@@ -129,6 +145,7 @@ class _StreamCandidate {
       qualities: _parseQualities(value['qualities']),
       subtitles: _parseSubtitleTracks(value['subtitles']),
       separateAudio: value['separateAudio'] == true,
+      type: value['type']?.toString() ?? '',
     );
   }
 
@@ -179,6 +196,11 @@ class _StreamCandidate {
   /// firmware hardware decoders are the box's main native-crash source.
   /// Streams without codec info fall back to the same height-capped logic.
   _StreamCandidate pinnedToHighestQuality() {
+    // Never re-pin a stream whose master carries separate audio renditions
+    // (#EXT-X-MEDIA TYPE=AUDIO): the extractor intentionally returned the
+    // master URL (not a variant) so ExoPlayer can mux audio + video, and a
+    // single video-only variant would play silently.
+    if (separateAudio) return this;
     // Always pin on TV to avoid adaptive bitrate switching that crashes
     // or hangs the HW decoder on Android 14 TV boxes.  Mobile skips this
     // method entirely and uses the raw URL from the native extractor.
@@ -219,6 +241,8 @@ class _StreamCandidate {
       route: route,
       qualities: qualities,
       subtitles: subtitles,
+      type: type,
+      separateAudio: separateAudio,
     );
   }
 }
@@ -784,7 +808,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         ).pinnedToHighestQuality();
         _availableServers = [candidate];
         _qualities = candidate.qualities;
-        _subtitleTracks = candidate.subtitles;
+        _subtitleTracks = _unionSubtitleTracks();
         _showStatus(
           'Stream found from ${candidate.source}. Initializing player...',
         );
@@ -1066,7 +1090,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
   }) async {
     if (!_isCurrent(generation)) return false;
     final url = candidate.url;
-    final isHls = url.toLowerCase().contains('.m3u8');
+    final isHls = _isHlsCandidate(candidate);
     final previous = _controller;
     _traceStep('Creating player for ${candidate.source}');
 
@@ -1380,7 +1404,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       if (wasPlaying) {
         await controller.pause();
       }
-      final isHls = candidate.url.toLowerCase().contains('.m3u8');
+      final isHls = _isHlsCandidate(candidate);
       await platform.reloadMedia(
         controller.playerId,
         url: Uri.parse(candidate.url),
@@ -1518,6 +1542,106 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     );
   }
 
+  /// True when the candidate is an HLS stream. The extractor's `type` tag is
+  /// the authoritative signal: VixSrc/VidLink playlist URLs have no `.m3u8`
+  /// in the path, and without the HLS format hint ExoPlayer treats the
+  /// playlist as progressive media and fails with a source error.
+  static bool _isHlsCandidate(_StreamCandidate candidate) {
+    final type = candidate.type.toLowerCase();
+    return type == 'direct_m3u8' ||
+        type == 'hls' ||
+        candidate.url.toLowerCase().contains('.m3u8') ||
+        candidate.url.contains('/playlist');
+  }
+
+  /// Unions the subtitle tracks of every discovered server so that when the
+  /// currently playing server has none (e.g. RPM), the user can still pick a
+  /// track offered by another server. Tracks are tagged with the owning
+  /// server's display label (for grouping) and headers (for fetching). The
+  /// current server's tracks come first.
+  List<_SubtitleTrack> _unionSubtitleTracks() {
+    final current = _currentCandidate;
+    final servers = <_StreamCandidate>[
+      ?current,
+      for (final server in _availableServers)
+        if (current == null || server.url != current.url) server,
+    ];
+    final result = <_SubtitleTrack>[];
+    final seen = <String>{};
+    for (final server in servers) {
+      final group = server.displaySource;
+      for (final track in server.subtitles) {
+        if (!seen.add(track.url)) continue;
+        result.add(
+          _SubtitleTrack(
+            label: track.label,
+            url: track.url,
+            source: track.source,
+            isDefault: track.isDefault,
+            group: group,
+            headers: server.headers,
+          ),
+        );
+      }
+    }
+    return result;
+  }
+
+  /// Menu label for a subtitle track: groups cross-server fallback tracks by
+  /// their owning server so the user can tell which server offers which
+  /// language (e.g. "VidLink · English").
+  String _subtitleMenuLabel(_SubtitleTrack track) {
+    final group = track.group.isNotEmpty ? track.group : track.source;
+    if (group.isEmpty) return track.label;
+    return '$group · ${track.label}';
+  }
+
+  /// HLS subtitle renditions return an M3U8 playlist that references
+  /// individual .vtt segment files. Fetches each segment and concatenates
+  /// them into a single WEBVTT document that [_parseSubtitleFile] can parse.
+  Future<String> _resolveHlsSubtitlePlaylist(
+    String m3u8Body,
+    String playlistUrl,
+    Map<String, String> headers,
+  ) async {
+    final baseUri = Uri.parse(playlistUrl);
+    final segmentUrls = <String>[];
+    for (final raw in m3u8Body.split('\n')) {
+      final line = raw.trim();
+      if (line.isEmpty || line.startsWith('#')) continue;
+      segmentUrls.add(baseUri.resolve(line).toString());
+    }
+    if (segmentUrls.isEmpty) {
+      throw const FormatException(
+        'HLS subtitle playlist contained no segments',
+      );
+    }
+    final parts = <String>[];
+    for (final segUrl in segmentUrls) {
+      try {
+        final resp = await http
+            .get(
+              Uri.parse(segUrl),
+              headers: {
+                ...headers,
+                'User-Agent':
+                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+              },
+            )
+            .timeout(const Duration(seconds: 5));
+        if (resp.statusCode >= 200 && resp.statusCode < 300) {
+          parts.add(utf8.decode(resp.bodyBytes, allowMalformed: true));
+        }
+      } catch (_) {
+        // Skip failed segments; partial subtitles are better than none.
+      }
+    }
+    if (parts.isEmpty) {
+      throw const FormatException('No HLS subtitle segments could be fetched');
+    }
+    return parts.join('\n');
+  }
+
   Future<void> _discoverAvailableServers(int generation) async {
     if (!_isCurrent(generation)) return;
     setState(() => _serversLoading = true);
@@ -1558,6 +1682,9 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
             ),
           ];
           _serversLoading = false;
+          // Rebuild the subtitle menu from every server's tracks so fallback
+          // subtitles from other servers stay available after re-discovery.
+          _subtitleTracks = _unionSubtitleTracks();
         });
       }
     } catch (e) {
@@ -1638,7 +1765,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
           _selectedSource = active.displaySource;
           _selectedServerUrl = active.url;
           _qualities = active.qualities;
-          _subtitleTracks = active.subtitles;
+          _subtitleTracks = _unionSubtitleTracks();
           _clearSubtitles();
         } else {
           // No server could start - not even the previously working one. The
@@ -1678,6 +1805,13 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     required int generation,
     required Duration position,
   }) async {
+    // Fast HTTP pre-flight before handing the URL to ExoPlayer: a stale or
+    // dead URL (expired token, revoked playlist) fails here in milliseconds
+    // instead of surfacing as a source error and forcing a slow rebuild.
+    if (_isCurrent(generation) && !await _isStreamPlayable(candidate)) {
+      _traceStep('${candidate.source} failed pre-flight (HTTP)');
+      return false;
+    }
     var ok = await _initializePlayer(
       candidate,
       generation: generation,
@@ -1716,6 +1850,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       route: candidate.route,
       qualities: candidate.qualities,
       subtitles: candidate.subtitles,
+      type: candidate.type,
     );
     try {
       // Full rebuild (dispose + fresh create) instead of re-queueing onto the
@@ -1808,9 +1943,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
           .toList();
       setState(() {
         _activeSubtitles = parsed;
-        _selectedSubtitleLabel = track.source.isNotEmpty
-            ? '${track.source}/${track.label}'
-            : track.label;
+        _selectedSubtitleLabel = _subtitleMenuLabel(track);
       });
     } catch (e) {
       debugPrint('TvVideoPlayer: Subtitle fetch failed: $e');
@@ -1846,8 +1979,9 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       }
       throw Exception('Invalid subtitle URL: ${track.url}');
     }
-    final inheritedHeaders =
-        _currentCandidate?.headers ?? const <String, String>{};
+    final inheritedHeaders = track.headers.isNotEmpty
+        ? track.headers
+        : (_currentCandidate?.headers ?? const <String, String>{});
     final headers = <String, String>{
       if (track.source != 'Vidflix') ...inheritedHeaders,
       'User-Agent':
@@ -1867,10 +2001,26 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         if (response.statusCode >= 200 && response.statusCode < 300) {
           final body = utf8.decode(response.bodyBytes, allowMalformed: true);
           if (body.trim().isNotEmpty) {
+            // HLS subtitle renditions (source == 'HLS', e.g. VixSrc) return an
+            // M3U8 that references individual .vtt segments: resolve and
+            // concatenate them into one WEBVTT document first.
+            var parseable = body;
+            if (track.source == 'HLS' ||
+                body.trimLeft().toUpperCase().startsWith('#EXTM3U')) {
+              try {
+                parseable = await _resolveHlsSubtitlePlaylist(
+                  body,
+                  url,
+                  headers,
+                );
+              } catch (_) {
+                // Fall through to normal parsing below.
+              }
+            }
             // Subtitle parsing is pure CPU work (regex loops over every cue) and
             // runs fit-for-purpose on a background isolate so a large subtitle
             // file can never jank the playback UI thread.
-            final cues = await compute(_parseSubtitleFile, body);
+            final cues = await compute(_parseSubtitleFile, parseable);
             if (cues.isNotEmpty) return cues;
             lastError = const FormatException(
               'The subtitle file contained no valid timed cues',
@@ -3881,13 +4031,11 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
           ),
           for (final track in _subtitleTracks)
             _MenuOption(
-              label: track.source.isNotEmpty
-                  ? '${track.source}/${track.label}'
-                  : track.label,
+              label: _subtitleMenuLabel(track),
               onSelect: () => _selectSubtitle(track),
               selected:
                   _activeSubtitles.isNotEmpty &&
-                  track.label == _selectedSubtitleLabel,
+                  _selectedSubtitleLabel == _subtitleMenuLabel(track),
             ),
         ];
       case _Pc.quality:

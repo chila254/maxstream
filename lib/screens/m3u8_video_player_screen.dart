@@ -57,12 +57,22 @@ class _SubtitleTrack {
     required this.url,
     required this.isDefault,
     this.source = '',
+    this.group = '',
+    this.headers = const {},
   });
 
   final String label;
   final String url;
   final bool isDefault;
   final String source;
+
+  /// Server display label the track belongs to (e.g. "RPM via Vidflix"),
+  /// used to group cross-server subtitle fallback options.
+  final String group;
+
+  /// HTTP headers of the server that provided this track, so a subtitle
+  /// picked from another server is fetched with the right referer/cookies.
+  final Map<String, String> headers;
 }
 
 class Subtitle {
@@ -713,10 +723,10 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
               )
             : Duration.zero;
         if (!mounted) return;
-        _subtitleTracks = subtitleTracks;
+        _subtitleTracks = _unionSubtitleTracks();
         _activeSubtitles.value = initialSubtitles;
         _selectedSubtitle.value = initialSubtitle != null
-            ? '${initialSubtitle.source}/${initialSubtitle.label}'
+            ? _subtitleTileValue(initialSubtitle)
             : 'Off';
 
         _showStatus('Stream found from $source! Initializing player...');
@@ -831,7 +841,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     if (fallbackUrl.isEmpty || fallbackUrl == primaryUrl) return false;
     final fallbackSource = server['source']?.toString() ?? 'Server';
     final fallbackQualities = _parseQualities(server['qualities']);
-    _subtitleTracks = _parseSubtitleTracks(server['subtitles']);
+    _subtitleTracks = _unionSubtitleTracks();
     _selectedSubtitle.value = 'Off';
     _activeSubtitles.value = const [];
     final ok = await _initializePlayer(
@@ -1187,6 +1197,52 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         .toList();
   }
 
+  /// Unions the subtitle tracks of every discovered server so subtitles from
+  /// other servers are available when the current one has none (e.g. RPM).
+  /// Tracks are tagged with the owning server's display label (for grouping)
+  /// and headers (for fetching).
+  List<_SubtitleTrack> _unionSubtitleTracks() {
+    final result = <_SubtitleTrack>[];
+    final seen = <String>{};
+    // The currently playing server's group goes first so its subtitles are
+    // the easiest to reach; the rest follow in discovery order.
+    final servers = [..._availableServers]..sort((a, b) {
+      final aSelected = _serverIdentity(a) == _selectedServerKey ? 0 : 1;
+      final bSelected = _serverIdentity(b) == _selectedServerKey ? 0 : 1;
+      return aSelected - bSelected;
+    });
+    for (final server in servers) {
+      final source = server['source']?.toString() ?? 'Server';
+      final route = server['server']?.toString() ?? source;
+      final group = route == source ? source : '$source via $route';
+      final headers = _parseStreamHeaders(server);
+      for (final track in _parseSubtitleTracks(server['subtitles'])) {
+        if (!seen.add(track.url)) continue;
+        result.add(
+          _SubtitleTrack(
+            label: track.label,
+            url: track.url,
+            isDefault: track.isDefault,
+            source: track.source,
+            group: group,
+            headers: headers,
+          ),
+        );
+      }
+    }
+    return result;
+  }
+
+  /// Display identity for a subtitle tile: owning server group + track label.
+  /// Used both as the selection value and the subtitle button label, so the
+  /// value stays unique across servers (e.g. "RPM via Vidflix · English").
+  String _subtitleTileValue(_SubtitleTrack track) {
+    final group = track.group.isNotEmpty
+        ? track.group
+        : (track.source.isEmpty ? 'Other' : track.source);
+    return '$group · ${track.label}';
+  }
+
   Map<String, String> _parseStreamHeaders(Map<String, dynamic> stream) {
     final headers = <String, String>{};
     if (stream['referer'] != null) {
@@ -1242,6 +1298,9 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       }
       _availableServers = byIdentity.values.toList();
       _serversLoading = false;
+      // Rebuild the subtitle menu from every server's tracks so fallback
+      // subtitles from other servers stay available after re-discovery.
+      _subtitleTracks = _unionSubtitleTracks();
     });
   }
 
@@ -1663,7 +1722,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     final shouldPlay = current.value.isPlaying || current.value.isBuffering;
     setState(() {
       _isSwitchingServer = true;
-      _subtitleTracks = _parseSubtitleTracks(stream['subtitles']);
+      _subtitleTracks = _unionSubtitleTracks();
       _selectedSubtitle.value = 'Off';
       _activeSubtitles.value = const [];
     });
@@ -1868,7 +1927,9 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   List<Widget> _buildGroupedSubtitleTiles() {
     final grouped = <String, List<_SubtitleTrack>>{};
     for (final track in _subtitleTracks) {
-      final source = track.source.isEmpty ? 'Other' : track.source;
+      final source = track.group.isNotEmpty
+          ? track.group
+          : (track.source.isEmpty ? 'Other' : track.source);
       grouped.putIfAbsent(source, () => []).add(track);
     }
     final widgets = <Widget>[];
@@ -1890,7 +1951,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       for (final track in entry.value) {
         widgets.add(
           RadioListTile<String>(
-            value: '${track.source}/${track.label}',
+            value: _subtitleTileValue(track),
             groupValue: _selectedSubtitle.value,
             activeColor: Colors.red,
             title: Text(
@@ -1910,7 +1971,10 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
 
   Future<void> _selectSubtitle(_SubtitleTrack track) async {
     try {
-      final subtitles = await _fetchSubtitles(track, _streamHeaders);
+      final subtitles = await _fetchSubtitles(
+        track,
+        track.headers.isNotEmpty ? track.headers : _streamHeaders,
+      );
       if (!mounted) return;
       if (subtitles.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1921,7 +1985,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         return;
       }
       setState(() {
-        _selectedSubtitle.value = '${track.source}/${track.label}';
+        _selectedSubtitle.value = _subtitleTileValue(track);
         _activeSubtitles.value = subtitles;
       });
     } catch (error) {
