@@ -152,7 +152,33 @@ class CrashInfo {
 
 final ValueNotifier<CrashInfo?> crashReport = ValueNotifier<CrashInfo?>(null);
 
+/// True for the benign channel-error thrown by the video player's
+/// buffered-position poll when it races player teardown.
+///
+/// When the native player is disposed, its per-player pigeon channel handler
+/// is torn down, so an in-flight or late `getBufferedPosition` call fails with
+/// a `channel-error` PlatformException. The vendored plugin (third_party/
+/// video_player_android) now swallows this itself, but a release APK built
+/// from an older checkout still throws it. Buffer polling is only a progress
+/// nicety - the exception is never a real failure, so it must not show the
+/// crash screen or spam Crashlytics.
+bool isBenignVideoPlayerChannelError(Object error) {
+  if (error is! PlatformException) return false;
+  if (error.code != 'channel-error') return false;
+  final message = error.message?.toString() ?? '';
+  return message.contains('video_player_android') &&
+      message.contains('getBufferedPosition');
+}
+
 Future<void> recordCrash(String tag, Object error, StackTrace stack) async {
+  // Swallow the benign buffered-position poll race (see
+  // isBenignVideoPlayerChannelError) before anything records it: no crash
+  // screen, no Crashlytics non-fatal. Every handler (zone, FlutterError,
+  // PlatformDispatcher) funnels through here, so a single check covers all.
+  if (isBenignVideoPlayerChannelError(error)) {
+    debugPrint('Ignoring benign video player channel error: $error');
+    return;
+  }
   final time = DateTime.now();
   LoggerService.error('[$tag] $error', error, stack);
   unawaited(_appendCrashLog('[$time] [$tag] $error\n$stack\n'));

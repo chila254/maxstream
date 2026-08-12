@@ -29,6 +29,7 @@ Future<void> main() async {
       runApp(const CrashReportGate(child: _StartupGate()));
     },
     (error, stack) {
+      if (isBenignVideoPlayerChannelError(error)) return;
       recordCrash('UncaughtZone', error, stack);
       unawaited(reportCrashlytics('UncaughtZone', error, stack));
     },

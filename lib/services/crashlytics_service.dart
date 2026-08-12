@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/foundation.dart';
 
+import '../widgets/crash_screen.dart';
+
 FirebaseCrashlytics? crashlytics;
 
 /// Enables Crashlytics once Firebase is initialized. Must be called after
@@ -23,13 +25,20 @@ Future<void> enableCrashlyticsReporting() async {
 void attachCrashlyticsFatalHandlers() {
   final previousFlutter = FlutterError.onError;
   FlutterError.onError = (FlutterErrorDetails details) {
+    // Let the local handlers do their thing (they filter benign errors), but
+    // never record a benign video player channel race to Crashlytics - it is
+    // a progress nicety, not a failure, and recording it as "fatal" would be
+    // worse than the non-fatal noise it replaced.
     previousFlutter?.call(details);
+    if (isBenignVideoPlayerChannelError(details.exception)) return;
     unawaited(crashlytics?.recordFlutterFatalError(details));
   };
   final previousPlatform = PlatformDispatcher.instance.onError;
   PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
     final handled = previousPlatform?.call(error, stack) ?? true;
-    unawaited(crashlytics?.recordError(error, stack, fatal: true));
+    if (!isBenignVideoPlayerChannelError(error)) {
+      unawaited(crashlytics?.recordError(error, stack, fatal: true));
+    }
     return handled;
   };
 }
