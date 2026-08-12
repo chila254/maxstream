@@ -134,5 +134,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: maxstream-tv.apk
-          path: android/tvapp/build/outputs/apk/**/*.apk
+          path: android/tvapp/build/outputs/**/*.apk
           retention-days: 7
