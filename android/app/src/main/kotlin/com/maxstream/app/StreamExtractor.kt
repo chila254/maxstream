@@ -1,6 +1,7 @@
 package com.maxstream.app
 
 import android.annotation.SuppressLint
+import android.app.ActivityManager
 import android.content.Context
 import android.text.Html
 import android.util.Base64
@@ -58,6 +59,16 @@ import kotlin.experimental.xor
 /** Resolves TMDB metadata through server providers and host-specific extractors. */
 class StreamExtractor(private val context: Context) {
     private val tag = "StreamExtractor"
+
+    /** True on 1GB-class devices (most cheap TV boxes). */
+    private fun isLowRamDevice(): Boolean {
+        val am =
+            context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager ?: return false
+        val memoryInfo = ActivityManager.MemoryInfo()
+        am.getMemoryInfo(memoryInfo)
+        return am.isLowRamDevice || memoryInfo.totalMem <= 2L * 1024 * 1024 * 1024
+    }
+
     private val userAgent =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
             "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
@@ -1400,7 +1411,18 @@ class StreamExtractor(private val context: Context) {
             val id = uri.rawFragment?.substringBefore('&').orEmpty()
             require(id.isNotBlank()) { "RPM link has no media ID" }
             val origin = "${uri.scheme}://${uri.host}"
-            val apiUrl = "$origin/api/v1/video?id=${encode(id)}&w=1920&h=1080&r="
+            // RPM is the primary server on TV, and most of its streams reach the
+            // player either as a multi-variant master or a single-route playlist
+            // (TikTok/Cloudflare) that bypasses the Dart-side 720p pin entirely.
+            // On 1GB-class boxes (HiSilicon/Mali Android 14) a 1080p stream lags
+            // then natively crashes while the GPU uploads video textures, so ask
+            // the RPM API for a 720p ceiling there: every route it returns is then
+            // <=720p, giving the GPU 2.25x fewer pixels per frame. Phones with
+            // 2GB+ of RAM keep the full 1080p master.
+            val lowRam = isLowRamDevice()
+            val maxWidth = if (lowRam) "1280" else "1920"
+            val maxHeight = if (lowRam) "720" else "1080"
+            val apiUrl = "$origin/api/v1/video?id=${encode(id)}&w=$maxWidth&h=$maxHeight&r="
             val encrypted = httpGet(apiUrl, refererHeaders(origin)).trim()
             val json = JSONObject(decryptHexPayload(encrypted, key, iv))
 
