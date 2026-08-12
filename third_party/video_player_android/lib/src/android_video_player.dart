@@ -530,11 +530,30 @@ class _PlayerInstance {
       );
       // Trigger an extra buffer position check, so that clients have an
       // accurate reporting of the current buffering state.
-      _api.getBufferedPosition().then((int position) {
-        if (!_isDisposed) {
-          _updateBufferPosition(position);
-        }
-      });
+      unawaited(_pollBufferedPosition());
+    }
+  }
+
+  /// Polls the native player for its buffered position.
+  ///
+  /// This is best-effort and must never throw. When the player is disposed
+  /// the per-player pigeon channel is torn down with it, so an in-flight or
+  /// late [VideoPlayerInstanceApi.getBufferedPosition] call fails with a
+  /// "channel-error" PlatformException (the reply is null because no native
+  /// handler is registered anymore). An unhandled exception here would escape
+  /// the timer/event zone and surface as the app's crash screen, so errors
+  /// are swallowed: buffer polling is only ever a progress nicety.
+  Future<void> _pollBufferedPosition() async {
+    if (_isDisposed) return;
+    try {
+      final int position = await _api.getBufferedPosition();
+      if (!_isDisposed) {
+        _updateBufferPosition(position);
+      }
+    } catch (error) {
+      if (!_isDisposed) {
+        debugPrint('video_player_android: getBufferedPosition failed: $error');
+      }
     }
   }
 
@@ -565,13 +584,14 @@ class _PlayerInstance {
         );
 
         // Start polling for buffer position, since there is no buffer position
-        // event to listen to.
-        _bufferPollingTimer = Timer.periodic(const Duration(seconds: 1), (Timer timer) async {
-          final int position = await _api.getBufferedPosition();
-          if (!_isDisposed) {
-            _updateBufferPosition(position);
-          }
-        });
+        // event to listen to. A tick can be in flight when the player is
+        // disposed (the timer is cancelled but the in-flight call isn't), so
+        // polling must swallow the resulting channel error instead of letting
+        // it escape as an uncaught zone error.
+        _bufferPollingTimer = Timer.periodic(
+          const Duration(seconds: 1),
+          (_) => unawaited(_pollBufferedPosition()),
+        );
       case IsPlayingStateEvent _:
         _eventStreamController.add(
           VideoEvent(eventType: VideoEventType.isPlayingStateUpdate, isPlaying: event.isPlaying),
