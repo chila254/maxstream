@@ -1,66 +1,62 @@
+import java.util.Properties
+import java.io.FileInputStream
+
 plugins {
     id("com.android.application")
-    // The Flutter Gradle Plugin must be applied after the Android Gradle plugin.
+    id("kotlin-android")
     id("dev.flutter.flutter-gradle-plugin")
-    id("com.google.gms.google-services")
-    id("com.google.firebase.crashlytics")
 }
 
-// Load signing credentials from keystore.properties
-val keystorePropertiesFile = rootProject.file("keystore.properties")
-val keystoreProperties = mutableMapOf<String, String>()
-if (keystorePropertiesFile.exists()) {
-    keystorePropertiesFile.readLines().forEach { line ->
-        if (line.isNotBlank() && !line.startsWith("#")) {
-            val (key, value) = line.split("=", limit = 2)
-            keystoreProperties[key.trim()] = value.trim()
-        }
-    }
+val keystoreProps = Properties()
+val keystoreFile = rootProject.file("keystore.properties")
+if (keystoreFile.exists()) {
+    keystoreProps.load(FileInputStream(keystoreFile))
 }
 
 android {
     namespace = "com.maxstream.app"
     compileSdk = 36
-    ndkVersion = "28.2.13676358"
+    ndkVersion = "27.0.12077973"
 
     compileOptions {
-        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
     }
 
     kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_21.toString()
+        jvmTarget = "21"
     }
 
     defaultConfig {
         applicationId = "com.maxstream.app"
         minSdk = flutter.minSdkVersion
-        targetSdk = 34
-        versionCode = 6
-        versionName = "1.4.0"
+        targetSdk = flutter.targetSdkVersion
+        versionCode = flutter.versionCode
+        versionName = flutter.versionName
+        multiDexEnabled = true
+        vectorDrawables.useSupportLibrary = true
     }
 
     signingConfigs {
         create("release") {
-            if (keystoreProperties.isNotEmpty()) {
-                storeFile = file(keystoreProperties["storeFile"] ?: "")
-                storePassword = keystoreProperties["storePassword"]
-                keyAlias = keystoreProperties["keyAlias"]
-                keyPassword = keystoreProperties["keyPassword"]
+            val storeFilePath = keystoreProps.getProperty("storeFile")
+            if (storeFilePath != null) {
+                storeFile = file(storeFilePath)
+                storePassword = keystoreProps.getProperty("storePassword")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = keystoreProps.getProperty("keyPassword")
             }
         }
     }
 
     buildTypes {
-        getByName("release") {
+        release {
             signingConfig = signingConfigs.getByName("release")
-            isMinifyEnabled = true
-            isShrinkResources = true
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
+            isMinifyEnabled = false
+            // Direct `./gradlew` configuration rejects resource shrinking without
+            // code shrinking; `flutter build` manages this itself, so disable it here.
+            isShrinkResources = false
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
 }

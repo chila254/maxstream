@@ -8,7 +8,7 @@ import '../screens/profile_settings_screen.dart';
 import '../screens/watch_history_screen.dart';
 import '../screens/downloads_screen.dart';
 import '../screens/streaming_provider_settings_screen.dart';
-import '../tv/screens/tv_pairing_screen.dart';
+
 import '../widgets/profile_avatar.dart';
 
 class MaxStreamMoreScreen extends StatefulWidget {
@@ -156,37 +156,6 @@ class _MaxStreamMoreScreenState extends State<MaxStreamMoreScreen> {
               context,
               MaterialPageRoute(
                 builder: (context) => const StreamingProviderSettingsScreen(),
-              ),
-            );
-          },
-        ),
-        _buildMenuItem(
-          icon: Icons.tv_outlined,
-          title: 'TV Pairing',
-          onTap: () {
-            if (!mounted) return;
-            Navigator.push(
-              context,
-              PageRouteBuilder(
-                pageBuilder: (context, animation, secondaryAnimation) =>
-                    const TvPairingScreen(),
-                transitionsBuilder:
-                    (context, animation, secondaryAnimation, child) {
-                      return SlideTransition(
-                        position:
-                            Tween<Offset>(
-                              begin: const Offset(1.0, 0.0),
-                              end: Offset.zero,
-                            ).animate(
-                              CurvedAnimation(
-                                parent: animation,
-                                curve: Curves.fastOutSlowIn,
-                              ),
-                            ),
-                        child: child,
-                      );
-                    },
-                transitionDuration: const Duration(milliseconds: 250),
               ),
             );
           },

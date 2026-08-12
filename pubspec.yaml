@@ -21,7 +21,6 @@ dependencies:
   youtube_player_flutter: ^9.1.1 
   sqflite: ^2.3.2
   path: ^1.8.3
-  android_intent_plus: ^6.0.0
   url_launcher: ^6.2.6
   firebase_core: ^3.15.2
   firebase_auth: ^5.1.0
@@ -56,23 +55,6 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
-
-dependency_overrides:
-  # Local fork that enables ExoPlayer software-decoder fallback (fixes
-  # MediaCodecVideoRenderer errors on Android TV devices whose hardware
-  # decoders fail at runtime for streams they claim to support).
-  video_player_android:
-    path: third_party/video_player_android
-  # Local fork of the platform interface that adds maxBufferDurationMs, so the
-  # Android player can buffer ~300s of stream ahead to survive rebuffer spikes.
-  video_player_platform_interface:
-    path: third_party/video_player_platform_interface
-  # Local fork of video_player that (a) forwards VideoPlayerOptions through to
-  # createWithOptions (upstream drops them, making backBufferDurationMs a
-  # no-op) and (b) exposes VideoPlayerController.playerId so the TV screen can
-  # re-queue media onto the existing native player during recovery.
-  video_player:
-    path: third_party/video_player
 
 flutter:
   uses-material-design: true

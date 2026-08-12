@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Allow cleartext traffic for embed streaming providers -->
+    <domain-config cleartextTrafficPermitted="true">
+        <!-- Updated embed services -->
+        <domain includeSubdomains="true">2embed.cc</domain>
+        <domain includeSubdomains="true">vidsrc.pro</domain>
+        <domain includeSubdomains="true">www.embedsoap.com</domain>
+        <domain includeSubdomains="true">embedsoap.com</domain>
+        <domain includeSubdomains="true">multiembed.mov</domain>
+        <domain includeSubdomains="true">player.smashy.stream</domain>
+        <domain includeSubdomains="true">smashy.stream</domain>
+        <domain includeSubdomains="true">vidplay.online</domain>
+        <domain includeSubdomains="true">vidsrc.to</domain>
+        <domain includeSubdomains="true">vidsrc.me</domain>
+        <domain includeSubdomains="true">vidfast.co</domain>
+        <domain includeSubdomains="true">www.vidfast.co</domain>
+        <domain includeSubdomains="true">vidlink.pro</domain>
+    </domain-config>
+    
+    <!-- By default, all other domains require HTTPS (secure default) -->
+</network-security-config>

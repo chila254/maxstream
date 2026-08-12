@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="TvLeanbackTheme" parent="Theme.Leanback">
+        <item name="colorPrimary">@color/tv_primary</item>
+        <item name="android:colorBackground">@color/tv_background</item>
+        <item name="android:windowBackground">@color/tv_background</item>
+    </style>
+
+    <style name="TvAppTheme" parent="Theme.AppCompat.NoActionBar">
+        <item name="colorPrimary">@color/tv_primary</item>
+        <item name="android:colorBackground">@color/tv_background</item>
+        <item name="android:windowBackground">@color/tv_background</item>
+    </style>
+</resources>
