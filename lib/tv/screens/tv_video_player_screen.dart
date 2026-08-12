@@ -968,11 +968,13 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     final isHls = url.toLowerCase().contains('.m3u8');
     final previous = _controller;
 
-    // Fully tear down the previous platform view (SurfaceView) BEFORE creating
-    // a replacement. Overlapping two live platform views crashes the fragile
-    // compositor on some TV boxes, so the old player must be fully gone before
-    // the next line creates a new view. This applies to every path that swaps
-    // players (server switch, quality change, next episode, recovery).
+    // Fully tear down the previous player BEFORE creating a replacement. This
+    // serialization was originally required because overlapping two live
+    // SurfaceView platform views crashed the TV compositor; with the texture
+    // render path there is no overlap risk, but the serialized teardown is
+    // kept as defensive ordering (the old widget must be unmounted before its
+    // texture/player is released, and vice versa). Applies to every path that
+    // swaps players (server switch, quality change, next episode, recovery).
     if (previous != null) {
       previous.removeListener(_handlePlaybackChanged);
       // Null the controller FIRST so the old VideoPlayer widget unmounts from
@@ -992,9 +994,8 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         debugPrint('TvVideoPlayer: disposing previous player failed: $e\n$st');
       }
       if (!_isCurrent(generation)) return false;
-      // Give the torn-down platform view a moment to fully release before a
-      // new SurfaceView is created; overlapping them crashes the compositor
-      // on some TV boxes.
+      // Give the torn-down player a moment to fully release before a new one
+      // is created (defensive ordering; harmless on the texture path).
       await Future<void>.delayed(const Duration(milliseconds: 400));
       if (!_isCurrent(generation)) return false;
     }
@@ -1012,7 +1013,16 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         Uri.parse(url),
         httpHeaders: candidate.headers,
         formatHint: isHls ? VideoFormat.hls : null,
-        viewType: VideoViewType.platformView,
+        // Render through Flutter's texture pipeline instead of a SurfaceView
+        // platform view. On Android 14 TV, hybrid-composition SurfaceViews
+        // punch a hole in the Flutter canvas and desync from it whenever UI
+        // animates over the video (controls, buffering spinner, menus),
+        // producing the tearing/"scratch" artifacts that end in a compositor
+        // crash. The texture path composites video like any other widget -
+        // no hole punch, no tearing, and no surface teardown crash class.
+        // Streams are already pinned to <=720p, so the extra GPU copy cost is
+        // negligible on TV.
+        viewType: VideoViewType.textureView,
         videoPlayerOptions: VideoPlayerOptions(
           backBufferDurationMs: 3000,
           allowBackgroundPlayback: false,
@@ -1468,11 +1478,12 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         continue;
       }
       _showStatus('Loading a working stream from ${candidate.source}...');
-      // Preferred path: re-queue onto the existing player so the SurfaceView
-      // stays alive. Android 14's hybrid-composition platform views crash the
-      // TV compositor when the SurfaceView is torn down and re-created
-      // mid-playback (the "scratch" then app close), so only fall back to the
-      // full teardown + fresh create when reuse is impossible.
+      // Preferred path: re-queue onto the existing player instead of creating
+      // a new one. Reuse was originally required because tearing down and
+      // re-creating a SurfaceView platform view mid-playback produced the
+      // "scratch" artifact and compositor crash on Android 14 TV (now fixed by
+      // the texture render path); reuse is still cheaper and avoids a visible
+      // player reset, so it stays the default.
       initialized = await _reloadPlayback(
         candidate,
         generation: generation,
