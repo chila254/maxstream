@@ -76,6 +76,11 @@ jobs:
           channel: 'stable'
           cache: true
 
+      - name: Create local.properties
+        run: |
+          FLUTTER_PATH=$(which flutter | sed 's|/bin/flutter||')
+          echo "flutter.sdk=$FLUTTER_PATH" > android/local.properties
+
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
