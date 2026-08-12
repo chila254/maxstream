@@ -2673,6 +2673,8 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         resumePosition: Duration.zero,
       );
       if (!initialized && _isCurrent(generation)) {
+        await Future<void>.delayed(const Duration(milliseconds: 400));
+        if (!_isCurrent(generation)) return;
         initialized = await _initializePlayer(
           candidate,
           generation: generation,
@@ -2717,35 +2719,39 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
   }
 
   Widget _buildSubtitleWidget() {
-    final alert = _subtitleText.value;
-    if (_currentControl != _Pc.back && alert.isNotEmpty) {
-      return SafeArea(
-        child: IgnorePointer(
-          child: Align(
-            alignment: Alignment.bottomCenter,
-            child: Container(
-              margin: const EdgeInsets.only(bottom: 90),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.6),
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Text(
-                alert,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 20,
-                  height: 1.3,
-                  shadows: [Shadow(blurRadius: 4, color: Colors.black)],
+    return ValueListenableBuilder<String>(
+      valueListenable: _subtitleText,
+      builder: (context, alert, _) {
+        if (_currentControl != _Pc.back && alert.isNotEmpty) {
+          return SafeArea(
+            child: IgnorePointer(
+              child: Align(
+                alignment: Alignment.bottomCenter,
+                child: Container(
+                  margin: const EdgeInsets.only(bottom: 90),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.6),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    alert,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      height: 1.3,
+                      shadows: [Shadow(blurRadius: 4, color: Colors.black)],
+                    ),
+                  ),
                 ),
               ),
             ),
-          ),
-        ),
-      );
-    }
-    return const SizedBox.shrink();
+          );
+        }
+        return const SizedBox.shrink();
+      },
+    );
   }
 
   Widget _buildStatusWidget() {
