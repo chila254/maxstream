@@ -1332,6 +1332,15 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     if (platform is! AndroidVideoPlayer) return false;
 
     try {
+      // Re-queueing while the renderers are mid-frame is unreliable on some TV
+      // firmware: the new source silently never takes over (the classic
+      // "switching only works when paused" symptom). Pause first so the
+      // re-queue happens from a stopped state - deterministic - then resume
+      // playback of the new source below.
+      final wasPlaying = controller.value.isPlaying;
+      if (wasPlaying) {
+        await controller.pause();
+      }
       final isHls = candidate.url.toLowerCase().contains('.m3u8');
       await platform.reloadMedia(
         controller.playerId,
@@ -1532,82 +1541,103 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       _isLoading = true;
     });
     _traceStep('Switching to ${server.source}');
+    try {
+      // Re-resolve streams fresh before switching: the server list may hold
+      // expired URLs (e.g. short-lived VixSrc tokens) that ExoPlayer rejects.
+      await _discoverAvailableServers(generation);
+      if (!_isCurrent(generation)) return;
 
-    // Re-resolve streams fresh before switching: the server list may hold
-    // expired URLs (e.g. short-lived VixSrc tokens) that ExoPlayer rejects.
-    await _discoverAvailableServers(generation);
-    if (!_isCurrent(generation)) return;
-
-    final freshTarget = _availableServers
-        .where((s) => s.source == server.source)
-        .firstOrNull;
-    final current = freshTarget ?? server;
-    // Prefer servers that pass the pre-flight check, but never block the player
-    // from trying the rest: validation can miss streams a CDN will happily
-    // serve to ExoPlayer, which is the final arbiter.
-    final validated = <_StreamCandidate>[];
-    final unvalidated = <_StreamCandidate>[];
-    for (final s in _availableServers) {
-      if (s.url == current.url) continue;
-      (await _isStreamPlayable(s) ? validated : unvalidated).add(s);
-    }
-    var initialized = false;
-    final tried = <String>{};
-    for (final candidate in [current, ...validated, ...unvalidated]) {
-      if (!_isCurrent(generation) || initialized) break;
-      if (!tried.add(candidate.url)) continue;
-      if (candidate.url == current.url && !await _isStreamPlayable(candidate)) {
-        _failedServerUrls.add(candidate.url);
-        continue;
+      // Prefer the freshly resolved entry for the chosen server (matched by
+      // source name OR url) so an expired menu URL is replaced; fall back to
+      // the menu entry only when the fresh list has no match at all.
+      final freshTarget = _availableServers
+          .where((s) => s.source == server.source || s.url == server.url)
+          .firstOrNull;
+      final current = freshTarget ?? server;
+      // Prefer servers that pass the pre-flight check, but never block the
+      // player from trying the rest: validation can miss streams a CDN will
+      // happily serve to ExoPlayer, which is the final arbiter.
+      final validated = <_StreamCandidate>[];
+      final unvalidated = <_StreamCandidate>[];
+      for (final s in _availableServers) {
+        if (s.url == current.url) continue;
+        (await _isStreamPlayable(s) ? validated : unvalidated).add(s);
       }
-      _showStatus('Loading a working stream from ${candidate.source}...');
-      // Preferred path: re-queue onto the existing player instead of creating
-      // a new one. Reuse was originally required because tearing down and
-      // re-creating a SurfaceView platform view mid-playback produced the
-      // "scratch" artifact and compositor crash on Android 14 TV (now fixed by
-      // the texture render path); reuse is still cheaper and avoids a visible
-      // player reset, so it stays the default.
-      initialized = await _reloadPlayback(
-        candidate,
-        generation: generation,
-        resumePosition: livePosition,
-      );
-      if (!initialized && _isCurrent(generation)) {
-        // Let a torn-down platform view fully release before the next
-        // SurfaceView is created; overlapping them crashes the compositor on
-        // some TV boxes.
-        await Future<void>.delayed(const Duration(milliseconds: 400));
-        if (_isCurrent(generation)) {
-          initialized = await _initializePlayer(
-            candidate,
-            generation: generation,
-            resumePosition: livePosition,
-          );
+      var initialized = false;
+      final tried = <String>{};
+      for (final candidate in [current, ...validated, ...unvalidated]) {
+        if (!_isCurrent(generation) || initialized) break;
+        if (!tried.add(candidate.url)) continue;
+        // The chosen server (first in the list) is always attempted: our
+        // plain-HTTP pre-flight is not proof ExoPlayer can't play it. The
+        // validated/unvalidated split above already gated the alternatives,
+        // so no per-candidate re-check here - ExoPlayer is the final arbiter.
+        _showStatus('Loading a working stream from ${candidate.source}...');
+        // Preferred path: re-queue onto the existing player instead of
+        // creating a new one. Reuse was originally required because tearing
+        // down and re-creating a SurfaceView platform view mid-playback
+        // produced the "scratch" artifact and compositor crash on Android 14
+        // TV (now fixed by the texture render path); reuse is still cheaper
+        // and avoids a visible player reset, so it stays the default.
+        initialized = await _reloadPlayback(
+          candidate,
+          generation: generation,
+          resumePosition: livePosition,
+        );
+        if (!initialized && _isCurrent(generation)) {
+          // Let a torn-down platform view fully release before the next
+          // SurfaceView is created; overlapping them crashes the compositor on
+          // some TV boxes.
+          await Future<void>.delayed(const Duration(milliseconds: 400));
+          if (_isCurrent(generation)) {
+            initialized = await _initializePlayer(
+              candidate,
+              generation: generation,
+              resumePosition: livePosition,
+            );
+          }
+        }
+        if (initialized || !_isCurrent(generation)) break;
+        _failedServerUrls.add(candidate.url);
+      }
+
+      if (!_isCurrent(generation)) return;
+      setState(() {
+        _switchingServer = false;
+        _isLoading = false;
+        if (initialized) {
+          _selectedSource = current.source;
+          _selectedServerUrl = current.url;
+          _qualities = current.qualities;
+          _subtitleTracks = current.subtitles;
+          _clearSubtitles();
+        } else {
+          // No server could start: keep the previously working stream instead
+          // of leaving the player stuck on a source error, and say so instead
+          // of failing silently.
+          _selectedSource = previousSource;
+          _selectedServerUrl = previousUrl;
+          _qualities = previousQualities;
+          _subtitleTracks = previousSubtitles;
+          _error = null;
+        }
+      });
+      if (!initialized && mounted) {
+        _showStatus(
+          'Could not switch to ${server.source}. Keeping the current stream.',
+        );
+      }
+    } finally {
+      // Any early return (stale generation, unmounted) must still release the
+      // switch lock or every later switch silently no-ops.
+      if (_switchingServer) {
+        if (!_disposed && mounted) {
+          setState(() => _switchingServer = false);
+        } else {
+          _switchingServer = false;
         }
       }
-      if (initialized || !_isCurrent(generation)) break;
-      _failedServerUrls.add(candidate.url);
     }
-
-    if (!_isCurrent(generation)) return;
-    setState(() {
-      _switchingServer = false;
-      if (initialized) {
-        _selectedSource = current.source;
-        _selectedServerUrl = current.url;
-        _qualities = current.qualities;
-        _subtitleTracks = current.subtitles;
-        _clearSubtitles();
-      } else {
-        // No server could start: keep the previously working stream instead of
-        // leaving the player stuck on a source error.
-        _selectedSource = previousSource;
-        _selectedServerUrl = previousUrl;
-        _qualities = previousQualities;
-        _subtitleTracks = previousSubtitles;
-        _error = null;
-      }
-    });
   }
 
   Future<void> _switchQuality(_QualityOption quality) async {
@@ -1630,32 +1660,50 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       qualities: candidate.qualities,
       subtitles: candidate.subtitles,
     );
-    // Re-queue onto the existing player so the SurfaceView never gets torn
-    // down mid-playback (Android 14 hybrid-composition compositor crash), only
-    // recreating from scratch when reuse is impossible.
-    var initialized = await _reloadPlayback(
-      target,
-      generation: generation,
-      resumePosition: livePosition,
-    );
-    if (!initialized && _isCurrent(generation)) {
-      await Future<void>.delayed(const Duration(milliseconds: 400));
-      if (_isCurrent(generation)) {
-        initialized = await _initializePlayer(
-          target,
-          generation: generation,
-          resumePosition: livePosition,
+    try {
+      // Re-queue onto the existing player so the SurfaceView never gets torn
+      // down mid-playback (Android 14 hybrid-composition compositor crash),
+      // only recreating from scratch when reuse is impossible.
+      var initialized = await _reloadPlayback(
+        target,
+        generation: generation,
+        resumePosition: livePosition,
+      );
+      if (!initialized && _isCurrent(generation)) {
+        await Future<void>.delayed(const Duration(milliseconds: 400));
+        if (_isCurrent(generation)) {
+          initialized = await _initializePlayer(
+            target,
+            generation: generation,
+            resumePosition: livePosition,
+          );
+        }
+      }
+      if (!_isCurrent(generation)) return;
+      setState(() {
+        _switchingServer = false;
+        _isLoading = false;
+        if (initialized) {
+          _currentStreamUrl = quality.url;
+          _selectedServerUrl = quality.url;
+        }
+      });
+      if (!initialized && mounted) {
+        _showStatus(
+          'Could not switch to ${quality.label}. Keeping the current quality.',
         );
       }
-    }
-    if (!_isCurrent(generation)) return;
-    setState(() {
-      _switchingServer = false;
-      if (initialized) {
-        _currentStreamUrl = quality.url;
-        _selectedServerUrl = quality.url;
+    } finally {
+      // Any early return (stale generation, unmounted) must still release the
+      // switch lock or every later switch silently no-ops.
+      if (_switchingServer) {
+        if (!_disposed && mounted) {
+          setState(() => _switchingServer = false);
+        } else {
+          _switchingServer = false;
+        }
       }
-    });
+    }
     _showControlsAndFocus();
   }
 
