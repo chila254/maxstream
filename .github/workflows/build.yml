@@ -41,7 +41,7 @@ jobs:
 
       - name: Generate keystore.properties
         run: |
-          echo "storeFile=../app/key.jks" > android/keystore.properties
+          echo "storeFile=app/key.jks" > android/keystore.properties
           echo "storePassword=$KEYSTORE_PASSWORD" >> android/keystore.properties
           echo "keyAlias=$KEY_ALIAS" >> android/keystore.properties
           echo "keyPassword=${KEY_PASSWORD:-$KEYSTORE_PASSWORD}" >> android/keystore.properties
@@ -62,9 +62,11 @@ jobs:
   build-tv:
     name: Kotlin TV APK (FossUniversalRelease)
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: android
+    env:
+      KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+      KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+      KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+      KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
 
@@ -80,6 +82,17 @@ jobs:
       - name: Accept licenses
         run: yes | sdkmanager --licenses || true
 
+      - name: Decode Keystore
+        if: env.KEYSTORE_BASE64 != ''
+        run: echo "$KEYSTORE_BASE64" | base64 -d > android/app/key.jks
+
+      - name: Generate keystore.properties
+        run: |
+          echo "storeFile=app/key.jks" > android/keystore.properties
+          echo "storePassword=$KEYSTORE_PASSWORD" >> android/keystore.properties
+          echo "keyAlias=$KEY_ALIAS" >> android/keystore.properties
+          echo "keyPassword=${KEY_PASSWORD:-$KEYSTORE_PASSWORD}" >> android/keystore.properties
+
       - name: Cache Gradle
         uses: actions/cache@v4
         with:
@@ -89,10 +102,10 @@ jobs:
           key: ${{ runner.os }}-gradle-tv-${{ hashFiles('android/**/*.gradle*', 'android/**/libs.versions.toml') }}
 
       - name: Compile Kotlin (Foss / Universal) — ./gradlew compileFossUniversalReleaseKotlin
-        run: ./gradlew compileFossUniversalReleaseKotlin --no-daemon
+        run: cd android && ./gradlew compileFossUniversalReleaseKotlin --no-daemon
 
       - name: Assemble release APK
-        run: ./gradlew assembleFossUniversalRelease --no-daemon
+        run: cd android && ./gradlew assembleFossUniversalRelease --no-daemon
 
       - name: Upload TV APK
         uses: actions/upload-artifact@v4
