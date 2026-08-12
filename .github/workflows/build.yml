@@ -130,16 +130,8 @@ jobs:
       - name: Assemble release APK
         run: cd android && ./gradlew assembleFossUniversalRelease --no-daemon
 
-      - name: Name TV APK for release
+      - name: Inspect tvapp build outputs
         run: |
-          mkdir -p release-artifact
-          apk="$(find android/tvapp/build/outputs -maxdepth 6 -name '*.apk' -type f | head -n1)"
-          test -n "$apk"
-          cp "$apk" "release-artifact/maxstream-tv.apk"
-
-      - name: Upload TV APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: maxstream-tv
-          path: release-artifact/maxstream-tv.apk
-          retention-days: 7
+          echo "PWD=$(pwd)"
+          ls -la android/tvapp/build/outputs || true
+          find android/tvapp/build -maxdepth 4 -type d | sed 's#^#DIR #' || true
