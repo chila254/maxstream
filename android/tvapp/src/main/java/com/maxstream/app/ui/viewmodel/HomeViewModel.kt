@@ -1,7 +1,6 @@
 package com.maxstream.app.ui.viewmodel
 
 import android.app.Application
-import androidx.annotation.SuppressLint
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
@@ -11,7 +10,6 @@ import com.maxstream.app.di.Modules
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 
-@SuppressLint("NullSafeMutableLiveData")
 class HomeViewModel(application: Application) : AndroidViewModel(application) {
     private val repo = Modules.catalogRepository
 
@@ -37,7 +35,6 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         loadAll()
     }
 
-    @SuppressLint("NullSafeMutableLiveData")
     fun loadAll() {
         _loading.value = true
         _error.value = null
