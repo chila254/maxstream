@@ -7,7 +7,6 @@ import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.viewModelScope
 import com.maxstream.app.data.model.MediaItem
 import com.maxstream.app.di.Modules
-import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 
 class HomeViewModel(application: Application) : AndroidViewModel(application) {
@@ -39,18 +38,12 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         _loading.value = true
         _error.value = null
         viewModelScope.launch {
-            val trendingMovies: List<MediaItem> = async { repo.trendingMovies() ?: emptyList() }.await()
-            val trendingSeries: List<MediaItem> = async { repo.trendingSeries() ?: emptyList() }.await()
-            val popularMovies: List<MediaItem> = async { repo.popularMovies() ?: emptyList() }.await()
-            val popularSeries: List<MediaItem> = async { repo.popularSeries() ?: emptyList() }.await()
-            val topRatedMovies: List<MediaItem> = async { repo.topRatedMovies() ?: emptyList() }.await()
-            val topRatedSeries: List<MediaItem> = async { repo.topRatedSeries() ?: emptyList() }.await()
-            _trendingMovies.value = trendingMovies
-            _trendingSeries.value = trendingSeries
-            _popularMovies.value = popularMovies
-            _popularSeries.value = popularSeries
-            _topRatedMovies.value = topRatedMovies
-            _topRatedSeries.value = topRatedSeries
+            _trendingMovies.value = repo.trendingMovies() ?: emptyList()
+            _trendingSeries.value = repo.trendingSeries() ?: emptyList()
+            _popularMovies.value = repo.popularMovies() ?: emptyList()
+            _popularSeries.value = repo.popularSeries() ?: emptyList()
+            _topRatedMovies.value = repo.topRatedMovies() ?: emptyList()
+            _topRatedSeries.value = repo.topRatedSeries() ?: emptyList()
             _loading.value = false
         }
     }

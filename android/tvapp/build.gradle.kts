@@ -84,10 +84,6 @@ android {
         viewBinding = true
     }
 
-    lint {
-        disable += "NullSafeMutableLiveData"
-    }
-
     packaging {
         resources {
             excludes += setOf("/META-INF/{AL2.0,LGPL2.1}")
