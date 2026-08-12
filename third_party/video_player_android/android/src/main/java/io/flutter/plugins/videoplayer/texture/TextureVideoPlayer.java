@@ -59,6 +59,12 @@ public final class TextureVideoPlayer extends VideoPlayer implements SurfaceProd
         () -> {
           androidx.media3.exoplayer.DefaultRenderersFactory renderersFactory =
               new androidx.media3.exoplayer.DefaultRenderersFactory(context);
+          // Fall back to the software decoder when the hardware MediaCodec
+          // fails to initialize (HiSilicon/Mali TV boxes regularly reject
+          // specific H.264 streams at codec-init time, which otherwise
+          // surfaces as a fatal "MediaCodec video renderer error" and kills
+          // playback). Mirrors PlatformViewVideoPlayer.
+          renderersFactory.setEnableDecoderFallback(true);
           ExoPlayer.Builder builder = new ExoPlayer.Builder(context, renderersFactory);
           DefaultLoadControl.Builder loadControlBuilder = new DefaultLoadControl.Builder();
           boolean hasLoadControlOptions = false;

@@ -537,8 +537,36 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     if (isMemoryCritical(level) && _controller != null) {
       debugPrint('MaxStream TV: critical memory (level=$level) – releasing player');
       _saveProgress();
-      unawaited(_releaseForBackground());
+      // Releasing the player must never leave a black screen: the normal
+      // resume path only runs after a lifecycle resume event, which never
+      // fires here. Rebuild from the last stable position after the system
+      // has had a moment to reclaim the freed native memory.
+      unawaited(_recoverAfterMemoryRelease());
     }
+  }
+
+  /// Releases the decoder/buffers on critical memory pressure, then rebuilds
+  /// the player from the last stable position. Without the rebuild, a trim
+  /// memory event mid-playback (Android 9 boxes fire these while streaming)
+  /// leaves a permanent black screen.
+  Future<void> _recoverAfterMemoryRelease() async {
+    await _releaseForBackground();
+    _backgroundRelease = null;
+    if (!mounted || _disposed) return;
+    // Show feedback while the system reclaims memory, then rebuild via the
+    // same resume path used after a background/foreground transition.
+    if (mounted) {
+      setState(() {
+        _isLoading = true;
+        _isBuffering = true;
+        _statusMessage = 'Resuming...';
+      });
+    }
+    // Give the system a moment to reclaim the freed native memory before we
+    // reallocate decoders/buffers.
+    await Future<void>.delayed(const Duration(milliseconds: 1500));
+    if (!mounted || _disposed) return;
+    await _resumeFromBackground();
   }
 
   @override
