@@ -1140,8 +1140,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     }
     final shouldRebuild =
         _isBuffering != wasBuffering ||
-        _isPlaying != wasPlaying ||
-        value.isInitialized;
+        _isPlaying != wasPlaying;
     if (shouldRebuild && mounted) setState(() {});
   }
 
