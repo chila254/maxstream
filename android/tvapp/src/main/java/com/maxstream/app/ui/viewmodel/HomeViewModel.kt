@@ -39,12 +39,12 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         _loading.value = true
         _error.value = null
         viewModelScope.launch {
-            val trendingMovies = async { repo.trendingMovies() }
-            val trendingSeries = async { repo.trendingSeries() }
-            val popularMovies = async { repo.popularMovies() }
-            val popularSeries = async { repo.popularSeries() }
-            val topRatedMovies = async { repo.topRatedMovies() }
-            val topRatedSeries = async { repo.topRatedSeries() }
+            val trendingMovies = async { repo.trendingMovies() ?: emptyList() }
+            val trendingSeries = async { repo.trendingSeries() ?: emptyList() }
+            val popularMovies = async { repo.popularMovies() ?: emptyList() }
+            val popularSeries = async { repo.popularSeries() ?: emptyList() }
+            val topRatedMovies = async { repo.topRatedMovies() ?: emptyList() }
+            val topRatedSeries = async { repo.topRatedSeries() ?: emptyList() }
             _trendingMovies.value = trendingMovies.await()
             _trendingSeries.value = trendingSeries.await()
             _popularMovies.value = popularMovies.await()
