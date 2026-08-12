@@ -10,18 +10,10 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.datasource.DefaultHttpDataSource
-import androidx.media3.exoplayer.DefaultLoadControl
-import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.MediaCodecSelector
-import androidx.media3.exoplayer.RenderersFactory
-import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
-import androidx.media3.exoplayer.trackselection.TrackSelectionParameters
 import androidx.media3.ui.PlayerView
 import com.maxstream.app.R
 import com.maxstream.app.data.model.Source
-import com.maxstream.app.data.model.Subtitle
 
 @UnstableApi
 class PlayerActivity : AppCompatActivity() {
@@ -38,7 +30,6 @@ class PlayerActivity : AppCompatActivity() {
 
     private lateinit var source: Source
     private var player: ExoPlayer? = null
-    private var usedSoftwareDecoder = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -61,36 +52,7 @@ class PlayerActivity : AppCompatActivity() {
         loading.visibility = View.VISIBLE
         errorView.visibility = View.GONE
 
-        val trackSelector = DefaultTrackSelector(this).apply {
-            val params = TrackSelectionParameters.Builder(this@PlayerActivity)
-                .setPreferredVideoMimeTypes("video/avc", "video/hevc", "video/av1", "video/vp9")
-                .setMaxVideoSize(1920, 1080)
-                .setExceedVideoConstraintsIfNecessary(true)
-                .build()
-            setParameters(params)
-        }
-
-        val renderersFactory: RenderersFactory = DefaultRenderersFactory(this).apply {
-            setEnableDecoderFallback(true)
-            if (usedSoftwareDecoder) setMediaCodecSelector(softwareDecoderSelector())
-        }
-
-        val httpDataSourceFactory = DefaultHttpDataSource.Factory().apply {
-            setUserAgent("Mozilla/5.0 (Linux; Android TV)")
-            if (source.headers.isNotEmpty()) setDefaultRequestProperties(source.headers)
-        }
-        val mediaSourceFactory = DefaultMediaSourceFactory(this@PlayerActivity, httpDataSourceFactory)
-
-        val loadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(30_000, 90_000, 3_000, 6_000)
-            .setPrioritizeTimeOverSizeThresholds(true)
-            .build()
-
-        player = ExoPlayer.Builder(this@PlayerActivity)
-            .setRenderersFactory(renderersFactory)
-            .setTrackSelector(trackSelector)
-            .setMediaSourceFactory(mediaSourceFactory)
-            .setLoadControl(loadControl)
+        player = ExoPlayer.Builder(this)
             .build()
             .also { exo ->
                 exo.setAudioAttributes(
@@ -125,7 +87,7 @@ class PlayerActivity : AppCompatActivity() {
         return builder.build()
     }
 
-    private fun mimeFor(subtitle: Subtitle): String =
+    private fun mimeFor(subtitle: com.maxstream.app.data.model.Subtitle): String =
         if (subtitle.url.endsWith(".vtt", ignoreCase = true)) "text/vtt" else "application/x-subrip"
 
     private val playerListener = object : androidx.media3.common.Player.Listener {
@@ -135,32 +97,8 @@ class PlayerActivity : AppCompatActivity() {
 
         override fun onPlayerError(error: PlaybackException) {
             loading.visibility = View.GONE
-            val isDecoderIssue = error.errorCode == PlaybackException.ERROR_CODE_DECODER_INIT_FAILED ||
-                error.errorCode == PlaybackException.ERROR_CODE_DECODING_FAILED ||
-                error.errorCode == PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED
-            if (isDecoderIssue && !usedSoftwareDecoder) {
-                usedSoftwareDecoder = true
-                player?.release()
-                player = null
-                buildPlayer()
-            } else {
-                errorView.text = "Playback error: ${error.errorCodeName}\n${error.message}"
-                errorView.visibility = View.VISIBLE
-            }
-        }
-    }
-
-    private fun softwareDecoderSelector(): MediaCodecSelector {
-        return MediaCodecSelector { mimeType, requiresSecureDecoder, requiresTunnelingDecoder ->
-            androidx.media3.common.util.MediaCodecUtil
-                .getDecoderInfos(mimeType, requiresSecureDecoder, requiresTunnelingDecoder)
-                .sortedBy { info ->
-                    when {
-                        info.name.startsWith("OMX.google.") -> 0
-                        info.name.startsWith("c2.android.") -> 1
-                        else -> 2
-                    }
-                }
+            errorView.text = "Playback error: ${error.errorCodeName}\n${error.message}"
+            errorView.visibility = View.VISIBLE
         }
     }
 
