@@ -378,6 +378,13 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
   int _traceSeq = 0;
 
   List<_QualityOption> _qualities = const [];
+
+  /// Quality label the user picked on a separate-audio stream (e.g. VixSrc).
+  /// Those masters can't pin a video-only variant without losing audio, so the
+  /// pick is reflected in the button/menu label while playback stays on the
+  /// adaptive master (mirrors mobile). Cleared whenever the stream changes.
+  String _qualityLabelOverride = '';
+
   List<_SubtitleTrack> _subtitleTracks = const [];
   List<_SubtitleCue> _activeSubtitles = const [];
   final ValueNotifier<String> _subtitleText = ValueNotifier<String>('');
@@ -455,6 +462,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
   bool get _hasDuration => _duration > Duration.zero;
 
   String get _selectedQualityLabel {
+    if (_qualityLabelOverride.isNotEmpty) return _qualityLabelOverride;
     final currentUrl = _currentStreamUrl;
     if (currentUrl == null || _qualities.isEmpty) return 'Auto';
     return _qualities
@@ -1210,6 +1218,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         _selectedServerUrl = url;
         _error = null;
         _statusMessage = '';
+        _qualityLabelOverride = '';
         _isBuffering = controller.value.isBuffering;
         _isLoading = false;
         _playbackRetryCount = 0;
@@ -1428,6 +1437,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         _selectedServerUrl = candidate.url;
         _error = null;
         _statusMessage = '';
+        _qualityLabelOverride = '';
         _isBuffering = true;
         _isLoading = false;
         _playbackRetryCount = 0;
@@ -1765,6 +1775,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
           _selectedSource = active.displaySource;
           _selectedServerUrl = active.url;
           _qualities = active.qualities;
+          _qualityLabelOverride = '';
           _subtitleTracks = _unionSubtitleTracks();
           _clearSubtitles();
         } else {
@@ -1833,6 +1844,23 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
   Future<void> _switchQuality(_QualityOption quality) async {
     final candidate = _currentCandidate;
     if (candidate == null || _switchingServer) return;
+
+    // Separate-audio masters (e.g. VixSrc) reference audio through
+    // #EXT-X-MEDIA renditions; their variant URLs are video-only and would
+    // play silently if handed to ExoPlayer directly. The extractor
+    // intentionally returns the master URL for these streams so ExoPlayer
+    // muxes audio + video itself (adaptive bitrate), and the plugin exposes
+    // no track-selection API to pin a single variant without dropping the
+    // audio group. Mirror mobile: keep playing the master and reflect the
+    // picked quality in the button/menu label.
+    if (candidate.separateAudio) {
+      if (_qualityLabelOverride != quality.label) {
+        setState(() => _qualityLabelOverride = quality.label);
+        _showStatus('Switched to ${quality.label}');
+      }
+      return;
+    }
+
     if (quality.url == _currentStreamUrl) return;
     final livePosition = _position;
     final previousCandidate = candidate;
@@ -1880,6 +1908,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         if (initialized) {
           _currentStreamUrl = active.url;
           _selectedServerUrl = active.url;
+          _qualityLabelOverride = '';
         } else {
           // The rebuild disposed the old player and neither the new quality
           // nor the previous one could start: show a real error.
@@ -4050,7 +4079,16 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
               _MenuOption(
                 label: q.label,
                 onSelect: () {
-                  if (q.url.isEmpty) return;
+                  // The synthetic "Auto" entry has an empty URL. On
+                  // separate-audio streams it must stay selectable so the
+                  // user can reset the label back to adaptive Auto; on
+                  // normal streams it is only a UI entry for the URL-matched
+                  // label and has nothing to switch to.
+                  final current = _currentCandidate;
+                  if (q.url.isEmpty &&
+                      (current == null || !current.separateAudio)) {
+                    return;
+                  }
                   _switchQuality(q);
                 },
                 selected: _selectedQualityLabel == q.label,
