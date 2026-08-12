@@ -24,14 +24,13 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import okhttp3.Cookie
 import okhttp3.CookieJar
-import okhttp3.Dns
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import okhttp3.DnsOverHttps
+import okhttp3.Dns
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.InetAddress
@@ -173,15 +172,7 @@ class StreamExtractor(private val context: Context) {
         .build()
 
     private val dns: Dns by lazy {
-        try {
-            DnsOverHttps.Builder()
-                .client(bootstrapClient)
-                .url("https://dns.google/dns-query".toHttpUrl())
-                .build()
-        } catch (error: Exception) {
-            Log.w(tag, "DNS-over-HTTPS unavailable; using system DNS", error)
-            Dns.SYSTEM
-        }
+        Dns.SYSTEM
     }
 
     private val client = OkHttpClient.Builder()

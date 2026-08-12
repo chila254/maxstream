@@ -189,7 +189,7 @@ class DetailsFragment : Fragment() {
 class DetailsViewModelFactory(
     private val application: android.app.Application,
     private val item: MediaItem,
-) : ViewModelProvider.ViewModelFactory {
+) : ViewModelProvider.Factory {
     override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
         @Suppress("UNCHECKED_CAST")
         return DetailsViewModel(application, item) as T

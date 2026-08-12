@@ -57,8 +57,9 @@ class HomeFragment : BrowseSupportFragment() {
         }
         if (existing != null) {
             val row = rowsAdapter[existing] as ListRow
-            row.adapter.clear()
-            row.adapter.addAll(0, items)
+            val adapter = row.adapter as ArrayObjectAdapter
+            adapter.clear()
+            adapter.addAll(0, items)
         } else {
             val listRowAdapter = ArrayObjectAdapter(CardPresenter()).apply { addAll(0, items) }
             rowsAdapter.add(ListRow(HeaderItem(title.hashCode().toLong(), title), listRowAdapter))
