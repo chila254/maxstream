@@ -7,6 +7,7 @@ package io.flutter.plugins.videoplayer;
 import static androidx.media3.common.Player.REPEAT_MODE_ALL;
 import static androidx.media3.common.Player.REPEAT_MODE_OFF;
 
+import android.app.ActivityManager;
 import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
@@ -60,6 +61,38 @@ public abstract class VideoPlayer implements VideoPlayerInstanceApi {
   /** A handler to run when dispose is called. */
   public interface DisposeHandler {
     void onDispose();
+  }
+
+  /**
+   * Caps adaptive video resolution to 1080p on 1GB-class devices (most cheap
+   * TV boxes). Their GPU/driver cannot keep up with 4K texture uploads — on
+   * HiSilicon/Mali Android 14 firmware this first shows as lag/stuttering and
+   * then dies natively mid-playback. 1080p is 4x fewer pixels per frame, well
+   * within reach of those GPUs.
+   *
+   * <p>Only the adaptive (auto) selection is constrained: an explicit quality
+   * pick through {@link #selectVideoTrack} overrides these parameters, so the
+   * UI's manual quality selector is unaffected. Phones with 2GB+ of RAM never
+   * hit the cap.
+   */
+  @UnstableApi
+  protected static void applyDeviceVideoConstraints(
+      @NonNull DefaultTrackSelector trackSelector, @NonNull Context context) {
+    final ActivityManager activityManager =
+        (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
+    if (activityManager == null) {
+      return;
+    }
+    final ActivityManager.MemoryInfo memoryInfo = new ActivityManager.MemoryInfo();
+    activityManager.getMemoryInfo(memoryInfo);
+    // totalMem is set on API 16+; the plugin's minSdk is well above that.
+    final boolean lowRamDevice =
+        activityManager.isLowRamDevice() || memoryInfo.totalMem <= 2L * 1024 * 1024 * 1024;
+    if (!lowRamDevice) {
+      return;
+    }
+    trackSelector.setParameters(
+        trackSelector.buildUponParameters().setMaxVideoSize(1920, 1080).build());
   }
 
   // TODO: Migrate to stable API, see https://github.com/flutter/flutter/issues/147039.

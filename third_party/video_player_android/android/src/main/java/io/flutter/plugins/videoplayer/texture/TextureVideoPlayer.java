@@ -107,6 +107,10 @@ public final class TextureVideoPlayer extends VideoPlayer implements SurfaceProd
           }
           androidx.media3.exoplayer.trackselection.DefaultTrackSelector trackSelector =
               new androidx.media3.exoplayer.trackselection.DefaultTrackSelector(context);
+          // Cap adaptive streams to 1080p on 1GB-class boxes (HiSilicon/Mali
+          // Android 14 firmware lags then natively crashes on 4K texture
+          // uploads). Manual quality picks still bypass the cap.
+          applyDeviceVideoConstraints(trackSelector, context);
           builder
               .setTrackSelector(trackSelector)
               .setMediaSourceFactory(asset.getMediaSourceFactory(context));
