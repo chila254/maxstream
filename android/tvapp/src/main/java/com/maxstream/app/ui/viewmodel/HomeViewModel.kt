@@ -39,18 +39,18 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         _loading.value = true
         _error.value = null
         viewModelScope.launch {
-            val trendingMovies = async<List<MediaItem>> { repo.trendingMovies() ?: emptyList() }
-            val trendingSeries = async<List<MediaItem>> { repo.trendingSeries() ?: emptyList() }
-            val popularMovies = async<List<MediaItem>> { repo.popularMovies() ?: emptyList() }
-            val popularSeries = async<List<MediaItem>> { repo.popularSeries() ?: emptyList() }
-            val topRatedMovies = async<List<MediaItem>> { repo.topRatedMovies() ?: emptyList() }
-            val topRatedSeries = async<List<MediaItem>> { repo.topRatedSeries() ?: emptyList() }
-            _trendingMovies.value = trendingMovies.await()
-            _trendingSeries.value = trendingSeries.await()
-            _popularMovies.value = popularMovies.await()
-            _popularSeries.value = popularSeries.await()
-            _topRatedMovies.value = topRatedMovies.await()
-            _topRatedSeries.value = topRatedSeries.await()
+            val trendingMovies: List<MediaItem> = async { repo.trendingMovies() ?: emptyList() }.await()
+            val trendingSeries: List<MediaItem> = async { repo.trendingSeries() ?: emptyList() }.await()
+            val popularMovies: List<MediaItem> = async { repo.popularMovies() ?: emptyList() }.await()
+            val popularSeries: List<MediaItem> = async { repo.popularSeries() ?: emptyList() }.await()
+            val topRatedMovies: List<MediaItem> = async { repo.topRatedMovies() ?: emptyList() }.await()
+            val topRatedSeries: List<MediaItem> = async { repo.topRatedSeries() ?: emptyList() }.await()
+            _trendingMovies.value = trendingMovies
+            _trendingSeries.value = trendingSeries
+            _popularMovies.value = popularMovies
+            _popularSeries.value = popularSeries
+            _topRatedMovies.value = topRatedMovies
+            _topRatedSeries.value = topRatedSeries
             _loading.value = false
         }
     }
