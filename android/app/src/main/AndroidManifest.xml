@@ -55,15 +55,15 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
-        <!-- Force Impeller's OpenGLES backend instead of Vulkan. HiSilicon /
-             Mali TV boxes (Vitron, HILISCON - Android 14) ship closed-source
-             Vulkan drivers that crash the process while rendering video
-             textures (ImageReader/AHardwareBuffer); the GLES backend is
-             stable on the same silicon (the Android 9 Amtec box uses the
-             legacy Skia path and never hits this). -->
+        <!-- Impeller backend selection (A/B for the Android 14 HiSilicon box).
+             GLES was tried first (39e2615) but the Vitron still scratches and
+             crashes while rendering video textures, so we are testing Vulkan:
+             on some HiSilicon/Mali boxes the Vulkan blob is the stable half
+             and the EGL blob is the broken one. If Vulkan also scratches,
+             the real cure is building with Flutter <= 3.27.x for Skia. -->
         <meta-data
             android:name="io.flutter.embedding.android.ImpellerBackend"
-            android:value="opengles" />
+            android:value="vulkan" />
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and
