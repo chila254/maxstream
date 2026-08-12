@@ -35,7 +35,7 @@ class CardPresenter : Presenter() {
         if (media.posterUrl.isNotBlank()) {
             Glide.with(cardView.context)
                 .load(media.posterUrl)
-                .apply(RequestOptions().centerCropTransform().error(R.drawable.tv_card_fallback))
+                .apply(RequestOptions().centerCrop().error(R.drawable.tv_card_fallback))
                 .into(cardView.mainImageView)
         } else {
             cardView.mainImage = cardView.resources.getDrawable(R.drawable.tv_card_fallback, null)

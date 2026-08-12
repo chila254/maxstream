@@ -52,8 +52,11 @@ class SeriesFragment : BrowseSupportFragment() {
         val existing = (0 until rowsAdapter.size()).firstOrNull { i ->
             (rowsAdapter[i] as? ListRow)?.headerItem?.name == title
         }
-        if (existing != null) (rowsAdapter[existing] as ListRow).adapter.replaceAll(items)
-        else {
+        if (existing != null) {
+            val row = rowsAdapter[existing] as ListRow
+            row.adapter.clear()
+            row.adapter.addAll(0, items)
+        } else {
             val listRowAdapter = ArrayObjectAdapter(CardPresenter()).apply { addAll(0, items) }
             rowsAdapter.add(ListRow(HeaderItem(title.hashCode().toLong(), title), listRowAdapter))
         }

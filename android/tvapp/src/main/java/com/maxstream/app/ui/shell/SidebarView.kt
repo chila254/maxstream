@@ -109,6 +109,6 @@ class SidebarView @JvmOverloads constructor(
         itemViews.getOrNull(index)?.requestFocus()
     }
 
-    override fun generateDefaultLayoutParams(): ViewGroup.LayoutParams =
+    override fun generateDefaultLayoutParams(): LinearLayout.LayoutParams =
         LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
 }

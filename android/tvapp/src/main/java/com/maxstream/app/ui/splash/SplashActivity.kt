@@ -5,6 +5,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import androidx.appcompat.app.AppCompatActivity
+import com.maxstream.app.R
 import com.maxstream.app.data.local.SessionManager
 import com.maxstream.app.ui.auth.LoginActivity
 import com.maxstream.app.ui.shell.MainActivity

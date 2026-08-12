@@ -1,5 +1,6 @@
 package com.maxstream.app.ui.home
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.leanback.app.BrowseSupportFragment
 import androidx.leanback.widget.ArrayObjectAdapter
@@ -55,7 +56,9 @@ class HomeFragment : BrowseSupportFragment() {
             (rowsAdapter[index] as? ListRow)?.headerItem?.name == title
         }
         if (existing != null) {
-            (rowsAdapter[existing] as ListRow).adapter.replaceAll(items)
+            val row = rowsAdapter[existing] as ListRow
+            row.adapter.clear()
+            row.adapter.addAll(0, items)
         } else {
             val listRowAdapter = ArrayObjectAdapter(CardPresenter()).apply { addAll(0, items) }
             rowsAdapter.add(ListRow(HeaderItem(title.hashCode().toLong(), title), listRowAdapter))

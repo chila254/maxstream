@@ -31,7 +31,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import okhttp3.dnsoverhttps.DnsOverHttps
+import okhttp3.DnsOverHttps
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.InetAddress

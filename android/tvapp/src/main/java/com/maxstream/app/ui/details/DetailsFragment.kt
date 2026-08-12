@@ -21,6 +21,7 @@ import com.maxstream.app.R
 import com.maxstream.app.data.local.WatchlistRepository
 import com.maxstream.app.data.model.MediaItem
 import com.maxstream.app.data.model.Source
+import com.maxstream.app.data.model.toBundle
 import com.maxstream.app.data.remote.EpisodeRef
 import com.maxstream.app.ui.player.PlayerActivity
 import com.maxstream.app.ui.viewmodel.DetailsViewModel
@@ -56,7 +57,7 @@ class DetailsFragment : Fragment() {
         super.onCreate(savedInstanceState)
         item = MediaItem.fromBundle(arguments?.getBundle(ARG_ITEM)!!)
         viewModel = ViewModelProvider(this, DetailsViewModelFactory(requireActivity().application, item))
-            [DetailsViewModel::class.java]
+            .get(DetailsViewModel::class.java)
     }
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
@@ -154,7 +155,6 @@ class DetailsFragment : Fragment() {
             putExtra(PlayerActivity.EXTRA_SOURCE, source.toBundle())
         }
         startActivity(intent)
-        viewModel.stream.value = null
         resolving = false
     }
 
@@ -189,7 +189,7 @@ class DetailsFragment : Fragment() {
 class DetailsViewModelFactory(
     private val application: android.app.Application,
     private val item: MediaItem,
-) : androidx.lifecycle.AndroidViewModelFactory(application) {
+) : ViewModelProvider.ViewModelFactory {
     override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
         @Suppress("UNCHECKED_CAST")
         return DetailsViewModel(application, item) as T

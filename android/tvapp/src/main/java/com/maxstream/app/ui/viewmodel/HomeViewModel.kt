@@ -7,6 +7,7 @@ import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.viewModelScope
 import com.maxstream.app.data.model.MediaItem
 import com.maxstream.app.di.Modules
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 
 class HomeViewModel(application: Application) : AndroidViewModel(application) {
@@ -38,14 +39,18 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         _loading.value = true
         _error.value = null
         viewModelScope.launch {
-            runCatching {
-                kotlinx.coroutines.async { repo.trendingMovies() }.await()
-            }.onSuccess { _trendingMovies.value = it }
-            runCatching { repo.trendingSeries() }.onSuccess { _trendingSeries.value = it }
-            runCatching { repo.popularMovies() }.onSuccess { _popularMovies.value = it }
-            runCatching { repo.popularSeries() }.onSuccess { _popularSeries.value = it }
-            runCatching { repo.topRatedMovies() }.onSuccess { _topRatedMovies.value = it }
-            runCatching { repo.topRatedSeries() }.onSuccess { _topRatedSeries.value = it }
+            val trendingMovies = async { repo.trendingMovies() }
+            val trendingSeries = async { repo.trendingSeries() }
+            val popularMovies = async { repo.popularMovies() }
+            val popularSeries = async { repo.popularSeries() }
+            val topRatedMovies = async { repo.topRatedMovies() }
+            val topRatedSeries = async { repo.topRatedSeries() }
+            _trendingMovies.value = trendingMovies.await()
+            _trendingSeries.value = trendingSeries.await()
+            _popularMovies.value = popularMovies.await()
+            _popularSeries.value = popularSeries.await()
+            _topRatedMovies.value = topRatedMovies.await()
+            _topRatedSeries.value = topRatedSeries.await()
             _loading.value = false
         }
     }
