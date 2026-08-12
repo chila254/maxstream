@@ -100,6 +100,17 @@ class _StreamCandidate {
   final List<_SubtitleTrack> subtitles;
   final bool separateAudio;
 
+  /// Display label like mobile's "RPM via Vidflix": the extractor name plus
+  /// the upstream server/host the stream was routed through, when they differ
+  /// (e.g. RPM streams served through the Vidflix host).
+  String get displaySource {
+    final via = route;
+    if (via != null && via.isNotEmpty && via != source) {
+      return '$source via $via';
+    }
+    return source;
+  }
+
   factory _StreamCandidate.fromMap(Map<String, dynamic> value) {
     final headers = <String, String>{};
     if (value['referer'] != null) {
@@ -1171,7 +1182,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         _controller = controller;
         _currentStreamUrl = url;
         _currentCandidate = candidate;
-        _selectedSource = candidate.source;
+        _selectedSource = candidate.displaySource;
         _selectedServerUrl = url;
         _error = null;
         _statusMessage = '';
@@ -1389,7 +1400,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       setState(() {
         _currentStreamUrl = candidate.url;
         _currentCandidate = candidate;
-        _selectedSource = candidate.source;
+        _selectedSource = candidate.displaySource;
         _selectedServerUrl = candidate.url;
         _error = null;
         _statusMessage = '';
@@ -1557,8 +1568,10 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
 
   Future<void> _switchServer(_StreamCandidate server) async {
     if (!mounted || _disposed || _switchingServer) return;
+    if (server.url == _currentStreamUrl) return;
     final generation = ++_operationGeneration;
     final livePosition = _position;
+    final previousCandidate = _currentCandidate;
     final previousSource = _selectedSource;
     final previousUrl = _selectedServerUrl;
     final previousQualities = _qualities;
@@ -1570,63 +1583,50 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     });
     _traceStep('Switching to ${server.source}');
     try {
-      // Re-resolve streams fresh before switching: the server list may hold
-      // expired URLs (e.g. short-lived VixSrc tokens) that ExoPlayer rejects.
-      await _discoverAvailableServers(generation);
-      if (!_isCurrent(generation)) return;
-
-      // Prefer the freshly resolved entry for the chosen server (matched by
-      // source name OR url) so an expired menu URL is replaced; fall back to
-      // the menu entry only when the fresh list has no match at all.
-      final freshTarget = _availableServers
-          .where((s) => s.source == server.source || s.url == server.url)
-          .firstOrNull;
-      final current = freshTarget ?? server;
-      // Prefer servers that pass the pre-flight check, but never block the
-      // player from trying the rest: validation can miss streams a CDN will
-      // happily serve to ExoPlayer, which is the final arbiter.
-      final validated = <_StreamCandidate>[];
-      final unvalidated = <_StreamCandidate>[];
-      for (final s in _availableServers) {
-        if (s.url == current.url) continue;
-        (await _isStreamPlayable(s) ? validated : unvalidated).add(s);
-      }
-      var initialized = false;
-      final tried = <String>{};
-      for (final candidate in [current, ...validated, ...unvalidated]) {
-        if (!_isCurrent(generation) || initialized) break;
-        if (!tried.add(candidate.url)) continue;
-        // The chosen server (first in the list) is always attempted: our
-        // plain-HTTP pre-flight is not proof ExoPlayer can't play it. The
-        // validated/unvalidated split above already gated the alternatives,
-        // so no per-candidate re-check here - ExoPlayer is the final arbiter.
-        _showStatus('Loading a working stream from ${candidate.source}...');
-        // Preferred path: re-queue onto the existing player instead of
-        // creating a new one. Reuse was originally required because tearing
-        // down and re-creating a SurfaceView platform view mid-playback
-        // produced the "scratch" artifact and compositor crash on Android 14
-        // TV (now fixed by the texture render path); reuse is still cheaper
-        // and avoids a visible player reset, so it stays the default.
-        initialized = await _reloadPlayback(
-          candidate,
-          generation: generation,
-          resumePosition: livePosition,
-        );
-        if (!initialized && _isCurrent(generation)) {
-          // Let a torn-down platform view fully release before the next
-          // SurfaceView is created; overlapping them crashes the compositor on
-          // some TV boxes.
-          await Future<void>.delayed(const Duration(milliseconds: 400));
-          if (_isCurrent(generation)) {
-            initialized = await _initializePlayer(
-              candidate,
-              generation: generation,
-              resumePosition: livePosition,
-            );
-          }
+      // Fast path: try the clicked entry right away - its URL and headers are
+      // exactly what the menu is showing. A full rebuild (dispose + fresh
+      // create) is safe on the texture render path (no platform-view overlap)
+      // and is far more reliable on TV firmware than re-queueing onto the live
+      // player, which can silently fail to take over or hang the loading state.
+      var initialized = await _switchAttempt(
+        server,
+        generation: generation,
+        position: livePosition,
+      );
+      if (!initialized && _isCurrent(generation)) {
+        // The menu URL may have expired (VixSrc/RPM tokens are short-lived).
+        // Re-resolve fresh, prefer the freshly resolved entry for this source
+        // (matched by source name OR url), then try the remaining servers.
+        await _discoverAvailableServers(generation);
+        if (!_isCurrent(generation)) return;
+        final freshTarget = _availableServers
+            .where((s) => s.source == server.source || s.url == server.url)
+            .firstOrNull;
+        final tried = <String>{};
+        for (final candidate in [
+          ?freshTarget,
+          ..._availableServers,
+        ]) {
+          if (!_isCurrent(generation) || initialized) break;
+          if (!tried.add(candidate.url)) continue;
+          _showStatus('Loading a working stream from ${candidate.source}...');
+          initialized = await _switchAttempt(
+            candidate,
+            generation: generation,
+            position: livePosition,
+          );
         }
-        if (initialized || !_isCurrent(generation)) break;
-        _failedServerUrls.add(candidate.url);
+      }
+      if (!_isCurrent(generation)) return;
+      if (!initialized && previousCandidate != null) {
+        // Nothing could start. Bring the previously working stream back (the
+        // attempt disposed the old player) before reporting the failure.
+        _traceStep('Restoring ${previousCandidate.source}');
+        initialized = await _switchAttempt(
+          previousCandidate,
+          generation: generation,
+          position: livePosition,
+        );
       }
 
       if (!_isCurrent(generation)) return;
@@ -1634,25 +1634,26 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         _switchingServer = false;
         _isLoading = false;
         if (initialized) {
-          _selectedSource = current.source;
-          _selectedServerUrl = current.url;
-          _qualities = current.qualities;
-          _subtitleTracks = current.subtitles;
+          final active = _currentCandidate ?? previousCandidate ?? server;
+          _selectedSource = active.displaySource;
+          _selectedServerUrl = active.url;
+          _qualities = active.qualities;
+          _subtitleTracks = active.subtitles;
           _clearSubtitles();
         } else {
-          // No server could start: keep the previously working stream instead
-          // of leaving the player stuck on a source error, and say so instead
-          // of failing silently.
+          // No server could start - not even the previously working one. The
+          // rebuild disposed the old player, so there is nothing left to keep:
+          // surface a real error instead of a misleading "keeping" toast.
           _selectedSource = previousSource;
           _selectedServerUrl = previousUrl;
           _qualities = previousQualities;
           _subtitleTracks = previousSubtitles;
-          _error = null;
+          _error = 'Failed to switch servers. Please try again.';
         }
       });
       if (!initialized && mounted) {
         _showStatus(
-          'Could not switch to ${server.source}. Keeping the current stream.',
+          'Could not switch to ${server.source}. Please try again.',
         );
       }
     } finally {
@@ -1668,11 +1669,39 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     }
   }
 
+  /// One server/quality attempt: a full rebuild (dispose + fresh create) is
+  /// reliable on TV firmware where re-queueing onto the live player silently
+  /// fails to take over or hangs. One retry after a settle delay when the
+  /// first create fails.
+  Future<bool> _switchAttempt(
+    _StreamCandidate candidate, {
+    required int generation,
+    required Duration position,
+  }) async {
+    var ok = await _initializePlayer(
+      candidate,
+      generation: generation,
+      resumePosition: position,
+    );
+    if (!ok && _isCurrent(generation)) {
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      if (_isCurrent(generation)) {
+        ok = await _initializePlayer(
+          candidate,
+          generation: generation,
+          resumePosition: position,
+        );
+      }
+    }
+    return ok;
+  }
+
   Future<void> _switchQuality(_QualityOption quality) async {
     final candidate = _currentCandidate;
     if (candidate == null || _switchingServer) return;
     if (quality.url == _currentStreamUrl) return;
     final livePosition = _position;
+    final previousCandidate = candidate;
     setState(() {
       _switchingServer = true;
       _isLoading = true;
@@ -1689,36 +1718,42 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       subtitles: candidate.subtitles,
     );
     try {
-      // Re-queue onto the existing player so the SurfaceView never gets torn
-      // down mid-playback (Android 14 hybrid-composition compositor crash),
-      // only recreating from scratch when reuse is impossible.
-      var initialized = await _reloadPlayback(
-        target,
+      // Full rebuild (dispose + fresh create) instead of re-queueing onto the
+      // live player: re-queues silently fail to take over on some TV firmware,
+      // and on the texture render path there is no platform-view overlap to
+      // justify the risk. Restore the previous quality if the new one can't
+      // start, since the rebuild disposed the old player.
+      var active = target;
+      var initialized = await _switchAttempt(
+        active,
         generation: generation,
-        resumePosition: livePosition,
+        position: livePosition,
       );
       if (!initialized && _isCurrent(generation)) {
-        await Future<void>.delayed(const Duration(milliseconds: 400));
-        if (_isCurrent(generation)) {
-          initialized = await _initializePlayer(
-            target,
-            generation: generation,
-            resumePosition: livePosition,
-          );
-        }
+        _traceStep('Restoring previous quality');
+        active = previousCandidate;
+        initialized = await _switchAttempt(
+          active,
+          generation: generation,
+          position: livePosition,
+        );
       }
       if (!_isCurrent(generation)) return;
       setState(() {
         _switchingServer = false;
         _isLoading = false;
         if (initialized) {
-          _currentStreamUrl = quality.url;
-          _selectedServerUrl = quality.url;
+          _currentStreamUrl = active.url;
+          _selectedServerUrl = active.url;
+        } else {
+          // The rebuild disposed the old player and neither the new quality
+          // nor the previous one could start: show a real error.
+          _error = 'Failed to switch quality. Please try again.';
         }
       });
       if (!initialized && mounted) {
         _showStatus(
-          'Could not switch to ${quality.label}. Keeping the current quality.',
+          'Could not switch to ${quality.label}. Please try again.',
         );
       }
     } finally {
@@ -3877,7 +3912,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         return [
           for (final server in _availableServers)
             _MenuOption(
-              label: server.source,
+              label: server.displaySource,
               onSelect: () => _switchServer(server),
               selected:
                   server.url == _selectedServerUrl || streamEquals(server),
