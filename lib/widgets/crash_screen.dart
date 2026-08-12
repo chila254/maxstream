@@ -59,11 +59,13 @@ Future<void> checkUnexpectedExit() async {
       await file.delete();
       return;
     }
+    final trace = playbackTraceNote;
     crashReport.value = CrashInfo(
       tag: 'UnexpectedExit',
       error:
           'Your TV closed MaxStream while you were watching (usually '
-          'because it ran low on memory, or the device restarted).',
+          'because it ran low on memory, or the device restarted).'
+          '${trace.isEmpty ? '' : '\n\n$trace'}',
       stack: StackTrace.fromString(
         'The player was active when the previous process was terminated '
         'without a clean shutdown - this is typically the system\'s Low '
@@ -152,6 +154,40 @@ class CrashInfo {
 
 final ValueNotifier<CrashInfo?> crashReport = ValueNotifier<CrashInfo?>(null);
 
+/// Ring buffer of the last few playback steps, kept in memory and appended to
+/// the crash log so that even a native process death (Low-Memory-Killer, GPU
+/// driver crash) leaves a trail of where the player was when it died. The TV
+/// player writes a step before/after every meaningful transition (resolving,
+/// pre-flight, player create, server attempts, playback start).
+final List<String> playbackTrace = <String>[];
+
+/// Records a playback step for the on-device crash trail. Must never throw.
+void recordPlaybackTrace(String line) {
+  try {
+    final stamped = '[$_traceClock] $line';
+    playbackTrace.add(stamped);
+    if (playbackTrace.length > 8) playbackTrace.removeAt(0);
+    unawaited(_appendCrashLog('[PlaybackTrace] $stamped\n'));
+  } catch (_) {
+    // Diagnostics must never crash the player.
+  }
+}
+
+String get _traceClock {
+  final now = DateTime.now();
+  final hh = now.hour.toString().padLeft(2, '0');
+  final mm = now.minute.toString().padLeft(2, '0');
+  final ss = now.second.toString().padLeft(2, '0');
+  return '$hh:$mm:$ss';
+}
+
+/// The last playback steps formatted for inclusion in a crash report, or an
+/// empty string when there is nothing to show.
+String get playbackTraceNote {
+  if (playbackTrace.isEmpty) return '';
+  return 'Last player steps:\n${playbackTrace.join('\n')}';
+}
+
 /// True for the benign channel-error thrown by the video player's
 /// buffered-position poll when it races player teardown.
 ///
@@ -180,15 +216,17 @@ Future<void> recordCrash(String tag, Object error, StackTrace stack) async {
     return;
   }
   final time = DateTime.now();
-  LoggerService.error('[$tag] $error', error, stack);
-  unawaited(_appendCrashLog('[$time] [$tag] $error\n$stack\n'));
+  final trace = playbackTraceNote;
+  final reported = trace.isEmpty ? '$error' : '$error\n\n$trace';
+  LoggerService.error('[$tag] $reported', error, stack);
+  unawaited(_appendCrashLog('[$time] [$tag] $reported\n$stack\n'));
   // The user is about to see the report screen for this crash - don't also
   // flag the now-dead process as an "unexpected exit" on the next boot.
   unawaited(heartbeatClear());
   if (crashReport.value == null) {
     crashReport.value = CrashInfo(
       tag: tag,
-      error: error,
+      error: reported,
       stack: stack,
       time: time,
     );

@@ -334,6 +334,14 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
   bool _releasedForBackground = false;
   Future<void>? _backgroundRelease;
 
+  // On-screen playback trace: every meaningful step (resolve, pre-flight,
+  // player create, server attempts, playback start) is appended here and
+  // rendered in the loading/status overlay so the LAST step before a crash is
+  // visible, and persisted to the crash log so even a native death (LMK / GPU
+  // driver) leaves a trail on the next boot's report screen.
+  final List<String> _trace = <String>[];
+  int _traceSeq = 0;
+
   List<_QualityOption> _qualities = const [];
   List<_SubtitleTrack> _subtitleTracks = const [];
   List<_SubtitleCue> _activeSubtitles = const [];
@@ -653,6 +661,41 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
 
   bool _isCurrent(int generation) =>
       !_disposed && mounted && generation == _operationGeneration;
+
+  /// Appends a numbered step to the playback trace (on-screen panel + crash
+  /// log). Must never throw.
+  void _traceStep(String message) {
+    _traceSeq++;
+    final line = '$_traceSeq. $message';
+    _trace.add(line);
+    if (_trace.length > 8) _trace.removeAt(0);
+    debugPrint('TvVideoPlayer[trace]: $line');
+    recordPlaybackTrace(line);
+    // Never setState in the dispose window: dispose() sets _disposed before
+    // super.dispose() unmounts, and an async continuation landing between the
+    // two would throw "setState() called after dispose()".
+    if (!_disposed && mounted) setState(() {});
+  }
+
+  /// The last [count] trace lines for the on-screen panel.
+  List<String> _tracePanel([int count = 4]) {
+    if (_trace.length <= count) return List.of(_trace);
+    return _trace.sublist(_trace.length - count);
+  }
+
+  /// Single-line, length-capped rendering of an exception for the trace.
+  String _shortError(Object error) {
+    final raw = error.toString().replaceAll('\n', ' ');
+    return raw.length <= 140 ? raw : '${raw.substring(0, 137)}...';
+  }
+
+  /// Grows with each consecutive fallback attempt (400ms -> 800ms -> 1200ms ->
+  /// 1600ms cap) so the GPU/decoder gets progressively longer to release the
+  /// previous player's texture before the next one is created. Rapid texture
+  /// create/release cycles are a native-crash source on low-end TV GPUs.
+  Duration _fallbackSettleDelay(int attempt) =>
+      Duration(milliseconds: (attempt * 400).clamp(400, 1600));
+
   Future<void> _loadStream() async {
     if (!mounted || _disposed) return;
     final generation = ++_operationGeneration;
@@ -663,6 +706,13 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       _statusMessage = 'Fetching servers...';
     });
     _findingFallback = false;
+    _trace
+      ..clear()
+      ..add('0. Starting playback load');
+    _traceSeq = 0;
+    // Start a fresh crash trail for this session so a crash report never mixes
+    // steps from a previously played title.
+    playbackTrace.clear();
 
     try {
       await _loadMediaMetadata();
@@ -707,7 +757,11 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         // than flashing a terminal error.
         _findingFallback = true;
         var initialized = false;
-        if (await _isStreamPlayable(candidate)) {
+        final primaryPlayable = await _isStreamPlayable(candidate);
+        if (!primaryPlayable) {
+          _traceStep('Primary ${candidate.source} failed pre-flight (HTTP)');
+        } else {
+          _traceStep('Pre-flight OK for ${candidate.source}; creating player');
           initialized = await _initializePlayer(
             candidate,
             generation: generation,
@@ -719,6 +773,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
           // The primary stream was resolved but is dead (e.g. an expired HLS
           // token). Fall back to the remaining servers so a single bad server
           // never blocks playback with a source error.
+          _traceStep('Primary ${candidate.source} did not start; finding alternatives');
           setState(() {
             _statusMessage =
                 'That stream is unavailable. Finding a working one...';
@@ -734,12 +789,19 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
             if (alt.url == candidate.url) continue;
             (await _isStreamPlayable(alt) ? validated : unvalidated).add(alt);
           }
-          for (final alt in [...validated, ...unvalidated]) {
+          final alternatives = [...validated, ...unvalidated];
+          _traceStep('Discovered ${alternatives.length} alternative server(s)');
+          var attempt = 0;
+          for (final alt in alternatives) {
             if (!_isCurrent(generation) || initialized) break;
-            // Let a failed platform view fully release before the next
-            // SurfaceView is created; overlapping them crashes the compositor
-            // on some TV boxes.
-            await Future<void>.delayed(const Duration(milliseconds: 400));
+            attempt++;
+            _traceStep('Trying ${alt.source} ($attempt/${alternatives.length})');
+            // Let the torn-down player fully release before the next one is
+            // created. The gap grows with each consecutive failure: rapid
+            // texture create/release cycles are a native-crash source on
+            // low-end TV GPUs, and slow boxes need longer to give the surface
+            // back.
+            await Future<void>.delayed(_fallbackSettleDelay(attempt));
             if (!_isCurrent(generation) || initialized) break;
             initialized = await _initializePlayer(
               alt,
@@ -967,6 +1029,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     final url = candidate.url;
     final isHls = url.toLowerCase().contains('.m3u8');
     final previous = _controller;
+    _traceStep('Creating player for ${candidate.source}');
 
     // Fully tear down the previous player BEFORE creating a replacement. This
     // serialization was originally required because overlapping two live
@@ -1095,10 +1158,13 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
         _wasBufferingAtLastCheck = controller.value.isBuffering;
       });
 
+      _traceStep('Playback started from ${candidate.source}');
       _startProgressSaving();
       _showControlsAndFocus();
       return true;
     } catch (e) {
+      _initTimeout?.cancel();
+      _traceStep('${candidate.source} failed to start: ${_shortError(e)}');
       debugPrint('TvVideoPlayer: Error initializing player: $e');
       if (_isCurrent(generation)) {
         if (_recoveringPlayback || _switchingServer || _findingFallback) {
@@ -1126,7 +1192,13 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
   void _handlePlaybackChanged() {
     final controller = _controller;
     if (!mounted || _disposed || controller == null) return;
-    final value = controller.value;
+    final VideoPlayerValue value;
+    try {
+      value = controller.value;
+    } catch (e) {
+      debugPrint('TvVideoPlayer: playback listener on disposed controller: $e');
+      return;
+    }
     if (value.position > Duration.zero) _lastStablePosition = value.position;
     if (value.duration > Duration.zero) _duration = value.duration;
     if (value.buffered.isNotEmpty) {
@@ -1145,6 +1217,9 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       // streams fresh and is the one that decides when every server has truly
       // failed, so never suppress it here: leaving the dead player on screen is
       // exactly the "error in the middle" bug.
+      _traceStep(
+        'Player error: ${_shortError(value.errorDescription ?? 'unknown')}',
+      );
       unawaited(_recoverPlayback());
       _isBuffering = true;
     }
@@ -1157,7 +1232,13 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
   void _onPositionTick() {
     final controller = _controller;
     if (_disposed || !mounted || controller == null) return;
-    final value = controller.value;
+    final VideoPlayerValue value;
+    try {
+      value = controller.value;
+    } catch (e) {
+      debugPrint('TvVideoPlayer: position tick on disposed controller: $e');
+      return;
+    }
     if (value.position > Duration.zero) {
       _position = value.position;
       _lastStablePosition = value.position;
@@ -1295,6 +1376,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     final generation = _operationGeneration;
     _recoveringPlayback = true;
     _playbackRetryCount++;
+    _traceStep('Recovering playback (attempt $_playbackRetryCount)');
     if (mounted) {
       setState(() {
         _error = null;
@@ -1449,6 +1531,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       _switchingServer = true;
       _isLoading = true;
     });
+    _traceStep('Switching to ${server.source}');
 
     // Re-resolve streams fresh before switching: the server list may hold
     // expired URLs (e.g. short-lived VixSrc tokens) that ExoPlayer rejects.
@@ -1537,6 +1620,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
       _isLoading = true;
     });
     _showStatus('Switching to ${quality.label}...');
+    _traceStep('Switching quality to ${quality.label}');
     final generation = ++_operationGeneration;
     final target = _StreamCandidate(
       url: quality.url,
@@ -2765,6 +2849,41 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
     );
   }
 
+  /// Small monospace panel with the last few playback steps, shown under the
+  /// main status message while loading/recovering so the last step before a
+  /// crash is on screen.
+  Widget _buildTracePanel() {
+    final lines = _tracePanel();
+    if (lines.isEmpty) return const SizedBox.shrink();
+    return Container(
+      margin: const EdgeInsets.only(top: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0x66000000),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: const Color(0x33FFFFFF)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (final line in lines)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Text(
+                line,
+                style: const TextStyle(
+                  color: Colors.white70,
+                  fontSize: 14,
+                  fontFamily: 'monospace',
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildStatusWidget() {
     if (_statusMessage.isEmpty) {
       return const SizedBox.shrink();
@@ -2776,10 +2895,16 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
           color: const Color(0xCC000000),
           borderRadius: BorderRadius.circular(8),
         ),
-        child: Text(
-          _statusMessage,
-          textAlign: TextAlign.center,
-          style: const TextStyle(color: Colors.white, fontSize: 18),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              _statusMessage,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white, fontSize: 18),
+            ),
+            _buildTracePanel(),
+          ],
         ),
       ),
     );
@@ -2800,6 +2925,8 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
               textAlign: TextAlign.center,
               style: const TextStyle(color: Colors.white, fontSize: 20),
             ),
+            const SizedBox(height: 16),
+            _buildTracePanel(),
             const SizedBox(height: 24),
             FilledButton(
               style: FilledButton.styleFrom(
@@ -2838,6 +2965,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
             textAlign: TextAlign.center,
             style: const TextStyle(color: Colors.white, fontSize: 18),
           ),
+          _buildTracePanel(),
         ],
       ),
     );
@@ -3812,6 +3940,7 @@ class _TvVideoPlayerScreenState extends State<TvVideoPlayerScreen>
                             ),
                           ),
                         ],
+                        _buildTracePanel(),
                       ],
                     ),
                   ),
