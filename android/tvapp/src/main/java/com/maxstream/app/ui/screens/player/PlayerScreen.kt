@@ -133,6 +133,25 @@ fun PlayerScreen(
         )
     }
 
+    fun qualityLabelFor(s: Source): String {
+        if (s.separateAudio) return "Auto"
+        val currentUrl = s.url
+        return s.qualities.firstOrNull { it.url == currentUrl }?.label ?: "Auto"
+    }
+
+    fun subtitleMimeType(url: String): String = when {
+        url.contains(".vtt", true) -> MimeTypes.TEXT_VTT
+        url.contains(".srt", true) -> MimeTypes.APPLICATION_SUBRIP
+        url.contains(".ssa", true) || url.contains(".ass", true) -> MimeTypes.TEXT_SSA
+        url.contains(".m3u8", true) -> MimeTypes.APPLICATION_M3U8
+        else -> MimeTypes.TEXT_VTT
+    }
+
+    fun qualityOptions(s: Source?): List<Quality> {
+        val q = s?.qualities ?: return emptyList()
+        return listOf(Quality(label = "Auto", url = "", height = 0)) + q
+    }
+
     /**
      * Builds a fresh player for [media] and swaps it in. Used for initial load,
      * server switches, quality switches and subtitle changes - a full rebuild is
@@ -387,20 +406,6 @@ fun PlayerScreen(
         }
     }
 
-    fun qualityLabelFor(s: Source): String {
-        if (s.separateAudio) return "Auto"
-        val currentUrl = s.url
-        return s.qualities.firstOrNull { it.url == currentUrl }?.label ?: "Auto"
-    }
-
-    fun subtitleMimeType(url: String): String = when {
-        url.contains(".vtt", true) -> MimeTypes.TEXT_VTT
-        url.contains(".srt", true) -> MimeTypes.APPLICATION_SUBRIP
-        url.contains(".ssa", true) || url.contains(".ass", true) -> MimeTypes.TEXT_SSA
-        url.contains(".m3u8", true) -> MimeTypes.APPLICATION_M3U8
-        else -> MimeTypes.TEXT_VTT
-    }
-
     // ------------------------------------------------------------------
     // Effects
     // ------------------------------------------------------------------
@@ -478,53 +483,6 @@ fun PlayerScreen(
     // D-pad / remote handling
     // ------------------------------------------------------------------
 
-    fun onKeyDown(key: Key): Boolean {
-        when (key) {
-            Key.DirectionUp -> {
-                if (menuOpen) {
-                    menuIndex = if (menuIndex > 0) menuIndex - 1 else menuIndex
-                    return true
-                }
-            }
-            Key.DirectionDown -> {
-                if (menuOpen) {
-                    val count = when (activeMenu) {
-                        PlayerMenu.Servers -> allServers.size
-                        PlayerMenu.Quality -> qualityOptions(source).size
-                        PlayerMenu.Subtitles -> subtitleOptions.size + 1
-                        null -> 0
-                    }
-                    if (menuIndex + 1 < count) menuIndex++
-                    return true
-                }
-            }
-            Key.DirectionCenter, Key.Enter -> {
-                if (menuOpen) {
-                    selectMenuOption(source)
-                    return true
-                }
-            }
-            Key.Back, Key.Escape -> {
-                if (menuOpen) {
-                    menuOpen = false
-                    activeMenu = null
-                    menuIndex = 0
-                } else {
-                    saveProgress()
-                    navController.popBackStack()
-                }
-                return true
-            }
-            else -> return false
-        }
-        return false
-    }
-
-    fun qualityOptions(s: Source?): List<Quality> {
-        val q = s?.qualities ?: return emptyList()
-        return listOf(Quality(label = "Auto", url = "", height = 0)) + q
-    }
-
     fun selectMenuOption(s: Source?) {
         val menu = activeMenu ?: return
         when (menu) {
@@ -591,6 +549,48 @@ fun PlayerScreen(
                 s?.let { switchMedia(it.url, it.headers, it.isHls, target) }
             }
         }
+    }
+
+    fun onKeyDown(key: Key): Boolean {
+        when (key) {
+            Key.DirectionUp -> {
+                if (menuOpen) {
+                    menuIndex = if (menuIndex > 0) menuIndex - 1 else menuIndex
+                    return true
+                }
+            }
+            Key.DirectionDown -> {
+                if (menuOpen) {
+                    val count = when (activeMenu) {
+                        PlayerMenu.Servers -> allServers.size
+                        PlayerMenu.Quality -> qualityOptions(source).size
+                        PlayerMenu.Subtitles -> subtitleOptions.size + 1
+                        null -> 0
+                    }
+                    if (menuIndex + 1 < count) menuIndex++
+                    return true
+                }
+            }
+            Key.DirectionCenter, Key.Enter -> {
+                if (menuOpen) {
+                    selectMenuOption(source)
+                    return true
+                }
+            }
+            Key.Back, Key.Escape -> {
+                if (menuOpen) {
+                    menuOpen = false
+                    activeMenu = null
+                    menuIndex = 0
+                } else {
+                    saveProgress()
+                    navController.popBackStack()
+                }
+                return true
+            }
+            else -> return false
+        }
+        return false
     }
 
     // ------------------------------------------------------------------

@@ -47,6 +47,7 @@ fun SearchScreen(navController: NavController) {
     var isSearching by remember { mutableStateOf(false) }
     var searchError by remember { mutableStateOf<String?>(null) }
     var debounceJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    val searchFieldFocusRequester = remember { FocusRequester() }
 
     LaunchedEffect(query) {
         debounceJob?.cancel()
@@ -92,8 +93,8 @@ fun SearchScreen(navController: NavController) {
                 label = { Text("Search movies and series") },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .focusRequester(remember { FocusRequester() }),
-                isSingleLine = true
+                    .focusRequester(searchFieldFocusRequester),
+                singleLine = true
             )
 
             Spacer(modifier = Modifier.height(16.dp))
