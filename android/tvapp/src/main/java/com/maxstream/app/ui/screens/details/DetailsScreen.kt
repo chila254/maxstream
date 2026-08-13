@@ -11,31 +11,26 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.tv.material3.Card
-import androidx.tv.material3.CardDefaults
-import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.Text
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.navigation.NavController
-import com.maxstream.app.data.model.MediaItem
-import com.maxstream.app.ui.theme.SurfaceVariant
-import com.maxstream.app.ui.viewmodel.DetailsViewModel
 import coil.compose.AsyncImage
 import androidx.compose.foundation.shape.RoundedCornerShape
 
 @Composable
 fun DetailsScreen(navController: NavController, itemJson: String) {
-    val viewModel = androidx.lifecycle.viewmodel.compose.viewModel<DetailsViewModel>()
     val item = remember(itemJson) {
         try {
-            com.google.gson.Gson().fromJson(java.net.URLDecoder.decode(itemJson, "UTF-8"), MediaItem::class.java)
+            com.google.gson.Gson().fromJson(java.net.URLDecoder.decode(itemJson, "UTF-8"), com.maxstream.app.data.model.MediaItem::class.java)
         } catch (e: Exception) { null }
     } ?: return
 
@@ -64,7 +59,7 @@ fun DetailsScreen(navController: NavController, itemJson: String) {
                 Text(text = item.overview.ifBlank { "No overview available." }, style = MaterialTheme.typography.bodyLarge)
                 Spacer(modifier = Modifier.height(16.dp))
                 Card(
-                    onClick = { viewModel.resolve() },
+                    onClick = { },
                     modifier = Modifier.fillMaxWidth(),
                     shape = CardDefaults.shape(RoundedCornerShape(12.dp)),
                 ) {

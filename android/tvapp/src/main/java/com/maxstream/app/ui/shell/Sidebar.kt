@@ -5,7 +5,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -14,7 +13,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -30,14 +28,11 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.tv.material3.Border
-import androidx.tv.material3.Card
-import androidx.tv.material3.CardDefaults
-import androidx.tv.material3.Icon
-import androidx.tv.material3.IconButton
-import androidx.tv.material3.IconButtonDefaults
-import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.Text
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import com.maxstream.app.R
 
 @Composable
@@ -69,12 +64,8 @@ fun Sidebar(
                     focusedContainerColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                 ),
                 shape = CardDefaults.shape(RoundedCornerShape(12.dp)),
-                border = CardDefaults.border(
-                    border = Border.None,
-                    focusedBorder = Border(
-                        border = androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.focusRing),
-                        shape = RoundedCornerShape(12.dp),
-                    ),
+                border = CardDefaults.outlinedCardBorder(enabled = true).copy(
+                    brush = if (isFocused) androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.focusRing) else androidx.compose.ui.graphics.SolidColor(Color.Transparent)
                 ),
             ) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
