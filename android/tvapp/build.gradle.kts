@@ -13,6 +13,7 @@ if (keystoreFile.exists()) {
     keystoreProps.load(FileInputStream(keystoreFile))
 }
 
+@Suppress("Deprecation")
 android {
     namespace = "com.maxstream.app"
     compileSdk = 35
@@ -77,10 +78,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_21
     }
 
-    kotlinOptions {
-        jvmTarget = "21"
-    }
-
     buildFeatures {
         compose = true
         viewBinding = true
@@ -94,6 +91,12 @@ android {
         resources {
             excludes += setOf("/META-INF/{AL2.0,LGPL2.1}")
         }
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(21)
     }
 }
 
