@@ -81,8 +81,11 @@ fun WatchlistScreen(
     // Seed focus on first tab chip when visible
     LaunchedEffect(isVisible, loading) {
         if (!isVisible || loading) return@LaunchedEffect
-        kotlinx.coroutines.delay(80)
-        runCatching { tabFocusRequesters[0].requestFocus() }
+        repeat(6) { attempt ->
+            kotlinx.coroutines.delay(50L * (attempt + 1))
+            val ok = runCatching { tabFocusRequesters[0].requestFocus() }
+            if (ok.isSuccess) return@LaunchedEffect
+        }
     }
 
     val filtered = when (selectedTab) {

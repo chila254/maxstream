@@ -87,6 +87,7 @@ fun Sidebar(
     focusRequesters: List<FocusRequester>,
     onItemSelected: (Int) -> Unit,
     onReturnToContent: () -> Unit,
+    onFocusEntered: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     // ── Local focus state ──────────────────────────────────────────────────
@@ -155,7 +156,7 @@ fun Sidebar(
                     isExpanded = isExpanded,
                     focusRequester = focusRequesters[index],
                     onFocusChanged = { hasFocus ->
-                        if (hasFocus) focusedIndex = index
+                        if (hasFocus) { focusedIndex = index; onFocusEntered() }
                         else if (focusedIndex == index) focusedIndex = -1
                     },
                     onSelect = {

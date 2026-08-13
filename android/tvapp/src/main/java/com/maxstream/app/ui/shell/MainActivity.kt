@@ -9,6 +9,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -16,7 +17,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -29,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -78,35 +79,34 @@ class MainActivity : ComponentActivity() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Root composable — owns the IndexedStack shell and back state machine
+// Root composable
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
 private fun TvAppRoot() {
     val appState = rememberTvAppState()
 
-    // One FocusRequester per sidebar item + one for the content region.
-    // These are the same nodes Sidebar and each screen attach themselves to.
+    // ── Focus architecture (mirrors Dart FocusScopeNode pattern) ─────────
+    // sidebarFocusRequesters[i] is attached to each sidebar pill item.
+    // contentFocusRequester is attached to the content Box AND made focusable,
+    // so requestFocus() on it actually lands — the Box then passes focus to
+    // its first focusable child via normal Compose focus traversal.
     val sidebarFocusRequesters = remember { List(6) { FocusRequester() } }
-    val contentFocusRequester = remember { FocusRequester() }
+    val contentFocusRequester  = remember { FocusRequester() }
 
-    // Deep-nav controller: only used for Details / Player / Splash / Login.
-    // Tab screens are rendered via IndexedStack and are never "navigated to".
     val deepNavController = rememberNavController()
 
-    // Wire TvFocusManager so screens can call focusSidebar() / focusContent()
+    // Wire TvFocusManager singleton (used by individual screens)
     LaunchedEffect(Unit) {
         TvFocusManager.initialize(
             sidebarFocusRequesters = sidebarFocusRequesters,
-            contentFocusRequester = contentFocusRequester,
+            contentFocusRequester  = contentFocusRequester,
         )
     }
 
-    // ── Exit dialog state ──────────────────────────────────────────────────
     var exitDialogVisible by remember { mutableStateOf(false) }
 
-    // ── Back state machine (mirrors Dart _handleSystemBack) ───────────────
-    // Priority: deep nav pop → sidebar-while-content → home-while-sidebar → exit dialog
+    // ── Back state machine ────────────────────────────────────────────────
     fun handleBack() {
         if (deepNavController.previousBackStackEntry != null) {
             deepNavController.popBackStack()
@@ -114,102 +114,87 @@ private fun TvAppRoot() {
         }
         if (appState.selectedTab != 0) {
             if (appState.focusOnSidebar) {
-                // Second back on sidebar: go to Home tab, focus content
                 appState.selectTab(0)
                 appState.updateFocusOnSidebar(false)
             } else {
-                // First back on content: move focus to sidebar
                 appState.updateFocusOnSidebar(true)
             }
             return
         }
-        // Already on Home tab
         exitDialogVisible = true
     }
 
-    // Shell-level key handler — only intercepts Back/Escape that bubbled all
-    // the way up (i.e. nothing deeper consumed it).
-    val shellKeyHandler: (androidx.compose.ui.input.key.KeyEvent) -> Boolean = { event ->
-        if (event.type == KeyEventType.KeyDown &&
-            (event.key == Key.Back ||
-                    event.key == Key.Escape)
-        ) {
-            handleBack()
-            true
-        } else false
-    }
-
-    // ── Focus transfer side-effects ────────────────────────────────────────
-    // Every time focusOnSidebar or selectedTab changes, move hardware focus.
+    // ── Focus transfer effect ─────────────────────────────────────────────
+    // Mirrors Dart's _requestFocusAfterFrames(node, retries: 6).
+    // We retry across multiple frames because after a tab switch the content
+    // composable has not yet laid out its children — a single delay(50) is
+    // not enough. We try up to 6 times with 50 ms gaps (300 ms total).
     LaunchedEffect(appState.focusOnSidebar, appState.selectedTab) {
-        delay(50) // One frame — content composables need to attach their nodes first
-        if (appState.focusOnSidebar) {
-            runCatching {
-                sidebarFocusRequesters.getOrNull(appState.selectedTab)?.requestFocus()
+        repeat(6) { attempt ->
+            delay(50L * (attempt + 1))
+            val result = if (appState.focusOnSidebar) {
+                runCatching {
+                    sidebarFocusRequesters.getOrNull(appState.selectedTab)?.requestFocus()
+                }
+            } else {
+                runCatching { contentFocusRequester.requestFocus() }
             }
-        } else {
-            runCatching { contentFocusRequester.requestFocus() }
+            if (result.isSuccess) return@LaunchedEffect
         }
     }
 
-    // ── Layout ─────────────────────────────────────────────────────────────
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFF0F0F0F))
             .onKeyEvent { event ->
-                shellKeyHandler(event)
+                if (event.type == KeyEventType.KeyDown &&
+                    (event.key == Key.Back || event.key == Key.Escape)
+                ) {
+                    handleBack(); true
+                } else false
             }
     ) {
-        // The root NavHost handles Splash, Login, Pairing, Details, Player.
-        // It starts at Splash; once auth is done it navigates to the shell.
         NavHost(
             navController = deepNavController,
             startDestination = Screen.Splash.route,
             enterTransition = { fadeIn(tween(300)) },
-            exitTransition = { fadeOut(tween(180)) },
+            exitTransition  = { fadeOut(tween(180)) },
         ) {
             composable(Screen.Splash.route) {
-                SplashScreen(
-                    onComplete = {
-                        deepNavController.navigate(Screen.Shell.route) {
-                            popUpTo(Screen.Splash.route) { inclusive = true }
-                        }
+                SplashScreen(onComplete = {
+                    deepNavController.navigate(Screen.Shell.route) {
+                        popUpTo(Screen.Splash.route) { inclusive = true }
                     }
-                )
+                })
             }
             composable(Screen.Login.route) {
-                LoginScreen(
-                    onLoginSuccess = {
-                        deepNavController.navigate(Screen.Shell.route) {
-                            popUpTo(Screen.Login.route) { inclusive = true }
-                        }
+                LoginScreen(onLoginSuccess = {
+                    deepNavController.navigate(Screen.Shell.route) {
+                        popUpTo(Screen.Login.route) { inclusive = true }
                     }
-                )
+                })
             }
             composable(Screen.Pairing.route) {
-                PairingScreen(
-                    onComplete = {
-                        deepNavController.navigate(Screen.Shell.route) {
-                            popUpTo(Screen.Pairing.route) { inclusive = true }
-                        }
+                PairingScreen(onComplete = {
+                    deepNavController.navigate(Screen.Shell.route) {
+                        popUpTo(Screen.Pairing.route) { inclusive = true }
                     }
-                )
+                })
             }
-            // The shell itself — sidebar + IndexedStack
             composable(Screen.Shell.route) {
                 TvShell(
-                    appState = appState,
-                    sidebarFocusRequesters = sidebarFocusRequesters,
-                    contentFocusRequester = contentFocusRequester,
-                    deepNavController = deepNavController,
+                    appState                = appState,
+                    sidebarFocusRequesters  = sidebarFocusRequesters,
+                    contentFocusRequester   = contentFocusRequester,
+                    deepNavController       = deepNavController,
                 )
             }
             composable(Screen.Details.route) { backStackEntry ->
                 val itemId = backStackEntry.arguments?.getString("itemId") ?: ""
                 DetailsScreen(
-                    navController = deepNavController,
-                    itemId = itemId,
+                    navController    = deepNavController,
+                    itemId           = itemId,
                     onReturnToSidebar = {
                         deepNavController.popBackStack()
                         appState.updateFocusOnSidebar(true)
@@ -219,8 +204,8 @@ private fun TvAppRoot() {
             composable(Screen.Series.route) { backStackEntry ->
                 val itemId = backStackEntry.arguments?.getString("itemId") ?: ""
                 SeriesScreen(
-                    navController = deepNavController,
-                    itemId = itemId,
+                    navController    = deepNavController,
+                    itemId           = itemId,
                     onReturnToSidebar = {
                         deepNavController.popBackStack()
                         appState.updateFocusOnSidebar(true)
@@ -228,30 +213,26 @@ private fun TvAppRoot() {
                 )
             }
             composable(Screen.Player.route) { backStackEntry ->
-                val itemId = backStackEntry.arguments?.getString("itemId") ?: ""
+                val itemId    = backStackEntry.arguments?.getString("itemId")    ?: ""
                 val mediaType = backStackEntry.arguments?.getString("mediaType") ?: "movie"
-                val season = backStackEntry.arguments?.getString("season")?.toIntOrNull() ?: 1
-                val episode = backStackEntry.arguments?.getString("episode")?.toIntOrNull() ?: 1
+                val season    = backStackEntry.arguments?.getString("season")?.toIntOrNull()  ?: 1
+                val episode   = backStackEntry.arguments?.getString("episode")?.toIntOrNull() ?: 1
                 PlayerScreen(deepNavController, itemId, mediaType, season, episode)
             }
         }
 
-        // Exit confirmation dialog
         if (exitDialogVisible) {
             val activity = androidx.compose.ui.platform.LocalContext.current as? android.app.Activity
             ExitDialog(
                 onDismiss = { exitDialogVisible = false },
-                onConfirm = {
-                    exitDialogVisible = false
-                    activity?.finish()
-                }
+                onConfirm = { exitDialogVisible = false; activity?.finish() },
             )
         }
     }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Shell — sidebar + IndexedStack content area (mirrors Dart _buildRootShell)
+// Shell — sidebar + IndexedStack
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
@@ -262,68 +243,73 @@ private fun TvShell(
     deepNavController: androidx.navigation.NavController,
 ) {
     Row(modifier = Modifier.fillMaxSize()) {
+
         // ── Sidebar ────────────────────────────────────────────────────────
         Sidebar(
-            selectedIndex = appState.selectedTab,
+            selectedIndex   = appState.selectedTab,
             focusRequesters = sidebarFocusRequesters,
-            onItemSelected = { index ->
-                appState.selectTab(index)
-                // Focus will transfer to content via the LaunchedEffect in TvAppRoot
-            },
-            onReturnToContent = {
-                appState.updateFocusOnSidebar(false)
-            },
+            onItemSelected  = { index -> appState.selectTab(index) },
+            onReturnToContent = { appState.updateFocusOnSidebar(false) },
+            onFocusEntered  = { appState.updateFocusOnSidebar(true) },
         )
 
-        // ── Content — IndexedStack (all screens stay alive) ────────────────
+        // ── Content area ───────────────────────────────────────────────────
+        // The contentFocusRequester is attached here AND the box is .focusable()
+        // so requestFocus() actually lands on this node. Compose then passes
+        // focus down to the first focusable child (the active screen's hero
+        // button, keyboard, or card row).
         Box(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxSize()
                 .focusRequester(contentFocusRequester)
+                // Make the box itself focusable so requestFocus() does not
+                // silently fail when called before any child has laid out.
+                .focusable()
+                .onFocusChanged { state ->
+                    // When this scope receives focus, mark content as focused
+                    // so the app state stays in sync.
+                    if (state.hasFocus) appState.updateFocusOnSidebar(false)
+                }
         ) {
-            // Each screen is composed at all times; only the selected one fills
-            // its space. The unselected ones collapse to 0×0 so focus inside
-            // them cannot be accidentally reached by D-pad traversal.
             TabScreen(visible = appState.selectedTab == 0) {
                 HomeScreen(
-                    navController = deepNavController,
+                    navController     = deepNavController,
                     onReturnToSidebar = { appState.updateFocusOnSidebar(true) },
-                    isVisible = appState.selectedTab == 0,
+                    isVisible         = appState.selectedTab == 0,
                 )
             }
             TabScreen(visible = appState.selectedTab == 1) {
                 SearchScreen(
-                    navController = deepNavController,
+                    navController     = deepNavController,
                     onReturnToSidebar = { appState.updateFocusOnSidebar(true) },
-                    isVisible = appState.selectedTab == 1,
+                    isVisible         = appState.selectedTab == 1,
                 )
             }
             TabScreen(visible = appState.selectedTab == 2) {
                 GenreScreen(
-                    navController = deepNavController,
+                    navController     = deepNavController,
                     onReturnToSidebar = { appState.updateFocusOnSidebar(true) },
-                    isVisible = appState.selectedTab == 2,
+                    isVisible         = appState.selectedTab == 2,
                 )
             }
             TabScreen(visible = appState.selectedTab == 3) {
-                // Tab index 3 is the Series LIST screen (not a single series detail)
                 SeriesListTab(
-                    navController = deepNavController,
+                    navController     = deepNavController,
                     onReturnToSidebar = { appState.updateFocusOnSidebar(true) },
-                    isVisible = appState.selectedTab == 3,
+                    isVisible         = appState.selectedTab == 3,
                 )
             }
             TabScreen(visible = appState.selectedTab == 4) {
                 WatchlistScreen(
-                    navController = deepNavController,
+                    navController     = deepNavController,
                     onReturnToSidebar = { appState.updateFocusOnSidebar(true) },
-                    isVisible = appState.selectedTab == 4,
+                    isVisible         = appState.selectedTab == 4,
                 )
             }
             TabScreen(visible = appState.selectedTab == 5) {
                 MoreScreen(
-                    navController = deepNavController,
+                    navController     = deepNavController,
                     onReturnToSidebar = { appState.updateFocusOnSidebar(true) },
                     onSignOut = {
                         deepNavController.navigate(Screen.Login.route) {
@@ -337,14 +323,14 @@ private fun TvShell(
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// IndexedStack cell
+// ─────────────────────────────────────────────────────────────────────────────
+
 /**
- * IndexedStack cell: fills when [visible], collapses to 0×0 when not.
- * Collapsing (rather than removing) keeps the composable alive so its state
- * (scroll position, loaded data) is preserved across tab switches — identical
- * to Flutter's IndexedStack behaviour.
- *
- * When not visible: size is 0×0 AND focusProperties blocks all D-pad
- * traversal into the hidden subtree, preventing crashes and ghost navigation.
+ * Keeps the composable alive (for scroll/state preservation) but collapses
+ * it to 0×0 and blocks all focus traversal into it when not visible.
+ * Mirrors Flutter's IndexedStack + Offstage behaviour.
  */
 @Composable
 private fun TabScreen(
@@ -364,21 +350,21 @@ private fun TabScreen(
     }
 }
 
-// Thin wrapper so the "series list" tab doesn't conflict with the deep-nav
-// SeriesScreen (which shows a single series).  In Dart this was TvSeriesListScreen.
+// ─────────────────────────────────────────────────────────────────────────────
+// Series list tab wrapper
+// ─────────────────────────────────────────────────────────────────────────────
+
 @Composable
 private fun SeriesListTab(
     navController: androidx.navigation.NavController,
     onReturnToSidebar: () -> Unit,
     isVisible: Boolean,
 ) {
-    // Reuse GenreScreen filtered to TV, or a dedicated SeriesListScreen if you
-    // have one.  For now we forward to GenreScreen with TV pre-selected.
     GenreScreen(
-        navController = navController,
+        navController     = navController,
         onReturnToSidebar = onReturnToSidebar,
-        isVisible = isVisible,
-        initialMediaType = "tv",
+        isVisible         = isVisible,
+        initialMediaType  = "tv",
     )
 }
 
@@ -387,27 +373,17 @@ private fun SeriesListTab(
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
-private fun ExitDialog(
-    onDismiss: () -> Unit,
-    onConfirm: () -> Unit,
-) {
+private fun ExitDialog(onDismiss: () -> Unit, onConfirm: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = Color(0xFF1E1E1E),
+        containerColor   = Color(0xFF1E1E1E),
         title = {
-            Text(
-                text = "Exit MaxStream?",
-                color = Color.White,
-                fontSize = 24.sp,
-                fontWeight = FontWeight.Bold,
-            )
+            Text("Exit MaxStream?", color = Color.White,
+                fontSize = 24.sp, fontWeight = FontWeight.Bold)
         },
         text = {
-            Text(
-                text = "Do you want to exit the app?",
-                color = Color.White.copy(alpha = 0.7f),
-                fontSize = 18.sp,
-            )
+            Text("Do you want to exit the app?",
+                color = Color.White.copy(alpha = 0.7f), fontSize = 18.sp)
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
@@ -417,13 +393,11 @@ private fun ExitDialog(
         confirmButton = {
             FilledTonalButton(
                 onClick = onConfirm,
-                colors = ButtonDefaults.filledTonalButtonColors(
+                colors  = ButtonDefaults.filledTonalButtonColors(
                     containerColor = Color(0xFFE50914),
-                    contentColor = Color.White,
+                    contentColor   = Color.White,
                 ),
-            ) {
-                Text("Exit", fontSize = 18.sp)
-            }
+            ) { Text("Exit", fontSize = 18.sp) }
         },
     )
 }

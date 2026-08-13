@@ -94,11 +94,14 @@ fun GenreScreen(
         }
     }
 
-    // Seed focus on first genre chip when tab becomes visible
+    // Seed focus on first genre chip when tab becomes visible — retry pattern
     LaunchedEffect(isVisible, loading) {
         if (!isVisible || loading) return@LaunchedEffect
-        kotlinx.coroutines.delay(80)
-        runCatching { firstGenreFocusRequester.requestFocus() }
+        repeat(6) { attempt ->
+            kotlinx.coroutines.delay(50L * (attempt + 1))
+            val ok = runCatching { firstGenreFocusRequester.requestFocus() }
+            if (ok.isSuccess) return@LaunchedEffect
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize().background(Background)) {

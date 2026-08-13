@@ -96,11 +96,14 @@ fun SearchScreen(
         }
     }
 
-    // Seed keyboard focus when this tab becomes visible
+    // Seed keyboard focus when this tab becomes visible — retry pattern
     LaunchedEffect(isVisible) {
         if (!isVisible) return@LaunchedEffect
-        delay(80)
-        runCatching { keyboardFocusRequester.requestFocus() }
+        repeat(6) { attempt ->
+            delay(50L * (attempt + 1))
+            val ok = runCatching { keyboardFocusRequester.requestFocus() }
+            if (ok.isSuccess) return@LaunchedEffect
+        }
     }
 
     Row(

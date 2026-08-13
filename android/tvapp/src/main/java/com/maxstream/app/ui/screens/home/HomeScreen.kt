@@ -106,13 +106,15 @@ fun HomeScreen(
 
     // Entry animation + initial focus seed.
     // Re-runs whenever this tab becomes visible so focus is restored on tab return.
+    // Uses retry pattern (6 attempts × 50 ms) matching Dart's _requestFocusAfterFrames.
     LaunchedEffect(isVisible) {
         if (!isVisible) return@LaunchedEffect
-        delay(80) // Let the layout settle
         isEntryVisible = true
-        // Seed focus on the Play button; if data isn't loaded yet the node
-        // may not exist — the runCatching absorbs the IllegalStateException.
-        runCatching { playFocusRequester.requestFocus() }
+        repeat(6) { attempt ->
+            delay(50L * (attempt + 1))
+            val ok = runCatching { playFocusRequester.requestFocus() }
+            if (ok.isSuccess) return@LaunchedEffect
+        }
     }
 
     Box(
