@@ -7,13 +7,15 @@ sealed class Screen(val route: String) {
     data object Home : Screen("home")
     data object Search : Screen("search")
     data object Genre : Screen("genre")
-    data object Series : Screen("series")
+    data object Series : Screen("series/{itemId}") {
+        fun createRoute(itemId: String) = "series/$itemId"
+    }
     data object Watchlist : Screen("watchlist")
     data object More : Screen("more")
     data object Details : Screen("details/{itemId}") {
         fun createRoute(itemId: String) = "details/$itemId"
     }
-    data object Player : Screen("player/{sourceJson}") {
-        fun createRoute(sourceJson: String) = "player/$sourceJson"
+    data object Player : Screen("player/{itemId}/{mediaType}") {
+        fun createRoute(itemId: String, mediaType: String) = "player/$itemId/$mediaType"
     }
 }

@@ -7,4 +7,12 @@
     <string name="series">Series</string>
     <string name="watchlist">Watchlist</string>
     <string name="more">More</string>
+    <string name="play">Play</string>
+    <string name="resume">Resume</string>
+    <string name="details">Details</string>
+    <string name="continue_watching">Continue Watching</string>
+    <string name="trending_movies">Trending Movies</string>
+    <string name="trending_series">Trending Series</string>
+    <string name="popular_movies">Popular Movies</string>
+    <string name="top_rated">Top Rated</string>
 </resources>

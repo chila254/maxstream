@@ -18,6 +18,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     private val _popularSeries = MutableLiveData<List<MediaItem>>(emptyList())
     private val _topRatedMovies = MutableLiveData<List<MediaItem>>(emptyList())
     private val _topRatedSeries = MutableLiveData<List<MediaItem>>(emptyList())
+    private val _continueWatching = MutableLiveData<List<MediaItem>>(emptyList())
     private val _loading = MutableLiveData(true)
     private val _error = MutableLiveData<String?>(null)
 
@@ -27,6 +28,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     val popularSeries: LiveData<List<MediaItem>> = _popularSeries
     val topRatedMovies: LiveData<List<MediaItem>> = _topRatedMovies
     val topRatedSeries: LiveData<List<MediaItem>> = _topRatedSeries
+    val continueWatching: LiveData<List<MediaItem>> = _continueWatching
     val loading: LiveData<Boolean> = _loading
     val error: LiveData<String?> = _error
 

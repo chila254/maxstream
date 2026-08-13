@@ -6,6 +6,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -41,6 +42,7 @@ import com.maxstream.app.ui.screens.splash.SplashScreen
 import com.maxstream.app.ui.screens.watchlist.WatchlistScreen
 import com.maxstream.app.ui.theme.MaxStreamTheme
 import com.maxstream.app.ui.shell.Sidebar
+import com.maxstream.app.ui.shell.SidebarSection
 
 class MainActivity : ComponentActivity() {
     private val tag = "MainActivity"
@@ -65,13 +67,15 @@ class MainActivity : ComponentActivity() {
                         Screen.More.route,
                     )
                     var selectedIndex by remember { mutableStateOf(0) }
+                    var sidebarExpanded by remember { mutableStateOf(false) }
+
                     val sections = listOf(
-                        Screen.Home to R.string.home,
-                        Screen.Search to R.string.search,
-                        Screen.Genre to R.string.genre,
-                        Screen.Series to R.string.series,
-                        Screen.Watchlist to R.string.watchlist,
-                        Screen.More to R.string.more,
+                        SidebarSection(Screen.Home, R.string.home, R.drawable.ic_home),
+                        SidebarSection(Screen.Search, R.string.search, R.drawable.ic_search),
+                        SidebarSection(Screen.Genre, R.string.genre, R.drawable.ic_genre),
+                        SidebarSection(Screen.Series, R.string.series, R.drawable.ic_series),
+                        SidebarSection(Screen.Watchlist, R.string.watchlist, R.drawable.ic_watchlist),
+                        SidebarSection(Screen.More, R.string.more, R.drawable.ic_more),
                     )
 
                     Column(modifier = Modifier.fillMaxSize()) {
@@ -82,7 +86,7 @@ class MainActivity : ComponentActivity() {
                                     selectedIndex = selectedIndex,
                                     onSectionSelected = { index ->
                                         selectedIndex = index
-                                        val route = sections[index].first.route
+                                        val route = sections[index].screen.route
                                         navController.navigate(route) {
                                             popUpTo(navController.graph.startDestinationId) {
                                                 inclusive = true
@@ -90,7 +94,13 @@ class MainActivity : ComponentActivity() {
                                             launchSingleTop = true
                                         }
                                     },
-                                    modifier = Modifier.width(72.dp)
+                                    onExpandedChanged = { expanded ->
+                                        sidebarExpanded = expanded
+                                    },
+                                    onReturnToContent = {
+                                        navController.currentBackStackEntry
+                                    },
+                                    modifier = Modifier.width(if (sidebarExpanded) 220.dp else 76.dp)
                                 )
                                 NavHost(
                                     navController = navController,
@@ -103,10 +113,20 @@ class MainActivity : ComponentActivity() {
                                     composable(Screen.Splash.route) { SplashScreen(navController) }
                                     composable(Screen.Login.route) { LoginScreen(navController) }
                                     composable(Screen.Pairing.route) { PairingScreen(navController) }
-                                    composable(Screen.Home.route) { HomeScreen(navController) }
+                                    composable(Screen.Home.route) {
+                                        HomeScreen(
+                                            navController = navController,
+                                            onReturnToSidebar = {
+                                                navController.popBackStack()
+                                            }
+                                        )
+                                    }
                                     composable(Screen.Search.route) { SearchScreen(navController) }
                                     composable(Screen.Genre.route) { GenreScreen(navController) }
-                                    composable(Screen.Series.route) { SeriesScreen(navController) }
+                                    composable(Screen.Series.route) { backStackEntry ->
+                                        val itemId = backStackEntry.arguments?.getString("itemId") ?: ""
+                                        SeriesScreen(navController, itemId)
+                                    }
                                     composable(Screen.Watchlist.route) { WatchlistScreen(navController) }
                                     composable(Screen.More.route) { MoreScreen(navController) }
                                     composable(Screen.Details.route) { backStackEntry ->
@@ -114,8 +134,9 @@ class MainActivity : ComponentActivity() {
                                         DetailsScreen(navController, itemId)
                                     }
                                     composable(Screen.Player.route) { backStackEntry ->
-                                        val sourceJson = backStackEntry.arguments?.getString("sourceJson") ?: ""
-                                        PlayerScreen(navController, sourceJson)
+                                        val itemId = backStackEntry.arguments?.getString("itemId") ?: ""
+                                        val mediaType = backStackEntry.arguments?.getString("mediaType") ?: "movie"
+                                        PlayerScreen(navController, itemId, mediaType)
                                     }
                                 }
                             }
@@ -130,7 +151,7 @@ class MainActivity : ComponentActivity() {
                                 composable(Screen.Splash.route) { SplashScreen(navController) }
                                 composable(Screen.Login.route) { LoginScreen(navController) }
                                 composable(Screen.Pairing.route) { PairingScreen(navController) }
-                                composable(Screen.Home.route) { HomeScreen(navController) }
+                                composable(Screen.Home.route) { HomeScreen(navController, onReturnToSidebar = { }) }
                                 composable(Screen.Search.route) { SearchScreen(navController) }
                                 composable(Screen.Genre.route) { GenreScreen(navController) }
                                 composable(Screen.Series.route) { SeriesScreen(navController) }
