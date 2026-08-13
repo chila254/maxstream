@@ -131,7 +131,7 @@ jobs:
         run: cd android && ./gradlew :tvapp:tasks --all | grep -i "assemble" || true
 
       - name: Assemble release APK
-        run: cd android && ./gradlew assembleFossUniversalRelease --no-daemon --info
+        run: cd android && ./gradlew assembleFossUniversalRelease --no-daemon
 
       - name: Inspect tvapp build outputs after assemble
         run: |
