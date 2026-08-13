@@ -23,7 +23,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -41,7 +40,7 @@ import com.maxstream.app.ui.navigation.Screen
 import com.maxstream.app.ui.theme.Background
 
 @Composable
-fun WatchlistScreen(navController: NavController) {
+fun WatchlistScreen(navController: NavController, onReturnToSidebar: () -> Unit = {}) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var watchlist by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
     var selectedTab by remember { mutableStateOf(0) }
@@ -93,8 +92,7 @@ fun WatchlistScreen(navController: NavController) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 48.dp)
-                        .padding(horizontal = 48.dp),
+                        .padding(top = 48.dp, horizontal = 48.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     tabs.forEachIndexed { index, tab ->

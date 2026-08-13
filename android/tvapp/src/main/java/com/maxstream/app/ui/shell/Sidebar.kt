@@ -28,7 +28,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -63,28 +62,25 @@ fun Sidebar(
     modifier: Modifier = Modifier,
 ) {
     var focusedIndex by remember { mutableStateOf(selectedIndex) }
-    val isExpanded = remember { mutableStateOf(false) }
+    var isExpanded by remember { mutableStateOf(false) }
 
     LaunchedEffect(focusedIndex) {
         if (focusedIndex >= 0) {
-            isExpanded.value = true
+            isExpanded = true
             TvFocusManager.onSidebarItemFocused()
             onExpandedChanged(true)
         }
     }
 
     LaunchedEffect(Unit) {
-        snapshotFlow { focusedIndex }
-            .collect { index ->
-                if (index < 0) {
-                    isExpanded.value = false
-                    TvFocusManager.onSidebarItemUnfocused()
-                    onExpandedChanged(false)
-                }
-            }
+        if (focusedIndex < 0) {
+            isExpanded = false
+            TvFocusManager.onSidebarItemUnfocused()
+            onExpandedChanged(false)
+        }
     }
 
-    val targetWidth = if (isExpanded.value) 220.dp else 76.dp
+    val targetWidth = if (isExpanded) 220.dp else 76.dp
 
     Box(
         modifier = modifier
@@ -139,7 +135,7 @@ fun Sidebar(
                         label = stringResource(id = section.labelRes),
                         isSelected = isSelected,
                         isFocused = isFocused,
-                        expanded = isExpanded.value,
+                        expanded = isExpanded,
                         onClick = {
                             onSectionSelected(index)
                             onReturnToContent()

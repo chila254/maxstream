@@ -61,7 +61,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @Composable
-fun DetailsScreen(navController: NavController, itemId: String) {
+fun DetailsScreen(navController: NavController, itemId: String, onReturnToSidebar: () -> Unit = {}) {
     val viewModel: HomeViewModel = viewModel()
     val trendingSeries = viewModel.trendingSeries.value.orEmpty()
     val popularMovies = viewModel.popularMovies.value.orEmpty()
@@ -119,7 +119,8 @@ fun DetailsScreen(navController: NavController, itemId: String) {
             navController = navController,
             popularMovies = popularMovies,
             topRatedMovies = topRatedMovies,
-            trendingSeries = trendingSeries
+            trendingSeries = trendingSeries,
+            onReturnToSidebar = onReturnToSidebar
         )
     }
 }
@@ -132,6 +133,7 @@ fun TvCinematicDetails(
     popularMovies: List<MediaItem> = emptyList(),
     topRatedMovies: List<MediaItem> = emptyList(),
     trendingSeries: List<MediaItem> = emptyList(),
+    onReturnToSidebar: () -> Unit = {},
 ) {
     val backdropUrl = item.backdropUrl.ifEmpty { item.posterUrl }
     val title = item.title

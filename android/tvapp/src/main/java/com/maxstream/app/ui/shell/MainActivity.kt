@@ -89,6 +89,9 @@ class MainActivity : ComponentActivity() {
                     )
 
                     val contentFocusRequester = remember { FocusRequester() }
+                    val sidebarFocusRequesters = remember {
+                        sections.map { FocusRequester() }
+                    }
                     var pendingContentFocusTransfer by remember { mutableStateOf(false) }
                     var pendingSidebarFocusRequest by remember { mutableStateOf(false) }
 
@@ -167,10 +170,11 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
 
-                            LaunchedEffect(pendingSidebarFocusRequest, sidebarExpanded) {
+                            LaunchedEffect(pendingSidebarFocusRequest, sidebarExpanded, selectedIndex) {
                                 if (pendingSidebarFocusRequest && sidebarExpanded) {
                                     delay(50)
-                                    runCatching { contentFocusRequester.requestFocus() }
+                                    val requester = sidebarFocusRequesters.getOrNull(selectedIndex)
+                                    runCatching { requester?.requestFocus() }
                                     pendingSidebarFocusRequest = false
                                 }
                             }

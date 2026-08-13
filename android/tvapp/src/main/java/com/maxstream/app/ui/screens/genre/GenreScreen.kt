@@ -26,7 +26,6 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -38,9 +37,10 @@ import com.maxstream.app.di.Modules
 import com.maxstream.app.ui.components.ContentCard
 import com.maxstream.app.ui.navigation.Screen
 import com.maxstream.app.ui.theme.Background
+import com.maxstream.app.ui.tv.TvFocusManager
 
 @Composable
-fun GenreScreen(navController: NavController) {
+fun GenreScreen(navController: NavController, onReturnToSidebar: () -> Unit = {}) {
     var genres by remember { mutableStateOf<List<Pair<Int, String>>>(emptyList()) }
     var selectedGenre by remember { mutableStateOf<Pair<Int, String>?>(null) }
     var genreItems by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
@@ -58,6 +58,117 @@ fun GenreScreen(navController: NavController) {
         } finally {
             loading = false
         }
+    }
+
+    LaunchedEffect(selectedGenre) {
+        val genre = selectedGenre
+        if (genre != null) {
+            try {
+                val movieResults = Modules.catalogRepository.catalogByGenre(genre.first, "movie")
+                val tvResults = Modules.catalogRepository.catalogByGenre(genre.first, "tv")
+                genreItems = (movieResults + tvResults).distinctBy { it.id to it.mediaType }
+            } catch (e: Exception) {
+                error = e.message
+            }
+        } else {
+            genreItems = emptyList()
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize().background(Background)) {
+        if (loading) {
+            CircularProgressIndicator(
+                color = com.maxstream.app.ui.theme.Primary,
+                modifier = Modifier.align(Alignment.Center)
+            )
+        } else if (error != null) {
+            Text(
+                text = "Error: $error",
+                color = Color(0xFFCF6679),
+                modifier = Modifier.align(Alignment.Center)
+            )
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 56.dp)
+            ) {
+                item {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 48.dp, horizontal = 48.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text(
+                            text = if (selectedGenre == null) "Genres" else selectedGenre!!.second,
+                            color = Color.White,
+                            fontSize = 28.sp,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold
+                        )
+                        if (selectedGenre != null) {
+                            TextButton(onClick = { selectedGenre = null }) {
+                                Text("Back to genres")
+                            }
+                        }
+                    }
+                }
+
+                if (selectedGenre == null) {
+                    item {
+                        Column(modifier = Modifier.padding(top = 24.dp, horizontal = 48.dp)) {
+                            LazyRow(
+                                contentPadding = PaddingValues(horizontal = 48.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                items(genres) { genre ->
+                                    val isSelected = genre == selectedGenre
+                                    TextButton(
+                                        onClick = { selectedGenre = genre },
+                                        modifier = Modifier
+                                            .focusRequester(remember { FocusRequester() })
+                                    ) {
+                                        Text(
+                                            text = genre.second,
+                                            color = if (isSelected) Color.Black else Color.White
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else if (genreItems.isNotEmpty()) {
+                    item {
+                        Column(modifier = Modifier.padding(top = 24.dp)) {
+                            LazyRow(
+                                contentPadding = PaddingValues(horizontal = 48.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                items(genreItems) { item ->
+                                    val isSeries = item.mediaType == "tv"
+                                    ContentCard(
+                                        posterUrl = item.posterUrl,
+                                        title = item.title,
+                                        rating = item.voteAverage.takeIf { it > 0 },
+                                        onClick = {
+                                            val route = if (isSeries) {
+                                                Screen.Series.createRoute(item.id.toString())
+                                            } else {
+                                                Screen.Details.createRoute(item.id.toString())
+                                            }
+                                            navController.navigate(route)
+                                        },
+                                        modifier = Modifier.height(180.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
     }
 
     LaunchedEffect(selectedGenre) {

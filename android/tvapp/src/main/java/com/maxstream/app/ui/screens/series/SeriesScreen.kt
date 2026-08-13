@@ -65,39 +65,24 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @Composable
-fun SeriesScreen(navController: NavController, itemId: String) {
-    val homeViewModel: HomeViewModel = viewModel()
-    val trendingSeries by homeViewModel.trendingSeries.observeAsState(emptyList())
-    val popularSeries by homeViewModel.popularMovies.observeAsState(emptyList())
-    val topRatedSeries by homeViewModel.topRatedMovies.observeAsState(emptyList())
-
-    var heroItem by remember { mutableStateOf<MediaItem?>(null) }
-    var heroType by remember { mutableStateOf("series") }
-    var isEntryVisible by remember { mutableStateOf(false) }
-
-    val playFocusRequester = remember { FocusRequester() }
-    val detailsFocusRequester = remember { FocusRequester() }
-    val firstRowFocusRequester = remember { FocusRequester() }
-    val coroutineScope = rememberCoroutineScope()
-
-    val hasTrendingSeries = trendingSeries.isNotEmpty()
-    val hasPopularSeries = popularSeries.isNotEmpty()
-    val hasTopRatedSeries = topRatedSeries.isNotEmpty()
-
-    LaunchedEffect(Unit) {
-        delay(50)
-        isEntryVisible = true
-        if (trendingSeries.isNotEmpty()) {
-            heroItem = trendingSeries.first()
-            heroType = "series"
-        }
-    }
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Background)
-    ) {
+private fun SeriesDetailsView(
+    series: MediaItem,
+    navController: NavController,
+    seasons: List<Int>,
+    episodes: List<EpisodeRef>,
+    selectedSeason: Int,
+    selectedEpisode: EpisodeRef?,
+    loading: Boolean,
+    error: String?,
+    trendingSeries: List<MediaItem>,
+    popularMovies: List<MediaItem>,
+    topRatedMovies: List<MediaItem>,
+    onSeasonSelected: (Int) -> Unit,
+    onEpisodeSelected: (EpisodeRef) -> Unit,
+    onPlayEpisode: (EpisodeRef) -> Unit,
+    onBack: () -> Unit,
+    onReturnToSidebar: () -> Unit = {},
+) {
         if (!isEntryVisible) {
             Spacer(modifier = Modifier.fillMaxSize())
         } else {

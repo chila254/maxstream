@@ -1,26 +1,38 @@
 package com.maxstream.app.ui.tv
 
-import androidx.compose.runtime.getValue
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 
 object TvFocusManager {
-    var isSidebarFocused by mutableStateOf(true)
-        private set
+    private var sidebarFocusRequester: FocusRequester? = null
+    private var contentFocusRequester: FocusRequester? = null
+    private val _isSidebarFocused = mutableStateOf(true)
+    val isSidebarFocused: Boolean get() = _isSidebarFocused.value
 
     var sidebarExpanded by mutableStateOf(false)
         private set
 
+    fun initialize(sidebarFocusRequester: FocusRequester, contentFocusRequester: FocusRequester) {
+        this.sidebarFocusRequester = sidebarFocusRequester
+        this.contentFocusRequester = contentFocusRequester
+    }
+
     fun focusSidebar() {
-        isSidebarFocused = true
+        _isSidebarFocused.value = true
+        sidebarFocusRequester?.requestFocus()
     }
 
     fun focusContent() {
-        isSidebarFocused = false
+        _isSidebarFocused.value = false
+        contentFocusRequester?.requestFocus()
     }
 
     fun toggleFocus() {
-        isSidebarFocused = !isSidebarFocused
+        if (_isSidebarFocused.value) {
+            focusContent()
+        } else {
+            focusSidebar()
+        }
     }
 
     fun onSidebarItemFocused() {
@@ -32,7 +44,12 @@ object TvFocusManager {
     }
 
     fun reset() {
-        isSidebarFocused = true
+        _isSidebarFocused.value = true
         sidebarExpanded = false
+    }
+
+    fun dispose() {
+        sidebarFocusRequester = null
+        contentFocusRequester = null
     }
 }
