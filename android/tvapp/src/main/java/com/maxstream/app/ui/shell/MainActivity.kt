@@ -1,79 +1,157 @@
 package com.maxstream.app.ui.shell
 
 import android.os.Bundle
-import androidx.fragment.app.Fragment
-import androidx.fragment.app.FragmentActivity
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.rememberNavController
 import com.maxstream.app.R
-import com.maxstream.app.ui.genre.GenreFragment
-import com.maxstream.app.ui.home.HomeFragment
-import com.maxstream.app.ui.more.MoreFragment
-import com.maxstream.app.ui.search.SearchFragment
-import com.maxstream.app.ui.series.SeriesFragment
-import com.maxstream.app.ui.watchlist.WatchlistFragment
+import com.maxstream.app.ui.navigation.Screen
+import com.maxstream.app.ui.screens.auth.LoginScreen
+import com.maxstream.app.ui.screens.auth.PairingScreen
+import com.maxstream.app.ui.screens.details.DetailsScreen
+import com.maxstream.app.ui.screens.genre.GenreScreen
+import com.maxstream.app.ui.screens.home.HomeScreen
+import com.maxstream.app.ui.screens.more.MoreScreen
+import com.maxstream.app.ui.screens.player.PlayerScreen
+import com.maxstream.app.ui.screens.search.SearchScreen
+import com.maxstream.app.ui.screens.series.SeriesScreen
+import com.maxstream.app.ui.screens.splash.SplashScreen
+import com.maxstream.app.ui.screens.watchlist.WatchlistScreen
+import com.maxstream.app.ui.theme.MaxStreamTheme
 
-/**
- * Native port of the Dart [TvMaxStreamMain] shell: a left [SidebarView] plus a
- * content frame that swaps between the six sections. Content fragments are kept
- * alive (show/hide) so scroll/focus state is preserved like the Dart provider.
- */
-class MainActivity : FragmentActivity() {
-
-    private lateinit var sidebar: SidebarView
-    private val fragments = mutableMapOf<Int, Fragment>()
-    private var activeIndex = -1
-
+class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
-        sidebar = findViewById(R.id.sidebar)
-        sidebar.onItemSelected = { index -> showSection(index) }
-        if (savedInstanceState == null) {
-            showSection(0)
-        } else {
-            activeIndex = savedInstanceState.getInt("active", 0)
-            sidebar.setActive(activeIndex)
-        }
-    }
+        setContent {
+            MaxStreamTheme {
+                val navController = rememberNavController()
+                val navBackStackEntry by navController.currentBackStackEntryAsState()
+                val currentRoute = navBackStackEntry?.destination?.route ?: Screen.Splash.route
+                val isRootScreen = currentRoute in listOf(
+                    Screen.Splash.route,
+                    Screen.Login.route,
+                    Screen.Pairing.route,
+                    Screen.Home.route,
+                    Screen.Search.route,
+                    Screen.Genre.route,
+                    Screen.Series.route,
+                    Screen.Watchlist.route,
+                    Screen.More.route,
+                )
+                var selectedIndex by remember { mutableStateOf(0) }
+                val sections = listOf(
+                    Screen.Home to R.string.home,
+                    Screen.Search to R.string.search,
+                    Screen.Genre to R.string.genre,
+                    Screen.Series to R.string.series,
+                    Screen.Watchlist to R.string.watchlist,
+                    Screen.More to R.string.more,
+                )
 
-    override fun onSaveInstanceState(outState: Bundle) {
-        super.onSaveInstanceState(outState)
-        outState.putInt("active", activeIndex)
-    }
-
-    private fun createFragment(index: Int): Fragment = when (index) {
-        0 -> HomeFragment()
-        1 -> SearchFragment()
-        2 -> GenreFragment()
-        3 -> SeriesFragment()
-        4 -> WatchlistFragment()
-        else -> MoreFragment()
-    }
-
-    private fun showSection(index: Int) {
-        sidebar.setActive(index)
-        val fragment = fragments[index] ?: createFragment(index).also { fragments[index] = it }
-
-        supportFragmentManager.beginTransaction().apply {
-            fragments.forEach { (i, f) ->
-                if (f.isAdded) {
-                    if (i == index) show(f) else hide(f)
+                Column(modifier = Modifier.fillMaxSize()) {
+                    if (isRootScreen) {
+                        Row(modifier = Modifier.fillMaxSize()) {
+                            Sidebar(
+                                sections = sections,
+                                selectedIndex = selectedIndex,
+                                onSectionSelected = { index ->
+                                    selectedIndex = index
+                                    val route = sections[index].first.route
+                                    navController.navigate(route) {
+                                        popUpTo(navController.graph.startDestinationId) {
+                                            inclusive = true
+                                        }
+                                        launchSingleTop = true
+                                    }
+                                },
+                                modifier = Modifier.width(72.dp)
+                            )
+                            NavHost(
+                                navController = navController,
+                                startDestination = Screen.Home.route,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .background(MaterialTheme.colorScheme.background)
+                            ) {
+                                composable(Screen.Splash.route) { SplashScreen(navController) }
+                                composable(Screen.Login.route) { LoginScreen(navController) }
+                                composable(Screen.Pairing.route) { PairingScreen(navController) }
+                                composable(Screen.Home.route) { HomeScreen(navController) }
+                                composable(Screen.Search.route) { SearchScreen(navController) }
+                                composable(Screen.Genre.route) { GenreScreen(navController) }
+                                composable(Screen.Series.route) { SeriesScreen(navController) }
+                                composable(Screen.Watchlist.route) { WatchlistScreen(navController) }
+                                composable(Screen.More.route) { MoreScreen(navController) }
+                                composable(Screen.Details.route) { backStackEntry ->
+                                    val itemId = backStackEntry.arguments?.getString("itemId") ?: ""
+                                    DetailsScreen(navController, itemId)
+                                }
+                                composable(Screen.Player.route) { backStackEntry ->
+                                    val sourceJson = backStackEntry.arguments?.getString("sourceJson") ?: ""
+                                    PlayerScreen(navController, sourceJson)
+                                }
+                            }
+                        }
+                    } else {
+                        NavHost(
+                            navController = navController,
+                            startDestination = Screen.Home.route,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(MaterialTheme.colorScheme.background)
+                        ) {
+                            composable(Screen.Splash.route) { SplashScreen(navController) }
+                            composable(Screen.Login.route) { LoginScreen(navController) }
+                            composable(Screen.Pairing.route) { PairingScreen(navController) }
+                            composable(Screen.Home.route) { HomeScreen(navController) }
+                            composable(Screen.Search.route) { SearchScreen(navController) }
+                            composable(Screen.Genre.route) { GenreScreen(navController) }
+                            composable(Screen.Series.route) { SeriesScreen(navController) }
+                            composable(Screen.Watchlist.route) { WatchlistScreen(navController) }
+                            composable(Screen.More.route) { MoreScreen(navController) }
+                            composable(Screen.Details.route) { backStackEntry ->
+                                val itemId = backStackEntry.arguments?.getString("itemId") ?: ""
+                                DetailsScreen(navController, itemId)
+                            }
+                            composable(Screen.Player.route) { backStackEntry ->
+                                val sourceJson = backStackEntry.arguments?.getString("sourceJson") ?: ""
+                                PlayerScreen(navController, sourceJson)
+                            }
+                        }
+                    }
                 }
             }
-            if (!fragment.isAdded) add(R.id.content_frame, fragment, "section_$index")
-            commitNow()
-        }
-        activeIndex = index
-        // Move focus into the content area after a tab switch, mirroring the
-        // Dart "_focusContent" behaviour.
-        fragment.view?.requestFocus()
-    }
-
-    @Deprecated("Deprecated in Java")
-    override fun onBackPressed() {
-        if (activeIndex != 0) {
-            showSection(0)
-        } else {
-            super.onBackPressed()
         }
     }
 }

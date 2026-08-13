@@ -2,7 +2,6 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
-    <!-- TV hardware declarations -->
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <uses-feature android:name="android.software.leanback" android:required="false" />
 
@@ -10,13 +9,11 @@
         android:label="@string/app_name"
         android:icon="@mipmap/ic_launcher"
         android:banner="@mipmap/ic_launcher"
-        android:networkSecurityConfig="@xml/network_security_config"
         android:usesCleartextTraffic="true">
 
         <activity
-            android:name=".ui.splash.SplashActivity"
+            android:name=".ui.shell.MainActivity"
             android:exported="true"
-            android:theme="@style/TvAppTheme"
             android:screenOrientation="landscape">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -24,37 +21,5 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-
-        <activity
-            android:name=".ui.shell.MainActivity"
-            android:exported="false"
-            android:launchMode="singleTop"
-            android:theme="@style/TvLeanbackTheme"
-            android:banner="@mipmap/ic_launcher"
-            android:screenOrientation="landscape" />
-
-        <activity
-            android:name=".ui.auth.LoginActivity"
-            android:exported="false"
-            android:theme="@style/TvAppTheme"
-            android:screenOrientation="landscape" />
-
-        <activity
-            android:name=".ui.auth.PairingActivity"
-            android:exported="false"
-            android:theme="@style/TvAppTheme"
-            android:screenOrientation="landscape" />
-
-        <activity
-            android:name=".ui.details.DetailsActivity"
-            android:exported="false"
-            android:theme="@style/TvAppTheme"
-            android:screenOrientation="landscape" />
-
-        <activity
-            android:name=".ui.player.PlayerActivity"
-            android:exported="false"
-            android:theme="@style/TvAppTheme"
-            android:screenOrientation="landscape" />
     </application>
 </manifest>
