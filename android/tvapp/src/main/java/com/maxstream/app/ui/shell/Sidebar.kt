@@ -214,10 +214,7 @@ private fun SidebarPillItem(
                 if (focusState.hasFocus) onFocusIn() else onFocusOut()
             }
             .focusProperties { canFocus = expanded }
-            .clickable(
-                onClick = onClick,
-                indication = null
-            )
+            .clickable(onClick = onClick)
             .padding(
                 horizontal = if (expanded) 14.dp else 0.dp,
                 vertical = 10.dp
