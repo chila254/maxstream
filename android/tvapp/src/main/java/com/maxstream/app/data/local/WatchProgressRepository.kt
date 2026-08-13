@@ -120,6 +120,42 @@ object WatchEntryCompat {
             } else 0f
         }.getOrDefault(0f)
     }
+
+    /**
+     * Returns Continue Watching entries for a specific title — used by
+     * DetailsScreen to show the resume row (mirrors Dart's _continueWatching
+     * filter in TvCinematicDetails._load()).
+     */
+    fun getEntriesFor(tmdbId: Int, isTv: Boolean): List<Entry> {
+        val context = appContext ?: return emptyList()
+        return WatchProgressRepository.recent(context)
+            .filter { it.tmdbId == tmdbId.toString() && it.isMovie == !isTv }
+            .take(6)
+            .map { entry ->
+                Entry(
+                    tmdbId = entry.tmdbId,
+                    title = entry.title,
+                    season = entry.season,
+                    episode = entry.episode,
+                    position = entry.positionSeconds,
+                    duration = entry.durationSeconds,
+                    posterUrl = if (entry.posterPath.isNotEmpty())
+                        "https://image.tmdb.org/t/p/w500${entry.posterPath}"
+                    else "",
+                )
+            }
+    }
+
+    /** Simplified entry for UI consumption (DetailsScreen continue-watching row). */
+    data class Entry(
+        val tmdbId: String,
+        val title: String,
+        val season: Int,
+        val episode: Int,
+        val position: Long,
+        val duration: Long,
+        val posterUrl: String,
+    )
 }
 
 /** A single "Continue Watching" entry reconstructed from stored JSON. */

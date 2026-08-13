@@ -1,19 +1,20 @@
 package com.maxstream.app.ui.navigation
 
 sealed class Screen(val route: String) {
-    data object Splash : Screen("splash")
-    data object Login : Screen("login")
+    // ── Auth / pre-shell ────────────────────────────────────────────────────
+    data object Splash  : Screen("splash")
+    data object Login   : Screen("login")
     data object Pairing : Screen("pairing")
-    data object Home : Screen("home")
-    data object Search : Screen("search")
-    data object Genre : Screen("genre")
-    data object Series : Screen("series/{itemId}") {
-        fun createRoute(itemId: String) = "series/$itemId"
-    }
-    data object Watchlist : Screen("watchlist")
-    data object More : Screen("more")
+
+    // ── Main shell (IndexedStack lives here) ────────────────────────────────
+    data object Shell   : Screen("shell")
+
+    // ── Deep-nav overlays (push on top of shell) ───────────────────────────
     data object Details : Screen("details/{itemId}") {
         fun createRoute(itemId: String) = "details/$itemId"
+    }
+    data object Series : Screen("series/{itemId}") {
+        fun createRoute(itemId: String) = "series/$itemId"
     }
     data object Player : Screen("player/{itemId}/{mediaType}?season={season}&episode={episode}") {
         fun createRoute(
@@ -23,4 +24,7 @@ sealed class Screen(val route: String) {
             episode: Int = 1,
         ) = "player/$itemId/$mediaType?season=$season&episode=$episode"
     }
+
+    // ── Sidebar tab indices (not routes — kept here for readability) ─────────
+    //  0 = Home  1 = Search  2 = Genre  3 = Series list  4 = Watchlist  5 = More
 }

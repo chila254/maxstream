@@ -1,57 +1,51 @@
 package com.maxstream.app.ui.tv
 
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.focus.FocusRequester
 
+/**
+ * Lightweight singleton focus coordinator.
+ *
+ * Mirrors Dart's TvFocusManager static class. Holds references to the
+ * sidebar's per-item FocusRequesters and the content-area FocusRequester,
+ * all of which are created once in MainActivity and injected here via
+ * [initialize].
+ *
+ * Screens call [focusContent] / [focusSidebar] directly without needing to
+ * hold a reference to any parent state.
+ */
 object TvFocusManager {
-    private var sidebarFocusRequester: FocusRequester? = null
+
+    private var sidebarFocusRequesters: List<FocusRequester> = emptyList()
     private var contentFocusRequester: FocusRequester? = null
-    private val _isSidebarFocused = mutableStateOf(true)
-    val isSidebarFocused: Boolean get() = _isSidebarFocused.value
+    private var _currentSidebarIndex: Int = 0
 
-    var sidebarExpanded by mutableStateOf(false)
-        private set
-
-    fun initialize(sidebarFocusRequester: FocusRequester, contentFocusRequester: FocusRequester) {
-        this.sidebarFocusRequester = sidebarFocusRequester
+    /** Called once from MainActivity's LaunchedEffect(Unit). */
+    fun initialize(
+        sidebarFocusRequesters: List<FocusRequester>,
+        contentFocusRequester: FocusRequester,
+    ) {
+        this.sidebarFocusRequesters = sidebarFocusRequesters
         this.contentFocusRequester = contentFocusRequester
     }
 
-    fun focusSidebar() {
-        _isSidebarFocused.value = true
-        sidebarFocusRequester?.requestFocus()
+    /** Move focus to the current sidebar item. */
+    fun focusSidebar(index: Int = _currentSidebarIndex) {
+        _currentSidebarIndex = index
+        runCatching { sidebarFocusRequesters.getOrNull(index)?.requestFocus() }
     }
 
+    /** Move focus to the content area. */
     fun focusContent() {
-        _isSidebarFocused.value = false
-        contentFocusRequester?.requestFocus()
+        runCatching { contentFocusRequester?.requestFocus() }
     }
 
-    fun toggleFocus() {
-        if (_isSidebarFocused.value) {
-            focusContent()
-        } else {
-            focusSidebar()
-        }
-    }
-
-    fun onSidebarItemFocused() {
-        sidebarExpanded = true
-    }
-
-    fun onSidebarItemUnfocused() {
-        sidebarExpanded = false
-    }
-
-    fun reset() {
-        _isSidebarFocused.value = true
-        sidebarExpanded = false
+    /** Called by Sidebar when the selected tab changes. */
+    fun onTabChanged(index: Int) {
+        _currentSidebarIndex = index
     }
 
     fun dispose() {
-        sidebarFocusRequester = null
+        sidebarFocusRequesters = emptyList()
         contentFocusRequester = null
     }
 }

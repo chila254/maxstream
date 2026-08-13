@@ -4,6 +4,8 @@ import android.content.ComponentCallbacks2
 import android.content.Context
 import android.view.KeyEvent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
@@ -28,6 +31,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.Key
@@ -687,18 +691,37 @@ fun PlayerScreen(
             }
         }
 
-        // Menu button (opens the server/quality/subtitle panel).
+        // Menu buttons row (top-right) — matches Dart's server/quality/subtitle buttons
         if (!loading && error == null && !menuOpen) {
-            Button(
-                onClick = {
-                    menuOpen = true
-                    activeMenu = PlayerMenu.Servers
-                    menuIndex = 0
-                },
+            Row(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(16.dp),
-            ) { Text("MENU") }
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (!isMovie) {
+                    PlayerTopButton(label = "Episodes") {
+                        menuOpen = true
+                        activeMenu = PlayerMenu.Servers // reuse for episodes in future
+                        menuIndex = 0
+                    }
+                }
+                PlayerTopButton(label = "Subtitles [${if (selectedSubtitleLabel == "Off") "Off" else "On"}]") {
+                    menuOpen = true
+                    activeMenu = PlayerMenu.Subtitles
+                    menuIndex = 0
+                }
+                PlayerTopButton(label = "Quality [$selectedQualityLabel]") {
+                    menuOpen = true
+                    activeMenu = PlayerMenu.Quality
+                    menuIndex = 0
+                }
+                PlayerTopButton(label = "Servers") {
+                    menuOpen = true
+                    activeMenu = PlayerMenu.Servers
+                    menuIndex = 0
+                }
+            }
         }
 
         // Selection panel.
@@ -716,6 +739,24 @@ fun PlayerScreen(
                 modifier = Modifier.align(Alignment.CenterEnd),
             )
         }
+    }
+}
+
+@Composable
+private fun PlayerTopButton(label: String, onClick: () -> Unit) {
+    var isFocused by remember { androidx.compose.runtime.mutableStateOf(false) }
+    Box(
+        modifier = Modifier
+            .background(
+                if (isFocused) Color(0xFFE50914) else Color(0xCC000000),
+                androidx.compose.foundation.shape.RoundedCornerShape(6.dp),
+            )
+            .focusable()
+            .onFocusChanged { isFocused = it.hasFocus }
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+    ) {
+        Text(text = label, color = Color.White, fontSize = 13.sp)
     }
 }
 

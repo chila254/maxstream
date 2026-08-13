@@ -43,6 +43,7 @@ fun TvKeyboard(
     onSubmit: () -> Unit,
     initialText: String = "",
     focusManager: TvKeyboardFocusManager? = null,
+    focusRequester: FocusRequester = remember { FocusRequester() },
     onMoveRight: (() -> Unit)? = null,
     onMoveLeft: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
@@ -53,7 +54,7 @@ fun TvKeyboard(
     var input by remember { mutableStateOf(initialText) }
     var capsLock by remember { mutableStateOf(false) }
     var isSymbols by remember { mutableStateOf(false) }
-    val keyboardFocusRequester = remember { FocusRequester() }
+    val keyboardFocusRequester = focusRequester
 
     fun initializeKeyboard() {
         keyboardLayout = if (isSymbols) {

@@ -6,37 +6,41 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.material3.Button
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.navigation.NavController
+import androidx.compose.ui.unit.sp
+import com.maxstream.app.ui.theme.Background
+import com.maxstream.app.ui.theme.Primary
+
+// NOTE: LoginScreen composable (with onLoginSuccess callback) is defined in LoginScreen.kt
+// This file is the standalone PairingScreen stub only.
 
 @Composable
-fun PairingScreen(navController: NavController) {
+fun PairingScreen(onComplete: () -> Unit) {
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(1500)
+        onComplete()
+    }
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
-        contentAlignment = Alignment.Center
+            .background(Background),
+        contentAlignment = Alignment.Center,
     ) {
-        Column(
-            modifier = Modifier.padding(48.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(text = "Pairing", style = MaterialTheme.typography.headlineLarge)
-            Text(text = "Enter your pairing code below")
-            Spacer(modifier = Modifier.height(16.dp))
-            Button(onClick = { navController.navigate(com.maxstream.app.ui.navigation.Screen.Home.route) }) {
-                Text("Pair")
-            }
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            Text("Pairing Device", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(24.dp))
+            CircularProgressIndicator(color = Primary)
+            Spacer(Modifier.height(16.dp))
+            Text("Please wait...", color = Color.White.copy(alpha = 0.5f), fontSize = 14.sp)
         }
     }
 }

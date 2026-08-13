@@ -1,20 +1,21 @@
 package com.maxstream.app.ui.screens.details
 
-import androidx.compose.animation.AnimatedContent
+import android.content.Context
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -23,446 +24,849 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import com.maxstream.app.R
+import com.maxstream.app.core.Constants
 import com.maxstream.app.data.local.WatchEntryCompat
+import com.maxstream.app.data.local.WatchlistRepository
 import com.maxstream.app.data.model.MediaItem
-import com.maxstream.app.ui.components.ContentCard
+import com.maxstream.app.data.remote.EpisodeRef
+import com.maxstream.app.di.Modules
 import com.maxstream.app.ui.navigation.Screen
 import com.maxstream.app.ui.theme.Background
-import com.maxstream.app.ui.tv.TvFocusManager
-import com.maxstream.app.ui.viewmodel.HomeViewModel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import org.json.JSONObject
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Detail data holder (mirrors _TvCinematicDetailsState fields)
+// ─────────────────────────────────────────────────────────────────────────────
+
+private data class DetailState(
+    val item: MediaItem,
+    val details: JSONObject?,
+    val cast: List<CastEntry>,
+    val recommendations: List<MediaItem>,
+    val seasons: List<SeasonEntry>,
+    val isSaved: Boolean,
+)
+
+private data class CastEntry(val name: String, val character: String, val profilePath: String?)
+private data class SeasonEntry(val number: Int, val name: String)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Entry point
+// ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
-fun DetailsScreen(navController: NavController, itemId: String, onReturnToSidebar: () -> Unit = {}) {
-    val viewModel: HomeViewModel = viewModel()
-    val trendingSeries = viewModel.trendingSeries.value.orEmpty()
-    val popularMovies = viewModel.popularMovies.value.orEmpty()
-    val topRatedMovies = viewModel.topRatedMovies.value.orEmpty()
+fun DetailsScreen(
+    navController: NavController,
+    itemId: String,
+    onReturnToSidebar: () -> Unit = {},
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
-    var item by remember { mutableStateOf<MediaItem?>(null) }
-    var loading by remember { mutableStateOf(true) }
-    var error by remember { mutableStateOf<String?>(null) }
+    var state        by remember { mutableStateOf<DetailState?>(null) }
+    var episodes     by remember { mutableStateOf<List<EpisodeRef>>(emptyList()) }
+    var selectedSeason by remember { mutableIntStateOf(1) }
+    var loadingEpisodes by remember { mutableStateOf(false) }
+    var loading      by remember { mutableStateOf(true) }
+    var error        by remember { mutableStateOf<String?>(null) }
 
+    // Continue-watching entries matching this item
+    var continueWatching by remember { mutableStateOf<List<WatchEntryCompat.Entry>>(emptyList()) }
+
+    val playFocusRequester      = remember { FocusRequester() }
+    val watchlistFocusRequester = remember { FocusRequester() }
+
+    // ── Load detail + watchlist + continue-watching ────────────────────────
     LaunchedEffect(itemId) {
-        val id = itemId.toIntOrNull()
-        if (id == null) {
-            error = "Invalid item ID"
-            loading = false
-            return@LaunchedEffect
-        }
-        loading = true
-        error = null
+        val id = itemId.toIntOrNull() ?: run { error = "Invalid ID"; loading = false; return@LaunchedEffect }
+        loading = true; error = null
         try {
-            val movieJson = com.maxstream.app.di.Modules.catalogRepository.movieDetails(id)
-            val mediaItem = MediaItem.fromJson(movieJson)
-            item = mediaItem
-        } catch (e: Exception) {
-            try {
-                val seriesJson = com.maxstream.app.di.Modules.catalogRepository.seriesDetails(id)
-                val mediaItem = MediaItem.fromJson(seriesJson)
-                item = mediaItem
-            } catch (e2: Exception) {
-                error = e2.message
+            // Try movie first, fall back to TV
+            val json: JSONObject = try {
+                Modules.catalogRepository.movieDetails(id)
+            } catch (_: Exception) {
+                Modules.catalogRepository.seriesDetails(id)
             }
+
+            val item = MediaItem.fromJson(json)
+            val isTv = item.mediaType == "tv"
+            val isSaved = WatchlistRepository.isIn(context, item)
+            val cw = WatchEntryCompat.getEntriesFor(id, isTv)
+
+            // Cast
+            val castArr = json.optJSONObject("credits")?.optJSONArray("cast")
+            val cast = if (castArr != null) {
+                (0 until minOf(castArr.length(), 12)).mapNotNull { i ->
+                    val p = castArr.optJSONObject(i) ?: return@mapNotNull null
+                    CastEntry(
+                        name = p.optString("name"),
+                        character = p.optString("character"),
+                        profilePath = p.optString("profile_path").ifBlank { null },
+                    )
+                }
+            } else emptyList()
+
+            // Recommendations / similar
+            val recsArr = (json.optJSONObject("recommendations")
+                ?: json.optJSONObject("similar"))?.optJSONArray("results")
+            val recs = if (recsArr != null) MediaItem.fromJsonList(recsArr).take(12) else emptyList()
+
+            // Seasons (TV only)
+            val seasons = if (isTv) {
+                val arr = json.optJSONArray("seasons")
+                if (arr != null) {
+                    (0 until arr.length()).mapNotNull { i ->
+                        val s = arr.optJSONObject(i) ?: return@mapNotNull null
+                        val num = s.optInt("season_number", 0)
+                        if (num <= 0) return@mapNotNull null
+                        SeasonEntry(number = num, name = s.optString("name").ifBlank { "Season $num" })
+                    }
+                } else emptyList()
+            } else emptyList()
+
+            state = DetailState(item, json, cast, recs, seasons, isSaved)
+            continueWatching = cw
+
+            if (isTv && seasons.isNotEmpty()) {
+                selectedSeason = seasons.first().number
+                loadingEpisodes = true
+                episodes = Modules.catalogRepository.seasonEpisodes(id, selectedSeason)
+                loadingEpisodes = false
+            }
+        } catch (e: Exception) {
+            error = e.message
         } finally {
             loading = false
         }
+        // Seed focus after render
+        kotlinx.coroutines.delay(100)
+        runCatching { playFocusRequester.requestFocus() }
     }
 
-    if (loading) {
-        Box(modifier = Modifier.fillMaxSize().background(Background)) {
-            androidx.compose.material3.CircularProgressIndicator(
-                color = androidx.compose.material3.MaterialTheme.colorScheme.primary,
-                modifier = Modifier.align(Alignment.Center)
-            )
+    // Season switch
+    fun switchSeason(seasonNumber: Int) {
+        if (loadingEpisodes) return
+        selectedSeason = seasonNumber
+        val id = itemId.toIntOrNull() ?: return
+        scope.launch {
+            loadingEpisodes = true
+            episodes = runCatching { Modules.catalogRepository.seasonEpisodes(id, seasonNumber) }.getOrDefault(emptyList())
+            loadingEpisodes = false
         }
-    } else if (error != null) {
-        Box(modifier = Modifier.fillMaxSize().background(Background)) {
-            androidx.compose.material3.Text(
+    }
+
+    // Watchlist toggle
+    fun toggleWatchlist() {
+        val s = state ?: return
+        scope.launch {
+            val nowSaved = WatchlistRepository.toggle(context, s.item)
+            state = s.copy(isSaved = nowSaved)
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize().background(Background)) {
+        when {
+            loading -> CircularProgressIndicator(
+                color = com.maxstream.app.ui.theme.Primary,
+                modifier = Modifier.align(Alignment.Center),
+            )
+            error != null -> Text(
                 text = "Error: $error",
                 color = Color(0xFFCF6679),
-                modifier = Modifier.align(Alignment.Center)
+                modifier = Modifier.align(Alignment.Center),
             )
+            state != null -> {
+                val s = state!!
+                AnimatedVisibility(
+                    visible = true,
+                    enter = fadeIn(tween(320)),
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    TvCinematicDetailsView(
+                        state = s,
+                        episodes = episodes,
+                        selectedSeason = selectedSeason,
+                        loadingEpisodes = loadingEpisodes,
+                        continueWatching = continueWatching,
+                        playFocusRequester = playFocusRequester,
+                        watchlistFocusRequester = watchlistFocusRequester,
+                        navController = navController,
+                        onSeasonSelected = { n -> switchSeason(n) },
+                        onWatchlistToggle = { toggleWatchlist() },
+                        onPlay = { episode ->
+                            val route = if (s.item.mediaType == "tv")
+                                Screen.Player.createRoute(s.item.id.toString(), "tv",
+                                    season = selectedSeason,
+                                    episode = episode?.number ?: 1)
+                            else
+                                Screen.Player.createRoute(s.item.id.toString(), "movie")
+                            navController.navigate(route)
+                        },
+                        onReturnToSidebar = onReturnToSidebar,
+                    )
+                }
+            }
         }
-    } else if (item != null) {
-        TvCinematicDetails(
-            item = item!!,
-            mediaType = item!!.mediaType,
-            navController = navController,
-            popularMovies = popularMovies,
-            topRatedMovies = topRatedMovies,
-            trendingSeries = trendingSeries,
-            onReturnToSidebar = onReturnToSidebar
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Main view — mirrors TvCinematicDetails._build* methods
+// ─────────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun TvCinematicDetailsView(
+    state: DetailState,
+    episodes: List<EpisodeRef>,
+    selectedSeason: Int,
+    loadingEpisodes: Boolean,
+    continueWatching: List<WatchEntryCompat.Entry>,
+    playFocusRequester: FocusRequester,
+    watchlistFocusRequester: FocusRequester,
+    navController: NavController,
+    onSeasonSelected: (Int) -> Unit,
+    onWatchlistToggle: () -> Unit,
+    onPlay: (EpisodeRef?) -> Unit,
+    onReturnToSidebar: () -> Unit,
+) {
+    val item    = state.item
+    val details = state.details
+    val isTv    = item.mediaType == "tv"
+    val backdrop = item.backdropUrl.ifEmpty { item.posterUrl }
+
+    // Build metadata string — matches Dart: rating • year • runtime • genres
+    val genresFromDetails = details?.optJSONArray("genres")?.let { arr ->
+        (0 until minOf(arr.length(), 3)).mapNotNull { arr.optJSONObject(it)?.optString("name") }
+    } ?: emptyList()
+    val year = details?.let {
+        (it.optString("release_date").ifBlank { it.optString("first_air_date") }).take(4)
+    }.orEmpty()
+    val runtime = details?.optInt("runtime", 0).takeIf { (it ?: 0) > 0 }
+    val seasonCount = state.seasons.size.takeIf { it > 0 }
+    val metadata = buildList<String> {
+        if (item.voteAverage > 0) add("★ ${String.format("%.1f", item.voteAverage)}")
+        if (year.isNotEmpty()) add(year)
+        if (runtime != null) add("${runtime}m")
+        if (isTv && seasonCount != null) add("$seasonCount Season${if (seasonCount != 1) "s" else ""}")
+        addAll(genresFromDetails)
+    }.joinToString("  •  ")
+
+    // Play button label — matches Dart: "Watch S1E1" for series
+    val playLabel = if (isTv) {
+        if (loadingEpisodes) "Loading…"
+        else "Watch S${selectedSeason}E${episodes.firstOrNull()?.number ?: 1}"
+    } else "Play"
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        // Backdrop
+        AsyncImage(
+            model = backdrop,
+            contentDescription = item.title,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop,
+        )
+        // Left horizontal gradient
+        Box(modifier = Modifier.fillMaxSize().background(
+            Brush.horizontalGradient(
+                listOf(Color(0xFF090909), Color(0xDD090909), Color.Transparent),
+                startX = 0f, endX = 1200f,
+            )
+        ))
+        // Bottom vertical gradient
+        Box(modifier = Modifier.fillMaxSize().background(
+            Brush.verticalGradient(
+                colorStops = arrayOf(0f to Color.Transparent, 0.72f to Color(0x33090909), 1f to Color(0xFF090909)),
+            )
+        ))
+
+        // Scrollable content
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            state = rememberLazyListState(),
+            contentPadding = PaddingValues(bottom = 64.dp),
+        ) {
+            // ── Hero ───────────────────────────────────────────────────────
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(550.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth(0.6f)
+                            .align(Alignment.BottomStart)
+                            .padding(start = 54.dp, bottom = 42.dp),
+                    ) {
+                        Text(
+                            text = item.title,
+                            color = Color.White,
+                            fontSize = 42.sp,
+                            fontWeight = FontWeight.W800,
+                            lineHeight = 46.sp,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Text(text = metadata, color = Color.White.copy(alpha = 0.7f), fontSize = 15.sp)
+                        Spacer(Modifier.height(14.dp))
+                        val overview = details?.optString("overview").orEmpty().ifBlank { item.overview }
+                        if (overview.isNotBlank()) {
+                            Text(
+                                text = overview,
+                                color = Color(0xFFDDDDDD),
+                                fontSize = 15.sp,
+                                lineHeight = 22.sp,
+                                maxLines = 7,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        Spacer(Modifier.height(20.dp))
+
+                        // ── Buttons ────────────────────────────────────────
+                        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                            CinematicButton(
+                                label = playLabel,
+                                iconRes = R.drawable.ic_play,
+                                primary = true,
+                                enabled = !isTv || (!loadingEpisodes && episodes.isNotEmpty()),
+                                focusRequester = playFocusRequester,
+                                onKeyLeft = { onReturnToSidebar() },
+                                onKeyRight = { runCatching { watchlistFocusRequester.requestFocus() } },
+                                onClick = { onPlay(if (isTv) episodes.firstOrNull() else null) },
+                            )
+                            CinematicButton(
+                                label = if (state.isSaved) "In Watchlist" else "Watchlist",
+                                iconRes = if (state.isSaved) R.drawable.ic_watchlist else R.drawable.ic_watchlist,
+                                primary = false,
+                                focusRequester = watchlistFocusRequester,
+                                onKeyLeft = { runCatching { playFocusRequester.requestFocus() } },
+                                onKeyRight = { },
+                                onClick = onWatchlistToggle,
+                            )
+                        }
+                    }
+                }
+            }
+
+            // ── Continue watching ──────────────────────────────────────────
+            if (continueWatching.isNotEmpty()) {
+                item {
+                    CinematicSection(title = "Continue Watching", height = 240.dp) {
+                        var focusedIdx by remember { mutableIntStateOf(-1) }
+                        LazyRow(
+                            contentPadding = PaddingValues(end = 54.dp),
+                            horizontalArrangement = Arrangement.spacedBy(18.dp),
+                        ) {
+                            items(continueWatching.size) { i ->
+                                val cw = continueWatching[i]
+                                TvTile(
+                                    isFocused = focusedIdx == i,
+                                    onFocused = { focusedIdx = i },
+                                    onPress = { /* resume */ },
+                                ) {
+                                    ContinueWatchingCard(entry = cw, isTv = isTv)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ── Seasons (TV only) ──────────────────────────────────────────
+            if (isTv && state.seasons.isNotEmpty()) {
+                item {
+                    CinematicSection(title = "Seasons", height = 52.dp) {
+                        val seasonFocusRequesters = remember(state.seasons) { state.seasons.map { FocusRequester() } }
+                        var focusedSeason by remember { mutableIntStateOf(-1) }
+                        LazyRow(
+                            contentPadding = PaddingValues(end = 54.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            items(state.seasons.size) { i ->
+                                val s = state.seasons[i]
+                                TvTile(
+                                    isFocused = focusedSeason == i,
+                                    isSelected = s.number == selectedSeason,
+                                    onFocused = { focusedSeason = i },
+                                    focusRequester = seasonFocusRequesters[i],
+                                    onPress = { onSeasonSelected(s.number) },
+                                    onKeyLeft = {
+                                        if (i == 0) runCatching { playFocusRequester.requestFocus() }
+                                        else seasonFocusRequesters[i - 1].requestFocus()
+                                    },
+                                    onKeyRight = {
+                                        if (i < state.seasons.lastIndex) seasonFocusRequesters[i + 1].requestFocus()
+                                    },
+                                ) {
+                                    Text(
+                                        text = s.name,
+                                        color = Color.White,
+                                        fontSize = 14.sp,
+                                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 11.dp),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ── Episodes (TV only) ─────────────────────────────────────────
+            if (isTv) {
+                item {
+                    CinematicSection(title = "Episodes", height = 190.dp) {
+                        if (loadingEpisodes) {
+                            CircularProgressIndicator(color = Color(0xFFE50914), modifier = Modifier.padding(16.dp))
+                        } else {
+                            val epFocusRequesters = remember(episodes) { episodes.map { FocusRequester() } }
+                            var focusedEp by remember { mutableIntStateOf(-1) }
+                            LazyRow(
+                                contentPadding = PaddingValues(end = 54.dp),
+                                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            ) {
+                                items(episodes.size) { i ->
+                                    val ep = episodes[i]
+                                    TvTile(
+                                        isFocused = focusedEp == i,
+                                        onFocused = { focusedEp = i },
+                                        focusRequester = epFocusRequesters[i],
+                                        onPress = { onPlay(ep) },
+                                        onKeyLeft = {
+                                            if (i == 0) runCatching { playFocusRequester.requestFocus() }
+                                            else epFocusRequesters[i - 1].requestFocus()
+                                        },
+                                        onKeyRight = {
+                                            if (i < episodes.lastIndex) epFocusRequesters[i + 1].requestFocus()
+                                        },
+                                    ) {
+                                        EpisodeTileContent(ep)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ── Cast ───────────────────────────────────────────────────────
+            if (state.cast.isNotEmpty()) {
+                item {
+                    CinematicSection(title = "Cast", height = 150.dp) {
+                        var focusedCast by remember { mutableIntStateOf(-1) }
+                        LazyRow(
+                            contentPadding = PaddingValues(end = 54.dp),
+                            horizontalArrangement = Arrangement.spacedBy(18.dp),
+                        ) {
+                            items(state.cast.size) { i ->
+                                val person = state.cast[i]
+                                TvTile(
+                                    isFocused = focusedCast == i,
+                                    onFocused = { focusedCast = i },
+                                    onPress = { /* cast detail */ },
+                                ) {
+                                    CastCard(person = person)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ── More Like This (recommendations) ──────────────────────────
+            if (state.recommendations.isNotEmpty()) {
+                item {
+                    CinematicSection(title = "More Like This", height = 260.dp) {
+                        var focusedRec by remember { mutableIntStateOf(-1) }
+                        LazyRow(
+                            contentPadding = PaddingValues(end = 54.dp),
+                            horizontalArrangement = Arrangement.spacedBy(18.dp),
+                        ) {
+                            items(state.recommendations.size) { i ->
+                                val rec = state.recommendations[i]
+                                TvTile(
+                                    isFocused = focusedRec == i,
+                                    onFocused = { focusedRec = i },
+                                    onPress = {
+                                        val route = if (rec.mediaType == "tv")
+                                            Screen.Series.createRoute(rec.id.toString())
+                                        else
+                                            Screen.Details.createRoute(rec.id.toString())
+                                        navController.navigate(route)
+                                    },
+                                ) {
+                                    RecommendationCard(item = rec)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TvTile — matches Dart _TvTile: scale + border on focus, selected highlight
+// ─────────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun TvTile(
+    isFocused: Boolean,
+    onFocused: () -> Unit,
+    onPress: () -> Unit,
+    isSelected: Boolean = false,
+    focusRequester: FocusRequester = remember { FocusRequester() },
+    onKeyLeft: (() -> Unit)? = null,
+    onKeyRight: (() -> Unit)? = null,
+    content: @Composable () -> Unit,
+) {
+    val scale by animateFloatAsState(
+        targetValue = if (isFocused) 1.02f else 1f,
+        animationSpec = tween(180),
+        label = "tileScale",
+    )
+
+    val borderColor = when {
+        isFocused  -> Color.White
+        isSelected -> Color(0xFFE50914)
+        else       -> Color.Transparent
+    }
+    val bgColor = when {
+        isSelected -> Color(0x44E50914)
+        else       -> Color.Transparent
+    }
+
+    Box(
+        modifier = Modifier
+            .scale(scale)
+            .clip(RoundedCornerShape(10.dp))
+            .background(bgColor)
+            .border(2.dp, borderColor, RoundedCornerShape(10.dp))
+            .focusRequester(focusRequester)
+            .focusable()
+            .onFocusChanged { state -> if (state.hasFocus) onFocused() }
+            .onKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                when (event.key) {
+                    Key.Enter, Key.DirectionCenter -> { onPress(); true }
+                    Key.DirectionLeft  -> { onKeyLeft?.invoke(); onKeyLeft != null }
+                    Key.DirectionRight -> { onKeyRight?.invoke(); onKeyRight != null }
+                    else -> false
+                }
+            }
+            .clickable(onClick = onPress)
+            .padding(2.dp),
+    ) {
+        content()
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CinematicButton (matches Dart _TvButton)
+// ─────────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun CinematicButton(
+    label: String,
+    iconRes: Int,
+    primary: Boolean,
+    enabled: Boolean = true,
+    focusRequester: FocusRequester,
+    onKeyLeft: () -> Unit,
+    onKeyRight: () -> Unit,
+    onClick: () -> Unit,
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(
+        targetValue = if (isFocused) 1.03f else 1f,
+        animationSpec = tween(180),
+        label = "btnScale",
+    )
+
+    val bgColor = when {
+        !enabled  -> Color(0x88333333)
+        primary   -> Color(0xFFE50914)
+        else      -> Color(0xBB222222)
+    }
+
+    Row(
+        modifier = Modifier
+            .scale(scale)
+            .clip(RoundedCornerShape(8.dp))
+            .background(bgColor)
+            .border(
+                width = if (isFocused) 2.dp else 0.dp,
+                color = if (isFocused) Color.White else Color.Transparent,
+                shape = RoundedCornerShape(8.dp),
+            )
+            .focusRequester(focusRequester)
+            .focusable()
+            .onFocusChanged { state -> isFocused = state.hasFocus }
+            .onKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                when (event.key) {
+                    Key.DirectionLeft  -> { onKeyLeft(); true }
+                    Key.DirectionRight -> { onKeyRight(); true }
+                    Key.Enter, Key.DirectionCenter -> { if (enabled) onClick(); true }
+                    else -> false
+                }
+            }
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 24.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Icon(
+            painter = painterResource(iconRes),
+            contentDescription = null,
+            tint = if (enabled) Color.White else Color.White.copy(alpha = 0.38f),
+            modifier = Modifier.size(20.dp),
+        )
+        Text(
+            text = label,
+            color = if (enabled) Color.White else Color.White.copy(alpha = 0.38f),
+            fontSize = 16.sp,
+            fontWeight = FontWeight.W700,
         )
     }
 }
 
-@Composable
-fun TvCinematicDetails(
-    item: MediaItem,
-    mediaType: String,
-    navController: NavController,
-    popularMovies: List<MediaItem> = emptyList(),
-    topRatedMovies: List<MediaItem> = emptyList(),
-    trendingSeries: List<MediaItem> = emptyList(),
-    onReturnToSidebar: () -> Unit = {},
-) {
-    val backdropUrl = item.backdropUrl.ifEmpty { item.posterUrl }
-    val title = item.title
-    val year = item.releaseDate.take(4).toIntOrNull() ?: 0
-    val rating = item.voteAverage
-    val overview = item.overview
-    val contentTypeLabel = if (mediaType == "tv") "TV Series" else "Movie"
-
-    val heroMetadata = buildString {
-        if (rating > 0) append(String.format("★ %.1f  ", rating))
-        if (year > 0) append(year)
-        append("  •  ")
-        append(contentTypeLabel)
-    }
-
-    Box(modifier = Modifier.fillMaxSize().background(Background)) {
-        AnimatedContent(
-            targetState = "${item.id}:$mediaType",
-            transitionSpec = {
-                (fadeIn(tween(450)) + scaleIn(tween(450), initialScale = 1.025f)) togetherWith
-                        (fadeOut(tween(180)) + scaleOut(tween(180)))
-            },
-            modifier = Modifier.fillMaxSize()
-        ) { currentKey ->
-            Box(modifier = Modifier.fillMaxSize()) {
-                AsyncImage(
-                    model = backdropUrl,
-                    contentDescription = title,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                )
-
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.horizontalGradient(
-                                colors = listOf(Color(0xff090909), Color(0xdd090909), Color.Transparent),
-                                startX = 0f,
-                                endX = 1200f
-                            )
-                        )
-                )
-
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                colors = listOf(Color.Transparent, Color(0x33090909), Color(0xff090909)),
-                                startY = 0f,
-                                endY = 280f
-                            )
-                        )
-                )
-            }
-        }
-
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 64.dp)
-        ) {
-            item {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 260.dp)
-                        .padding(horizontal = 48.dp, vertical = 24.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    androidx.compose.material3.Text(
-                        text = title,
-                        color = Color.White,
-                        fontSize = 42.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.fillMaxWidth(0.7f)
-                    )
-
-                    androidx.compose.material3.Text(
-                        text = heroMetadata,
-                        color = Color.White.copy(alpha = 0.7f),
-                        fontSize = 15.sp,
-                        lineHeight = 1.4.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.fillMaxWidth(0.85f)
-                    )
-
-                    if (overview.isNotBlank()) {
-                        androidx.compose.material3.Text(
-                            text = overview,
-                            color = Color(0xFFD8D8D8),
-                            fontSize = 15.sp,
-                            lineHeight = 1.6.sp,
-                            maxLines = 7,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.fillMaxWidth(0.8f)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(20.dp))
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                        val playFocusRequester = remember { FocusRequester() }
-                        androidx.compose.material3.Button(
-                            onClick = {
-                                val route = if (mediaType == "tv") {
-                                    Screen.Series.createRoute(item.id.toString())
-                                } else {
-                                    Screen.Player.createRoute(item.id.toString(), mediaType)
-                                }
-                                navController.navigate(route)
-                            },
-                            modifier = Modifier.focusRequester(playFocusRequester),
-                            colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFFE50914)
-                            )
-                        ) {
-                            androidx.compose.material3.Icon(
-                                painter = painterResource(id = R.drawable.ic_play),
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            androidx.compose.material3.Text(text = stringResource(R.string.play))
-                        }
-
-                        val watchlistFocusRequester = remember { FocusRequester() }
-                        androidx.compose.material3.OutlinedButton(
-                            onClick = { },
-                            modifier = Modifier.focusRequester(watchlistFocusRequester)
-                        ) {
-                            androidx.compose.material3.Icon(
-                                painter = painterResource(id = R.drawable.ic_watchlist),
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            androidx.compose.material3.Text(text = stringResource(R.string.watchlist))
-                        }
-                    }
-                }
-            }
-
-            if (mediaType == "tv") {
-                item {
-                    TvSection(
-                        title = "Seasons",
-                        height = 52,
-                        content = {
-                            LazyRow(
-                                contentPadding = PaddingValues(horizontal = 48.dp),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                items((1..5).toList()) { season ->
-                                    val isSelected = season == 1
-                                    Box(
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(
-                                                if (isSelected) Color.White else Color.White.copy(alpha = 0.12f)
-                                            )
-                                            .padding(horizontal = 20.dp, vertical = 11.dp)
-                                    ) {
-                                        androidx.compose.material3.Text(
-                                            text = "Season $season",
-                                            color = if (isSelected) Color.Black else Color.White,
-                                            fontSize = 14.sp,
-                                            fontWeight = FontWeight.SemiBold
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    )
-                }
-            }
-
-            item {
-                TvSection(
-                    title = "Continue Watching",
-                    height = 240,
-                    content = {
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = 48.dp),
-                            horizontalArrangement = Arrangement.spacedBy(18.dp)
-                        ) {
-                            items(5) { index ->
-                                TvTile(
-                                    node = remember { FocusRequester() },
-                                    order = 15.0 + index / 100.0,
-                                    onPressed = { },
-                                    child = {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(width = 286.dp, height = 180.dp)
-                                                .clip(RoundedCornerShape(8.dp))
-                                                .background(Color(0xFF242424))
-                                        )
-                                    }
-                                )
-                            }
-                        }
-                    }
-                )
-            }
-
-            if (popularMovies.isNotEmpty()) {
-                item {
-                    TvSection(
-                        title = stringResource(R.string.popular_movies),
-                        height = 260,
-                        content = {
-                            LazyRow(
-                                contentPadding = PaddingValues(horizontal = 48.dp),
-                                horizontalArrangement = Arrangement.spacedBy(18.dp)
-                            ) {
-                                items(popularMovies.take(10)) { movie ->
-                                    ContentCard(
-                                        posterUrl = movie.posterUrl,
-                                        title = movie.title,
-                                        rating = movie.voteAverage.takeIf { it > 0 },
-                                        onClick = {
-                                            navController.navigate(Screen.Details.createRoute(movie.id.toString()))
-                                        },
-                                        modifier = Modifier.height(180.dp)
-                                    )
-                                }
-                            }
-                        }
-                    )
-                }
-            }
-
-            if (topRatedMovies.isNotEmpty()) {
-                item {
-                    TvSection(
-                        title = stringResource(R.string.top_rated),
-                        height = 260,
-                        content = {
-                            LazyRow(
-                                contentPadding = PaddingValues(horizontal = 48.dp),
-                                horizontalArrangement = Arrangement.spacedBy(18.dp)
-                            ) {
-                                items(topRatedMovies.take(10)) { movie ->
-                                    ContentCard(
-                                        posterUrl = movie.posterUrl,
-                                        title = movie.title,
-                                        rating = movie.voteAverage.takeIf { it > 0 },
-                                        onClick = {
-                                            navController.navigate(Screen.Details.createRoute(movie.id.toString()))
-                                        },
-                                        modifier = Modifier.height(180.dp)
-                                    )
-                                }
-                            }
-                        }
-                    )
-                }
-            }
-
-            if (trendingSeries.isNotEmpty()) {
-                item {
-                    TvSection(
-                        title = stringResource(R.string.trending_series),
-                        height = 260,
-                        content = {
-                            LazyRow(
-                                contentPadding = PaddingValues(horizontal = 48.dp),
-                                horizontalArrangement = Arrangement.spacedBy(18.dp)
-                            ) {
-                                items(trendingSeries.take(10)) { series ->
-                                    ContentCard(
-                                        posterUrl = series.posterUrl,
-                                        title = series.title,
-                                        rating = series.voteAverage.takeIf { it > 0 },
-                                        onClick = {
-                                            navController.navigate(Screen.Series.createRoute(series.id.toString()))
-                                        },
-                                        modifier = Modifier.height(180.dp)
-                                    )
-                                }
-                            }
-                        }
-                    )
-                }
-            }
-        }
-    }
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// Section wrapper (matches Dart _section)
+// ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
-private fun TvSection(
-    title: String,
-    height: Int,
-    content: @Composable () -> Unit,
-) {
+private fun CinematicSection(title: String, height: Dp, content: @Composable () -> Unit) {
     Column(
         modifier = Modifier
             .padding(top = 26.dp)
-            .padding(horizontal = 54.dp)
+            .padding(start = 54.dp),
     ) {
-        androidx.compose.material3.Text(
+        Text(
             text = title,
             color = Color.White,
             fontSize = 22.sp,
             fontWeight = FontWeight.W700,
-            modifier = Modifier.padding(bottom = 14.dp)
+            modifier = Modifier.padding(bottom = 14.dp),
         )
-        Box(modifier = Modifier.height(height.dp)) {
+        Box(modifier = Modifier.height(height)) {
             content()
         }
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Card sub-composables
+// ─────────────────────────────────────────────────────────────────────────────
+
 @Composable
-private fun TvTile(
-    node: FocusRequester,
-    order: Double,
-    onPressed: () -> Unit,
-    child: @Composable () -> Unit,
-) {
-    androidx.compose.foundation.layout.Box(
-        modifier = Modifier
-            .focusRequester(node)
-            .onFocusChanged { }
-    ) {
-        child()
+private fun EpisodeTileContent(episode: EpisodeRef) {
+    val stillUrl = episode.stillPath?.let { "${Constants.TMDB_IMAGE_BASE}/w500$it" }.orEmpty()
+    Column(modifier = Modifier.width(286.dp)) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(160.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(Color(0xFF242424)),
+        ) {
+            if (stillUrl.isNotEmpty()) {
+                AsyncImage(
+                    model = stillUrl,
+                    contentDescription = episode.title,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                )
+            } else {
+                Icon(
+                    painter = painterResource(R.drawable.ic_play),
+                    contentDescription = null,
+                    tint = Color.White.copy(alpha = 0.4f),
+                    modifier = Modifier.align(Alignment.Center).size(40.dp),
+                )
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(
+            text = "E${episode.number}  ${episode.title}",
+            color = Color.White,
+            fontWeight = FontWeight.W600,
+            fontSize = 13.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        if (episode.overview.isNotBlank()) {
+            Text(
+                text = episode.overview,
+                color = Color.White.copy(alpha = 0.54f),
+                fontSize = 12.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                lineHeight = 16.sp,
+            )
+        }
     }
 }
+
+@Composable
+private fun CastCard(person: CastEntry) {
+    val profileUrl = person.profilePath?.let { "${Constants.TMDB_IMAGE_BASE}/w185$it" }.orEmpty()
+    Column(
+        modifier = Modifier.width(105.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(92.dp)
+                .clip(CircleShape)
+                .background(Color(0xFF242424)),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (profileUrl.isNotEmpty()) {
+                AsyncImage(
+                    model = profileUrl,
+                    contentDescription = person.name,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                )
+            } else {
+                Icon(
+                    painter = painterResource(R.drawable.ic_home), // person placeholder
+                    contentDescription = null,
+                    tint = Color.White.copy(alpha = 0.4f),
+                    modifier = Modifier.size(40.dp),
+                )
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(
+            text = person.name,
+            color = Color.White,
+            fontSize = 12.sp,
+            textAlign = TextAlign.Center,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun RecommendationCard(item: MediaItem) {
+    Column(
+        modifier = Modifier.width(150.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(200.dp)
+                .clip(RoundedCornerShape(9.dp))
+                .background(Color(0xFF242424)),
+        ) {
+            if (item.posterUrl.isNotEmpty()) {
+                AsyncImage(
+                    model = item.posterUrl,
+                    contentDescription = item.title,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                )
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(
+            text = item.title,
+            color = Color.White,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.W600,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun ContinueWatchingCard(entry: WatchEntryCompat.Entry, isTv: Boolean) {
+    val title = if (isTv) "S${entry.season} E${entry.episode}" else entry.title
+    Column(
+        modifier = Modifier.width(286.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(160.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(Color(0xFF242424)),
+        ) {
+            if (entry.posterUrl.isNotEmpty()) {
+                AsyncImage(
+                    model = entry.posterUrl,
+                    contentDescription = title,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                )
+            }
+            // Progress bar
+            val progress = if (entry.duration > 0) (entry.position.toFloat() / entry.duration).coerceIn(0f, 1f) else 0f
+            if (progress > 0f) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .height(4.dp)
+                        .padding(horizontal = 8.dp)
+                ) {
+                    Box(Modifier.fillMaxSize().clip(RoundedCornerShape(2.dp)).background(Color.White.copy(alpha = 0.24f)))
+                    Box(Modifier.fillMaxWidth(progress).fillMaxSize().clip(RoundedCornerShape(2.dp)).background(Color(0xFFE50914)))
+                }
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(text = title, color = Color.White, fontWeight = FontWeight.W600, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Spacer(Modifier.height(4.dp))
+        Icon(painter = painterResource(R.drawable.ic_play), contentDescription = null, tint = Color(0xFFE50914), modifier = Modifier.size(20.dp))
+    }
+}
+
+// end of DetailsScreen.kt
