@@ -7,7 +7,6 @@ allprojects {
     repositories {
         google()
         mavenCentral()
-        maven("https://maven.pkg.jetbrains.space/public/p/kotlin/p/kotlin/dev")
     }
 }
 

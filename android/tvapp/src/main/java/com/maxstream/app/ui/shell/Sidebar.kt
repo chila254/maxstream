@@ -33,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.focusable
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
@@ -123,7 +124,7 @@ fun Sidebar(
 
             Column(
                 modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(3.dp, Alignment.CenterVertically),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 sections.forEachIndexed { index, section ->
@@ -216,8 +217,10 @@ private fun SidebarPillItem(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center
     ) {
+        val focusTarget = if (expanded) Modifier.focusable() else Modifier
         Box(
             modifier = Modifier
+                .then(focusTarget)
                 .size(32.dp)
                 .clip(RoundedCornerShape(16.dp))
                 .background(iconBgColor),
