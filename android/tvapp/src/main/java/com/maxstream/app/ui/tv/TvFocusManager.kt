@@ -1,7 +1,9 @@
 package com.maxstream.app.ui.tv
 
-import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.focus.FocusRequester
 
 object TvFocusManager {
     private var sidebarFocusRequester: FocusRequester? = null

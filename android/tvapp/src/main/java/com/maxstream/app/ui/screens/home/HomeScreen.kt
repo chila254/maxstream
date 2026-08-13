@@ -1,5 +1,6 @@
 package com.maxstream.app.ui.screens.home
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -22,14 +23,17 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -197,6 +201,7 @@ fun HomeScreen(
                                                     playFocusRequester.requestFocus()
                                                 }
                                             },
+                                            onReturnToSidebar = onReturnToSidebar,
                                             modifier = Modifier.padding(top = 20.dp)
                                         )
                                     }
@@ -220,6 +225,7 @@ fun HomeScreen(
                                                     playFocusRequester.requestFocus()
                                                 }
                                             },
+                                            onReturnToSidebar = onReturnToSidebar,
                                             modifier = Modifier.padding(top = 20.dp)
                                         )
                                     }
@@ -243,6 +249,7 @@ fun HomeScreen(
                                                     playFocusRequester.requestFocus()
                                                 }
                                             },
+                                            onReturnToSidebar = onReturnToSidebar,
                                             modifier = Modifier.padding(top = 20.dp)
                                         )
                                     }
@@ -266,6 +273,7 @@ fun HomeScreen(
                                                     playFocusRequester.requestFocus()
                                                 }
                                             },
+                                            onReturnToSidebar = onReturnToSidebar,
                                             modifier = Modifier.padding(top = 20.dp)
                                         )
                                     }
@@ -288,6 +296,7 @@ fun HomeScreen(
                                                     playFocusRequester.requestFocus()
                                                 }
                                             },
+                                            onReturnToSidebar = onReturnToSidebar,
                                             modifier = Modifier.padding(top = 20.dp)
                                         )
                                     }
@@ -493,6 +502,7 @@ private fun ContentRow(
     resumeOnSelect: Boolean = false,
     onItemFocus: (MediaItem) -> Unit = {},
     onArrowUp: suspend () -> Unit = {},
+    onReturnToSidebar: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val rowState = rememberLazyListState()

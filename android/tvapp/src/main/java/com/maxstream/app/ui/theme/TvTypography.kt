@@ -223,7 +223,7 @@ object TvTextStyles {
             shadow = Shadow(
                 color = Color.Black.copy(alpha = 0.5f),
                 offset = androidx.compose.ui.geometry.Offset(2f, 2f),
-                blurRadius = 10.dp
+                blurRadius = 10f
             )
         )
 

@@ -1,8 +1,10 @@
 package com.maxstream.app.ui.navigation
 
 import androidx.compose.foundation.ScrollState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.snapshots.SnapshotStateMap
+import androidx.compose.runtime.setValue
 
 class TvNavigationProvider {
     private val _selectedTab = mutableStateOf(0)

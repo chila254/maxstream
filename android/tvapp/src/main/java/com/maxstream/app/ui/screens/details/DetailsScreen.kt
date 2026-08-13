@@ -37,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -287,7 +288,7 @@ fun TvCinematicDetails(
                         content = {
                             LazyRow(
                                 contentPadding = PaddingValues(horizontal = 48.dp),
-                                horizontalArrangement = Arrangement.spacedBy(10)
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
                                 items((1..5).toList()) { season ->
                                     val isSelected = season == 1
@@ -320,19 +321,21 @@ fun TvCinematicDetails(
                     content = {
                         LazyRow(
                             contentPadding = PaddingValues(horizontal = 48.dp),
-                            horizontalArrangement = Arrangement.spacedBy(18)
+                            horizontalArrangement = Arrangement.spacedBy(18.dp)
                         ) {
                             items(5) { index ->
                                 TvTile(
                                     node = remember { FocusRequester() },
-                                    order = 15 + index / 100,
+                                    order = 15.0 + index / 100.0,
                                     onPressed = { },
-                                    child = Box(
-                                        modifier = Modifier
-                                            .size(width = 286.dp, height = 180.dp)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(Color(0xFF242424))
-                                    )
+                                    child = {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(width = 286.dp, height = 180.dp)
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(Color(0xFF242424))
+                                        )
+                                    }
                                 )
                             }
                         }
@@ -348,7 +351,7 @@ fun TvCinematicDetails(
                         content = {
                             LazyRow(
                                 contentPadding = PaddingValues(horizontal = 48.dp),
-                                horizontalArrangement = Arrangement.spacedBy(18)
+                                horizontalArrangement = Arrangement.spacedBy(18.dp)
                             ) {
                                 items(popularMovies.take(10)) { movie ->
                                     ContentCard(
@@ -375,7 +378,7 @@ fun TvCinematicDetails(
                         content = {
                             LazyRow(
                                 contentPadding = PaddingValues(horizontal = 48.dp),
-                                horizontalArrangement = Arrangement.spacedBy(18)
+                                horizontalArrangement = Arrangement.spacedBy(18.dp)
                             ) {
                                 items(topRatedMovies.take(10)) { movie ->
                                     ContentCard(
@@ -402,7 +405,7 @@ fun TvCinematicDetails(
                         content = {
                             LazyRow(
                                 contentPadding = PaddingValues(horizontal = 48.dp),
-                                horizontalArrangement = Arrangement.spacedBy(18)
+                                horizontalArrangement = Arrangement.spacedBy(18.dp)
                             ) {
                                 items(trendingSeries.take(10)) { series ->
                                     ContentCard(
