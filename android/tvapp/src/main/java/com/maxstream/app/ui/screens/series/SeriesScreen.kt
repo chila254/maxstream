@@ -218,7 +218,7 @@ private fun SeriesDetailsView(
                         .fillMaxWidth()
                         .padding(top = 260.dp)
                         .padding(horizontal = 48.dp, vertical = 24.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     androidx.compose.material3.Text(
                         text = title,
@@ -226,14 +226,17 @@ private fun SeriesDetailsView(
                         fontSize = 42.sp,
                         fontWeight = FontWeight.ExtraBold,
                         maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.fillMaxWidth(0.7f)
                     )
 
                     androidx.compose.material3.Text(
                         text = heroMetadata,
                         color = Color.White.copy(alpha = 0.7f),
                         fontSize = 15.sp,
-                        fontWeight = FontWeight.SemiBold
+                        lineHeight = 1.4.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.fillMaxWidth(0.85f)
                     )
 
                     if (overview.isNotBlank()) {
@@ -241,9 +244,10 @@ private fun SeriesDetailsView(
                             text = overview,
                             color = Color(0xFFD8D8D8),
                             fontSize = 15.sp,
-                            lineHeight = 1.45.sp,
+                            lineHeight = 1.6.sp,
                             maxLines = 7,
-                            overflow = TextOverflow.Ellipsis
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.fillMaxWidth(0.8f)
                         )
                     }
 

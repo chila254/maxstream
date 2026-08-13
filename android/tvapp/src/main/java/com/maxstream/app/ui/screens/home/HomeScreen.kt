@@ -388,7 +388,7 @@ private fun HomeHeroSection(
                         color = Color.White,
                         fontSize = 38.sp,
                         fontWeight = FontWeight.ExtraBold,
-                        lineHeight = 1.05.sp,
+                        lineHeight = 1.1.sp,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                         letterSpacing = (-0.7).sp,
@@ -401,7 +401,9 @@ private fun HomeHeroSection(
                         text = heroMetadata,
                         color = Color.White.copy(alpha = 0.7f),
                         fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold
+                        lineHeight = 1.4.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.fillMaxWidth(0.85f)
                     )
 
                     if (overview.isNotBlank()) {
@@ -410,7 +412,7 @@ private fun HomeHeroSection(
                             text = overview,
                             color = Color(0xFFD8D8D8),
                             fontSize = 14.sp,
-                            lineHeight = 1.45.sp,
+                            lineHeight = 1.6.sp,
                             maxLines = 3,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.fillMaxWidth(0.75f)
