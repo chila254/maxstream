@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.viewModelScope
+import com.maxstream.app.data.local.WatchProgressRepository
 import com.maxstream.app.data.model.MediaItem
 import com.maxstream.app.di.Modules
 import kotlinx.coroutines.launch
@@ -46,6 +47,10 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             _popularSeries.value = repo.popularSeries() ?: emptyList()
             _topRatedMovies.value = repo.topRatedMovies() ?: emptyList()
             _topRatedSeries.value = repo.topRatedSeries() ?: emptyList()
+            // Continue Watching row: locally persisted watch progress, newest first.
+            _continueWatching.value = WatchProgressRepository
+                .recent(getApplication(), limit = 20)
+                .map { it.toMediaItem() }
             _loading.value = false
         }
     }

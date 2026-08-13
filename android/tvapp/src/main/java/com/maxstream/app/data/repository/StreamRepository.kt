@@ -76,14 +76,17 @@ class StreamRepository(private val context: Context) {
             }
         }.orEmpty()
 
+        val server = (map["server"] as? String).orEmpty()
+        val extractor = (map["source"] as? String).orEmpty()
         return Source(
             url = url,
-            server = (map["server"] as? String) ?: (map["source"] as? String).orEmpty(),
+            server = server.ifEmpty { extractor },
             type = (map["type"] as? String).orEmpty(),
             headers = headers,
             qualities = qualities,
             subtitles = subtitles,
             separateAudio = map["separateAudio"] as? Boolean ?: false,
+            extractor = extractor,
         )
     }
 }

@@ -10,8 +10,19 @@ data class Source(
     val qualities: List<Quality> = emptyList(),
     val subtitles: List<Subtitle> = emptyList(),
     val separateAudio: Boolean = false,
+    /** Extractor name (e.g. "VixSrc") - the host that produced this stream. */
+    val extractor: String = "",
 ) {
     val isHls: Boolean get() = type == "direct_m3u8" || url.contains(".m3u8", ignoreCase = true)
+
+    /** Display label like mobile's "RPM via Vidflix": extractor + route host when they differ. */
+    val displayName: String
+        get() = when {
+            extractor.isNotBlank() && server.isNotBlank() && extractor != server -> "$extractor via $server"
+            extractor.isNotBlank() -> extractor
+            server.isNotBlank() -> server
+            else -> "Unknown"
+        }
 
     companion object {
         fun fromBundle(b: Bundle): Source {
@@ -29,6 +40,7 @@ data class Source(
                 qualities = qualities,
                 subtitles = subtitles,
                 separateAudio = b.getBoolean("separateAudio", false),
+                extractor = b.getString("extractor").orEmpty(),
             )
         }
     }
@@ -94,4 +106,5 @@ fun Source.toBundle(): Bundle = Bundle().apply {
         ArrayList(subtitles.map { it.toBundle() }),
     )
     putBoolean("separateAudio", separateAudio)
+    putString("extractor", extractor)
 }

@@ -118,7 +118,12 @@ fun SeriesScreen(navController: NavController, itemId: String) {
                         selectedEpisode = episode
                     },
                     onPlayEpisode = { episode ->
-                        val route = Screen.Player.createRoute(mediaItem.id.toString(), "tv")
+                        val route = Screen.Player.createRoute(
+                            mediaItem.id.toString(),
+                            "tv",
+                            season = selectedSeason,
+                            episode = episode.number,
+                        )
                         navController.navigate(route)
                     },
                     onBack = {

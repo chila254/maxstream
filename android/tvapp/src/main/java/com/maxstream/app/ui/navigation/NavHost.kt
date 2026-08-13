@@ -39,7 +39,9 @@ fun MaxStreamNavHost(startDestination: String = Screen.Splash.route) {
         composable(Screen.Player.route) { backStackEntry ->
             val itemId = backStackEntry.arguments?.getString("itemId") ?: ""
             val mediaType = backStackEntry.arguments?.getString("mediaType") ?: "movie"
-            PlayerScreen(navController, itemId, mediaType)
+            val season = backStackEntry.arguments?.getString("season")?.toIntOrNull() ?: 1
+            val episode = backStackEntry.arguments?.getString("episode")?.toIntOrNull() ?: 1
+            PlayerScreen(navController, itemId, mediaType, season, episode)
         }
     }
 }

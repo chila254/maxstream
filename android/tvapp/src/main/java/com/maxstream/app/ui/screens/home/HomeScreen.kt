@@ -33,6 +33,7 @@ import androidx.compose.runtime.observeAsState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import com.maxstream.app.data.local.WatchEntryCompat
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
@@ -519,12 +520,30 @@ private fun ContentRow(
                     title = item.title,
                     rating = rating,
                     year = year,
-                    progress = if (showProgress) 0.35f else null,
+                    progress = if (showProgress) {
+                        WatchEntryCompat.progressOf(
+                            item.id, item.mediaType, item.season, item.episode,
+                        ).takeIf { it > 0f }
+                    } else null,
                     contentTypeLabel = contentTypeLabel,
                     onClick = {
-                        val route = if (isSeries) Screen.Series.route
-                        else Screen.Details.createRoute(item.id.toString())
-                        navController.navigate(route)
+                        if (resumeOnSelect) {
+                            // Continue Watching: jump straight into the player at
+                            // the saved season/episode (position resumes from
+                            // watch history inside the player).
+                            navController.navigate(
+                                Screen.Player.createRoute(
+                                    item.id.toString(),
+                                    item.mediaType,
+                                    season = item.season,
+                                    episode = item.episode,
+                                ),
+                            )
+                        } else {
+                            val route = if (isSeries) Screen.Series.createRoute(item.id.toString())
+                            else Screen.Details.createRoute(item.id.toString())
+                            navController.navigate(route)
+                        }
                     },
                     modifier = Modifier
                         .onFocusChanged { focusState ->

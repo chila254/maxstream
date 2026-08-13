@@ -16,6 +16,8 @@ data class MediaItem(
     val releaseDate: String,
     val voteAverage: Double,
     val genreIds: List<Int>,
+    val season: Int = 1,
+    val episode: Int = 1,
 ) {
     val isMovie: Boolean get() = mediaType == "movie"
     val posterUrl: String get() = imageUrl(posterPath, "w500")
@@ -37,6 +39,8 @@ data class MediaItem(
         putString("releaseDate", releaseDate)
         putDouble("voteAverage", voteAverage)
         putIntegerArrayList("genreIds", ArrayList(genreIds))
+        putInt("season", season)
+        putInt("episode", episode)
     }
 
     companion object {
@@ -50,6 +54,8 @@ data class MediaItem(
             releaseDate = bundle.getString("releaseDate").orEmpty(),
             voteAverage = bundle.getDouble("voteAverage", 0.0),
             genreIds = bundle.getIntegerArrayList("genreIds").orEmpty(),
+            season = bundle.getInt("season", 1),
+            episode = bundle.getInt("episode", 1),
         )
 
         fun fromJson(json: JSONObject): MediaItem {

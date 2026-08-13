@@ -28,6 +28,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.maxstream.app.R
+import com.maxstream.app.data.local.WatchEntryCompat
 import com.maxstream.app.ui.navigation.Screen
 import com.maxstream.app.ui.screens.auth.LoginScreen
 import com.maxstream.app.ui.screens.auth.PairingScreen
@@ -49,6 +50,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        WatchEntryCompat.init(applicationContext)
         try {
             setContent {
                 MaxStreamTheme {
@@ -136,7 +138,9 @@ class MainActivity : ComponentActivity() {
                                     composable(Screen.Player.route) { backStackEntry ->
                                         val itemId = backStackEntry.arguments?.getString("itemId") ?: ""
                                         val mediaType = backStackEntry.arguments?.getString("mediaType") ?: "movie"
-                                        PlayerScreen(navController, itemId, mediaType)
+                                        val season = backStackEntry.arguments?.getString("season")?.toIntOrNull() ?: 1
+                                        val episode = backStackEntry.arguments?.getString("episode")?.toIntOrNull() ?: 1
+                                        PlayerScreen(navController, itemId, mediaType, season, episode)
                                     }
                                 }
                             }
@@ -167,7 +171,9 @@ class MainActivity : ComponentActivity() {
                                 composable(Screen.Player.route) { backStackEntry ->
                                     val itemId = backStackEntry.arguments?.getString("itemId") ?: ""
                                     val mediaType = backStackEntry.arguments?.getString("mediaType") ?: "movie"
-                                    PlayerScreen(navController, itemId, mediaType)
+                                    val season = backStackEntry.arguments?.getString("season")?.toIntOrNull() ?: 1
+                                    val episode = backStackEntry.arguments?.getString("episode")?.toIntOrNull() ?: 1
+                                    PlayerScreen(navController, itemId, mediaType, season, episode)
                                 }
                             }
                         }
