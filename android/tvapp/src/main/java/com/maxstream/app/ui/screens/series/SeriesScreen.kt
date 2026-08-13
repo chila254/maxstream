@@ -52,7 +52,7 @@ import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import com.maxstream.app.R
 import com.maxstream.app.data.model.MediaItem
-import com.maxstream.app.data.model.EpisodeRef
+import com.maxstream.app.data.remote.EpisodeRef
 import com.maxstream.app.ui.navigation.Screen
 import com.maxstream.app.ui.theme.Background
 import com.maxstream.app.ui.tv.TvFocusManager

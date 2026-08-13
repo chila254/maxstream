@@ -1,0 +1,39 @@
+file:///home/runner/work/maxstream/maxstream/***/tvapp/src/main/java/com/maxstream/app/ui/screens/series/SeriesScreen.kt:55:37 Unresolved reference 'EpisodeRef'.
+e: file:///home/runner/work/maxstream/maxstream/***/tvapp/src/main/java/com/maxstream/app/ui/screens/series/SeriesScreen.kt:68:45 Cannot infer type for type parameter 'T'. Specify it explicitly.
+e: file:///home/runner/work/maxstream/maxstream/***/tvapp/src/main/java/com/maxstream/app/ui/screens/series/SeriesScreen.kt:68:45 Unresolved reference. None of the following candidates is applicable because of a receiver type mismatch:
+fun <T> List<T>?.orEmpty(): List<T>
+e: file:///home/runner/work/maxstream/maxstream/***/tvapp/src/main/java/com/maxstream/app/ui/screens/series/SeriesScreen.kt:73:28 Cannot infer type for type parameter 'T'. Specify it explicitly.
+e: file:///home/runner/work/maxstream/maxstream/***/tvapp/src/main/java/com/maxstream/app/ui/screens/series/SeriesScreen.kt:73:54 Unresolved reference 'EpisodeRef'.
+e: file:///home/runner/work/maxstream/maxstream/***/tvapp/src/main/java/com/maxstream/app/ui/screens/series/SeriesScreen.kt:73:67 Null cannot be a value of a non-null type 'uninferred T (of fun <T> mutableStateOf)'.
+e: file:///home/runner/work/maxstream/maxstream/***/tvapp/src/main/java/com/maxstream/app/ui/screens/series/SeriesScreen.kt:117:43 Unresolved reference 'EpisodeRef'.
+e: file:///home/runner/work/maxstream/maxstream/***/tvapp/src/main/java/com/maxstream/app/ui/screens/series/SeriesScreen.kt:120:39 Unresolved reference 'EpisodeRef'.
+e: file:///home/runner/work/maxstream/maxstream/***/tvapp/src/main/java/com/maxstream/app/ui/screens/series/SeriesScreen.kt:125:47 Unresolved reference 'number'.
+e: file:///home/runner/work/maxstream/maxstream/***/tvapp/src/main/java/com/maxstream/app/ui/screens/series/SeriesScreen.kt:143:20 Unresolved reference 'EpisodeRef'.
+e: file:///home/runner/work/maxstream/maxstream/***/tvapp/src/main/java/com/maxstream/app/ui/screens/series/SeriesScreen.kt:145:22 Unresolved reference 'EpisodeRef'.
+e: file:///home/runner/work/maxstream/maxstream/***/tvapp/src/main/java/com/maxstream/app/ui/screens/series/SeriesScreen.kt:149:25 Unresolved reference 'EpisodeRef'.
+e: file:///home/runner/work/maxstream/maxstream/***/tvapp/src/main/java/com/maxstream/app/ui/screens/series/SeriesScreen.kt:150:21 Unresolved reference 'EpisodeRef'.
+e: file:///home/runner/work/maxstream/maxstream/***/tvapp/src/main/java/com/maxstream/app/ui/screens/series/SeriesScreen.kt:244:46 Cannot infer type for type parameter 'T'. Specify it explicitly.
+e: file:///home/runner/work/maxstream/maxstream/***/tvapp/src/main/java/com/maxstream/app/ui/screens/series/SeriesScreen.kt:244:46 Unresolved reference. None of the following candidates is applicable because of a receiver type mismatch:
+fun <T> Collection<T>.isNotEmpty(): Boolean
+e: file:///home/runner/work/maxstream/maxstream/***/tvapp/src/main/java/com/maxstream/app/ui/screens/series/SeriesScreen.kt:245:37 Inapplicable candidate(s): fun invoke(p1: <ERROR TYPE REF: Symbol not found for EpisodeRef>): Unit
+e: file:///home/runner/work/maxstream/maxstream/***/tvapp/src/main/java/com/maxstream/app/ui/screens/series/SeriesScreen.kt:245:60 Cannot infer type for type parameter 'T'. Specify it explicitly.
+e: file:///home/runner/work/maxstream/maxstream/***/tvapp/src/main/java/com/maxstream/app/ui/screens/series/SeriesScreen.kt:245:60 Unresolved reference. None of the following candidates is applicable because of a receiver type mismatch:
+fun <T> List<T>.first(): T
+e: file:///home/runner/work/maxstream/maxstream/***/tvapp/src/main/java/com/maxstream/app/ui/screens/series/SeriesScreen.kt:350:31 Argument type mismatch: actual type is 'List<ERROR CLASS: Symbol not found for EpisodeRef>', but 'Int' was expected.
+e: file:///home/runner/work/maxstream/maxstream/***/tvapp/src/main/java/com/maxstream/app/ui/screens/series/SeriesScreen.kt:353:53 Unresolved reference 'number'.
+e: file:///home/runner/work/maxstream/maxstream/***/tvapp/src/main/java/com/maxstream/app/ui/screens/series/SeriesScreen.kt:353:72 Unresolved reference 'title'.
+e: file:///home/runner/work/maxstream/maxstream/***/tvapp/src/main/java/com/maxstream/app/ui/viewmodel/SeriesViewModel.kt:9:37 Unresolved reference 'EpisodeRef'.
+e: file:///home/runner/work/maxstream/maxstream/***/tvapp/src/main/java/com/maxstream/app/ui/viewmodel/SeriesViewModel.kt:19:50 Unresolved reference 'EpisodeRef'.
+e: file:///home/runner/work/maxstream/maxstream/***/tvapp/src/main/java/com/maxstream/app/ui/viewmodel/SeriesViewModel.kt:19:63 Cannot infer type for type parameter 'T'. Specify it explicitly.
+e: file:///home/runner/work/maxstream/maxstream/***/tvapp/src/main/java/com/maxstream/app/ui/viewmodel/SeriesViewModel.kt:19:63 Argument type mismatch: actual type is 'List<uninferred T (of fun <T> emptyList)>', but 'List<ERROR CLASS: Symbol not found for EpisodeRef>!' was expected.
+e: file:///home/runner/work/maxstream/maxstream/***/tvapp/src/main/java/com/maxstream/app/ui/viewmodel/SeriesViewModel.kt:25:33 Unresolved reference 'EpisodeRef'.
+e: file:///home/runner/work/maxstream/maxstream/***/tvapp/src/main/java/com/maxstream/app/ui/viewmodel/SeriesViewModel.kt:68:35 Cannot infer type for type parameter 'T'. Specify it explicitly.
+13 actionable tasks: 9 executed, 4 up-to-date
+FAILURE: Build failed with an exception.
+* What went wrong:
+Execution failed for task ':tvapp:compileFossUniversalReleaseKotlin'.
+> A failure occurred while executing org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction
+   > Compilation error. See log for more details
+   * Try:
+   > Run with --stacktrace option to get the stack trace.
+   > Run with --info or --debug option to get more log output.
