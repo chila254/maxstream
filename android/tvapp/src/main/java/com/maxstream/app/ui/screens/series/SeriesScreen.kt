@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -53,7 +52,6 @@ import coil.compose.AsyncImage
 import com.maxstream.app.R
 import com.maxstream.app.data.model.MediaItem
 import com.maxstream.app.data.remote.EpisodeRef
-import com.maxstream.app.ui.components.ContentCard
 import com.maxstream.app.ui.navigation.Screen
 import com.maxstream.app.ui.theme.Background
 import com.maxstream.app.ui.tv.TvFocusManager
@@ -171,7 +169,7 @@ private fun SeriesDetailsView(
     val heroMetadata = buildString {
         if (rating > 0) append(String.format("★ %.1f  ", rating))
         if (year > 0) append(year)
-        append("  ")
+        append("  •  ")
         append("TV Series")
     }
 
@@ -188,7 +186,7 @@ private fun SeriesDetailsView(
                 .fillMaxSize()
                 .background(
                     Brush.horizontalGradient(
-                        colors = listOf(Color.Black, Color(0xD9000000), Color.Transparent),
+                        colors = listOf(Color(0xff090909), Color(0xdd090909), Color.Transparent),
                         startX = 0f,
                         endX = 1200f
                     )
@@ -200,7 +198,7 @@ private fun SeriesDetailsView(
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
-                        colors = listOf(Color.Transparent, Color.Transparent, Color(0xFF080808)),
+                        colors = listOf(Color.Transparent, Color(0x33090909), Color(0xff090909)),
                         startY = 0f,
                         endY = 280f
                     )
@@ -209,8 +207,7 @@ private fun SeriesDetailsView(
 
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            state = rememberLazyListState(),
-            contentPadding = PaddingValues(bottom = 56.dp)
+            contentPadding = PaddingValues(bottom = 64.dp)
         ) {
             item {
                 Column(
@@ -292,33 +289,37 @@ private fun SeriesDetailsView(
                 }
             }
 
-            item {
-                Column(
-                    modifier = Modifier
-                        .padding(top = 24.dp)
-                        .padding(horizontal = 48.dp)
-                ) {
-                    androidx.compose.material3.Text(
-                        text = "Seasons",
-                        color = Color.White,
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(bottom = 12.dp)
-                    )
-
-                    LazyRow(
-                        contentPadding = PaddingValues(horizontal = 48.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        items(seasons) { season ->
-                            val isSelected = season == selectedSeason
-                            SeasonChip(
-                                label = "Season $season",
-                                isSelected = isSelected,
-                                onClick = { onSeasonSelected(season) }
-                            )
+            if (seasons.isNotEmpty()) {
+                item {
+                    TvSection(
+                        title = "Seasons",
+                        height = 52,
+                        content = {
+                            LazyRow(
+                                contentPadding = PaddingValues(horizontal = 48.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10)
+                            ) {
+                                items(seasons) { season ->
+                                    val isSelected = season == selectedSeason
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(
+                                                if (isSelected) Color.White else Color.White.copy(alpha = 0.12f)
+                                            )
+                                            .padding(horizontal = 20.dp, vertical = 11.dp)
+                                    ) {
+                                        androidx.compose.material3.Text(
+                                            text = "Season $season",
+                                            color = if (isSelected) Color.Black else Color.White,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
+                                }
+                            }
                         }
-                    }
+                    )
                 }
             }
 
@@ -339,139 +340,140 @@ private fun SeriesDetailsView(
             }
 
             item {
-                Column(
-                    modifier = Modifier
-                        .padding(top = 24.dp)
-                        .padding(horizontal = 48.dp)
-                ) {
-                    androidx.compose.material3.Text(
-                        text = "Episodes",
-                        color = Color.White,
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(bottom = 12.dp)
-                    )
-
-                    if (loading) {
-                        androidx.compose.material3.CircularProgressIndicator(
-                            color = androidx.compose.material3.MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(16.dp)
-                        )
-                    }
-
-                    LazyRow(
-                        contentPadding = PaddingValues(horizontal = 48.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        items(episodes) { episode ->
-                            val isSelected = episode == selectedEpisode
-                            EpisodeChip(
-                                label = "E${episode.number}: ${episode.title}",
-                                isSelected = isSelected,
-                                onClick = { onEpisodeSelected(episode) },
-                                onPlay = { onPlayEpisode(episode) }
+                TvSection(
+                    title = "Episodes",
+                    height = 190,
+                    content = {
+                        if (loading) {
+                            androidx.compose.material3.CircularProgressIndicator(
+                                color = androidx.compose.material3.MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(16.dp)
                             )
                         }
+
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 48.dp),
+                            horizontalArrangement = Arrangement.spacedBy(16)
+                        ) {
+                            items(episodes) { episode ->
+                                val isSelected = episode == selectedEpisode
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(
+                                            if (isSelected) Color.White else Color.White.copy(alpha = 0.12f)
+                                        )
+                                        .onFocusChanged { focusState ->
+                                            if (focusState.hasFocus) {
+                                                onEpisodeSelected(episode)
+                                            }
+                                        }
+                                        .padding(horizontal = 20.dp, vertical = 10.dp)
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        androidx.compose.material3.Text(
+                                            text = "E${episode.number}: ${episode.title}",
+                                            color = if (isSelected) Color.Black else Color.White,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        if (isSelected) {
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            androidx.compose.material3.Text(
+                                                text = "Play",
+                                                color = Color.Black,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
-                }
+                )
             }
 
             if (trendingSeries.isNotEmpty()) {
                 item {
-                    Column(modifier = Modifier.padding(top = 24.dp)) {
-                        androidx.compose.material3.Text(
-                            text = stringResource(R.string.trending_series),
-                            color = Color.White,
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier
-                                .padding(horizontal = 48.dp)
-                                .padding(bottom = 12.dp)
-                        )
-
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = 48.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            items(trendingSeries.take(10)) { seriesItem ->
-                                ContentCard(
-                                    posterUrl = seriesItem.posterUrl,
-                                    title = seriesItem.title,
-                                    rating = seriesItem.voteAverage.takeIf { it > 0 },
-                                    onClick = {
-                                        navController.navigate(Screen.Series.createRoute(seriesItem.id.toString()))
-                                    },
-                                    modifier = Modifier.height(180.dp)
-                                )
+                    TvSection(
+                        title = stringResource(R.string.trending_series),
+                        height = 260,
+                        content = {
+                            LazyRow(
+                                contentPadding = PaddingValues(horizontal = 48.dp),
+                                horizontalArrangement = Arrangement.spacedBy(18)
+                            ) {
+                                items(trendingSeries.take(10)) { seriesItem ->
+                                    ContentCard(
+                                        posterUrl = seriesItem.posterUrl,
+                                        title = seriesItem.title,
+                                        rating = seriesItem.voteAverage.takeIf { it > 0 },
+                                        onClick = {
+                                            navController.navigate(Screen.Series.createRoute(seriesItem.id.toString()))
+                                        },
+                                        modifier = Modifier.height(180.dp)
+                                    )
+                                }
                             }
                         }
-                    }
+                    )
                 }
             }
 
             if (popularMovies.isNotEmpty()) {
                 item {
-                    Column(modifier = Modifier.padding(top = 24.dp)) {
-                        androidx.compose.material3.Text(
-                            text = stringResource(R.string.popular_movies),
-                            color = Color.White,
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier
-                                .padding(horizontal = 48.dp)
-                                .padding(bottom = 12.dp)
-                        )
-
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = 48.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            items(popularMovies.take(10)) { movie ->
-                                ContentCard(
-                                    posterUrl = movie.posterUrl,
-                                    title = movie.title,
-                                    rating = movie.voteAverage.takeIf { it > 0 },
-                                    onClick = {
-                                        navController.navigate(Screen.Details.createRoute(movie.id.toString()))
-                                    },
-                                    modifier = Modifier.height(180.dp)
-                                )
+                    TvSection(
+                        title = stringResource(R.string.popular_movies),
+                        height = 260,
+                        content = {
+                            LazyRow(
+                                contentPadding = PaddingValues(horizontal = 48.dp),
+                                horizontalArrangement = Arrangement.spacedBy(18)
+                            ) {
+                                items(popularMovies.take(10)) { movie ->
+                                    ContentCard(
+                                        posterUrl = movie.posterUrl,
+                                        title = movie.title,
+                                        rating = movie.voteAverage.takeIf { it > 0 },
+                                        onClick = {
+                                            navController.navigate(Screen.Details.createRoute(movie.id.toString()))
+                                        },
+                                        modifier = Modifier.height(180.dp)
+                                    )
+                                }
                             }
                         }
-                    }
+                    )
                 }
             }
 
             if (topRatedMovies.isNotEmpty()) {
                 item {
-                    Column(modifier = Modifier.padding(top = 24.dp)) {
-                        androidx.compose.material3.Text(
-                            text = stringResource(R.string.top_rated),
-                            color = Color.White,
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier
-                                .padding(horizontal = 48.dp)
-                                .padding(bottom = 12.dp)
-                        )
-
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = 48.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            items(topRatedMovies.take(10)) { movie ->
-                                ContentCard(
-                                    posterUrl = movie.posterUrl,
-                                    title = movie.title,
-                                    rating = movie.voteAverage.takeIf { it > 0 },
-                                    onClick = {
-                                        navController.navigate(Screen.Details.createRoute(movie.id.toString()))
-                                    },
-                                    modifier = Modifier.height(180.dp)
-                                )
+                    TvSection(
+                        title = stringResource(R.string.top_rated),
+                        height = 260,
+                        content = {
+                            LazyRow(
+                                contentPadding = PaddingValues(horizontal = 48.dp),
+                                horizontalArrangement = Arrangement.spacedBy(18)
+                            ) {
+                                items(topRatedMovies.take(10)) { movie ->
+                                    ContentCard(
+                                        posterUrl = movie.posterUrl,
+                                        title = movie.title,
+                                        rating = movie.voteAverage.takeIf { it > 0 },
+                                        onClick = {
+                                            navController.navigate(Screen.Details.createRoute(movie.id.toString()))
+                                        },
+                                        modifier = Modifier.height(180.dp)
+                                    )
+                                }
                             }
                         }
-                    }
+                    )
                 }
             }
         }
@@ -479,67 +481,41 @@ private fun SeriesDetailsView(
 }
 
 @Composable
-private fun SeasonChip(label: String, isSelected: Boolean, onClick: () -> Unit) {
-    androidx.compose.foundation.layout.Box(
+private fun TvSection(
+    title: String,
+    height: Int,
+    content: @Composable () -> Unit,
+) {
+    Column(
         modifier = Modifier
-            .clip(RoundedCornerShape(8.dp))
-            .background(
-                if (isSelected) Color.White else Color.White.copy(alpha = 0.12f)
-            )
-            .onFocusChanged { focusState ->
-                if (focusState.hasFocus) {
-                    onClick()
-                }
-            }
-            .padding(horizontal = 20.dp, vertical = 10.dp)
+            .padding(top = 26.dp)
+            .padding(horizontal = 54.dp)
     ) {
         androidx.compose.material3.Text(
-            text = label,
-            color = if (isSelected) Color.Black else Color.White,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.SemiBold
+            text = title,
+            color = Color.White,
+            fontSize = 22.sp,
+            fontWeight = FontWeight.W700,
+            modifier = Modifier.padding(bottom = 14.dp)
         )
+        Box(modifier = Modifier.height(height.dp)) {
+            content()
+        }
     }
 }
 
 @Composable
-private fun EpisodeChip(
-    label: String,
-    isSelected: Boolean,
-    onClick: () -> Unit,
-    onPlay: () -> Unit,
+private fun TvTile(
+    node: FocusRequester,
+    order: Double,
+    onPressed: () -> Unit,
+    child: @Composable () -> Unit,
 ) {
     androidx.compose.foundation.layout.Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(8.dp))
-            .background(
-                if (isSelected) Color.White else Color.White.copy(alpha = 0.12f)
-            )
-            .onFocusChanged { focusState ->
-                if (focusState.hasFocus) {
-                    onClick()
-                }
-            }
-            .padding(horizontal = 20.dp, vertical = 10.dp)
+            .focusRequester(node)
+            .onFocusChanged { }
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            androidx.compose.material3.Text(
-                text = label,
-                color = if (isSelected) Color.Black else Color.White,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            if (isSelected) {
-                Spacer(modifier = Modifier.height(4.dp))
-                androidx.compose.material3.Text(
-                    text = "Play",
-                    color = Color.Black,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium
-                )
-            }
-        }
+        child()
     }
 }
