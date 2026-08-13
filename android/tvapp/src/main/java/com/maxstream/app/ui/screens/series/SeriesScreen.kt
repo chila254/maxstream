@@ -2,6 +2,7 @@ package com.maxstream.app.ui.screens.series
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
@@ -13,32 +14,25 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.navigation.NavController
-import androidx.lifecycle.compose.observeAsState
 import com.maxstream.app.data.model.MediaItem
 import com.maxstream.app.ui.theme.SurfaceVariant
 import com.maxstream.app.ui.viewmodel.HomeViewModel
 import coil.compose.AsyncImage
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.layout.Box
 
 @Composable
 fun SeriesScreen(navController: NavController) {
     val viewModel = androidx.lifecycle.viewmodel.compose.viewModel<HomeViewModel>()
-    val trendingSeries by viewModel.trendingSeries.observeAsState(emptyList())
-    val popularSeries by viewModel.popularSeries.observeAsState(emptyList())
-    val topRatedSeries by viewModel.topRatedSeries.observeAsState(emptyList())
+    val trendingSeries by viewModel.trendingSeries
+    val popularSeries by viewModel.popularSeries
+    val topRatedSeries by viewModel.topRatedSeries
 
     LazyColumn(
         modifier = Modifier

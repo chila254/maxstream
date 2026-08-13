@@ -1,7 +1,6 @@
 package com.maxstream.app.ui.shell
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,7 +29,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import com.maxstream.app.R
@@ -61,12 +59,9 @@ fun Sidebar(
                     .onFocusChanged { focusedIndex = if (it.hasFocus) index else focusedIndex },
                 colors = CardDefaults.cardColors(
                     containerColor = if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent,
-                    focusedContainerColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                    contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
                 ),
                 shape = RoundedCornerShape(12.dp),
-                border = CardDefaults.outlinedCardBorder(enabled = true).copy(
-                    brush = if (isFocused) androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.primary) else androidx.compose.ui.graphics.SolidColor(Color.Transparent)
-                ),
             ) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(
