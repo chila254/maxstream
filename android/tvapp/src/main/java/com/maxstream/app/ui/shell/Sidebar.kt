@@ -9,6 +9,7 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,6 +33,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -64,9 +66,11 @@ fun Sidebar(
     val isExpanded = remember { mutableStateOf(false) }
 
     LaunchedEffect(focusedIndex) {
-        isExpanded.value = true
-        TvFocusManager.onSidebarItemFocused()
-        onExpandedChanged(true)
+        if (focusedIndex >= 0) {
+            isExpanded.value = true
+            TvFocusManager.onSidebarItemFocused()
+            onExpandedChanged(true)
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -209,6 +213,11 @@ private fun SidebarPillItem(
             .onFocusChanged { focusState ->
                 if (focusState.hasFocus) onFocusIn() else onFocusOut()
             }
+            .focusProperties { canFocus = expanded }
+            .clickable(
+                onClick = onClick,
+                indication = null
+            )
             .padding(
                 horizontal = if (expanded) 14.dp else 0.dp,
                 vertical = 10.dp

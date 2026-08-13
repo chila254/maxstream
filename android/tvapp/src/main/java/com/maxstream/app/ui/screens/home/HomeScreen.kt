@@ -71,6 +71,7 @@ import kotlinx.coroutines.launch
 fun HomeScreen(
     navController: NavController,
     onReturnToSidebar: () -> Unit,
+    contentFocusRequester: FocusRequester = remember { FocusRequester() },
 ) {
     val viewModel: HomeViewModel = viewModel()
     val trendingMovies by viewModel.trendingMovies.observeAsState(emptyList())
@@ -109,6 +110,7 @@ fun HomeScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Background)
+            .focusRequester(contentFocusRequester)
     ) {
         if (!isEntryVisible) {
             Spacer(modifier = Modifier.fillMaxSize())
@@ -469,6 +471,7 @@ private fun ContentRow(
 ) {
     val rowState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
+    var focusedItemIndex by remember { mutableStateOf(0) }
 
     Column(modifier = modifier.padding(horizontal = 48.dp)) {
         androidx.compose.material3.Text(
@@ -516,6 +519,7 @@ private fun ContentRow(
                 val year = item.releaseDate.take(4).toIntOrNull()
                 val rating = item.voteAverage.takeIf { it > 0 }
                 val contentTypeLabel = if (isSeries) "TV Series" else "Movie"
+                val isFocused = index == focusedItemIndex
 
                 ContentCard(
                     posterUrl = item.posterUrl,
@@ -528,11 +532,9 @@ private fun ContentRow(
                         ).takeIf { it > 0f }
                     } else null,
                     contentTypeLabel = contentTypeLabel,
+                    isFocused = isFocused,
                     onClick = {
                         if (resumeOnSelect) {
-                            // Continue Watching: jump straight into the player at
-                            // the saved season/episode (position resumes from
-                            // watch history inside the player).
                             navController.navigate(
                                 Screen.Player.createRoute(
                                     item.id.toString(),
@@ -547,12 +549,13 @@ private fun ContentRow(
                             navController.navigate(route)
                         }
                     },
-                    modifier = Modifier
-                        .onFocusChanged { focusState ->
-                            if (focusState.hasFocus) {
-                                onItemFocus(item)
-                            }
+                    onFocusChanged = { focused ->
+                        if (focused) {
+                            focusedItemIndex = index
+                            onItemFocus(item)
                         }
+                    },
+                    modifier = Modifier
                         .height(190.dp)
                 )
             }

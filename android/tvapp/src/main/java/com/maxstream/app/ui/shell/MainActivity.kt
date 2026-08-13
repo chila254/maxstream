@@ -15,12 +15,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.NavHost
@@ -44,6 +48,7 @@ import com.maxstream.app.ui.screens.watchlist.WatchlistScreen
 import com.maxstream.app.ui.theme.MaxStreamTheme
 import com.maxstream.app.ui.shell.Sidebar
 import com.maxstream.app.ui.shell.SidebarSection
+import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
     private val tag = "MainActivity"
@@ -80,6 +85,10 @@ class MainActivity : ComponentActivity() {
                         SidebarSection(Screen.More, R.string.more, R.drawable.ic_more),
                     )
 
+                    val contentFocusRequester = remember { FocusRequester() }
+                    var pendingContentFocusTransfer by remember { mutableStateOf(false) }
+                    var pendingSidebarFocusRequest by remember { mutableStateOf(false) }
+
                     Column(modifier = Modifier.fillMaxSize()) {
                         if (isRootScreen) {
                             Row(modifier = Modifier.fillMaxSize()) {
@@ -100,7 +109,7 @@ class MainActivity : ComponentActivity() {
                                         sidebarExpanded = expanded
                                     },
                                     onReturnToContent = {
-                                        navController.currentBackStackEntry
+                                        pendingContentFocusTransfer = true
                                     },
                                     modifier = Modifier.width(if (sidebarExpanded) 220.dp else 76.dp)
                                 )
@@ -111,6 +120,7 @@ class MainActivity : ComponentActivity() {
                                         .weight(1f)
                                         .fillMaxHeight()
                                         .background(MaterialTheme.colorScheme.background)
+                                        .focusRequester(contentFocusRequester)
                                 ) {
                                     composable(Screen.Splash.route) { SplashScreen(navController) }
                                     composable(Screen.Login.route) { LoginScreen(navController) }
@@ -119,8 +129,9 @@ class MainActivity : ComponentActivity() {
                                         HomeScreen(
                                             navController = navController,
                                             onReturnToSidebar = {
-                                                navController.popBackStack()
-                                            }
+                                                pendingSidebarFocusRequest = true
+                                            },
+                                            contentFocusRequester = contentFocusRequester
                                         )
                                     }
                                     composable(Screen.Search.route) { SearchScreen(navController) }
@@ -142,6 +153,22 @@ class MainActivity : ComponentActivity() {
                                         val episode = backStackEntry.arguments?.getString("episode")?.toIntOrNull() ?: 1
                                         PlayerScreen(navController, itemId, mediaType, season, episode)
                                     }
+                                }
+                            }
+
+                            LaunchedEffect(pendingContentFocusTransfer, sidebarExpanded) {
+                                if (pendingContentFocusTransfer && !sidebarExpanded) {
+                                    kotlinx.coroutines.delay(50)
+                                    runCatching { contentFocusRequester.requestFocus() }
+                                    pendingContentFocusTransfer = false
+                                }
+                            }
+
+                            LaunchedEffect(pendingSidebarFocusRequest, sidebarExpanded) {
+                                if (pendingSidebarFocusRequest && sidebarExpanded) {
+                                    kotlinx.coroutines.delay(50)
+                                    runCatching { contentFocusRequester.requestFocus() }
+                                    pendingSidebarFocusRequest = false
                                 }
                             }
                         } else {
