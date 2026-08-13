@@ -123,15 +123,22 @@ fun DetailsScreen(
         val id = itemId.toIntOrNull() ?: run { error = "Invalid ID"; loading = false; return@LaunchedEffect }
         loading = true; error = null
         try {
-            // Try movie first, fall back to TV
+            // Try movie first, fall back to TV.  Track which succeeded so we
+            // can set mediaType correctly — TMDB /tv/{id} does NOT include a
+            // "media_type" field, so MediaItem.fromJson would default to "movie".
+            var isTv = false
             val json: JSONObject = try {
                 Modules.catalogRepository.movieDetails(id)
             } catch (_: Exception) {
+                isTv = true
                 Modules.catalogRepository.seriesDetails(id)
             }
 
-            val item = MediaItem.fromJson(json)
-            val isTv = item.mediaType == "tv"
+            val item = if (isTv) {
+                MediaItem.fromJson(json).copy(mediaType = "tv")
+            } else {
+                MediaItem.fromJson(json)
+            }
             val isSaved = WatchlistRepository.isIn(context, item)
             val cw = WatchEntryCompat.getEntriesFor(id, isTv)
 
