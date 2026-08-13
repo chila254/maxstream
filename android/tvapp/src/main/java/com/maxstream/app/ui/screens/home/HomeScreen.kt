@@ -13,9 +13,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -29,11 +29,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.setValue
-import com.maxstream.app.data.local.WatchEntryCompat
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
@@ -58,6 +56,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import com.maxstream.app.R
+import com.maxstream.app.data.local.WatchEntryCompat
 import com.maxstream.app.data.model.MediaItem
 import com.maxstream.app.ui.components.ContentCard
 import com.maxstream.app.ui.navigation.Screen
@@ -90,6 +89,12 @@ fun HomeScreen(
     val firstRowFocusRequester = remember { FocusRequester() }
     val coroutineScope = rememberCoroutineScope()
 
+    val hasContinueWatching = continueWatching.isNotEmpty()
+    val hasTrendingMovies = trendingMovies.isNotEmpty()
+    val hasTrendingSeries = trendingSeries.isNotEmpty()
+    val hasPopularMovies = popularMovies.isNotEmpty()
+    val hasTopRated = topRatedMovies.isNotEmpty()
+
     LaunchedEffect(Unit) {
         delay(50)
         isEntryVisible = true
@@ -99,12 +104,6 @@ fun HomeScreen(
             heroResume = false
         }
     }
-
-    val hasContinueWatching = continueWatching.isNotEmpty()
-    val hasTrendingMovies = trendingMovies.isNotEmpty()
-    val hasTrendingSeries = trendingSeries.isNotEmpty()
-    val hasPopularMovies = popularMovies.isNotEmpty()
-    val hasTopRated = topRatedMovies.isNotEmpty()
 
     Box(
         modifier = Modifier
@@ -120,57 +119,58 @@ fun HomeScreen(
                 enter = fadeIn(tween(330)) + scaleIn(tween(330), initialScale = 0.97f),
                 exit = fadeOut(tween(180))
             ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .offset(y = (-0.025f).dp)
-                ) {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        state = rememberLazyListState(),
-                        contentPadding = PaddingValues(bottom = 56.dp)
+                Box(modifier = Modifier.fillMaxSize()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .fillMaxHeight(0.5f)
+                            .align(Alignment.TopStart)
                     ) {
-                        val heroHeight = 420.dp
+                        HomeHeroSection(
+                            item = heroItem,
+                            mediaType = heroType,
+                            isResume = heroResume,
+                            playFocusRequester = playFocusRequester,
+                            detailsFocusRequester = detailsFocusRequester,
+                            onPlay = { mediaItem ->
+                                if (mediaItem != null) {
+                                    val route = if (heroType == "series") {
+                                        Screen.Series.createRoute(mediaItem.id.toString())
+                                    } else {
+                                        Screen.Player.createRoute(mediaItem.id.toString(), "movie")
+                                    }
+                                    navController.navigate(route)
+                                }
+                            },
+                            onDetails = { mediaItem ->
+                                if (mediaItem != null) {
+                                    val route = if (heroType == "series") {
+                                        Screen.Series.createRoute(mediaItem.id.toString())
+                                    } else {
+                                        Screen.Details.createRoute(mediaItem.id.toString())
+                                    }
+                                    navController.navigate(route)
+                                }
+                            },
+                            onReturnToSidebar = onReturnToSidebar,
+                            onArrowDown = {
+                                coroutineScope.launch {
+                                    firstRowFocusRequester.requestFocus()
+                                }
+                            },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
 
-                        item {
-                            HomeHeroSection(
-                                item = heroItem,
-                                mediaType = heroType,
-                                isResume = heroResume,
-                                playFocusRequester = playFocusRequester,
-                                detailsFocusRequester = detailsFocusRequester,
-                                onPlay = { mediaItem ->
-                                    if (mediaItem != null) {
-                                        // Series open the episode picker (S/E selection lives
-                                        // there); movies go straight to the player.
-                                        val route = if (heroType == "series") {
-                                            Screen.Series.createRoute(mediaItem.id.toString())
-                                        } else {
-                                            Screen.Player.createRoute(mediaItem.id.toString(), "movie")
-                                        }
-                                        navController.navigate(route)
-                                    }
-                                },
-                                onDetails = { mediaItem ->
-                                    if (mediaItem != null) {
-                                        val route = if (heroType == "series") {
-                                            Screen.Series.createRoute(mediaItem.id.toString())
-                                        } else {
-                                            Screen.Details.createRoute(mediaItem.id.toString())
-                                        }
-                                        navController.navigate(route)
-                                    }
-                                },
-                                onReturnToSidebar = onReturnToSidebar,
-                                onArrowDown = {
-                                    coroutineScope.launch {
-                                        firstRowFocusRequester.requestFocus()
-                                    }
-                                },
-                                modifier = Modifier.height(heroHeight)
-                            )
-                        }
-
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .fillMaxHeight(0.52f)
+                            .align(Alignment.BottomStart),
+                        state = rememberLazyListState(),
+                        contentPadding = PaddingValues(bottom = 56.dp),
+                        userScrollEnabled = false
+                    ) {
                         if (hasContinueWatching) {
                             item {
                                 ContentRow(

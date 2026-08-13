@@ -4,6 +4,8 @@ import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.BackHandler
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -55,6 +57,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         WatchEntryCompat.init(applicationContext)
         try {
             setContent {
@@ -158,7 +161,7 @@ class MainActivity : ComponentActivity() {
 
                             LaunchedEffect(pendingContentFocusTransfer, sidebarExpanded) {
                                 if (pendingContentFocusTransfer && !sidebarExpanded) {
-                                    kotlinx.coroutines.delay(50)
+                                    delay(50)
                                     runCatching { contentFocusRequester.requestFocus() }
                                     pendingContentFocusTransfer = false
                                 }
@@ -166,9 +169,15 @@ class MainActivity : ComponentActivity() {
 
                             LaunchedEffect(pendingSidebarFocusRequest, sidebarExpanded) {
                                 if (pendingSidebarFocusRequest && sidebarExpanded) {
-                                    kotlinx.coroutines.delay(50)
+                                    delay(50)
                                     runCatching { contentFocusRequester.requestFocus() }
                                     pendingSidebarFocusRequest = false
+                                }
+                            }
+
+                            androidx.activity.compose.BackHandler {
+                                if (!sidebarExpanded) {
+                                    pendingSidebarFocusRequest = true
                                 }
                             }
                         } else {

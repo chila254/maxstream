@@ -53,21 +53,27 @@ import coil.compose.AsyncImage
 import com.maxstream.app.R
 import com.maxstream.app.data.model.MediaItem
 import com.maxstream.app.data.remote.EpisodeRef
+import com.maxstream.app.ui.components.ContentCard
 import com.maxstream.app.ui.navigation.Screen
 import com.maxstream.app.ui.theme.Background
 import com.maxstream.app.ui.tv.TvFocusManager
+import com.maxstream.app.ui.viewmodel.HomeViewModel
 import com.maxstream.app.ui.viewmodel.SeriesViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @Composable
 fun SeriesScreen(navController: NavController, itemId: String) {
-    val viewModel: SeriesViewModel = viewModel()
-    val series = viewModel.series.value
-    val seasons = viewModel.seasons.value.orEmpty()
-    val episodes = viewModel.episodes.value.orEmpty()
-    val loading = viewModel.loading.value ?: false
-    val error = viewModel.error.value
+    val seriesViewModel: SeriesViewModel = viewModel()
+    val homeViewModel: HomeViewModel = viewModel()
+    val series = seriesViewModel.series.value
+    val seasons = seriesViewModel.seasons.value.orEmpty()
+    val episodes = seriesViewModel.episodes.value.orEmpty()
+    val loading = seriesViewModel.loading.value ?: false
+    val error = seriesViewModel.error.value
+    val trendingSeries = homeViewModel.trendingSeries.value.orEmpty()
+    val popularMovies = homeViewModel.popularMovies.value.orEmpty()
+    val topRatedMovies = homeViewModel.topRatedMovies.value.orEmpty()
 
     var selectedSeason by remember { mutableStateOf(1) }
     var selectedEpisode by remember { mutableStateOf<EpisodeRef?>(null) }
@@ -77,7 +83,7 @@ fun SeriesScreen(navController: NavController, itemId: String) {
 
     LaunchedEffect(parsedId) {
         if (parsedId != null) {
-            viewModel.loadSeries(parsedId)
+            seriesViewModel.loadSeries(parsedId)
         }
         delay(50)
         isEntryVisible = true
@@ -110,9 +116,12 @@ fun SeriesScreen(navController: NavController, itemId: String) {
                     selectedEpisode = selectedEpisode,
                     loading = loading,
                     error = error,
+                    trendingSeries = trendingSeries,
+                    popularMovies = popularMovies,
+                    topRatedMovies = topRatedMovies,
                     onSeasonSelected = { season ->
                         selectedSeason = season
-                        viewModel.selectSeason(season)
+                        seriesViewModel.selectSeason(season)
                     },
                     onEpisodeSelected = { episode ->
                         selectedEpisode = episode
@@ -145,6 +154,9 @@ private fun SeriesDetailsView(
     selectedEpisode: EpisodeRef?,
     loading: Boolean,
     error: String?,
+    trendingSeries: List<MediaItem>,
+    popularMovies: List<MediaItem>,
+    topRatedMovies: List<MediaItem>,
     onSeasonSelected: (Int) -> Unit,
     onEpisodeSelected: (EpisodeRef) -> Unit,
     onPlayEpisode: (EpisodeRef) -> Unit,
@@ -355,6 +367,105 @@ private fun SeriesDetailsView(
                                 onClick = { onEpisodeSelected(episode) },
                                 onPlay = { onPlayEpisode(episode) }
                             )
+                        }
+                    }
+                }
+            }
+
+            if (trendingSeries.isNotEmpty()) {
+                item {
+                    Column(modifier = Modifier.padding(top = 24.dp)) {
+                        androidx.compose.material3.Text(
+                            text = stringResource(R.string.trending_series),
+                            color = Color.White,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier
+                                .padding(horizontal = 48.dp)
+                                .padding(bottom = 12.dp)
+                        )
+
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 48.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            items(trendingSeries.take(10)) { seriesItem ->
+                                ContentCard(
+                                    posterUrl = seriesItem.posterUrl,
+                                    title = seriesItem.title,
+                                    rating = seriesItem.voteAverage.takeIf { it > 0 },
+                                    onClick = {
+                                        navController.navigate(Screen.Series.createRoute(seriesItem.id.toString()))
+                                    },
+                                    modifier = Modifier.height(180.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (popularMovies.isNotEmpty()) {
+                item {
+                    Column(modifier = Modifier.padding(top = 24.dp)) {
+                        androidx.compose.material3.Text(
+                            text = stringResource(R.string.popular_movies),
+                            color = Color.White,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier
+                                .padding(horizontal = 48.dp)
+                                .padding(bottom = 12.dp)
+                        )
+
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 48.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            items(popularMovies.take(10)) { movie ->
+                                ContentCard(
+                                    posterUrl = movie.posterUrl,
+                                    title = movie.title,
+                                    rating = movie.voteAverage.takeIf { it > 0 },
+                                    onClick = {
+                                        navController.navigate(Screen.Details.createRoute(movie.id.toString()))
+                                    },
+                                    modifier = Modifier.height(180.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (topRatedMovies.isNotEmpty()) {
+                item {
+                    Column(modifier = Modifier.padding(top = 24.dp)) {
+                        androidx.compose.material3.Text(
+                            text = stringResource(R.string.top_rated),
+                            color = Color.White,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier
+                                .padding(horizontal = 48.dp)
+                                .padding(bottom = 12.dp)
+                        )
+
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 48.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            items(topRatedMovies.take(10)) { movie ->
+                                ContentCard(
+                                    posterUrl = movie.posterUrl,
+                                    title = movie.title,
+                                    rating = movie.voteAverage.takeIf { it > 0 },
+                                    onClick = {
+                                        navController.navigate(Screen.Details.createRoute(movie.id.toString()))
+                                    },
+                                    modifier = Modifier.height(180.dp)
+                                )
+                            }
                         }
                     }
                 }
