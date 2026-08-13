@@ -1,6 +1,6 @@
 package com.maxstream.app.ui.screens.home
 
-import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -12,17 +12,16 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -31,8 +30,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -125,7 +122,7 @@ fun HomeScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .fillMaxHeight(0.5f)
+                            .fillMaxHeight(0.62f)
                             .align(Alignment.TopStart)
                     ) {
                         HomeHeroSection(
@@ -164,127 +161,137 @@ fun HomeScreen(
                         )
                     }
 
-                    LazyColumn(
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .fillMaxHeight(0.52f)
-                            .align(Alignment.BottomStart),
-                        state = rememberLazyListState(),
-                        contentPadding = PaddingValues(bottom = 56.dp),
-                        userScrollEnabled = false
+                            .align(Alignment.BottomStart)
                     ) {
-                        if (hasContinueWatching) {
-                            item {
-                                ContentRow(
-                                    title = stringResource(R.string.continue_watching),
-                                    items = continueWatching,
-                                    navController = navController,
-                                    rowFocusRequester = firstRowFocusRequester,
-                                    showProgress = true,
-                                    resumeOnSelect = true,
-                                    onItemFocus = { mediaItem ->
-                                        heroItem = mediaItem
-                                        heroType = if (mediaItem.mediaType == "tv") "series" else "movie"
-                                        heroResume = true
-                                    },
-                                    onArrowUp = {
-                                        coroutineScope.launch {
-                                            playFocusRequester.requestFocus()
-                                        }
-                                    },
-                                    modifier = Modifier.padding(top = 20.dp)
-                                )
-                            }
-                        }
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = isEntryVisible,
+                            enter = fadeIn(tween(330)),
+                            exit = fadeOut(tween(180))
+                        ) {
+                            LazyColumn(
+                                modifier = Modifier.fillMaxSize(),
+                                state = rememberLazyListState(),
+                                contentPadding = PaddingValues(bottom = 56.dp),
+                                userScrollEnabled = false
+                            ) {
+                                if (hasContinueWatching) {
+                                    item {
+                                        ContentRow(
+                                            title = stringResource(R.string.continue_watching),
+                                            items = continueWatching,
+                                            navController = navController,
+                                            rowFocusRequester = firstRowFocusRequester,
+                                            showProgress = true,
+                                            resumeOnSelect = true,
+                                            onItemFocus = { mediaItem ->
+                                                heroItem = mediaItem
+                                                heroType = if (mediaItem.mediaType == "tv") "series" else "movie"
+                                                heroResume = true
+                                            },
+                                            onArrowUp = {
+                                                coroutineScope.launch {
+                                                    playFocusRequester.requestFocus()
+                                                }
+                                            },
+                                            modifier = Modifier.padding(top = 20.dp)
+                                        )
+                                    }
+                                }
 
-                        if (hasTrendingMovies) {
-                            item {
-                                val nextRowRequester = remember { FocusRequester() }
-                                ContentRow(
-                                    title = stringResource(R.string.trending_movies),
-                                    items = trendingMovies.take(15),
-                                    navController = navController,
-                                    rowFocusRequester = nextRowRequester,
-                                    onItemFocus = { mediaItem ->
-                                        heroItem = mediaItem
-                                        heroType = "movie"
-                                        heroResume = false
-                                    },
-                                    onArrowUp = {
-                                        coroutineScope.launch {
-                                            playFocusRequester.requestFocus()
-                                        }
-                                    },
-                                    modifier = Modifier.padding(top = 20.dp)
-                                )
-                            }
-                        }
+                                if (hasTrendingMovies) {
+                                    item {
+                                        val nextRowRequester = remember { FocusRequester() }
+                                        ContentRow(
+                                            title = stringResource(R.string.trending_movies),
+                                            items = trendingMovies.take(15),
+                                            navController = navController,
+                                            rowFocusRequester = nextRowRequester,
+                                            onItemFocus = { mediaItem ->
+                                                heroItem = mediaItem
+                                                heroType = "movie"
+                                                heroResume = false
+                                            },
+                                            onArrowUp = {
+                                                coroutineScope.launch {
+                                                    playFocusRequester.requestFocus()
+                                                }
+                                            },
+                                            modifier = Modifier.padding(top = 20.dp)
+                                        )
+                                    }
+                                }
 
-                        if (hasTrendingSeries) {
-                            item {
-                                val nextRowRequester = remember { FocusRequester() }
-                                ContentRow(
-                                    title = stringResource(R.string.trending_series),
-                                    items = trendingSeries.take(15),
-                                    navController = navController,
-                                    rowFocusRequester = nextRowRequester,
-                                    onItemFocus = { mediaItem ->
-                                        heroItem = mediaItem
-                                        heroType = "series"
-                                        heroResume = false
-                                    },
-                                    onArrowUp = {
-                                        coroutineScope.launch {
-                                            playFocusRequester.requestFocus()
-                                        }
-                                    },
-                                    modifier = Modifier.padding(top = 20.dp)
-                                )
-                            }
-                        }
+                                if (hasTrendingSeries) {
+                                    item {
+                                        val nextRowRequester = remember { FocusRequester() }
+                                        ContentRow(
+                                            title = stringResource(R.string.trending_series),
+                                            items = trendingSeries.take(15),
+                                            navController = navController,
+                                            rowFocusRequester = nextRowRequester,
+                                            onItemFocus = { mediaItem ->
+                                                heroItem = mediaItem
+                                                heroType = "series"
+                                                heroResume = false
+                                            },
+                                            onArrowUp = {
+                                                coroutineScope.launch {
+                                                    playFocusRequester.requestFocus()
+                                                }
+                                            },
+                                            modifier = Modifier.padding(top = 20.dp)
+                                        )
+                                    }
+                                }
 
-                        if (hasPopularMovies) {
-                            item {
-                                val nextRowRequester = remember { FocusRequester() }
-                                ContentRow(
-                                    title = stringResource(R.string.popular_movies),
-                                    items = popularMovies.take(15),
-                                    navController = navController,
-                                    rowFocusRequester = nextRowRequester,
-                                    onItemFocus = { mediaItem ->
-                                        heroItem = mediaItem
-                                        heroType = "movie"
-                                        heroResume = false
-                                    },
-                                    onArrowUp = {
-                                        coroutineScope.launch {
-                                            playFocusRequester.requestFocus()
-                                        }
-                                    },
-                                    modifier = Modifier.padding(top = 20.dp)
-                                )
-                            }
-                        }
+                                if (hasPopularMovies) {
+                                    item {
+                                        val nextRowRequester = remember { FocusRequester() }
+                                        ContentRow(
+                                            title = stringResource(R.string.popular_movies),
+                                            items = popularMovies.take(15),
+                                            navController = navController,
+                                            rowFocusRequester = nextRowRequester,
+                                            onItemFocus = { mediaItem ->
+                                                heroItem = mediaItem
+                                                heroType = "movie"
+                                                heroResume = false
+                                            },
+                                            onArrowUp = {
+                                                coroutineScope.launch {
+                                                    playFocusRequester.requestFocus()
+                                                }
+                                            },
+                                            modifier = Modifier.padding(top = 20.dp)
+                                        )
+                                    }
+                                }
 
-                        if (hasTopRated) {
-                            item {
-                                ContentRow(
-                                    title = stringResource(R.string.top_rated),
-                                    items = topRatedMovies.take(15),
-                                    navController = navController,
-                                    rowFocusRequester = remember { FocusRequester() },
-                                    onItemFocus = { mediaItem ->
-                                        heroItem = mediaItem
-                                        heroType = "movie"
-                                        heroResume = false
-                                    },
-                                    onArrowUp = {
-                                        coroutineScope.launch {
-                                            playFocusRequester.requestFocus()
-                                        }
-                                    },
-                                    modifier = Modifier.padding(top = 20.dp)
-                                )
+                                if (hasTopRated) {
+                                    item {
+                                        ContentRow(
+                                            title = stringResource(R.string.top_rated),
+                                            items = topRatedMovies.take(15),
+                                            navController = navController,
+                                            rowFocusRequester = remember { FocusRequester() },
+                                            onItemFocus = { mediaItem ->
+                                                heroItem = mediaItem
+                                                heroType = "movie"
+                                                heroResume = false
+                                            },
+                                            onArrowUp = {
+                                                coroutineScope.launch {
+                                                    playFocusRequester.requestFocus()
+                                                }
+                                            },
+                                            modifier = Modifier.padding(top = 20.dp)
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -338,9 +345,24 @@ private fun HomeHeroSection(
         },
         modifier = modifier
             .onKeyEvent { keyEvent ->
-                if (keyEvent.type == KeyEventType.KeyDown && keyEvent.key == Key.DirectionDown) {
-                    onArrowDown()
-                    true
+                if (keyEvent.type == KeyEventType.KeyDown) {
+                    when (keyEvent.key) {
+                        Key.DirectionLeft -> {
+                            if (keyEvent.key == Key.DirectionLeft) {
+                                onReturnToSidebar()
+                            }
+                            true
+                        }
+                        Key.DirectionRight -> {
+                            detailsFocusRequester.requestFocus()
+                            true
+                        }
+                        Key.DirectionDown -> {
+                            onArrowDown()
+                            true
+                        }
+                        else -> false
+                    }
                 } else false
             }
     ) { currentKey ->
@@ -390,7 +412,7 @@ private fun HomeHeroSection(
                         color = Color.White,
                         fontSize = 38.sp,
                         fontWeight = FontWeight.ExtraBold,
-                        lineHeight = 1.1.sp,
+                        lineHeight = 1.05.sp,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                         letterSpacing = (-0.7).sp,
@@ -481,10 +503,8 @@ private fun ContentRow(
         androidx.compose.material3.Text(
             text = title,
             color = Color(0xFFFFFFFF),
-            fontSize = 24.sp,
-            lineHeight = 32.sp,
-            letterSpacing = 0.sp,
-            fontWeight = FontWeight.SemiBold,
+            fontSize = 20.sp,
+            fontWeight = FontWeight.W700,
             modifier = Modifier.padding(bottom = 12.dp)
         )
 
@@ -498,6 +518,9 @@ private fun ContentRow(
                     if (keyEvent.type == KeyEventType.KeyDown) {
                         when (keyEvent.key) {
                             Key.DirectionLeft -> {
+                                if (focusedItemIndex == 0) {
+                                    onReturnToSidebar()
+                                }
                                 true
                             }
                             Key.DirectionRight -> {
@@ -507,6 +530,9 @@ private fun ContentRow(
                                 coroutineScope.launch {
                                     onArrowUp()
                                 }
+                                true
+                            }
+                            Key.DirectionDown -> {
                                 true
                             }
                             else -> false

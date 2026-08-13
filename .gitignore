@@ -70,4 +70,5 @@ local.properties
 
 # Firebase / Firestore rules
 firebase.json
-firestore.rulesdart_tv_reference/
+firestore.rules
+dart_tv_reference
