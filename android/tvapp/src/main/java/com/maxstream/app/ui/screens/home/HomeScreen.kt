@@ -30,12 +30,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 @Composable
 fun HomeScreen(navController: NavController) {
     val viewModel = androidx.lifecycle.viewmodel.compose.viewModel<HomeViewModel>()
-    val trendingMovies by viewModel.trendingMovies
-    val trendingSeries by viewModel.trendingSeries
-    val popularMovies by viewModel.popularMovies
-    val popularSeries by viewModel.popularSeries
-    val topRatedMovies by viewModel.topRatedMovies
-    val topRatedSeries by viewModel.topRatedSeries
+    val trendingMovies = viewModel.trendingMovies.value.orEmpty()
+    val trendingSeries = viewModel.trendingSeries.value.orEmpty()
+    val popularMovies = viewModel.popularMovies.value.orEmpty()
+    val popularSeries = viewModel.popularSeries.value.orEmpty()
+    val topRatedMovies = viewModel.topRatedMovies.value.orEmpty()
+    val topRatedSeries = viewModel.topRatedSeries.value.orEmpty()
 
     LazyColumn(
         modifier = Modifier
