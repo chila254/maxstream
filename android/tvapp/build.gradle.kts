@@ -84,7 +84,7 @@ android {
     }
 
     composeOptions {
-        kotlinCompilerExtensionVersion = "2.3.10"
+        kotlinCompilerExtensionVersion = "2.2.20"
     }
 
     packaging {
@@ -92,6 +92,12 @@ android {
             excludes += setOf("/META-INF/{AL2.0,LGPL2.1}")
         }
     }
+}
+
+repositories {
+    google()
+    mavenCentral()
+    maven("https://maven.pkg.jetbrains.space/public/p/kotlin/p/kotlin/dev")
 }
 
 dependencies {
