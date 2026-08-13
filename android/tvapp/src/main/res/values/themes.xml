@@ -1,14 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Base theme for the TV app — full-screen, no action bar, no title -->
-    <style name="Theme.MaxStream" parent="android:Theme.Material.NoTitleBar.Fullscreen">
+    <!-- Base theme for the TV app — full-screen, no action bar, no title.
+         Uses android:Theme.DeviceDefault.NoActionBar which is always present
+         on Android TV (API 21+) without requiring AppCompat. -->
+    <style name="Theme.MaxStream.NoActionBar" parent="android:Theme.DeviceDefault.NoActionBar">
         <item name="android:windowNoTitle">true</item>
         <item name="android:windowActionBar">false</item>
         <item name="android:windowFullscreen">true</item>
         <item name="android:windowContentOverlay">@null</item>
         <item name="android:windowBackground">@android:color/black</item>
     </style>
-
-    <!-- Alias used by AndroidManifest -->
-    <style name="Theme.MaxStream.NoActionBar" parent="Theme.MaxStream" />
 </resources>
