@@ -37,6 +37,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.layout.size
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -85,8 +86,13 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
         scope.launch {
             isLoading = true; errorMsg = null
             try {
-                AuthRepository.login(context, email.trim(), password)
-                onLoginSuccess()
+                val result = AuthRepository.signInWithEmail(email.trim(), password)
+                if (result.isSuccess) {
+                    AuthRepository.completeSignIn(context, email.trim())
+                    onLoginSuccess()
+                } else {
+                    errorMsg = result.exceptionOrNull()?.message ?: "Login failed"
+                }
             } catch (e: Exception) {
                 errorMsg = e.message ?: "Login failed"
             } finally {

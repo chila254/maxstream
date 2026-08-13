@@ -72,7 +72,10 @@ fun GenreScreen(
         try {
             val movieGenres = Modules.catalogRepository.genres("movie")
             val tvGenres    = Modules.catalogRepository.genres("tv")
-            genres = (movieGenres + tvGenres).distinctBy { it.first }.sortedBy { it.second }
+            // Merge both maps (movie + tv), dedup by id, sort by name
+            genres = (movieGenres + tvGenres).entries
+                .map { Pair(it.key, it.value) }
+                .sortedBy { it.second }
         } catch (e: Exception) {
             error = e.message
         } finally {

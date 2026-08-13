@@ -165,7 +165,7 @@ fun SearchScreen(
                 .focusRequester(resultsFocusRequester)
                 .focusable(),
         ) {
-            AnimatedVisibility(
+            androidx.compose.animation.AnimatedVisibility(
                 visible = resultsKey.isNotEmpty() || isSearching,
                 enter = fadeIn(tween(350)) + scaleIn(tween(350), initialScale = 0.98f),
                 exit  = fadeOut(tween(180)),

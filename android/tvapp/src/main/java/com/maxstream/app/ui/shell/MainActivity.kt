@@ -131,8 +131,7 @@ private fun TvAppRoot() {
     val shellKeyHandler: (androidx.compose.ui.input.key.KeyEvent) -> Boolean = { event ->
         if (event.type == KeyEventType.KeyDown &&
             (event.key == Key.Back ||
-                    event.key == Key.Escape ||
-                    event.key == Key.NavigateBack)
+                    event.key == Key.Escape)
         ) {
             handleBack()
             true
