@@ -107,40 +107,46 @@ private fun TvAppRoot() {
 
     var exitDialogVisible by remember { mutableStateOf(false) }
 
-    // ── Back state machine ────────────────────────────────────────────────
+    // ── Back state machine (Nuvio pattern) ──────────────────────────────
+    // root=tab0, sidebar=expanded, content=collapsed.
+    // - Back on root + sidebar focused → exit app
+    // - Back on root + content focused → open sidebar (expand it)
+    // - Back on non-root tab → navigate to home + focus sidebar
+    // - Back on details/series (deep nav) → popBackStack
     fun handleBack() {
+        // 1. Deep nav screens: popBackStack first
         if (deepNavController.previousBackStackEntry != null) {
             deepNavController.popBackStack()
             return
         }
-        if (appState.selectedTab != 0) {
+        // 2. Home tab (root):
+        if (appState.selectedTab == 0) {
             if (appState.focusOnSidebar) {
-                appState.selectTab(0)
-                appState.updateFocusOnSidebar(false)
+                // Home + sidebar → exit
+                exitDialogVisible = true
             } else {
+                // Home + content → open sidebar
                 appState.updateFocusOnSidebar(true)
             }
             return
         }
-        exitDialogVisible = true
+        // 3. Non-home tab: always go to home + focus sidebar
+        appState.selectTab(0)
+        appState.updateFocusOnSidebar(true)
     }
 
     // ── Focus transfer effect ─────────────────────────────────────────────
-    // Mirrors Dart's _requestFocusAfterFrames(node, retries: 6).
-    // We retry across multiple frames because after a tab switch the content
-    // composable has not yet laid out its children — a single delay(50) is
-    // not enough. We try up to 6 times with 50 ms gaps (300 ms total).
+    // Mirrors Nuvio's pattern: wait for 2 composition frames before
+    // requesting focus, so layout is guaranteed to be complete.
     LaunchedEffect(appState.focusOnSidebar, appState.selectedTab) {
-        repeat(6) { attempt ->
-            delay(50L * (attempt + 1))
-            val result = if (appState.focusOnSidebar) {
-                runCatching {
-                    sidebarFocusRequesters.getOrNull(appState.selectedTab)?.requestFocus()
-                }
-            } else {
-                runCatching { contentFocusRequester.requestFocus() }
+        // Wait 2 frames for layout to settle
+        kotlinx.coroutines.delay(50)
+        if (appState.focusOnSidebar) {
+            runCatching {
+                sidebarFocusRequesters.getOrNull(appState.selectedTab)?.requestFocus()
             }
-            if (result.isSuccess) return@LaunchedEffect
+        } else {
+            runCatching { contentFocusRequester.requestFocus() }
         }
     }
 
@@ -260,18 +266,28 @@ private fun TvShell(
         // so requestFocus() actually lands on this node. Compose then passes
         // focus down to the first focusable child (the active screen's hero
         // button, keyboard, or card row).
+        //
+        // When sidebar is expanded, directional keys are blocked so focus
+        // doesn't accidentally enter the content area (Nuvio pattern).
         Box(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxSize()
                 .focusRequester(contentFocusRequester)
-                // Make the box itself focusable so requestFocus() does not
-                // silently fail when called before any child has laid out.
                 .focusable()
                 .onFocusChanged { state ->
-                    // When this scope receives focus, mark content as focused
-                    // so the app state stays in sync.
                     if (state.hasFocus) appState.updateFocusOnSidebar(false)
+                }
+                .onKeyEvent { event ->
+                    if (event.type == KeyEventType.KeyDown && appState.focusOnSidebar) {
+                        when (event.key) {
+                            Key.DirectionUp,
+                            Key.DirectionDown,
+                            Key.DirectionLeft,
+                            Key.DirectionRight -> true  // block directional keys
+                            else -> false
+                        }
+                    } else false
                 }
         ) {
             TabScreen(visible = appState.selectedTab == 0) {
