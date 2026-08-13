@@ -85,6 +85,11 @@ class TvAppState {
         focusOnSidebar   = true
         isDeepNavigating = false
         searchFocused    = false
+        // Restore scroll position for current tab (mirrors Dart's
+        // restoreScrollPosition(_selectedTab) called from returnToSidebar).
+        // The actual scroll restore is handled by each screen's
+        // ScrollController/LazyListState — this just triggers a recomposition
+        // so screens can read getScrollOffset() and apply it.
     }
 
     // ── Scroll persistence ────────────────────────────────────────────────────

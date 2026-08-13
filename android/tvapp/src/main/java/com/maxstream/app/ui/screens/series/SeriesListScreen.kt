@@ -1,0 +1,479 @@
+package com.maxstream.app.ui.screens.series
+
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.livedata.observeAsState
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavController
+import coil.compose.AsyncImage
+import com.maxstream.app.R
+import com.maxstream.app.data.model.MediaItem
+import com.maxstream.app.ui.components.ContentCard
+import com.maxstream.app.ui.navigation.Screen
+import com.maxstream.app.ui.theme.Background
+import com.maxstream.app.ui.viewmodel.HomeViewModel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SeriesListScreen  (Tab 3)
+//
+// Mirrors Dart TvSeriesListScreen exactly:
+//  - Hero banner (backdrop, title, rating, year, genres, overview, Play + Details)
+//  - Three horizontal content rows: Trending / Popular / Top Rated TV Shows
+//  - D-pad: LEFT on hero → sidebar, DOWN on hero → first row,
+//            UP on first row → hero play button, LEFT on first card → sidebar
+// ─────────────────────────────────────────────────────────────────────────────
+
+@Composable
+fun SeriesListScreen(
+    navController: NavController,
+    onReturnToSidebar: () -> Unit = {},
+    isVisible: Boolean = true,
+) {
+    val viewModel: HomeViewModel = viewModel()
+    val trendingSeries   by viewModel.trendingSeries.observeAsState(emptyList())
+    val popularSeries    by viewModel.popularSeries.observeAsState(emptyList())
+    val topRatedSeries   by viewModel.topRatedSeries.observeAsState(emptyList())
+
+    var heroItem        by remember { mutableStateOf<MediaItem?>(null) }
+    var pendingHeroItem by remember { mutableStateOf<MediaItem?>(null) }
+    var isEntryVisible  by remember { mutableStateOf(false) }
+
+    val playFocusRequester    = remember { FocusRequester() }
+    val detailsFocusRequester = remember { FocusRequester() }
+    val firstRowFocusRequester = remember { FocusRequester() }
+    val coroutineScope = rememberCoroutineScope()
+
+    // Seed hero from first trending series item
+    LaunchedEffect(trendingSeries) {
+        if (heroItem == null && trendingSeries.isNotEmpty()) {
+            heroItem = trendingSeries.first()
+        }
+    }
+
+    // Hero debounce — mirrors Dart's Timer(400ms) _queueHero pattern.
+    // When a card is focused, we wait 400ms before updating the hero.
+    // If another card is focused within that window, the timer resets.
+    LaunchedEffect(pendingHeroItem) {
+        val item = pendingHeroItem ?: return@LaunchedEffect
+        delay(400)
+        heroItem = item
+    }
+
+    // Focus seed on tab visible — retry pattern (mirrors Dart retries:6)
+    LaunchedEffect(isVisible) {
+        if (!isVisible) return@LaunchedEffect
+        isEntryVisible = true
+        repeat(6) { attempt ->
+            delay(50L * (attempt + 1))
+            val ok = runCatching { playFocusRequester.requestFocus() }
+            if (ok.isSuccess) return@LaunchedEffect
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Background)
+    ) {
+        AnimatedVisibility(
+            visible = isEntryVisible,
+            enter = fadeIn(tween(330)) + scaleIn(tween(330), initialScale = 0.97f),
+            exit  = fadeOut(tween(180)),
+        ) {
+            Box(modifier = Modifier.fillMaxSize()) {
+
+                // ── Hero (top 55%) ─────────────────────────────────────────
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .fillMaxHeight(0.55f)
+                        .align(Alignment.TopStart)
+                ) {
+                    SeriesHeroSection(
+                        item = heroItem,
+                        playFocusRequester    = playFocusRequester,
+                        detailsFocusRequester = detailsFocusRequester,
+                        onPlay = { item ->
+                            item ?: return@SeriesHeroSection
+                            navController.navigate(
+                                Screen.Player.createRoute(item.id.toString(), "tv", 1, 1)
+                            )
+                        },
+                        onDetails = { item ->
+                            item ?: return@SeriesHeroSection
+                            navController.navigate(Screen.Series.createRoute(item.id.toString()))
+                        },
+                        onReturnToSidebar = onReturnToSidebar,
+                        onArrowDown = {
+                            coroutineScope.launch { firstRowFocusRequester.requestFocus() }
+                        },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+
+                // ── Content rows (bottom 45%) ──────────────────────────────
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .fillMaxHeight(0.45f)
+                        .align(Alignment.BottomStart)
+                ) {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        state = rememberLazyListState(),
+                        contentPadding = PaddingValues(bottom = 56.dp),
+                        userScrollEnabled = false,
+                    ) {
+                        if (trendingSeries.isNotEmpty()) {
+                            item {
+                                SeriesContentRow(
+                                    title = "Trending TV Shows",
+                                    items = trendingSeries.take(15),
+                                    navController = navController,
+                                    rowFocusRequester = firstRowFocusRequester,
+                                    onItemFocus = { pendingHeroItem = it },
+                                    onArrowUp = { playFocusRequester.requestFocus() },
+                                    onReturnToSidebar = onReturnToSidebar,
+                                    modifier = Modifier.padding(top = 20.dp),
+                                )
+                            }
+                        }
+                        if (popularSeries.isNotEmpty()) {
+                            item {
+                                SeriesContentRow(
+                                    title = "Popular TV Shows",
+                                    items = popularSeries.take(15),
+                                    navController = navController,
+                                    rowFocusRequester = remember { FocusRequester() },
+                                    onItemFocus = { pendingHeroItem = it },
+                                    onArrowUp = { playFocusRequester.requestFocus() },
+                                    onReturnToSidebar = onReturnToSidebar,
+                                    modifier = Modifier.padding(top = 20.dp),
+                                )
+                            }
+                        }
+                        if (topRatedSeries.isNotEmpty()) {
+                            item {
+                                SeriesContentRow(
+                                    title = "Top Rated TV Shows",
+                                    items = topRatedSeries.take(15),
+                                    navController = navController,
+                                    rowFocusRequester = remember { FocusRequester() },
+                                    onItemFocus = { pendingHeroItem = it },
+                                    onArrowUp = { playFocusRequester.requestFocus() },
+                                    onReturnToSidebar = onReturnToSidebar,
+                                    modifier = Modifier.padding(top = 20.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Hero section — series backdrop with title, metadata, Play + Details buttons
+// ─────────────────────────────────────────────────────────────────────────────
+
+private val GENRE_NAMES = mapOf(
+    28 to "Action", 12 to "Adventure", 16 to "Animation", 35 to "Comedy",
+    80 to "Crime", 99 to "Documentary", 18 to "Drama", 10751 to "Family",
+    14 to "Fantasy", 36 to "History", 27 to "Horror", 10402 to "Music",
+    9648 to "Mystery", 10749 to "Romance", 878 to "Sci-Fi", 53 to "Thriller",
+    10752 to "War", 37 to "Western", 10759 to "Action & Adventure",
+    10762 to "Kids", 10763 to "News", 10764 to "Reality",
+    10765 to "Sci-Fi & Fantasy", 10766 to "Soap", 10767 to "Talk",
+    10768 to "War & Politics",
+)
+
+@Composable
+private fun SeriesHeroSection(
+    item: MediaItem?,
+    playFocusRequester: FocusRequester,
+    detailsFocusRequester: FocusRequester,
+    onPlay: (MediaItem?) -> Unit,
+    onDetails: (MediaItem?) -> Unit,
+    onReturnToSidebar: () -> Unit,
+    onArrowDown: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val heroKey = item?.id?.toString() ?: "empty"
+
+    AnimatedContent(
+        targetState = heroKey,
+        transitionSpec = {
+            (fadeIn(tween(480)) + scaleIn(tween(480), initialScale = 1.025f)) togetherWith
+                    (fadeOut(tween(180)) + scaleOut(tween(180)))
+        },
+        modifier = modifier,
+        label = "seriesHeroTransition",
+    ) { _ ->
+        if (item == null) { Box(modifier = Modifier.fillMaxSize()); return@AnimatedContent }
+
+        val backdropUrl = item.backdropUrl.ifEmpty { item.posterUrl }
+        val year = item.releaseDate.take(4).toIntOrNull()
+        val genres = item.genreIds.take(3).mapNotNull { GENRE_NAMES[it] }.joinToString("  •  ")
+        val metadata = buildString {
+            if (item.voteAverage > 0) append("★ ${String.format("%.1f", item.voteAverage)}")
+            if (year != null) { if (isNotEmpty()) append("   "); append(year) }
+            if (genres.isNotEmpty()) { if (isNotEmpty()) append("   "); append(genres) }
+        }
+
+        Box(modifier = Modifier.fillMaxSize()) {
+            // Backdrop
+            AsyncImage(
+                model = backdropUrl,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+                placeholder = painterResource(R.drawable.ic_launcher_foreground),
+                error = painterResource(R.drawable.ic_launcher_foreground),
+            )
+            // Left gradient
+            Box(
+                modifier = Modifier.fillMaxSize().background(
+                    Brush.horizontalGradient(
+                        0f to Color.Black,
+                        0.35f to Color(0xD9000000),
+                        0.78f to Color.Transparent,
+                    )
+                )
+            )
+            // Bottom gradient
+            Box(
+                modifier = Modifier.fillMaxSize().background(
+                    Brush.verticalGradient(
+                        0.42f to Color.Transparent,
+                        1f to Color(0xFF080808),
+                    )
+                )
+            )
+            // Text + buttons
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .fillMaxWidth(0.65f)
+                    .padding(start = 48.dp, bottom = 32.dp, end = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(0.dp),
+            ) {
+                androidx.compose.material3.Text(
+                    text = item.title,
+                    color = Color.White,
+                    fontSize = 38.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    lineHeight = 42.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    letterSpacing = (-0.7).sp,
+                )
+                Spacer(Modifier.height(10.dp))
+                if (metadata.isNotEmpty()) {
+                    androidx.compose.material3.Text(
+                        text = metadata,
+                        color = Color.White.copy(alpha = 0.7f),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+                if (item.overview.isNotBlank()) {
+                    Spacer(Modifier.height(10.dp))
+                    androidx.compose.material3.Text(
+                        text = item.overview,
+                        color = Color(0xFFD8D8D8),
+                        fontSize = 14.sp,
+                        lineHeight = 22.sp,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Spacer(Modifier.height(18.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    // Play button
+                    androidx.compose.material3.Button(
+                        onClick = { onPlay(item) },
+                        modifier = Modifier
+                            .focusRequester(playFocusRequester)
+                            .onKeyEvent { event ->
+                                if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                                when (event.key) {
+                                    Key.DirectionLeft  -> { onReturnToSidebar(); true }
+                                    Key.DirectionRight -> { runCatching { detailsFocusRequester.requestFocus() }; true }
+                                    Key.DirectionDown  -> { onArrowDown(); true }
+                                    else -> false
+                                }
+                            },
+                        colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFFE50914)
+                        ),
+                    ) {
+                        androidx.compose.material3.Icon(
+                            painter = painterResource(R.drawable.ic_play),
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        androidx.compose.material3.Text(stringResource(R.string.play))
+                    }
+                    // Details button
+                    androidx.compose.material3.OutlinedButton(
+                        onClick = { onDetails(item) },
+                        modifier = Modifier
+                            .focusRequester(detailsFocusRequester)
+                            .onKeyEvent { event ->
+                                if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                                when (event.key) {
+                                    Key.DirectionLeft -> { runCatching { playFocusRequester.requestFocus() }; true }
+                                    Key.DirectionDown -> { onArrowDown(); true }
+                                    else -> false
+                                }
+                            },
+                    ) {
+                        androidx.compose.material3.Icon(
+                            painter = painterResource(R.drawable.ic_info),
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        androidx.compose.material3.Text(stringResource(R.string.details))
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Content row — horizontal LazyRow of series cards
+// ─────────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun SeriesContentRow(
+    title: String,
+    items: List<MediaItem>,
+    navController: NavController,
+    rowFocusRequester: FocusRequester,
+    onItemFocus: (MediaItem) -> Unit = {},
+    onArrowUp: () -> Unit = {},
+    onReturnToSidebar: () -> Unit = {},
+    modifier: Modifier = Modifier,
+) {
+    val coroutineScope = rememberCoroutineScope()
+    val rowListState = rememberLazyListState()
+    var focusedItemIndex by remember { mutableIntStateOf(-1) }
+
+    Column(modifier = modifier.padding(horizontal = 48.dp)) {
+        androidx.compose.material3.Text(
+            text = title,
+            color = Color.White,
+            fontSize = 20.sp,
+            fontWeight = FontWeight.W700,
+            modifier = Modifier.padding(bottom = 12.dp),
+        )
+        LazyRow(
+            state = rowListState,
+            contentPadding = PaddingValues(vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier
+                .focusRequester(rowFocusRequester)
+                .onKeyEvent { event ->
+                    if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                    when (event.key) {
+                        Key.DirectionLeft -> {
+                            if (focusedItemIndex <= 0) { onReturnToSidebar(); true }
+                            else false
+                        }
+                        Key.DirectionUp -> { coroutineScope.launch { onArrowUp() }; true }
+                        else -> false
+                    }
+                },
+        ) {
+            items(
+                count = items.size,
+                key   = { index -> "series:${title.hashCode()}:$index" },
+            ) { index ->
+                val item = items[index]
+                ContentCard(
+                    posterUrl  = item.posterUrl,
+                    title      = item.title,
+                    rating     = item.voteAverage.takeIf { it > 0 },
+                    year       = item.releaseDate.take(4).toIntOrNull(),
+                    contentTypeLabel = "TV Series",
+                    isFocused  = focusedItemIndex == index,
+                    onClick    = {
+                        navController.navigate(Screen.Series.createRoute(item.id.toString()))
+                    },
+                    onFocusChanged = { focused ->
+                        if (focused) {
+                            focusedItemIndex = index
+                            onItemFocus(item)
+                            // Auto-scroll to keep the focused card visible
+                            // (mirrors Dart's Scrollable.ensureVisible)
+                            coroutineScope.launch {
+                                rowListState.animateScrollToItem(
+                                    index = index,
+                                    scrollOffset = -100,
+                                )
+                            }
+                        } else if (focusedItemIndex == index) focusedItemIndex = -1
+                    },
+                    modifier = Modifier.height(190.dp),
+                )
+            }
+        }
+    }
+}

@@ -18,14 +18,19 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,6 +52,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.maxstream.app.R
+import kotlinx.coroutines.launch
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Data
@@ -70,13 +76,16 @@ private val NAV_ENTRIES = listOf(
 /**
  * Left sidebar navigation.
  *
- * Architecture notes (fixes applied vs previous version):
- * - Width animation is owned entirely here — no parent passing a width modifier.
+ * Architecture notes (matches Dart TvSidebarNavigation):
+ * - Width animation is driven by [isExpanded], which is true when any pill
+ *   has focus.  [active] triggers programmatic focus on [selectedIndex] so
+ *   the back-key / return-to-sidebar flow works identically to Dart.
  * - [focusRequesters] are created by MainActivity and shared so external code
  *   (back state machine) can programmatically focus a sidebar item.
  * - `canFocus` is NEVER set to false — items are always focusable; only the
  *   visual label is shown/hidden based on [_focusedIndex].
- * - A single LaunchedEffect(focusedIndex) drives expand/collapse (no Unit bug).
+ * - A LazyColumn + [scrollToItem] keeps the selected pill visible when
+ *   the list is longer than the screen.
  * - Key handler: ↑↓ move within sidebar, →/Enter selects and moves to content,
  *   ← is swallowed (no-op — already on the left edge), Back/Escape bubbles up
  *   to the shell's state machine.
@@ -88,16 +97,36 @@ fun Sidebar(
     onItemSelected: (Int) -> Unit,
     onReturnToContent: () -> Unit,
     onFocusEntered: () -> Unit = {},
+    active: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     // ── Local focus state ──────────────────────────────────────────────────
     // -1 = no sidebar item focused (sidebar collapsed)
-    var focusedIndex by remember { mutableStateOf(-1) }
-    var isExpanded by remember { mutableStateOf(false) }
+    var focusedIndex by remember { mutableIntStateOf(-1) }
+    val isExpanded by remember { derivedStateOf { focusedIndex >= 0 } }
 
-    // Single effect — expand when any item is focused, collapse when none is.
-    LaunchedEffect(focusedIndex) {
-        isExpanded = focusedIndex >= 0
+    val coroutineScope = rememberCoroutineScope()
+    val listState = rememberLazyListState()
+
+    // When [active] changes from false → true, request focus on the
+    // selected item — mirrors Dart's didUpdateWidget(widget.active) pattern.
+    LaunchedEffect(active) {
+        if (active && focusedIndex < 0) {
+            kotlinx.coroutines.delay(50)
+            runCatching { focusRequesters.getOrNull(selectedIndex)?.requestFocus() }
+        }
+    }
+
+    // Scroll to keep the selected pill visible when selectedIndex changes
+    // (mirrors Dart's _scrollToSelected).
+    LaunchedEffect(selectedIndex) {
+        // LazyColumn items are laid out as: logo spacer (~72dp) + items
+        // Each pill is ~52dp.  Scroll so the selected one is centered.
+        val itemIndex = selectedIndex  // NAV index maps 1:1 to list items
+        listState.animateScrollToItem(
+            index = itemIndex,
+            scrollOffset = -120,  // offset to center the item visually
+        )
     }
 
     // ── Width animation ────────────────────────────────────────────────────
@@ -141,13 +170,17 @@ fun Sidebar(
             )
         }
 
-        // Nav items — vertically centered in the full sidebar height
-        Column(
+        // Nav items in a LazyColumn for scroll support
+        LazyColumn(
+            state = listState,
             modifier = Modifier.padding(horizontal = 10.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            NAV_ENTRIES.forEachIndexed { index, entry ->
+            // Spacer for the logo area at top
+            item { Spacer(modifier = Modifier.height(72.dp)) }
+
+            itemsIndexed(NAV_ENTRIES) { index, entry ->
                 SidebarPillItem(
                     labelRes = entry.labelRes,
                     iconRes = entry.iconRes,
@@ -156,8 +189,19 @@ fun Sidebar(
                     isExpanded = isExpanded,
                     focusRequester = focusRequesters[index],
                     onFocusChanged = { hasFocus ->
-                        if (hasFocus) { focusedIndex = index; onFocusEntered() }
-                        else if (focusedIndex == index) focusedIndex = -1
+                        if (hasFocus) {
+                            focusedIndex = index
+                            onFocusEntered()
+                            // Scroll to keep this item visible
+                            coroutineScope.launch {
+                                listState.animateScrollToItem(
+                                    index = index + 1, // +1 for logo spacer
+                                    scrollOffset = -120,
+                                )
+                            }
+                        } else if (focusedIndex == index) {
+                            focusedIndex = -1
+                        }
                     },
                     onSelect = {
                         onItemSelected(index)
@@ -171,6 +215,9 @@ fun Sidebar(
                     },
                 )
             }
+
+            // Bottom spacer
+            item { Spacer(modifier = Modifier.height(16.dp)) }
         }
     }
 }

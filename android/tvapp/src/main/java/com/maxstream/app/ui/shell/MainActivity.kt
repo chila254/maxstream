@@ -52,6 +52,7 @@ import com.maxstream.app.ui.screens.home.HomeScreen
 import com.maxstream.app.ui.screens.more.MoreScreen
 import com.maxstream.app.ui.screens.player.PlayerScreen
 import com.maxstream.app.ui.screens.search.SearchScreen
+import com.maxstream.app.ui.screens.series.SeriesListScreen
 import com.maxstream.app.ui.screens.series.SeriesScreen
 import com.maxstream.app.ui.screens.splash.SplashScreen
 import com.maxstream.app.ui.screens.watchlist.WatchlistScreen
@@ -251,6 +252,7 @@ private fun TvShell(
             onItemSelected  = { index -> appState.selectTab(index) },
             onReturnToContent = { appState.updateFocusOnSidebar(false) },
             onFocusEntered  = { appState.updateFocusOnSidebar(true) },
+            active          = appState.focusOnSidebar,
         )
 
         // ── Content area ───────────────────────────────────────────────────
@@ -360,11 +362,10 @@ private fun SeriesListTab(
     onReturnToSidebar: () -> Unit,
     isVisible: Boolean,
 ) {
-    GenreScreen(
+    SeriesListScreen(
         navController     = navController,
         onReturnToSidebar = onReturnToSidebar,
         isVisible         = isVisible,
-        initialMediaType  = "tv",
     )
 }
 
