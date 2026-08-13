@@ -73,11 +73,11 @@ fun HomeScreen(
     onReturnToSidebar: () -> Unit,
 ) {
     val viewModel: HomeViewModel = viewModel()
-    val trendingMovies by viewModel.trendingMovies.observeAsState(emptyList())
-    val trendingSeries by viewModel.trendingSeries.observeAsState(emptyList())
-    val popularMovies by viewModel.popularMovies.observeAsState(emptyList())
-    val topRatedMovies by viewModel.topRatedMovies.observeAsState(emptyList())
-    val continueWatching by viewModel.continueWatching.observeAsState(emptyList())
+    val trendingMovies = viewModel.trendingMovies.value.orEmpty()
+    val trendingSeries = viewModel.trendingSeries.value.orEmpty()
+    val popularMovies = viewModel.popularMovies.value.orEmpty()
+    val topRatedMovies = viewModel.topRatedMovies.value.orEmpty()
+    val continueWatching = viewModel.continueWatching.value.orEmpty()
 
     var heroItem by remember { mutableStateOf<MediaItem?>(null) }
     var heroType by remember { mutableStateOf("movie") }

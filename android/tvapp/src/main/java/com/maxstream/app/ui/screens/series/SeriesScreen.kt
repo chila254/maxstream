@@ -52,7 +52,7 @@ import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import com.maxstream.app.R
 import com.maxstream.app.data.model.MediaItem
-import com.maxstream.app.data.remote.EpisodeRef
+import com.maxstream.app.data.model.EpisodeRef
 import com.maxstream.app.ui.navigation.Screen
 import com.maxstream.app.ui.theme.Background
 import com.maxstream.app.ui.tv.TvFocusManager
@@ -63,11 +63,11 @@ import kotlinx.coroutines.launch
 @Composable
 fun SeriesScreen(navController: NavController, itemId: String) {
     val viewModel: SeriesViewModel = viewModel()
-    val series by viewModel.series.observeAsState(null)
-    val seasons by viewModel.seasons.observeAsState(emptyList())
-    val episodes by viewModel.episodes.observeAsState(emptyList())
-    val loading by viewModel.loading.observeAsState(false)
-    val error by viewModel.error.observeAsState(null)
+    val series = viewModel.series.value
+    val seasons = viewModel.seasons.value.orEmpty()
+    val episodes = viewModel.episodes.value.orEmpty()
+    val loading = viewModel.loading.value ?: false
+    val error = viewModel.error.value
 
     var selectedSeason by remember { mutableStateOf(1) }
     var selectedEpisode by remember { mutableStateOf<EpisodeRef?>(null) }

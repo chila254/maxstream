@@ -60,9 +60,9 @@ import kotlinx.coroutines.launch
 @Composable
 fun DetailsScreen(navController: NavController, itemId: String) {
     val viewModel: HomeViewModel = viewModel()
-    val trendingSeries by viewModel.trendingSeries.observeAsState(emptyList())
-    val popularMovies by viewModel.popularMovies.observeAsState(emptyList())
-    val topRatedMovies by viewModel.topRatedMovies.observeAsState(emptyList())
+    val trendingSeries = viewModel.trendingSeries.value.orEmpty()
+    val popularMovies = viewModel.popularMovies.value.orEmpty()
+    val topRatedMovies = viewModel.topRatedMovies.value.orEmpty()
 
     var item by remember { mutableStateOf<MediaItem?>(null) }
     var loading by remember { mutableStateOf(true) }
@@ -110,7 +110,14 @@ fun DetailsScreen(navController: NavController, itemId: String) {
             )
         }
     } else if (item != null) {
-        TvCinematicDetails(item = item!!, mediaType = item!!.mediaType, navController = navController)
+        TvCinematicDetails(
+            item = item!!,
+            mediaType = item!!.mediaType,
+            navController = navController,
+            popularMovies = popularMovies,
+            topRatedMovies = topRatedMovies,
+            trendingSeries = trendingSeries
+        )
     }
 }
 
@@ -119,6 +126,9 @@ fun TvCinematicDetails(
     item: MediaItem,
     mediaType: String,
     navController: NavController,
+    popularMovies: List<MediaItem> = emptyList(),
+    topRatedMovies: List<MediaItem> = emptyList(),
+    trendingSeries: List<MediaItem> = emptyList(),
 ) {
     val backdropUrl = item.backdropUrl.ifEmpty { item.posterUrl }
     val title = item.title
