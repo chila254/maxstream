@@ -22,7 +22,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.navigation.NavController
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.observeAsState
 import com.maxstream.app.data.model.MediaItem
 import com.maxstream.app.ui.theme.SurfaceVariant
 import com.maxstream.app.ui.viewmodel.HomeViewModel
@@ -36,9 +36,9 @@ import androidx.compose.foundation.layout.Box
 @Composable
 fun SeriesScreen(navController: NavController) {
     val viewModel = androidx.lifecycle.viewmodel.compose.viewModel<HomeViewModel>()
-    val trendingSeries by viewModel.trendingSeries.collectAsStateWithLifecycle()
-    val popularSeries by viewModel.popularSeries.collectAsStateWithLifecycle()
-    val topRatedSeries by viewModel.topRatedSeries.collectAsStateWithLifecycle()
+    val trendingSeries by viewModel.trendingSeries.observeAsState(emptyList())
+    val popularSeries by viewModel.popularSeries.observeAsState(emptyList())
+    val topRatedSeries by viewModel.topRatedSeries.observeAsState(emptyList())
 
     LazyColumn(
         modifier = Modifier

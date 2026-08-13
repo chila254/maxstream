@@ -22,7 +22,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.navigation.NavController
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.observeAsState
 import com.maxstream.app.data.model.MediaItem
 import com.maxstream.app.ui.theme.SurfaceVariant
 import com.maxstream.app.ui.viewmodel.HomeViewModel
@@ -35,12 +35,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 @Composable
 fun HomeScreen(navController: NavController) {
     val viewModel = androidx.lifecycle.viewmodel.compose.viewModel<HomeViewModel>()
-    val trendingMovies by viewModel.trendingMovies.collectAsStateWithLifecycle()
-    val trendingSeries by viewModel.trendingSeries.collectAsStateWithLifecycle()
-    val popularMovies by viewModel.popularMovies.collectAsStateWithLifecycle()
-    val popularSeries by viewModel.popularSeries.collectAsStateWithLifecycle()
-    val topRatedMovies by viewModel.topRatedMovies.collectAsStateWithLifecycle()
-    val topRatedSeries by viewModel.topRatedSeries.collectAsStateWithLifecycle()
+    val trendingMovies by viewModel.trendingMovies.observeAsState(emptyList())
+    val trendingSeries by viewModel.trendingSeries.observeAsState(emptyList())
+    val popularMovies by viewModel.popularMovies.observeAsState(emptyList())
+    val popularSeries by viewModel.popularSeries.observeAsState(emptyList())
+    val topRatedMovies by viewModel.topRatedMovies.observeAsState(emptyList())
+    val topRatedSeries by viewModel.topRatedSeries.observeAsState(emptyList())
 
     LazyColumn(
         modifier = Modifier
