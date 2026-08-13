@@ -1,23 +1,16 @@
 package com.maxstream.app.ui.shell
 
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -27,7 +20,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.NavHost
@@ -48,60 +40,91 @@ import com.maxstream.app.ui.screens.series.SeriesScreen
 import com.maxstream.app.ui.screens.splash.SplashScreen
 import com.maxstream.app.ui.screens.watchlist.WatchlistScreen
 import com.maxstream.app.ui.theme.MaxStreamTheme
+import com.maxstream.app.ui.shell.Sidebar
 
 class MainActivity : ComponentActivity() {
+    private val tag = "MainActivity"
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent {
-            MaxStreamTheme {
-                val navController = rememberNavController()
-                val navBackStackEntry by navController.currentBackStackEntryAsState()
-                val currentRoute = navBackStackEntry?.destination?.route ?: Screen.Splash.route
-                val isRootScreen = currentRoute in listOf(
-                    Screen.Splash.route,
-                    Screen.Login.route,
-                    Screen.Pairing.route,
-                    Screen.Home.route,
-                    Screen.Search.route,
-                    Screen.Genre.route,
-                    Screen.Series.route,
-                    Screen.Watchlist.route,
-                    Screen.More.route,
-                )
-                var selectedIndex by remember { mutableStateOf(0) }
-                val sections = listOf(
-                    Screen.Home to R.string.home,
-                    Screen.Search to R.string.search,
-                    Screen.Genre to R.string.genre,
-                    Screen.Series to R.string.series,
-                    Screen.Watchlist to R.string.watchlist,
-                    Screen.More to R.string.more,
-                )
+        try {
+            setContent {
+                MaxStreamTheme {
+                    val navController = rememberNavController()
+                    val navBackStackEntry by navController.currentBackStackEntryAsState()
+                    val currentRoute = navBackStackEntry?.destination?.route ?: Screen.Splash.route
+                    val isRootScreen = currentRoute in listOf(
+                        Screen.Splash.route,
+                        Screen.Login.route,
+                        Screen.Pairing.route,
+                        Screen.Home.route,
+                        Screen.Search.route,
+                        Screen.Genre.route,
+                        Screen.Series.route,
+                        Screen.Watchlist.route,
+                        Screen.More.route,
+                    )
+                    var selectedIndex by remember { mutableStateOf(0) }
+                    val sections = listOf(
+                        Screen.Home to R.string.home,
+                        Screen.Search to R.string.search,
+                        Screen.Genre to R.string.genre,
+                        Screen.Series to R.string.series,
+                        Screen.Watchlist to R.string.watchlist,
+                        Screen.More to R.string.more,
+                    )
 
-                Column(modifier = Modifier.fillMaxSize()) {
-                    if (isRootScreen) {
-                        Row(modifier = Modifier.fillMaxSize()) {
-                            Sidebar(
-                                sections = sections,
-                                selectedIndex = selectedIndex,
-                                onSectionSelected = { index ->
-                                    selectedIndex = index
-                                    val route = sections[index].first.route
-                                    navController.navigate(route) {
-                                        popUpTo(navController.graph.startDestinationId) {
-                                            inclusive = true
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        if (isRootScreen) {
+                            Row(modifier = Modifier.fillMaxSize()) {
+                                Sidebar(
+                                    sections = sections,
+                                    selectedIndex = selectedIndex,
+                                    onSectionSelected = { index ->
+                                        selectedIndex = index
+                                        val route = sections[index].first.route
+                                        navController.navigate(route) {
+                                            popUpTo(navController.graph.startDestinationId) {
+                                                inclusive = true
+                                            }
+                                            launchSingleTop = true
                                         }
-                                        launchSingleTop = true
+                                    },
+                                    modifier = Modifier.width(72.dp)
+                                )
+                                NavHost(
+                                    navController = navController,
+                                    startDestination = Screen.Home.route,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxHeight()
+                                        .background(MaterialTheme.colorScheme.background)
+                                ) {
+                                    composable(Screen.Splash.route) { SplashScreen(navController) }
+                                    composable(Screen.Login.route) { LoginScreen(navController) }
+                                    composable(Screen.Pairing.route) { PairingScreen(navController) }
+                                    composable(Screen.Home.route) { HomeScreen(navController) }
+                                    composable(Screen.Search.route) { SearchScreen(navController) }
+                                    composable(Screen.Genre.route) { GenreScreen(navController) }
+                                    composable(Screen.Series.route) { SeriesScreen(navController) }
+                                    composable(Screen.Watchlist.route) { WatchlistScreen(navController) }
+                                    composable(Screen.More.route) { MoreScreen(navController) }
+                                    composable(Screen.Details.route) { backStackEntry ->
+                                        val itemId = backStackEntry.arguments?.getString("itemId") ?: ""
+                                        DetailsScreen(navController, itemId)
                                     }
-                                },
-                                modifier = Modifier.width(72.dp)
-                            )
+                                    composable(Screen.Player.route) { backStackEntry ->
+                                        val sourceJson = backStackEntry.arguments?.getString("sourceJson") ?: ""
+                                        PlayerScreen(navController, sourceJson)
+                                    }
+                                }
+                            }
+                        } else {
                             NavHost(
                                 navController = navController,
                                 startDestination = Screen.Home.route,
                                 modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxHeight()
+                                    .fillMaxSize()
                                     .background(MaterialTheme.colorScheme.background)
                             ) {
                                 composable(Screen.Splash.route) { SplashScreen(navController) }
@@ -123,35 +146,11 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                         }
-                    } else {
-                        NavHost(
-                            navController = navController,
-                            startDestination = Screen.Home.route,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(MaterialTheme.colorScheme.background)
-                        ) {
-                            composable(Screen.Splash.route) { SplashScreen(navController) }
-                            composable(Screen.Login.route) { LoginScreen(navController) }
-                            composable(Screen.Pairing.route) { PairingScreen(navController) }
-                            composable(Screen.Home.route) { HomeScreen(navController) }
-                            composable(Screen.Search.route) { SearchScreen(navController) }
-                            composable(Screen.Genre.route) { GenreScreen(navController) }
-                            composable(Screen.Series.route) { SeriesScreen(navController) }
-                            composable(Screen.Watchlist.route) { WatchlistScreen(navController) }
-                            composable(Screen.More.route) { MoreScreen(navController) }
-                            composable(Screen.Details.route) { backStackEntry ->
-                                val itemId = backStackEntry.arguments?.getString("itemId") ?: ""
-                                DetailsScreen(navController, itemId)
-                            }
-                            composable(Screen.Player.route) { backStackEntry ->
-                                val sourceJson = backStackEntry.arguments?.getString("sourceJson") ?: ""
-                                PlayerScreen(navController, sourceJson)
-                            }
-                        }
                     }
                 }
             }
+        } catch (t: Throwable) {
+            Log.e(tag, "Compose startup failure", t)
         }
     }
 }
