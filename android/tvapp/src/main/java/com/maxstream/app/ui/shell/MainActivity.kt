@@ -115,10 +115,10 @@ private fun TvAppRoot() {
             if (appState.focusOnSidebar) {
                 // Second back on sidebar: go to Home tab, focus content
                 appState.selectTab(0)
-                appState.setFocusOnSidebar(false)
+                appState.updateFocusOnSidebar(false)
             } else {
                 // First back on content: move focus to sidebar
-                appState.setFocusOnSidebar(true)
+                appState.updateFocusOnSidebar(true)
             }
             return
         }
@@ -211,7 +211,7 @@ private fun TvAppRoot() {
                     itemId = itemId,
                     onReturnToSidebar = {
                         deepNavController.popBackStack()
-                        appState.setFocusOnSidebar(true)
+                        appState.updateFocusOnSidebar(true)
                     },
                 )
             }
@@ -222,7 +222,7 @@ private fun TvAppRoot() {
                     itemId = itemId,
                     onReturnToSidebar = {
                         deepNavController.popBackStack()
-                        appState.setFocusOnSidebar(true)
+                        appState.updateFocusOnSidebar(true)
                     },
                 )
             }
@@ -270,7 +270,7 @@ private fun TvShell(
                 // Focus will transfer to content via the LaunchedEffect in TvAppRoot
             },
             onReturnToContent = {
-                appState.setFocusOnSidebar(false)
+                appState.updateFocusOnSidebar(false)
             },
         )
 
@@ -287,21 +287,21 @@ private fun TvShell(
             TabScreen(visible = appState.selectedTab == 0) {
                 HomeScreen(
                     navController = deepNavController,
-                    onReturnToSidebar = { appState.setFocusOnSidebar(true) },
+                    onReturnToSidebar = { appState.updateFocusOnSidebar(true) },
                     isVisible = appState.selectedTab == 0,
                 )
             }
             TabScreen(visible = appState.selectedTab == 1) {
                 SearchScreen(
                     navController = deepNavController,
-                    onReturnToSidebar = { appState.setFocusOnSidebar(true) },
+                    onReturnToSidebar = { appState.updateFocusOnSidebar(true) },
                     isVisible = appState.selectedTab == 1,
                 )
             }
             TabScreen(visible = appState.selectedTab == 2) {
                 GenreScreen(
                     navController = deepNavController,
-                    onReturnToSidebar = { appState.setFocusOnSidebar(true) },
+                    onReturnToSidebar = { appState.updateFocusOnSidebar(true) },
                     isVisible = appState.selectedTab == 2,
                 )
             }
@@ -309,21 +309,21 @@ private fun TvShell(
                 // Tab index 3 is the Series LIST screen (not a single series detail)
                 SeriesListTab(
                     navController = deepNavController,
-                    onReturnToSidebar = { appState.setFocusOnSidebar(true) },
+                    onReturnToSidebar = { appState.updateFocusOnSidebar(true) },
                     isVisible = appState.selectedTab == 3,
                 )
             }
             TabScreen(visible = appState.selectedTab == 4) {
                 WatchlistScreen(
                     navController = deepNavController,
-                    onReturnToSidebar = { appState.setFocusOnSidebar(true) },
+                    onReturnToSidebar = { appState.updateFocusOnSidebar(true) },
                     isVisible = appState.selectedTab == 4,
                 )
             }
             TabScreen(visible = appState.selectedTab == 5) {
                 MoreScreen(
                     navController = deepNavController,
-                    onReturnToSidebar = { appState.setFocusOnSidebar(true) },
+                    onReturnToSidebar = { appState.updateFocusOnSidebar(true) },
                     onSignOut = {
                         deepNavController.navigate(Screen.Login.route) {
                             popUpTo(Screen.Shell.route) { inclusive = true }

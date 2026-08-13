@@ -19,67 +19,72 @@ import androidx.compose.runtime.setValue
  *   - App starts with focus on content (hero banner), NOT sidebar.
  *   - LEFT from content → sidebar
  *   - RIGHT / ENTER from sidebar → content
+ *
+ * NOTE: properties are internally mutable (no private set) so that the
+ * explicit action methods below can write them without triggering a JVM
+ * signature clash between the Kotlin-generated property setter and the
+ * same-named public method.
  */
 class TvAppState {
     // ── Tab selection ────────────────────────────────────────────────────────
     var selectedTab by mutableStateOf(0)
-        private set
+        internal set
 
     // ── Focus region ─────────────────────────────────────────────────────────
     /** true = D-pad is currently operating the sidebar */
     var focusOnSidebar by mutableStateOf(false)
-        private set
+        internal set
 
     var isDeepNavigating by mutableStateOf(false)
-        private set
+        internal set
 
     var searchFocused by mutableStateOf(false)
-        private set
+        internal set
 
     // ── Scroll / focus memory per tab ────────────────────────────────────────
-    private val tabScrollOffsets = mutableStateMapOf<Int, Float>()
-    private val tabFocusedIndices = mutableStateMapOf<Int, Int>()
+    private val tabScrollOffsets   = mutableStateMapOf<Int, Float>()
+    private val tabFocusedIndices  = mutableStateMapOf<Int, Int>()
     private val sectionFocusIndices = mutableStateMapOf<Int, Int>()
-    private val rowFocusedIndices = mutableStateMapOf<String, Int>()
-    private val activeRowIds = mutableStateMapOf<Int, String>()
+    private val rowFocusedIndices  = mutableStateMapOf<String, Int>()
+    private val activeRowIds       = mutableStateMapOf<Int, String>()
 
     // ── Tab actions ───────────────────────────────────────────────────────────
 
     /** Switch to [index] and move focus to content area. */
     fun selectTab(index: Int) {
-        if (selectedTab != index) {
-            selectedTab = index
-        }
+        if (selectedTab != index) selectedTab = index
         // Always move focus to content on explicit tab selection
-        focusOnSidebar = false
+        focusOnSidebar  = false
         isDeepNavigating = false
-        searchFocused = false
+        searchFocused   = false
     }
 
     // ── Focus region actions ──────────────────────────────────────────────────
+    // Renamed with "update" prefix to avoid JVM signature clash with the
+    // Kotlin-generated property setter (setFocusOnSidebar, etc.).
 
-    fun setFocusOnSidebar(value: Boolean) {
+    fun updateFocusOnSidebar(value: Boolean) {
         if (focusOnSidebar != value) {
             focusOnSidebar = value
             if (!value) searchFocused = false
         }
     }
 
-    fun setSearchFocused(value: Boolean) {
+    fun updateSearchFocused(value: Boolean) {
         if (searchFocused != value) {
             searchFocused = value
             if (value) focusOnSidebar = false
         }
     }
 
-    fun setDeepNavigating(value: Boolean) {
+    fun updateDeepNavigating(value: Boolean) {
         isDeepNavigating = value
     }
 
     fun returnToSidebar() {
-        focusOnSidebar = true
+        focusOnSidebar   = true
         isDeepNavigating = false
-        searchFocused = false
+        searchFocused    = false
     }
 
     // ── Scroll persistence ────────────────────────────────────────────────────
@@ -119,10 +124,10 @@ class TvAppState {
     // ── Reset ─────────────────────────────────────────────────────────────────
 
     fun clearState() {
-        selectedTab = 0
-        focusOnSidebar = false
+        selectedTab      = 0
+        focusOnSidebar   = false
         isDeepNavigating = false
-        searchFocused = false
+        searchFocused    = false
         tabScrollOffsets.clear()
         tabFocusedIndices.clear()
         sectionFocusIndices.clear()
