@@ -12,16 +12,13 @@ class TvNavigationProvider {
         private set
 
     private val _focusOnSidebar = mutableStateOf(false)
-    var focusOnSidebar: Boolean by _focusOnSidebar
-        private set
+    val focusOnSidebar: Boolean get() = _focusOnSidebar.value
 
     private val _isDeepNavigating = mutableStateOf(false)
-    var isDeepNavigating: Boolean by _isDeepNavigating
-        private set
+    val isDeepNavigating: Boolean get() = _isDeepNavigating.value
 
     private val _searchFocused = mutableStateOf(false)
-    var searchFocused: Boolean by _searchFocused
-        private set
+    val searchFocused: Boolean get() = _searchFocused.value
 
     private val _tabScrollOffsets = mutableStateMapOf<Int, Double>()
     private val _tabFocusedIndices = mutableStateMapOf<Int, Int>()
