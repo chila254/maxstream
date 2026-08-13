@@ -23,7 +23,7 @@ fun MaxStreamNavHost(startDestination: String = Screen.Splash.route) {
         composable(Screen.Splash.route) { SplashScreen(navController) }
         composable(Screen.Login.route) { LoginScreen(navController) }
         composable(Screen.Pairing.route) { PairingScreen(navController) }
-        composable(Screen.Home.route) { HomeScreen(navController) }
+        composable(Screen.Home.route) { HomeScreen(navController, onReturnToSidebar = { }) }
         composable(Screen.Search.route) { SearchScreen(navController) }
         composable(Screen.Genre.route) { GenreScreen(navController) }
         composable(Screen.Series.route) { backStackEntry ->

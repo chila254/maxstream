@@ -24,6 +24,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -50,6 +51,7 @@ fun ContentCard(
 ) {
     val scale = remember { Animatable(1f) }
     val targetScale = if (isFocused) 1.02f else 1f
+    val cardHeightPx = with(LocalDensity.current) { CardHeight.toPx() }
 
     LaunchedEffect(isFocused) {
         scale.animateTo(
@@ -97,7 +99,7 @@ fun ContentCard(
                                     Color.Black.copy(alpha = 0.55f)
                                 ),
                                 startY = 0f,
-                                endY = CardHeight.toPx()
+                                endY = cardHeightPx
                             )
                         )
                 )

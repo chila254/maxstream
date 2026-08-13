@@ -5,8 +5,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.viewModelScope
-import com.maxstream.app.data.model.EpisodeRef
 import com.maxstream.app.data.model.MediaItem
+import com.maxstream.app.data.remote.EpisodeRef
 import com.maxstream.app.data.repository.CatalogRepository
 import com.maxstream.app.di.Modules
 import kotlinx.coroutines.launch

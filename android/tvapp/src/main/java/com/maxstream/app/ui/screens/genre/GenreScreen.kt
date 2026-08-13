@@ -26,6 +26,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -95,7 +96,8 @@ fun GenreScreen(navController: NavController) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 48.dp, horizontal = 48.dp),
+                            .padding(top = 48.dp)
+                            .padding(horizontal = 48.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Text(
@@ -114,7 +116,11 @@ fun GenreScreen(navController: NavController) {
 
                 if (selectedGenre == null) {
                     item {
-                        Column(modifier = Modifier.padding(top = 24.dp, horizontal = 48.dp)) {
+                        Column(
+                            modifier = Modifier
+                                .padding(top = 24.dp)
+                                .padding(horizontal = 48.dp)
+                        ) {
                             LazyRow(
                                 contentPadding = PaddingValues(horizontal = 48.dp),
                                 horizontalArrangement = Arrangement.spacedBy(12.dp)

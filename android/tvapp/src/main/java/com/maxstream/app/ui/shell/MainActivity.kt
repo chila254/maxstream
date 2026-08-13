@@ -154,7 +154,10 @@ class MainActivity : ComponentActivity() {
                                 composable(Screen.Home.route) { HomeScreen(navController, onReturnToSidebar = { }) }
                                 composable(Screen.Search.route) { SearchScreen(navController) }
                                 composable(Screen.Genre.route) { GenreScreen(navController) }
-                                composable(Screen.Series.route) { SeriesScreen(navController) }
+                                composable(Screen.Series.route) { backStackEntry ->
+                                    val itemId = backStackEntry.arguments?.getString("itemId") ?: ""
+                                    SeriesScreen(navController, itemId)
+                                }
                                 composable(Screen.Watchlist.route) { WatchlistScreen(navController) }
                                 composable(Screen.More.route) { MoreScreen(navController) }
                                 composable(Screen.Details.route) { backStackEntry ->
@@ -162,8 +165,9 @@ class MainActivity : ComponentActivity() {
                                     DetailsScreen(navController, itemId)
                                 }
                                 composable(Screen.Player.route) { backStackEntry ->
-                                    val sourceJson = backStackEntry.arguments?.getString("sourceJson") ?: ""
-                                    PlayerScreen(navController, sourceJson)
+                                    val itemId = backStackEntry.arguments?.getString("itemId") ?: ""
+                                    val mediaType = backStackEntry.arguments?.getString("mediaType") ?: "movie"
+                                    PlayerScreen(navController, itemId, mediaType)
                                 }
                             }
                         }

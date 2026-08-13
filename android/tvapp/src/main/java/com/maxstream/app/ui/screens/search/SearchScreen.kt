@@ -46,7 +46,7 @@ fun SearchScreen(navController: NavController) {
     var searchResults by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
     var isSearching by remember { mutableStateOf(false) }
     var searchError by remember { mutableStateOf<String?>(null) }
-    var debounceJob by remember { kotlinx.coroutines.Job? = null }
+    var debounceJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
 
     LaunchedEffect(query) {
         debounceJob?.cancel()

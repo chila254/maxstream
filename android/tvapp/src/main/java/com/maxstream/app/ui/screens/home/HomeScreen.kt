@@ -15,9 +15,12 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
@@ -26,6 +29,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.observeAsState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -43,6 +47,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -133,14 +138,20 @@ fun HomeScreen(
                                 detailsFocusRequester = detailsFocusRequester,
                                 onPlay = { mediaItem ->
                                     if (mediaItem != null) {
-                                        val route = Screen.Player.createRoute(mediaItem.id.toString())
+                                        // Series open the episode picker (S/E selection lives
+                                        // there); movies go straight to the player.
+                                        val route = if (heroType == "series") {
+                                            Screen.Series.createRoute(mediaItem.id.toString())
+                                        } else {
+                                            Screen.Player.createRoute(mediaItem.id.toString(), "movie")
+                                        }
                                         navController.navigate(route)
                                     }
                                 },
                                 onDetails = { mediaItem ->
                                     if (mediaItem != null) {
                                         val route = if (heroType == "series") {
-                                            Screen.Series.route
+                                            Screen.Series.createRoute(mediaItem.id.toString())
                                         } else {
                                             Screen.Details.createRoute(mediaItem.id.toString())
                                         }
@@ -414,7 +425,7 @@ private fun HomeHeroSection(
                             )
                         ) {
                             androidx.compose.material3.Icon(
-                                painter = androidx.compose.foundation.res.painterResource(id = R.drawable.ic_play),
+                                painter = painterResource(id = R.drawable.ic_play),
                                 contentDescription = null,
                                 modifier = Modifier.size(18.dp)
                             )
@@ -429,7 +440,7 @@ private fun HomeHeroSection(
                             modifier = Modifier.focusRequester(detailsFocusRequester)
                         ) {
                             androidx.compose.material3.Icon(
-                                painter = androidx.compose.foundation.res.painterResource(id = R.drawable.ic_info),
+                                painter = painterResource(id = R.drawable.ic_info),
                                 contentDescription = null,
                                 modifier = Modifier.size(18.dp)
                             )

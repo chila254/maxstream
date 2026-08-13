@@ -35,6 +35,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -223,7 +224,7 @@ private fun SidebarPillItem(
             contentAlignment = Alignment.Center
         ) {
             androidx.compose.material3.Icon(
-                painter = androidx.compose.foundation.res.painterResource(id = iconRes),
+                painter = painterResource(id = iconRes),
                 contentDescription = label,
                 tint = iconTint,
                 modifier = Modifier.size(18.dp)
@@ -233,12 +234,12 @@ private fun SidebarPillItem(
         if (expanded) {
             Spacer(modifier = Modifier.width(12.dp))
 
-            androidx.compose.foundation.animation.AnimatedVisibility(
+            AnimatedVisibility(
                 visible = expanded,
-                enter = androidx.compose.animation.expandHorizontally(
+                enter = expandHorizontally(
                     animationSpec = tween(durationMillis = 380, easing = FastOutSlowInEasing)
                 ),
-                exit = androidx.compose.animation.shrinkHorizontally(
+                exit = shrinkHorizontally(
                     animationSpec = tween(durationMillis = 380, easing = FastOutSlowInEasing)
                 )
             ) {
