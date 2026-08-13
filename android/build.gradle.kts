@@ -10,7 +10,6 @@ allprojects {
         maven("https://maven.pkg.jetbrains.space/public/p/kotlin/p/kotlin/dev")
     }
 }
-}
 
 val newBuildDir: Directory = rootProject.layout.buildDirectory.dir("../../build").get()
 rootProject.layout.buildDirectory.value(newBuildDir)
