@@ -117,14 +117,6 @@ fun SearchScreen(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(
-                text = "MAXSTREAM",
-                color = Color(0xFFE50914),
-                fontSize = 15.sp,
-                fontWeight = FontWeight.W900,
-                letterSpacing = 3.sp,
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
                 text = "Search",
                 color = Color.White,
                 fontSize = 34.sp,

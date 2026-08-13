@@ -30,14 +30,18 @@ class SeriesViewModel(application: Application) : AndroidViewModel(application) 
     private var selectedSeason: Int = 1
 
     fun loadSeries(seriesId: Int) {
-        if (currentSeriesId == seriesId) return
+        // Always reload — don't skip if same ID, because the screen may have
+        // been recreated or navigated to fresh with a clean ViewModel state.
         currentSeriesId = seriesId
         _loading.value = true
         _error.value = null
+        _series.value = null
+        _seasons.value = emptyList()
+        _episodes.value = emptyList()
         viewModelScope.launch {
             try {
                 val detailsJson = repo.seriesDetails(seriesId)
-                val mediaItem = MediaItem.fromJson(detailsJson)
+                val mediaItem = MediaItem.fromJson(detailsJson).copy(mediaType = "tv")
                 _series.value = mediaItem
 
                 val seasonsCount = detailsJson.optInt("number_of_seasons", 1).coerceAtLeast(1)

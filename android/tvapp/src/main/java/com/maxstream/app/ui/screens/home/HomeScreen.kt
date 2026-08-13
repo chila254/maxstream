@@ -126,11 +126,11 @@ fun HomeScreen(
             exit  = fadeOut(tween(180)),
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
-                // ── Hero backdrop (top 62%) ────────────────────────────────
+                // ── Hero backdrop (top 55%) ────────────────────────────────
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .fillMaxHeight(0.62f)
+                        .fillMaxHeight(0.55f)
                         .align(Alignment.TopStart)
                 ) {
                     HeroSection(
@@ -165,11 +165,11 @@ fun HomeScreen(
                     )
                 }
 
-                // ── Content rows (bottom 52%) ─────────────────────────────
+                // ── Content rows (bottom 45%) ─────────────────────────────
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .fillMaxHeight(0.52f)
+                        .fillMaxHeight(0.45f)
                         .align(Alignment.BottomStart)
                 ) {
                     LazyColumn(

@@ -119,61 +119,56 @@ fun Sidebar(
                 width = 1.dp,
                 color = Color.White.copy(alpha = 0.09f),
                 shape = RoundedCornerShape(0.dp),
-            )
+            ),
+        contentAlignment = Alignment.Center,
     ) {
-        Column(
+        // Logo pinned at top
+        Box(
             modifier = Modifier
-                .fillMaxHeight()
-                .padding(vertical = 28.dp, horizontal = 10.dp),
+                .align(Alignment.TopCenter)
+                .padding(top = 24.dp)
+                .size(40.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color.Black),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = "M",
+                color = Color(0xFFE50914),
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Black,
+            )
+        }
+
+        // Nav items — vertically centered in the full sidebar height
+        Column(
+            modifier = Modifier.padding(horizontal = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            // App logo mark
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Color.Black),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = "M",
-                    color = Color(0xFFE50914),
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Black,
+            NAV_ENTRIES.forEachIndexed { index, entry ->
+                SidebarPillItem(
+                    labelRes = entry.labelRes,
+                    iconRes = entry.iconRes,
+                    isSelected = index == selectedIndex,
+                    isFocused = index == focusedIndex,
+                    isExpanded = isExpanded,
+                    focusRequester = focusRequesters[index],
+                    onFocusChanged = { hasFocus ->
+                        if (hasFocus) focusedIndex = index
+                        else if (focusedIndex == index) focusedIndex = -1
+                    },
+                    onSelect = {
+                        onItemSelected(index)
+                        runCatching { onReturnToContent() }
+                    },
+                    onMoveUp = {
+                        if (index > 0) runCatching { focusRequesters[index - 1].requestFocus() }
+                    },
+                    onMoveDown = {
+                        if (index < NAV_ENTRIES.lastIndex) runCatching { focusRequesters[index + 1].requestFocus() }
+                    },
                 )
-            }
-
-            Spacer(modifier = Modifier.height(28.dp))
-
-            // Nav items
-            Column(
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                NAV_ENTRIES.forEachIndexed { index, entry ->
-                    SidebarPillItem(
-                        labelRes = entry.labelRes,
-                        iconRes = entry.iconRes,
-                        isSelected = index == selectedIndex,
-                        isFocused = index == focusedIndex,
-                        isExpanded = isExpanded,
-                        focusRequester = focusRequesters[index],
-                        onFocusChanged = { hasFocus ->
-                            if (hasFocus) focusedIndex = index
-                            else if (focusedIndex == index) focusedIndex = -1
-                        },
-                        onSelect = {
-                            onItemSelected(index)
-                            onReturnToContent()
-                        },
-                        onMoveUp = {
-                            if (index > 0) focusRequesters[index - 1].requestFocus()
-                        },
-                        onMoveDown = {
-                            if (index < NAV_ENTRIES.lastIndex) focusRequesters[index + 1].requestFocus()
-                        },
-                    )
-                }
             }
         }
     }
@@ -244,7 +239,7 @@ private fun SidebarPillItem(
                     else -> false
                 }
             }
-            .clickable(onClick = onSelect)
+            .clickable { runCatching { onSelect() } }
             .padding(
                 horizontal = if (isExpanded) 12.dp else 0.dp,
                 vertical = 10.dp,

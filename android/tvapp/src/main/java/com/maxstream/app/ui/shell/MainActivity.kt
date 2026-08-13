@@ -27,6 +27,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
@@ -341,6 +342,9 @@ private fun TvShell(
  * Collapsing (rather than removing) keeps the composable alive so its state
  * (scroll position, loaded data) is preserved across tab switches — identical
  * to Flutter's IndexedStack behaviour.
+ *
+ * When not visible: size is 0×0 AND focusProperties blocks all D-pad
+ * traversal into the hidden subtree, preventing crashes and ghost navigation.
  */
 @Composable
 private fun TabScreen(
@@ -348,8 +352,13 @@ private fun TabScreen(
     content: @Composable () -> Unit,
 ) {
     Box(
-        modifier = if (visible) Modifier.fillMaxSize()
-        else Modifier.size(0.dp)
+        modifier = if (visible) {
+            Modifier.fillMaxSize()
+        } else {
+            Modifier
+                .size(0.dp)
+                .focusProperties { canFocus = false }
+        }
     ) {
         content()
     }
