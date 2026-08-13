@@ -13,6 +13,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.navigation.NavController
 
@@ -25,7 +26,7 @@ fun GenreScreen(navController: NavController) {
         contentAlignment = Alignment.Center
     ) {
         Column(modifier = Modifier.padding(48.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Text(text = "Genres", style = com.maxstream.app.ui.theme.MaterialTheme.typography.headlineLarge)
+            Text(text = "Genres", style = MaterialTheme.typography.headlineLarge)
             Spacer(modifier = Modifier.height(16.dp))
         }
     }

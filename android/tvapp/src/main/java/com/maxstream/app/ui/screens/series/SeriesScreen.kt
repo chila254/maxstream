@@ -13,7 +13,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -23,11 +22,16 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.navigation.NavController
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.maxstream.app.data.model.MediaItem
 import com.maxstream.app.ui.theme.SurfaceVariant
 import com.maxstream.app.ui.viewmodel.HomeViewModel
 import coil.compose.AsyncImage
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.Box
 
 @Composable
 fun SeriesScreen(navController: NavController) {
@@ -44,9 +48,9 @@ fun SeriesScreen(navController: NavController) {
         verticalArrangement = Arrangement.spacedBy(24.dp),
     ) {
         item { Text(text = "Series", style = MaterialTheme.typography.headlineLarge, modifier = Modifier.padding(horizontal = 48.dp)) }
-        if (trendingSeries.isNotEmpty()) contentRow("Trending Series", trendingSeries, navController)
-        if (popularSeries.isNotEmpty()) contentRow("Popular Series", popularSeries, navController)
-        if (topRatedSeries.isNotEmpty()) contentRow("Top Rated Series", topRatedSeries, navController)
+        if (trendingSeries.isNotEmpty()) item { contentRow("Trending Series", trendingSeries, navController) }
+        if (popularSeries.isNotEmpty()) item { contentRow("Popular Series", popularSeries, navController) }
+        if (topRatedSeries.isNotEmpty()) item { contentRow("Top Rated Series", topRatedSeries, navController) }
     }
 }
 
@@ -69,7 +73,7 @@ private fun contentRow(title: String, items: List<MediaItem>, navController: Nav
                         navController.navigate(com.maxstream.app.ui.navigation.Screen.Details.createRoute(json))
                     },
                     modifier = Modifier.height(180.dp),
-                    shape = CardDefaults.shape(RoundedCornerShape(12.dp)),
+                    shape = RoundedCornerShape(12.dp),
                 ) {
                     Box(modifier = Modifier.background(SurfaceVariant)) {
                         AsyncImage(

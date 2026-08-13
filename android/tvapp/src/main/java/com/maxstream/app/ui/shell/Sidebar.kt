@@ -59,13 +59,13 @@ fun Sidebar(
                 modifier = Modifier
                     .size(48.dp)
                     .onFocusChanged { focusedIndex = if (it.hasFocus) index else focusedIndex },
-                colors = CardDefaults.colors(
+                colors = CardDefaults.cardColors(
                     containerColor = if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent,
                     focusedContainerColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                 ),
-                shape = CardDefaults.shape(RoundedCornerShape(12.dp)),
+                shape = RoundedCornerShape(12.dp),
                 border = CardDefaults.outlinedCardBorder(enabled = true).copy(
-                    brush = if (isFocused) androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.focusRing) else androidx.compose.ui.graphics.SolidColor(Color.Transparent)
+                    brush = if (isFocused) androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.primary) else androidx.compose.ui.graphics.SolidColor(Color.Transparent)
                 ),
             ) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {

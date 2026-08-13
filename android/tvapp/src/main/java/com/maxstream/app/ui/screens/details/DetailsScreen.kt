@@ -61,7 +61,7 @@ fun DetailsScreen(navController: NavController, itemJson: String) {
                 Card(
                     onClick = { },
                     modifier = Modifier.fillMaxWidth(),
-                    shape = CardDefaults.shape(RoundedCornerShape(12.dp)),
+                    shape = RoundedCornerShape(12.dp),
                 ) {
                     Box(modifier = Modifier.background(MaterialTheme.colorScheme.primary).padding(16.dp)) {
                         Text(text = "Play", color = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.align(Alignment.Center))
