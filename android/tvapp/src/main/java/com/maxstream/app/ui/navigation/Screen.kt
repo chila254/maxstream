@@ -10,8 +10,8 @@ sealed class Screen(val route: String) {
     data object Shell   : Screen("shell")
 
     // ── Deep-nav overlays (push on top of shell) ───────────────────────────
-    data object Details : Screen("details/{itemId}") {
-        fun createRoute(itemId: String) = "details/$itemId"
+    data object Details : Screen("details/{itemId}/{mediaType}") {
+        fun createRoute(itemId: String, mediaType: String = "movie") = "details/$itemId/$mediaType"
     }
     data object Player : Screen("player/{itemId}/{mediaType}?season={season}&episode={episode}") {
         fun createRoute(

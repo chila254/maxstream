@@ -219,9 +219,11 @@ private fun TvAppRoot() {
             }
             composable(Screen.Details.route) { backStackEntry ->
                 val itemId = backStackEntry.arguments?.getString("itemId") ?: ""
+                val mediaType = backStackEntry.arguments?.getString("mediaType") ?: "movie"
                 DetailsScreen(
                     navController    = deepNavController,
                     itemId           = itemId,
+                    mediaType        = mediaType,
                     onReturnToSidebar = {
                         deepNavController.popBackStack()
                         appState.updateFocusOnSidebar(true)

@@ -190,7 +190,7 @@ fun HomeScreen(
                         },
                         onDetails = { mediaItem ->
                             if (mediaItem != null) {
-                                navController.navigate(Screen.Details.createRoute(mediaItem.id.toString()))
+                                navController.navigate(Screen.Details.createRoute(mediaItem.id.toString(), mediaItem.mediaType))
                             }
                         },
                         onReturnToSidebar = onReturnToSidebar,
@@ -587,7 +587,7 @@ private fun ContentRow(
                                 )
                             )
                         } else {
-                            navController.navigate(Screen.Details.createRoute(item.id.toString()))
+                            navController.navigate(Screen.Details.createRoute(item.id.toString(), item.mediaType))
                         }
                     },
                     onFocusChanged = { focused ->

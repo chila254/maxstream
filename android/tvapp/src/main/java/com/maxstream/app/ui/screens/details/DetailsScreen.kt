@@ -108,6 +108,7 @@ private data class DetailsSection(val rowId: String, val itemIndex: Int, val cou
 fun DetailsScreen(
     navController: NavController,
     itemId: String,
+    mediaType: String = "movie",
     onReturnToSidebar: () -> Unit = {},
 ) {
     val context = LocalContext.current
@@ -127,19 +128,18 @@ fun DetailsScreen(
     val watchlistFocusRequester = remember { FocusRequester() }
 
     // ── Load detail + watchlist + continue-watching ────────────────────────
-    LaunchedEffect(itemId) {
+    LaunchedEffect(itemId, mediaType) {
         val id = itemId.toIntOrNull() ?: run { error = "Invalid ID"; loading = false; return@LaunchedEffect }
         loading = true; error = null
         try {
-            // Try movie first, fall back to TV.  Track which succeeded so we
-            // can set mediaType correctly — TMDB /tv/{id} does NOT include a
-            // "media_type" field, so MediaItem.fromJson would default to "movie".
-            var isTv = false
-            val json: JSONObject = try {
-                Modules.catalogRepository.movieDetails(id)
-            } catch (_: Exception) {
-                isTv = true
+            // Load the right endpoint directly — TMDB ids are NOT unique across
+            // types, so a series id can resolve to an unrelated movie (the old
+            // "try movie first, fall back to tv" made series show movie details).
+            val isTv = mediaType == "tv"
+            val json: JSONObject = if (isTv) {
                 Modules.catalogRepository.seriesDetails(id)
+            } else {
+                Modules.catalogRepository.movieDetails(id)
             }
 
             val item = if (isTv) {
@@ -662,7 +662,7 @@ private fun TvCinematicDetailsView(
                                     focusRequester = requester(rowId, i),
                                     onKeyEvent = { onTileKey(rowId, 5, state.recommendations.size, i, it) },
                                     onPress = {
-                                        navController.navigate(Screen.Details.createRoute(rec.id.toString()))
+                                        navController.navigate(Screen.Details.createRoute(rec.id.toString(), rec.mediaType))
                                     },
                                 ) {
                                     RecommendationCard(item = rec)

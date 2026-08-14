@@ -492,7 +492,7 @@ private fun SearchCard(
             .onFocusChanged { state -> onFocusChanged(state.hasFocus) }
             .onKeyEvent(onKeyEvent)
             .clickable {
-                navController.navigate(Screen.Details.createRoute(item.id.toString()))
+                navController.navigate(Screen.Details.createRoute(item.id.toString(), item.mediaType))
             }
     ) {
         // Poster image

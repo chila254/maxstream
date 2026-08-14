@@ -331,7 +331,7 @@ fun GenreScreen(
     fun open(index: Int) {
         if (index < 0 || index >= items.size) return
         val item = items[index]
-        navController.navigate(Screen.Details.createRoute(item.id.toString()))
+        navController.navigate(Screen.Details.createRoute(item.id.toString(), item.mediaType))
     }
 
     // ── Key handlers ─────────────────────────────────────────────────────────
