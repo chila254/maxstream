@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -34,6 +35,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,6 +46,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
@@ -66,6 +69,8 @@ import com.maxstream.app.ui.navigation.Screen
 import com.maxstream.app.ui.theme.Background
 import com.maxstream.app.ui.viewmodel.HomeViewModel
 import com.maxstream.app.ui.viewmodel.SeriesViewModel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 fun SeriesScreen(
@@ -94,9 +99,13 @@ fun SeriesScreen(
         seriesViewModel.loadSeries(id)
         kotlinx.coroutines.delay(80)
         isEntryVisible = true
-        // Seed focus on Play button after brief layout delay
-        kotlinx.coroutines.delay(80)
-        runCatching { playFocusRequester.requestFocus() }
+        // Seed focus on Play button after render (retry until attached)
+        kotlinx.coroutines.delay(100)
+        repeat(6) { attempt ->
+            delay(50L * (attempt + 1))
+            val ok = runCatching { playFocusRequester.requestFocus(); true }.getOrDefault(false)
+            if (ok) return@LaunchedEffect
+        }
     }
 
     LaunchedEffect(seasons) {
@@ -163,6 +172,11 @@ fun SeriesScreen(
 // Details view
 // ─────────────────────────────────────────────────────────────────────────────
 
+// A focusable horizontal row within the series details page. itemIndex is the
+// row's index inside the outer LazyColumn (0 = hero, 1 = seasons, 2 = episodes,
+// 3 = trending).
+private data class NavSection(val rowId: String, val itemIndex: Int, val count: Int)
+
 @Composable
 private fun SeriesDetailsView(
     series: MediaItem,
@@ -185,7 +199,96 @@ private fun SeriesDetailsView(
 
     val detailsFocusRequester = remember { FocusRequester() }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    // ── Section navigation (mirrors DetailsScreen / Dart's FocusTraversalGroup) ──
+    val scope = rememberCoroutineScope()
+    val outerListState = rememberLazyListState()
+    val tileRequesters = remember { mutableMapOf<String, FocusRequester>() }
+    val rowStates = remember { mutableMapOf<String, LazyListState>() }
+
+    val sections = buildList {
+        if (seasons.isNotEmpty()) add(NavSection("series:seasons", 1, seasons.size))
+        if (!loading && episodes.isNotEmpty()) add(NavSection("series:episodes", 2, episodes.size))
+        if (trendingSeries.isNotEmpty()) add(NavSection("series:trending", 3, trendingSeries.size))
+    }
+
+    fun requester(rowId: String, index: Int): FocusRequester =
+        tileRequesters.getOrPut("$rowId:$index") { FocusRequester() }
+
+    suspend fun focusTile(rowId: String, requestedIndex: Int, itemIndex: Int, count: Int) {
+        if (count <= 0) return
+        val index = requestedIndex.coerceIn(0, count - 1)
+        runCatching { outerListState.animateScrollToItem(itemIndex) }
+        runCatching { rowStates[rowId]?.animateScrollToItem(index) }
+        val target = requester(rowId, index)
+        repeat(6) { attempt ->
+            delay(50L * (attempt + 1))
+            val ok = runCatching { target.requestFocus(); true }.getOrDefault(false)
+            if (ok) return
+        }
+    }
+
+    fun focusSection(rowId: String) {
+        val section = sections.firstOrNull { it.rowId == rowId } ?: return
+        scope.launch { focusTile(rowId, 0, section.itemIndex, section.count) }
+    }
+
+    fun focusHero() {
+        scope.launch {
+            runCatching { outerListState.animateScrollToItem(0) }
+            repeat(6) { attempt ->
+                delay(50L * (attempt + 1))
+                val ok = runCatching { playFocusRequester.requestFocus(); true }.getOrDefault(false)
+                if (ok) return@launch
+            }
+        }
+    }
+
+    fun focusFirstSection() {
+        sections.firstOrNull { it.count > 0 }?.let { focusSection(it.rowId) }
+    }
+
+    fun focusPrevSection(itemIndex: Int) {
+        val target = sections.filter { it.itemIndex < itemIndex && it.count > 0 }.maxByOrNull { it.itemIndex }
+        if (target != null) focusSection(target.rowId) else focusHero()
+    }
+
+    fun focusNextSection(itemIndex: Int) {
+        sections.filter { it.itemIndex > itemIndex && it.count > 0 }.minByOrNull { it.itemIndex }?.let {
+            focusSection(it.rowId)
+        }
+    }
+
+    fun onTileKey(rowId: String, itemIndex: Int, count: Int, index: Int, event: KeyEvent): Boolean {
+        if (event.type != KeyEventType.KeyDown) return false
+        return when (event.key) {
+            Key.DirectionLeft -> {
+                if (index > 0) scope.launch { focusTile(rowId, index - 1, itemIndex, count) }
+                else focusHero()
+                true
+            }
+            Key.DirectionRight -> {
+                if (index + 1 < count) scope.launch { focusTile(rowId, index + 1, itemIndex, count) }
+                true
+            }
+            Key.DirectionUp -> { focusPrevSection(itemIndex); true }
+            Key.DirectionDown -> { focusNextSection(itemIndex); true }
+            Key.Back, Key.Escape -> { onReturnToSidebar(); true }
+            else -> false
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            // Back/Escape pops back to the previous screen.
+            .onKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown &&
+                    (event.key == Key.Back || event.key == Key.Escape)
+                ) {
+                    onReturnToSidebar(); true
+                } else false
+            }
+    ) {
         // ── Backdrop ───────────────────────────────────────────────────────
         AsyncImage(
             model = backdropUrl,
@@ -213,7 +316,7 @@ private fun SeriesDetailsView(
         // ── Scrollable content ─────────────────────────────────────────────
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            state = rememberLazyListState(),
+            state = outerListState,
             contentPadding = PaddingValues(bottom = 64.dp),
         ) {
             // ── Hero info block ────────────────────────────────────────────
@@ -263,8 +366,10 @@ private fun SeriesDetailsView(
                                 .onKeyEvent { event ->
                                     if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
                                     when (event.key) {
-                                        Key.DirectionLeft  -> { onReturnToSidebar(); true }
+                                        Key.DirectionLeft  -> { /* nothing left of Play — consume */ true }
                                         Key.DirectionRight -> { runCatching { detailsFocusRequester.requestFocus() }; true }
+                                        Key.DirectionUp    -> { /* at top — consume */ true }
+                                        Key.DirectionDown  -> { focusFirstSection(); true }
                                         else -> false
                                     }
                                 },
@@ -289,6 +394,9 @@ private fun SeriesDetailsView(
                                     if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
                                     when (event.key) {
                                         Key.DirectionLeft -> { runCatching { playFocusRequester.requestFocus() }; true }
+                                        Key.DirectionRight -> { /* nothing right of Details — consume */ true }
+                                        Key.DirectionUp    -> { /* at top — consume */ true }
+                                        Key.DirectionDown  -> { focusFirstSection(); true }
                                         else -> false
                                     }
                                 },
@@ -309,8 +417,11 @@ private fun SeriesDetailsView(
             if (seasons.isNotEmpty()) {
                 item {
                     SeriesSection(title = "Seasons") {
-                        val seasonFocusRequesters = remember(seasons) { seasons.map { FocusRequester() } }
+                        val rowId = "series:seasons"
+                        val rowListState = rememberLazyListState()
+                        LaunchedEffect(rowId, rowListState) { rowStates[rowId] = rowListState }
                         LazyRow(
+                            state = rowListState,
                             contentPadding = PaddingValues(horizontal = 48.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
@@ -319,16 +430,9 @@ private fun SeriesDetailsView(
                                 SeriesChip(
                                     label = "Season $season",
                                     isSelected = season == selectedSeason,
-                                    focusRequester = seasonFocusRequesters[idx],
+                                    focusRequester = requester(rowId, idx),
                                     onSelect = { onSeasonSelected(season) },
-                                    onMoveLeft = {
-                                        if (idx == 0) runCatching { playFocusRequester.requestFocus() }
-                                        else seasonFocusRequesters[idx - 1].requestFocus()
-                                    },
-                                    onMoveRight = {
-                                        if (idx < seasons.lastIndex)
-                                            seasonFocusRequesters[idx + 1].requestFocus()
-                                    },
+                                    onKeyEvent = { onTileKey(rowId, 1, seasons.size, idx, it) },
                                 )
                             }
                         }
@@ -347,10 +451,13 @@ private fun SeriesDetailsView(
                     } else if (error != null) {
                         Text(text = "Error loading episodes", color = Color(0xFFCF6679))
                     } else {
-                        val episodeFocusRequesters = remember(episodes) { episodes.map { FocusRequester() } }
+                        val rowId = "series:episodes"
+                        val rowListState = rememberLazyListState()
+                        LaunchedEffect(rowId, rowListState) { rowStates[rowId] = rowListState }
                         var focusedEpIndex by remember { mutableIntStateOf(-1) }
 
                         LazyRow(
+                            state = rowListState,
                             contentPadding = PaddingValues(horizontal = 48.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
@@ -359,17 +466,10 @@ private fun SeriesDetailsView(
                                 EpisodeCard(
                                     episode = ep,
                                     isFocused = focusedEpIndex == idx,
-                                    focusRequester = episodeFocusRequesters[idx],
+                                    focusRequester = requester(rowId, idx),
                                     onFocused = { focusedEpIndex = idx },
                                     onPlay = { onPlayEpisode(ep) },
-                                    onMoveLeft = {
-                                        if (idx == 0) runCatching { playFocusRequester.requestFocus() }
-                                        else episodeFocusRequesters[idx - 1].requestFocus()
-                                    },
-                                    onMoveRight = {
-                                        if (idx < episodes.lastIndex)
-                                            episodeFocusRequesters[idx + 1].requestFocus()
-                                    },
+                                    onKeyEvent = { onTileKey(rowId, 2, episodes.size, idx, it) },
                                 )
                             }
                         }
@@ -381,20 +481,25 @@ private fun SeriesDetailsView(
             if (trendingSeries.isNotEmpty()) {
                 item {
                     SeriesSection(title = stringResource(R.string.trending_series)) {
+                        val rowId = "series:trending"
+                        val rowListState = rememberLazyListState()
+                        LaunchedEffect(rowId, rowListState) { rowStates[rowId] = rowListState }
+                        val visible = trendingSeries.take(10)
                         var focusedIdx by remember { mutableIntStateOf(-1) }
                         LazyRow(
+                            state = rowListState,
                             contentPadding = PaddingValues(horizontal = 48.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            items(trendingSeries.take(10)) { s ->
-                                val i = trendingSeries.indexOf(s)
+                            items(visible.size) { i ->
+                                val s = visible[i]
                                 ContentCard(
                                     posterUrl = s.posterUrl, title = s.title,
                                     rating = s.voteAverage.takeIf { it > 0 },
                                     isFocused = focusedIdx == i,
                                     onFocusChanged = { f -> if (f) focusedIdx = i else if (focusedIdx == i) focusedIdx = -1 },
                                     onClick = { navController.navigate(Screen.Series.createRoute(s.id.toString())) },
-                                    modifier = Modifier.height(180.dp),
+                                    onKeyEvent = { onTileKey(rowId, 3, visible.size, i, it) },
                                 )
                             }
                         }
@@ -433,8 +538,7 @@ private fun SeriesChip(
     isSelected: Boolean,
     focusRequester: FocusRequester,
     onSelect: () -> Unit,
-    onMoveLeft: () -> Unit,
-    onMoveRight: () -> Unit,
+    onKeyEvent: (KeyEvent) -> Boolean = { false },
 ) {
     var isFocused by remember { mutableStateOf(false) }
 
@@ -457,10 +561,9 @@ private fun SeriesChip(
             .focusable()
             .onFocusChanged { state -> isFocused = state.hasFocus }
             .onKeyEvent { event ->
+                if (onKeyEvent(event)) return@onKeyEvent true
                 if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
                 when (event.key) {
-                    Key.DirectionLeft  -> { onMoveLeft(); true }
-                    Key.DirectionRight -> { onMoveRight(); true }
                     Key.Enter, Key.DirectionCenter -> { onSelect(); true }
                     else -> false
                 }
@@ -484,8 +587,7 @@ private fun EpisodeCard(
     focusRequester: FocusRequester,
     onFocused: () -> Unit,
     onPlay: () -> Unit,
-    onMoveLeft: () -> Unit,
-    onMoveRight: () -> Unit,
+    onKeyEvent: (KeyEvent) -> Boolean = { false },
 ) {
     Column(
         modifier = Modifier
@@ -503,10 +605,9 @@ private fun EpisodeCard(
                 if (state.hasFocus) onFocused()
             }
             .onKeyEvent { event ->
+                if (onKeyEvent(event)) return@onKeyEvent true
                 if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
                 when (event.key) {
-                    Key.DirectionLeft  -> { onMoveLeft(); true }
-                    Key.DirectionRight -> { onMoveRight(); true }
                     Key.Enter, Key.DirectionCenter -> { onPlay(); true }
                     else -> false
                 }

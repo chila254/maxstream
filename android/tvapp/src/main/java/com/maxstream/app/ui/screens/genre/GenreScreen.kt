@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -173,7 +172,10 @@ fun GenreScreen(
     }
 
     fun focusGenreChip(index: Int) {
-        if (genres.isEmpty()) return
+        if (genres.isEmpty()) {
+            focusType(selectedType)
+            return
+        }
         val target = index.coerceIn(0, genres.lastIndex)
         sectionFocus = 1
         scope.launch {
@@ -243,6 +245,7 @@ fun GenreScreen(
     fun restoreFocus() {
         when (sectionFocus) {
             2 -> if (items.isNotEmpty()) focusGrid(focusedCard.coerceAtLeast(0))
+                 else focusGenreChip(0)
             1 -> {
                 val idx = genres.indexOfFirst { it.key == selectedGenre?.key }
                 focusGenreChip(if (idx < 0) 0 else idx)
@@ -730,7 +733,8 @@ private fun GenreCard(
 
     Box(
         modifier = Modifier
-            .aspectRatio(0.68f)
+            .width(130.dp)
+            .height(190.dp)
             .scale(scale)
             .clip(RoundedCornerShape(10.dp))
             .background(Color(0xFF1A1A2E))

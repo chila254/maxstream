@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -111,8 +110,11 @@ fun SearchScreen(
     val grids = remember(showingResults, movieResults.size, seriesResults.size, discoverItems.size) {
         if (showingResults) {
             buildList {
-                if (movieResults.isNotEmpty()) add(GridDesc("search:movies", movieResults.size, sectionIndex = 1))
-                if (seriesResults.isNotEmpty()) add(GridDesc("search:series", seriesResults.size, sectionIndex = 2))
+                // LazyColumn items: 0 = "Results for" header, then one grid per
+                // non-empty section. Section index = item index inside the column.
+                var index = 1
+                if (movieResults.isNotEmpty()) add(GridDesc("search:movies", movieResults.size, sectionIndex = index++))
+                if (seriesResults.isNotEmpty()) add(GridDesc("search:series", seriesResults.size, sectionIndex = index++))
             }
         } else {
             buildList {
@@ -458,7 +460,8 @@ private fun SearchCard(
 
     Box(
         modifier = Modifier
-            .aspectRatio(0.68f)
+            .width(130.dp)
+            .height(190.dp)
             .clip(RoundedCornerShape(10.dp))
             .background(Color(0xFF1A1A2E))
             .border(

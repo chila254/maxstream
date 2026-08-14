@@ -10,12 +10,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -159,6 +159,7 @@ fun WatchlistScreen(
                 true
             }
             Key.DirectionDown -> { focusGrid(); true }
+            Key.DirectionUp -> true
             Key.Back, Key.Escape -> { onReturnToSidebar(); true }
             Key.Enter, Key.DirectionCenter -> { selectedTab = index; true }
             else -> false
@@ -344,7 +345,8 @@ private fun WatchlistCard(
 
     Box(
         modifier = Modifier
-            .aspectRatio(0.68f)
+            .width(130.dp)
+            .height(190.dp)
             .clip(RoundedCornerShape(10.dp))
             .background(Color(0xFF1A1A2E))
             .border(

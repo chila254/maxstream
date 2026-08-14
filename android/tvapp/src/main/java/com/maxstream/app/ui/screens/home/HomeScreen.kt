@@ -613,7 +613,6 @@ private fun ContentRow(
                             onReturnToSidebar = onReturnToSidebar,
                         )
                     },
-                    modifier = Modifier.height(190.dp),
                 )
             }
         }

@@ -165,7 +165,7 @@ fun TvKeyboard(
                             }
                             true
                         }
-                        Key.Escape -> {
+                        Key.Escape, Key.Back -> {
                             onMoveLeft?.invoke()
                             true
                         }

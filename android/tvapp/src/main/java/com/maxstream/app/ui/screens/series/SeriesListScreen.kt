@@ -525,7 +525,6 @@ private fun SeriesContentRow(
                             onReturnToSidebar = onReturnToSidebar,
                         )
                     },
-                    modifier = Modifier.height(190.dp),
                 )
             }
         }

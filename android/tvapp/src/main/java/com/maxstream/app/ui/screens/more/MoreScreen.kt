@@ -117,6 +117,16 @@ fun MoreScreen(
         }
     }
 
+    // Restore focus to the previously focused menu row after a dialog closes.
+    // Compose dialogs run in their own window, so dismissing one leaves the
+    // menu without focus until a direction key is pressed again.
+    LaunchedEffect(showHelpDialog, showAboutDialog, showSignOutConfirm) {
+        if (showHelpDialog || showAboutDialog || showSignOutConfirm || !isVisible) return@LaunchedEffect
+        delay(80)
+        val index = focusedIndex.coerceIn(0, MENU_ITEMS.lastIndex)
+        runCatching { focusRequesters[index].requestFocus() }
+    }
+
     fun launchCommunity() {
         val intent = Intent(Intent.ACTION_VIEW, Uri.parse(COMMUNITY_URL))
         runCatching { context.startActivity(intent) }

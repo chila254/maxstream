@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -48,6 +49,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
@@ -73,6 +75,7 @@ import com.maxstream.app.data.remote.EpisodeRef
 import com.maxstream.app.di.Modules
 import com.maxstream.app.ui.navigation.Screen
 import com.maxstream.app.ui.theme.Background
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 
@@ -91,6 +94,11 @@ private data class DetailState(
 
 private data class CastEntry(val name: String, val character: String, val profilePath: String?)
 private data class SeasonEntry(val number: Int, val name: String)
+
+// A focusable horizontal row within the details page. itemIndex is the row's
+// index inside the outer LazyColumn (0 = hero, 1 = continue, 2 = seasons,
+// 3 = episodes, 4 = cast, 5 = recommendations).
+private data class DetailsSection(val rowId: String, val itemIndex: Int, val count: Int)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Entry point
@@ -189,9 +197,13 @@ fun DetailsScreen(
         } finally {
             loading = false
         }
-        // Seed focus after render
-        kotlinx.coroutines.delay(100)
-        runCatching { playFocusRequester.requestFocus() }
+        // Seed focus on the hero Play button after render (retry until attached)
+        delay(100)
+        repeat(6) { attempt ->
+            delay(50L * (attempt + 1))
+            val ok = runCatching { playFocusRequester.requestFocus(); true }.getOrDefault(false)
+            if (ok) return@repeat
+        }
     }
 
     // Season switch
@@ -308,7 +320,102 @@ private fun TvCinematicDetailsView(
         else "Watch S${selectedSeason}E${episodes.firstOrNull()?.number ?: 1}"
     } else "Play"
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    // ── Section navigation (mirrors Dart's FocusTraversalGroup + ensureVisible) ──
+    // Sections are the outer LazyColumn items in fixed order:
+    //   0 = hero, 1 = continue, 2 = seasons, 3 = episodes, 4 = cast, 5 = recs.
+    // Each focusable row owns a per-card FocusRequester and its LazyListState,
+    // so UP/DOWN/LEFT/RIGHT scroll-then-focus like the Home rows.
+    val scope = rememberCoroutineScope()
+    val outerListState = rememberLazyListState()
+    val tileRequesters = remember { mutableMapOf<String, FocusRequester>() }
+    val rowStates = remember { mutableMapOf<String, LazyListState>() }
+
+    val sections = buildList {
+        if (continueWatching.isNotEmpty()) add(DetailsSection("details:continue", 1, continueWatching.size))
+        if (isTv && state.seasons.isNotEmpty()) add(DetailsSection("details:seasons", 2, state.seasons.size))
+        if (isTv && !loadingEpisodes && episodes.isNotEmpty()) add(DetailsSection("details:episodes", 3, episodes.size))
+        if (state.cast.isNotEmpty()) add(DetailsSection("details:cast", 4, state.cast.size))
+        if (state.recommendations.isNotEmpty()) add(DetailsSection("details:recommendations", 5, state.recommendations.size))
+    }
+
+    fun requester(rowId: String, index: Int): FocusRequester =
+        tileRequesters.getOrPut("$rowId:$index") { FocusRequester() }
+
+    suspend fun focusTile(rowId: String, requestedIndex: Int, itemIndex: Int, count: Int) {
+        if (count <= 0) return
+        val index = requestedIndex.coerceIn(0, count - 1)
+        runCatching { outerListState.animateScrollToItem(itemIndex) }
+        runCatching { rowStates[rowId]?.animateScrollToItem(index) }
+        val target = requester(rowId, index)
+        repeat(6) { attempt ->
+            delay(50L * (attempt + 1))
+            val ok = runCatching { target.requestFocus(); true }.getOrDefault(false)
+            if (ok) return
+        }
+    }
+
+    fun focusSection(rowId: String) {
+        val section = sections.firstOrNull { it.rowId == rowId } ?: return
+        scope.launch { focusTile(rowId, 0, section.itemIndex, section.count) }
+    }
+
+    fun focusHero() {
+        scope.launch {
+            runCatching { outerListState.animateScrollToItem(0) }
+            repeat(6) { attempt ->
+                delay(50L * (attempt + 1))
+                val ok = runCatching { playFocusRequester.requestFocus(); true }.getOrDefault(false)
+                if (ok) return@launch
+            }
+        }
+    }
+
+    fun focusFirstSection() {
+        sections.firstOrNull { it.count > 0 }?.let { focusSection(it.rowId) }
+    }
+
+    fun focusPrevSection(itemIndex: Int) {
+        val target = sections.filter { it.itemIndex < itemIndex && it.count > 0 }.maxByOrNull { it.itemIndex }
+        if (target != null) focusSection(target.rowId) else focusHero()
+    }
+
+    fun focusNextSection(itemIndex: Int) {
+        sections.filter { it.itemIndex > itemIndex && it.count > 0 }.minByOrNull { it.itemIndex }?.let {
+            focusSection(it.rowId)
+        }
+    }
+
+    fun onTileKey(rowId: String, itemIndex: Int, count: Int, index: Int, event: KeyEvent): Boolean {
+        if (event.type != KeyEventType.KeyDown) return false
+        return when (event.key) {
+            Key.DirectionLeft -> {
+                if (index > 0) scope.launch { focusTile(rowId, index - 1, itemIndex, count) }
+                else focusHero()
+                true
+            }
+            Key.DirectionRight -> {
+                if (index + 1 < count) scope.launch { focusTile(rowId, index + 1, itemIndex, count) }
+                true
+            }
+            Key.DirectionUp -> { focusPrevSection(itemIndex); true }
+            Key.DirectionDown -> { focusNextSection(itemIndex); true }
+            Key.Back, Key.Escape -> { onReturnToSidebar(); true }
+            else -> false
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            // Back/Escape pops back to the previous screen (deep nav stack).
+            .onKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown &&
+                    (event.key == Key.Back || event.key == Key.Escape)
+                ) {
+                    onReturnToSidebar(); true
+                } else false
+            }
+    ) {
         // Backdrop
         AsyncImage(
             model = backdrop,
@@ -333,7 +440,7 @@ private fun TvCinematicDetailsView(
         // Scrollable content
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            state = rememberLazyListState(),
+            state = outerListState,
             contentPadding = PaddingValues(bottom = 64.dp),
         ) {
             // ── Hero ───────────────────────────────────────────────────────
@@ -382,8 +489,10 @@ private fun TvCinematicDetailsView(
                                 primary = true,
                                 enabled = !isTv || (!loadingEpisodes && episodes.isNotEmpty()),
                                 focusRequester = playFocusRequester,
-                                onKeyLeft = { onReturnToSidebar() },
+                                onKeyLeft = { /* nothing left of Play — consume */ },
                                 onKeyRight = { runCatching { watchlistFocusRequester.requestFocus() } },
+                                onKeyUp = { /* at top — consume */ },
+                                onKeyDown = { focusFirstSection() },
                                 onClick = { onPlay(if (isTv) episodes.firstOrNull() else null) },
                             )
                             CinematicButton(
@@ -392,7 +501,9 @@ private fun TvCinematicDetailsView(
                                 primary = false,
                                 focusRequester = watchlistFocusRequester,
                                 onKeyLeft = { runCatching { playFocusRequester.requestFocus() } },
-                                onKeyRight = { },
+                                onKeyRight = { /* nothing right of Watchlist — consume */ },
+                                onKeyUp = { /* at top — consume */ },
+                                onKeyDown = { focusFirstSection() },
                                 onClick = onWatchlistToggle,
                             )
                         }
@@ -404,8 +515,12 @@ private fun TvCinematicDetailsView(
             if (continueWatching.isNotEmpty()) {
                 item {
                     CinematicSection(title = "Continue Watching", height = 240.dp) {
+                        val rowId = "details:continue"
+                        val rowListState = rememberLazyListState()
+                        LaunchedEffect(rowId, rowListState) { rowStates[rowId] = rowListState }
                         var focusedIdx by remember { mutableIntStateOf(-1) }
                         LazyRow(
+                            state = rowListState,
                             contentPadding = PaddingValues(end = 54.dp),
                             horizontalArrangement = Arrangement.spacedBy(18.dp),
                         ) {
@@ -414,6 +529,8 @@ private fun TvCinematicDetailsView(
                                 TvTile(
                                     isFocused = focusedIdx == i,
                                     onFocused = { focusedIdx = i },
+                                    focusRequester = requester(rowId, i),
+                                    onKeyEvent = { onTileKey(rowId, 1, continueWatching.size, i, it) },
                                     onPress = { /* resume */ },
                                 ) {
                                     ContinueWatchingCard(entry = cw, isTv = isTv)
@@ -428,9 +545,12 @@ private fun TvCinematicDetailsView(
             if (isTv && state.seasons.isNotEmpty()) {
                 item {
                     CinematicSection(title = "Seasons", height = 52.dp) {
-                        val seasonFocusRequesters = remember(state.seasons) { state.seasons.map { FocusRequester() } }
+                        val rowId = "details:seasons"
+                        val rowListState = rememberLazyListState()
+                        LaunchedEffect(rowId, rowListState) { rowStates[rowId] = rowListState }
                         var focusedSeason by remember { mutableIntStateOf(-1) }
                         LazyRow(
+                            state = rowListState,
                             contentPadding = PaddingValues(end = 54.dp),
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
@@ -440,15 +560,9 @@ private fun TvCinematicDetailsView(
                                     isFocused = focusedSeason == i,
                                     isSelected = s.number == selectedSeason,
                                     onFocused = { focusedSeason = i },
-                                    focusRequester = seasonFocusRequesters[i],
+                                    focusRequester = requester(rowId, i),
+                                    onKeyEvent = { onTileKey(rowId, 2, state.seasons.size, i, it) },
                                     onPress = { onSeasonSelected(s.number) },
-                                    onKeyLeft = {
-                                        if (i == 0) runCatching { playFocusRequester.requestFocus() }
-                                        else seasonFocusRequesters[i - 1].requestFocus()
-                                    },
-                                    onKeyRight = {
-                                        if (i < state.seasons.lastIndex) seasonFocusRequesters[i + 1].requestFocus()
-                                    },
                                 ) {
                                     Text(
                                         text = s.name,
@@ -470,9 +584,12 @@ private fun TvCinematicDetailsView(
                         if (loadingEpisodes) {
                             CircularProgressIndicator(color = Color(0xFFE50914), modifier = Modifier.padding(16.dp))
                         } else {
-                            val epFocusRequesters = remember(episodes) { episodes.map { FocusRequester() } }
+                            val rowId = "details:episodes"
+                            val rowListState = rememberLazyListState()
+                            LaunchedEffect(rowId, rowListState) { rowStates[rowId] = rowListState }
                             var focusedEp by remember { mutableIntStateOf(-1) }
                             LazyRow(
+                                state = rowListState,
                                 contentPadding = PaddingValues(end = 54.dp),
                                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                             ) {
@@ -481,15 +598,9 @@ private fun TvCinematicDetailsView(
                                     TvTile(
                                         isFocused = focusedEp == i,
                                         onFocused = { focusedEp = i },
-                                        focusRequester = epFocusRequesters[i],
+                                        focusRequester = requester(rowId, i),
+                                        onKeyEvent = { onTileKey(rowId, 3, episodes.size, i, it) },
                                         onPress = { onPlay(ep) },
-                                        onKeyLeft = {
-                                            if (i == 0) runCatching { playFocusRequester.requestFocus() }
-                                            else epFocusRequesters[i - 1].requestFocus()
-                                        },
-                                        onKeyRight = {
-                                            if (i < episodes.lastIndex) epFocusRequesters[i + 1].requestFocus()
-                                        },
                                     ) {
                                         EpisodeTileContent(ep)
                                     }
@@ -504,8 +615,12 @@ private fun TvCinematicDetailsView(
             if (state.cast.isNotEmpty()) {
                 item {
                     CinematicSection(title = "Cast", height = 150.dp) {
+                        val rowId = "details:cast"
+                        val rowListState = rememberLazyListState()
+                        LaunchedEffect(rowId, rowListState) { rowStates[rowId] = rowListState }
                         var focusedCast by remember { mutableIntStateOf(-1) }
                         LazyRow(
+                            state = rowListState,
                             contentPadding = PaddingValues(end = 54.dp),
                             horizontalArrangement = Arrangement.spacedBy(18.dp),
                         ) {
@@ -514,6 +629,8 @@ private fun TvCinematicDetailsView(
                                 TvTile(
                                     isFocused = focusedCast == i,
                                     onFocused = { focusedCast = i },
+                                    focusRequester = requester(rowId, i),
+                                    onKeyEvent = { onTileKey(rowId, 4, state.cast.size, i, it) },
                                     onPress = { /* cast detail */ },
                                 ) {
                                     CastCard(person = person)
@@ -528,8 +645,12 @@ private fun TvCinematicDetailsView(
             if (state.recommendations.isNotEmpty()) {
                 item {
                     CinematicSection(title = "More Like This", height = 260.dp) {
+                        val rowId = "details:recommendations"
+                        val rowListState = rememberLazyListState()
+                        LaunchedEffect(rowId, rowListState) { rowStates[rowId] = rowListState }
                         var focusedRec by remember { mutableIntStateOf(-1) }
                         LazyRow(
+                            state = rowListState,
                             contentPadding = PaddingValues(end = 54.dp),
                             horizontalArrangement = Arrangement.spacedBy(18.dp),
                         ) {
@@ -538,6 +659,8 @@ private fun TvCinematicDetailsView(
                                 TvTile(
                                     isFocused = focusedRec == i,
                                     onFocused = { focusedRec = i },
+                                    focusRequester = requester(rowId, i),
+                                    onKeyEvent = { onTileKey(rowId, 5, state.recommendations.size, i, it) },
                                     onPress = {
                                         val route = if (rec.mediaType == "tv")
                                             Screen.Series.createRoute(rec.id.toString())
@@ -568,8 +691,7 @@ private fun TvTile(
     onPress: () -> Unit,
     isSelected: Boolean = false,
     focusRequester: FocusRequester = remember { FocusRequester() },
-    onKeyLeft: (() -> Unit)? = null,
-    onKeyRight: (() -> Unit)? = null,
+    onKeyEvent: (KeyEvent) -> Boolean = { false },
     content: @Composable () -> Unit,
 ) {
     val scale by animateFloatAsState(
@@ -599,10 +721,9 @@ private fun TvTile(
             .onFocusChanged { state -> if (state.hasFocus) onFocused() }
             .onKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                if (onKeyEvent(event)) return@onKeyEvent true
                 when (event.key) {
                     Key.Enter, Key.DirectionCenter -> { onPress(); true }
-                    Key.DirectionLeft  -> { onKeyLeft?.invoke(); onKeyLeft != null }
-                    Key.DirectionRight -> { onKeyRight?.invoke(); onKeyRight != null }
                     else -> false
                 }
             }
@@ -626,6 +747,8 @@ private fun CinematicButton(
     focusRequester: FocusRequester,
     onKeyLeft: () -> Unit,
     onKeyRight: () -> Unit,
+    onKeyUp: () -> Unit = {},
+    onKeyDown: () -> Unit = {},
     onClick: () -> Unit,
 ) {
     var isFocused by remember { mutableStateOf(false) }
@@ -659,6 +782,8 @@ private fun CinematicButton(
                 when (event.key) {
                     Key.DirectionLeft  -> { onKeyLeft(); true }
                     Key.DirectionRight -> { onKeyRight(); true }
+                    Key.DirectionUp    -> { onKeyUp(); true }
+                    Key.DirectionDown  -> { onKeyDown(); true }
                     Key.Enter, Key.DirectionCenter -> { if (enabled) onClick(); true }
                     else -> false
                 }

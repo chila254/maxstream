@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -37,6 +38,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 
+// Uniform poster card size, matching the Dart TvContentCard (width 130 / height 190).
+private val CardWidth = 130.dp
 private val CardHeight = 190.dp
 private val CardCornerRadius = 10.dp
 
@@ -93,6 +96,7 @@ fun ContentCard(
             // ── Poster ──────────────────────────────────────────────────────
             Box(
                 modifier = Modifier
+                    .width(CardWidth)
                     .height(CardHeight)
                     .clip(RoundedCornerShape(CardCornerRadius))
                     .border(
