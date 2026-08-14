@@ -6,7 +6,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -188,8 +187,15 @@ fun GenreScreen(
         sectionFocus = 1
         navJob?.cancel()
         navJob = scope.launch {
-            runCatching { genreListState.animateScrollToItem(target) }
-            focusWithRetry { genreFocusRequesters[genres.getOrNull(target)?.key] }
+            val requester = genres.getOrNull(target)?.key?.let { genreFocusRequesters[it] }
+            // Most targets are already composed and visible — land focus on the
+            // first attempt instead of suspending on a scroll first (the old
+            // animated scroll blocked until it finished, so every rapid LEFT/
+            // RIGHT press cancelled a half-finished scroll and the focus ring
+            // lagged behind — the "tab dragging itself" feel).
+            if (requester != null && runCatching { requester.requestFocus() }.isSuccess) return@launch
+            runCatching { genreListState.scrollToItem(target) }
+            focusWithRetry { genres.getOrNull(target)?.key?.let { genreFocusRequesters[it] } }
         }
     }
 
@@ -200,7 +206,11 @@ fun GenreScreen(
         focusedCard = target
         navJob?.cancel()
         navJob = scope.launch {
-            runCatching { gridState.animateScrollToItem(target) }
+            val requester = items.getOrNull(target)?.let { cardFocusRequesters[cardKey(it)] }
+            // Same immediate-focus-first approach: only scroll (instant, no
+            // animation) when the card is not yet composed off-screen.
+            if (requester != null && runCatching { requester.requestFocus() }.isSuccess) return@launch
+            runCatching { gridState.scrollToItem(target) }
             focusWithRetry { items.getOrNull(target)?.let { cardFocusRequesters[cardKey(it)] } }
         }
         if (target >= items.size - COLUMNS * 2) loadMore()
@@ -650,7 +660,6 @@ private fun TypeButton(
                 shape = RoundedCornerShape(8.dp),
             )
             .focusRequester(focusRequester)
-            .focusable()
             .onFocusChanged { state -> onFocusChanged(state.hasFocus) }
             .onKeyEvent(onKeyEvent)
             .clickable(onClick = onClick)
@@ -708,7 +717,6 @@ private fun GenreChip(
                 shape = RoundedCornerShape(20.dp),
             )
             .focusRequester(focusRequester)
-            .focusable()
             .onFocusChanged { state -> onFocusChanged(state.hasFocus) }
             .onKeyEvent(onKeyEvent)
             .clickable(onClick = onClick)
@@ -756,7 +764,6 @@ private fun GenreCard(
                 shape = RoundedCornerShape(10.dp),
             )
             .focusRequester(focusRequester)
-            .focusable()
             .onFocusChanged { state -> onFocusChanged(state.hasFocus) }
             .onKeyEvent(onKeyEvent)
             .clickable(onClick = onClick),

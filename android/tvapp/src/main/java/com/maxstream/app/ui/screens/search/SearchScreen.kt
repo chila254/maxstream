@@ -3,7 +3,6 @@ package com.maxstream.app.ui.screens.search
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -108,8 +107,12 @@ fun SearchScreen(
         (movieResults.isNotEmpty() || seriesResults.isNotEmpty())
 
     // Ordered grid sections of the right panel — must mirror the LazyColumn items.
-    val grids = remember(showingResults, movieResults.size, seriesResults.size, discoverItems.size) {
-        if (showingResults) {
+    // Empty while searching: the spinner replaces the grids, so the keyboard
+    // must not be able to move focus onto a grid that is not composed.
+    val grids = remember(showingResults, isSearching, movieResults.size, seriesResults.size, discoverItems.size) {
+        if (isSearching) {
+            emptyList()
+        } else if (showingResults) {
             buildList {
                 // LazyColumn items: 0 = "Results for" header, then one grid per
                 // non-empty section. Section index = item index inside the column.
@@ -127,24 +130,28 @@ fun SearchScreen(
     gridNav.clearMissingGrids()
 
     // ── Load discover content on first entry (mix of trending + popular) ──
+    // Each feed is fetched independently so one failing endpoint can no longer
+    // drop the entire Discover panel (which made the keyboard's RIGHT / DONE
+    // appear to do nothing because there was no grid to move into).
     LaunchedEffect(Unit) {
-        try {
-            val trending = Modules.catalogRepository.trendingMovies()
-            val trendingTv = Modules.catalogRepository.trendingSeries()
-            val popular = Modules.catalogRepository.popularMovies()
-            val popularTv = Modules.catalogRepository.popularSeries()
-            val topRated = Modules.catalogRepository.topRatedMovies()
-            val topRatedTv = Modules.catalogRepository.topRatedSeries()
-            // Mix and deduplicate by id+type, same as Dart
-            val seen = mutableSetOf<String>()
-            discoverItems = (
-                trending.take(12) + trendingTv.take(12) +
-                popular.take(12)  + popularTv.take(12)  +
-                topRated.take(12) + topRatedTv.take(12)
-            ).filter { item ->
-                seen.add("${item.mediaType}:${item.id}")
-            }
-        } catch (_: Exception) { /* silent — grid just stays empty */ }
+        val seen = mutableSetOf<String>()
+        val items = mutableListOf<MediaItem>()
+        fun add(list: List<MediaItem>) {
+            items.addAll(list)
+        }
+        repeat(3) {
+            runCatching { add(Modules.catalogRepository.trendingMovies().take(12)) }
+            runCatching { add(Modules.catalogRepository.trendingSeries().take(12)) }
+            runCatching { add(Modules.catalogRepository.popularMovies().take(12)) }
+            runCatching { add(Modules.catalogRepository.popularSeries().take(12)) }
+            runCatching { add(Modules.catalogRepository.topRatedMovies().take(12)) }
+            runCatching { add(Modules.catalogRepository.topRatedSeries().take(12)) }
+            if (items.isNotEmpty()) return@repeat
+        }
+        // Mix and deduplicate by id+type, same as Dart
+        discoverItems = items.filter { item ->
+            seen.add("${item.mediaType}:${item.id}")
+        }
     }
 
     // ── Debounced search ───────────────────────────────────────────────────
@@ -180,8 +187,10 @@ fun SearchScreen(
         var attempt = 0
         while (attempt < 6) {
             if (attempt > 0) delay(50L * attempt)
-            val ok = runCatching { keyboardFocusRequester.requestFocus() }
-            if (ok.isSuccess) return@LaunchedEffect
+            // requestFocus() throws while the node is unattached, so retry on
+            // exception until the keyboard node is composed (isSuccess == no throw).
+            val ok = runCatching { keyboardFocusRequester.requestFocus() }.isSuccess
+            if (ok) return@LaunchedEffect
             attempt++
         }
     }
@@ -230,7 +239,12 @@ fun SearchScreen(
 
             TvKeyboard(
                 onInput  = { text -> query = text },
-                onSubmit = { /* searching via debounce */ },
+                onSubmit = {
+                    // Mirrors Dart _submitSearch: with an empty query DONE is a
+                    // no-op; otherwise move focus into the results grid (the
+                    // search itself is already live via the debounce).
+                    if (query.trim().isNotEmpty()) moveToResults()
+                },
                 initialText = query,
                 focusManager = keyboardFocusManager,
                 focusRequester = keyboardFocusRequester,
@@ -475,7 +489,6 @@ private fun SearchCard(
                 shape = RoundedCornerShape(10.dp),
             )
             .focusRequester(focusRequester)
-            .focusable()
             .onFocusChanged { state -> onFocusChanged(state.hasFocus) }
             .onKeyEvent(onKeyEvent)
             .clickable {

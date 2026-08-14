@@ -3,7 +3,6 @@ package com.maxstream.app.ui.screens.watchlist
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -141,14 +140,20 @@ fun WatchlistScreen(
         var attempt = 0
         while (attempt < 6) {
             if (attempt > 0) delay(50L * attempt)
-            val ok = runCatching { tabFocusRequesters[selectedTab].requestFocus() }
-            if (ok.isSuccess) return@LaunchedEffect
+            // requestFocus() throws while the node is unattached, so retry on
+            // exception until the tab chip is composed (isSuccess == no throw).
+            val ok = runCatching { tabFocusRequesters[selectedTab].requestFocus() }.isSuccess
+            if (ok) return@LaunchedEffect
             attempt++
         }
     }
 
     fun focusTab(index: Int) {
         val target = index.coerceIn(0, TABS.lastIndex)
+        // Forget the grid was focused: activeGridId was never cleared when focus
+        // moved back to the tabs, so the next re-seed wrongly restored the grid
+        // instead of the tab row the user actually left from.
+        gridNav.clearActiveGrid()
         runCatching { tabFocusRequesters[target].requestFocus() }
     }
 
@@ -332,7 +337,6 @@ private fun WatchlistTabChip(
                 shape = RoundedCornerShape(20.dp),
             )
             .focusRequester(focusRequester)
-            .focusable()
             .onFocusChanged { state -> isFocused = state.hasFocus }
             .onKeyEvent(onKeyEvent)
             .clickable(onClick = onSelect)
@@ -376,7 +380,6 @@ private fun WatchlistCard(
                 shape = RoundedCornerShape(10.dp),
             )
             .focusRequester(focusRequester)
-            .focusable()
             .onFocusChanged { state -> onFocusChanged(state.hasFocus) }
             .onKeyEvent(onKeyEvent)
             .clickable(onClick = onClick),

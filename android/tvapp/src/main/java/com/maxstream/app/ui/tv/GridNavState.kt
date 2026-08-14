@@ -95,15 +95,25 @@ class GridNavState(private val columns: Int) {
         savedIndices[gridId] = index
         activeGridId = gridId
 
-        runCatching { outerListState?.animateScrollToItem(desc.sectionIndex) }
-        runCatching { gridStates[gridId]?.animateScrollToItem(index) }
-
         val requester = requester(gridId, index)
+
+        // Most targets are already composed and visible — land focus on the
+        // first attempt INSTEAD of blocking on a scroll animation first (the
+        // old animateScrollToItem suspended until the animation finished, which
+        // made rapid D-pad presses feel unresponsive and let stale moves steal
+        // focus back). requestFocus() throws only while the node is unattached,
+        // so a successful call means the requester is attached.
+        if (runCatching { requester.requestFocus() }.isSuccess) return
+
+        // Off-screen target: jump it into view (instant, no animation), then
+        // retry until the lazy item is composed and focus lands.
+        runCatching { outerListState?.scrollToItem(desc.sectionIndex) }
+        runCatching { gridStates[gridId]?.scrollToItem(index) }
+
         var attempt = 0
         while (attempt < 6) {
             if (attempt > 0) delay(50L * attempt)
-            val ok = runCatching { requester.requestFocus(); true }.getOrDefault(false)
-            if (ok) return
+            if (runCatching { requester.requestFocus() }.isSuccess) return
             attempt++
         }
     }
@@ -188,6 +198,12 @@ class GridNavState(private val columns: Int) {
     /** Moves focus to the first grid's previously focused card (keyboard → results). */
     fun focusFirstCard(gridId: String, outerListState: LazyListState?, scope: CoroutineScope) {
         moveTo(gridId, focusedIndex(gridId), outerListState, scope)
+    }
+
+    /** Forgets which grid had focus — used when focus moves back to the tabs /
+     *  keyboard so a later re-seed restores the tab row, not the stale grid. */
+    fun clearActiveGrid() {
+        activeGridId = null
     }
 
     /** Drops requesters for grids that no longer exist. */
