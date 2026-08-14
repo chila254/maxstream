@@ -136,17 +136,25 @@ private fun TvAppRoot() {
     }
 
     // ── Focus transfer effect ─────────────────────────────────────────────
-    // Mirrors Nuvio's pattern: wait for 2 composition frames before
-    // requesting focus, so layout is guaranteed to be complete.
+    // Mirrors Dart's _requestFocusAfterFrames(node, retries: 6). When the
+    // user presses LEFT on content, focusOnSidebar flips true and we must
+    // move focus onto the sidebar item. Retry across frames because the
+    // sidebar may still be expanding/animating — a single delayed request
+    // can fail silently and leave the content Box (which is focusable) to
+    // reclaim focus, undoing the transfer.
     LaunchedEffect(appState.focusOnSidebar, appState.selectedTab) {
-        // Wait 2 frames for layout to settle
-        kotlinx.coroutines.delay(50)
-        if (appState.focusOnSidebar) {
-            runCatching {
-                sidebarFocusRequesters.getOrNull(appState.selectedTab)?.requestFocus()
+        repeat(6) { attempt ->
+            delay(50L * (attempt + 1))
+            val target: FocusRequester? = if (appState.focusOnSidebar) {
+                sidebarFocusRequesters.getOrNull(appState.selectedTab)
+            } else {
+                contentFocusRequester
             }
-        } else {
-            runCatching { contentFocusRequester.requestFocus() }
+            if (target == null) return@LaunchedEffect
+            // requestFocus() throws IllegalStateException only when the node
+            // isn't attached yet — retry until it stops throwing.
+            val ok = runCatching { target.requestFocus(); true }.getOrDefault(false)
+            if (ok) return@LaunchedEffect
         }
     }
 
@@ -267,8 +275,10 @@ private fun TvShell(
         // focus down to the first focusable child (the active screen's hero
         // button, keyboard, or card row).
         //
-        // When sidebar is expanded, directional keys are blocked so focus
-        // doesn't accidentally enter the content area (Nuvio pattern).
+        // NOTE: We intentionally do NOT use onKeyEvent here. Content screens
+        // (Home, Search, etc.) handle LEFT→sidebar themselves via their own
+        // onKeyEvent on the play button / first card. Adding a parent key
+        // handler would intercept events before children see them.
         Box(
             modifier = Modifier
                 .weight(1f)
@@ -277,17 +287,6 @@ private fun TvShell(
                 .focusable()
                 .onFocusChanged { state ->
                     if (state.hasFocus) appState.updateFocusOnSidebar(false)
-                }
-                .onKeyEvent { event ->
-                    if (event.type == KeyEventType.KeyDown && appState.focusOnSidebar) {
-                        when (event.key) {
-                            Key.DirectionUp,
-                            Key.DirectionDown,
-                            Key.DirectionLeft,
-                            Key.DirectionRight -> true  // block directional keys
-                            else -> false
-                        }
-                    } else false
                 }
         ) {
             TabScreen(visible = appState.selectedTab == 0) {

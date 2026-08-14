@@ -33,27 +33,27 @@ class TmdbApi(
     }
 
     suspend fun trendingMovies(page: Int = 1): List<com.maxstream.app.data.model.MediaItem> =
-        list("/trending/movie/week", page)
+        list("/trending/movie/week", page, "movie")
 
     suspend fun trendingSeries(page: Int = 1): List<com.maxstream.app.data.model.MediaItem> =
-        list("/trending/tv/week", page)
+        list("/trending/tv/week", page, "tv")
 
     suspend fun popularMovies(page: Int = 1): List<com.maxstream.app.data.model.MediaItem> =
-        list("/movie/popular", page)
+        list("/movie/popular", page, "movie")
 
     suspend fun popularSeries(page: Int = 1): List<com.maxstream.app.data.model.MediaItem> =
-        list("/tv/popular", page)
+        list("/tv/popular", page, "tv")
 
     suspend fun topRatedMovies(page: Int = 1): List<com.maxstream.app.data.model.MediaItem> =
-        list("/movie/top_rated", page)
+        list("/movie/top_rated", page, "movie")
 
     suspend fun topRatedSeries(page: Int = 1): List<com.maxstream.app.data.model.MediaItem> =
-        list("/tv/top_rated", page)
+        list("/tv/top_rated", page, "tv")
 
     suspend fun search(query: String, page: Int = 1): List<com.maxstream.app.data.model.MediaItem> {
         if (query.isBlank()) return emptyList()
         val json = get("/search/multi", mapOf("query" to query, "page" to page.toString()))
-        return parseResults(json)
+        return parseResults(json) // /search/multi includes per-item media_type
     }
 
     suspend fun movieDetails(id: Int): JSONObject =
@@ -93,15 +93,15 @@ class TmdbApi(
 
     suspend fun discover(type: String, genreId: Int, page: Int = 1): List<com.maxstream.app.data.model.MediaItem> {
         val path = if (type == "tv") "/discover/tv" else "/discover/movie"
-        return parseResults(get(path, mapOf("with_genres" to genreId.toString(), "page" to page.toString())))
+        return parseResults(get(path, mapOf("with_genres" to genreId.toString(), "page" to page.toString())), type)
     }
 
-    private fun list(path: String, page: Int): List<com.maxstream.app.data.model.MediaItem> =
-        parseResults(get(path, mapOf("page" to page.toString())))
+    private fun list(path: String, page: Int, defaultType: String = "movie"): List<com.maxstream.app.data.model.MediaItem> =
+        parseResults(get(path, mapOf("page" to page.toString())), defaultType)
 
-    private fun parseResults(json: JSONObject): List<com.maxstream.app.data.model.MediaItem> {
+    private fun parseResults(json: JSONObject, defaultType: String = "movie"): List<com.maxstream.app.data.model.MediaItem> {
         val arr = json.optJSONArray("results") ?: JSONArray()
-        return com.maxstream.app.data.model.MediaItem.fromJsonList(arr)
+        return com.maxstream.app.data.model.MediaItem.fromJsonList(arr, defaultType)
     }
 
     companion object {

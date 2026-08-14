@@ -103,7 +103,9 @@ fun Sidebar(
     // ── Local focus state ──────────────────────────────────────────────────
     // -1 = no sidebar item focused (sidebar collapsed)
     var focusedIndex by remember { mutableIntStateOf(-1) }
-    val isExpanded by remember { derivedStateOf { focusedIndex >= 0 } }
+    // Expand when a pill has focus OR the shell says we're sidebar-active
+    // (the latter covers the brief window before focus lands after LEFT).
+    val isExpanded by remember { derivedStateOf { focusedIndex >= 0 || active } }
 
     val coroutineScope = rememberCoroutineScope()
     val listState = rememberLazyListState()

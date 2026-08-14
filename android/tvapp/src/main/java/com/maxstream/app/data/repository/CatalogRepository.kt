@@ -48,6 +48,6 @@ class CatalogRepository(private val api: TmdbApi) {
 
     suspend fun genres(type: String): Map<Int, String> = withContext(Dispatchers.IO) { api.genres(type) }
 
-    suspend fun catalogByGenre(genreId: Int, type: String): List<com.maxstream.app.data.model.MediaItem> =
-        withContext(Dispatchers.IO) { api.discover(type, genreId) }
+    suspend fun catalogByGenre(genreId: Int, type: String, page: Int = 1): List<com.maxstream.app.data.model.MediaItem> =
+        withContext(Dispatchers.IO) { api.discover(type, genreId, page) }
 }

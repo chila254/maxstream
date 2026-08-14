@@ -58,8 +58,15 @@ data class MediaItem(
             episode = bundle.getInt("episode", 1),
         )
 
-        fun fromJson(json: JSONObject): MediaItem {
-            val type = if (json.has("media_type")) json.getString("media_type") else "movie"
+        /**
+         * @param defaultType used when the JSON lacks a "media_type" field.
+         *   TMDB's type-specific list endpoints (/tv/popular, /trending/tv/week, …)
+         *   do NOT include "media_type" on each result, so callers must pass the
+         *   known type ("tv"/"movie"). Only /search/multi and /trending/all supply
+         *   it per item.
+         */
+        fun fromJson(json: JSONObject, defaultType: String = "movie"): MediaItem {
+            val type = if (json.has("media_type")) json.getString("media_type") else defaultType
             val title = json.optString("title").ifBlank { json.optString("name") }
             val release = json.optString("release_date").ifBlank { json.optString("first_air_date") }
             val poster = json.optString("poster_path").ifBlank { null }
@@ -81,11 +88,11 @@ data class MediaItem(
             )
         }
 
-        fun fromJsonList(array: org.json.JSONArray): List<MediaItem> {
+        fun fromJsonList(array: org.json.JSONArray, defaultType: String = "movie"): List<MediaItem> {
             val out = mutableListOf<MediaItem>()
             for (i in 0 until array.length()) {
                 val obj = array.optJSONObject(i) ?: continue
-                runCatching { out += fromJson(obj) }
+                runCatching { out += fromJson(obj, defaultType) }
             }
             return out
         }

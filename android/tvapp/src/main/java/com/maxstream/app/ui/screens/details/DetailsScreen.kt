@@ -158,7 +158,9 @@ fun DetailsScreen(
             // Recommendations / similar
             val recsArr = (json.optJSONObject("recommendations")
                 ?: json.optJSONObject("similar"))?.optJSONArray("results")
-            val recs = if (recsArr != null) MediaItem.fromJsonList(recsArr).take(12) else emptyList()
+            val recs = if (recsArr != null) {
+                MediaItem.fromJsonList(recsArr, if (isTv) "tv" else "movie").take(12)
+            } else emptyList()
 
             // Seasons (TV only)
             val seasons = if (isTv) {
