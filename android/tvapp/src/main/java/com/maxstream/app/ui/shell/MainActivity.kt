@@ -54,7 +54,6 @@ import com.maxstream.app.ui.screens.more.MoreScreen
 import com.maxstream.app.ui.screens.player.PlayerScreen
 import com.maxstream.app.ui.screens.search.SearchScreen
 import com.maxstream.app.ui.screens.series.SeriesListScreen
-import com.maxstream.app.ui.screens.series.SeriesScreen
 import com.maxstream.app.ui.screens.splash.SplashScreen
 import com.maxstream.app.ui.screens.watchlist.WatchlistScreen
 import com.maxstream.app.ui.theme.MaxStreamTheme
@@ -221,17 +220,6 @@ private fun TvAppRoot() {
             composable(Screen.Details.route) { backStackEntry ->
                 val itemId = backStackEntry.arguments?.getString("itemId") ?: ""
                 DetailsScreen(
-                    navController    = deepNavController,
-                    itemId           = itemId,
-                    onReturnToSidebar = {
-                        deepNavController.popBackStack()
-                        appState.updateFocusOnSidebar(true)
-                    },
-                )
-            }
-            composable(Screen.Series.route) { backStackEntry ->
-                val itemId = backStackEntry.arguments?.getString("itemId") ?: ""
-                SeriesScreen(
                     navController    = deepNavController,
                     itemId           = itemId,
                     onReturnToSidebar = {
