@@ -264,16 +264,21 @@ private fun TvShell(
             selectedIndex   = appState.selectedTab,
             focusRequesters = sidebarFocusRequesters,
             onItemSelected  = { index -> appState.selectTab(index) },
-            onReturnToContent = { appState.updateFocusOnSidebar(false) },
+            onReturnToContent = {
+                appState.updateFocusOnSidebar(false)
+                // Mirrors Dart's _focusContent(): request the content area so
+                // focus leaves the pill and the sidebar collapses. The active
+                // screen re-seeds its own first item via its isVisible effect
+                // (tab switch) — the box focus is the immediate hand-off.
+                runCatching { contentFocusRequester.requestFocus() }
+            },
             onFocusEntered  = { appState.updateFocusOnSidebar(true) },
             active          = appState.focusOnSidebar,
         )
 
         // ── Content area ───────────────────────────────────────────────────
         // The contentFocusRequester is attached here AND the box is .focusable()
-        // so requestFocus() actually lands on this node. Compose then passes
-        // focus down to the first focusable child (the active screen's hero
-        // button, keyboard, or card row).
+        // so requestFocus() actually lands on this node.
         //
         // NOTE: We intentionally do NOT use onKeyEvent here. Content screens
         // (Home, Search, etc.) handle LEFT→sidebar themselves via their own

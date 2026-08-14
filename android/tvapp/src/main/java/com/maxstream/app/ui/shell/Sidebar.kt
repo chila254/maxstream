@@ -7,7 +7,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,7 +25,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -105,17 +103,40 @@ fun Sidebar(
     var focusedIndex by remember { mutableIntStateOf(-1) }
     // Expand when a pill has focus OR the shell says we're sidebar-active
     // (the latter covers the brief window before focus lands after LEFT).
-    val isExpanded by remember { derivedStateOf { focusedIndex >= 0 || active } }
+    //
+    // NOTE: deliberately NOT wrapped in derivedStateOf. `active` is a plain
+    // Boolean parameter (not a snapshot State), so `remember { derivedStateOf
+    // { ... } }` would capture its FIRST value forever — the sidebar would
+    // only ever expand once a pill already had focus, making LEFT→sidebar
+    // appear to do nothing. A plain computed value re-evaluates on every
+    // recomposition, which is exactly what we need here.
+    val isExpanded = focusedIndex >= 0 || active
 
     val coroutineScope = rememberCoroutineScope()
     val listState = rememberLazyListState()
 
     // When [active] changes from false → true, request focus on the
-    // selected item — mirrors Dart's didUpdateWidget(widget.active) pattern.
-    LaunchedEffect(active) {
-        if (active && focusedIndex < 0) {
+    // selected item until it actually gains focus. Mirrors Dart's
+    // _requestFocusAfterFrames(node, retries) but is self-terminating: it
+    // stops the moment a pill reports focus (focusedIndex >= 0).
+    //
+    // requestFocus() throws while the node is unattached and returns false if
+    // the focus request is dropped, so a single attempt is unreliable — the
+    // sidebar may be mid-expansion when the first request lands.
+    LaunchedEffect(active, selectedIndex) {
+        if (!active) return@LaunchedEffect
+        var attempts = 0
+        while (focusedIndex < 0 && attempts < 60) {
             kotlinx.coroutines.delay(50)
-            runCatching { focusRequesters.getOrNull(selectedIndex)?.requestFocus() }
+            attempts++
+            try {
+                // requestFocus() throws while the node is unattached (e.g. the
+                // sidebar is mid-expansion) — keep retrying until the pill
+                // actually reports focus via onFocusChanged → focusedIndex.
+                focusRequesters.getOrNull(selectedIndex)?.requestFocus()
+            } catch (e: Exception) {
+                // not attached yet — retry
+            }
         }
     }
 
@@ -279,10 +300,9 @@ private fun SidebarPillItem(
                 shape = RoundedCornerShape(28.dp),
             )
             .focusRequester(focusRequester)
-            // ← IMPORTANT: canFocus is never false. Collapsing the label is
-            //   purely visual — items must always be reachable by D-pad.
-            .focusable()
             .onFocusChanged { state -> onFocusChanged(state.hasFocus) }
+            // D-pad: ↑↓ move within sidebar, →/Enter selects and moves to
+            // content, ← is swallowed (already at the left edge).
             .onKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
                 when (event.key) {
@@ -300,6 +320,9 @@ private fun SidebarPillItem(
                     else -> false
                 }
             }
+            // clickable() provides its own focusable — no separate .focusable()
+            // needed (a second focus target would make the FocusRequester
+            // attach to a node onFocusChanged doesn't observe).
             .clickable { runCatching { onSelect() } }
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
