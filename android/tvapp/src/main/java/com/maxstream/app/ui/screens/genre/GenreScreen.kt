@@ -88,6 +88,7 @@ fun GenreScreen(
     onReturnToSidebar: () -> Unit = {},
     isVisible: Boolean = true,
     initialMediaType: String = "all",
+    focusKey: Int = 0,
 ) {
     val scope = rememberCoroutineScope()
     val gridState = rememberLazyGridState()
@@ -418,7 +419,9 @@ fun GenreScreen(
     // ── Lifecycle ────────────────────────────────────────────────────────────
     LaunchedEffect(Unit) { selectType(selectedType, initial = true) }
 
-    LaunchedEffect(isVisible) {
+    // Re-runs when the tab becomes visible OR focus returns from the sidebar
+    // (focusKey bump). restoreFocus() keeps the last section (type / rail / grid).
+    LaunchedEffect(isVisible, focusKey) {
         if (!isVisible) return@LaunchedEffect
         if (genres.isNotEmpty()) {
             delay(60)

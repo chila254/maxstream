@@ -86,6 +86,7 @@ fun MoreScreen(
     onReturnToSidebar: () -> Unit = {},
     onSignOut: () -> Unit = {},
     isVisible: Boolean = true,
+    focusKey: Int = 0,
 ) {
     val context = LocalContext.current
     var userName  by remember { mutableStateOf("MaxStream User") }
@@ -107,12 +108,14 @@ fun MoreScreen(
         }
     }
 
-    // Seed focus on first menu item when tab becomes visible
-    LaunchedEffect(isVisible) {
+    // Seed focus on menu item when tab becomes visible, or re-seed the
+    // previously focused item when focus returns from the sidebar (focusKey bump).
+    LaunchedEffect(isVisible, focusKey) {
         if (!isVisible) return@LaunchedEffect
+        val index = focusedIndex.coerceIn(0, MENU_ITEMS.lastIndex)
         repeat(6) { attempt ->
             delay(50L * (attempt + 1))
-            val ok = runCatching { focusRequesters[0].requestFocus() }
+            val ok = runCatching { focusRequesters[index].requestFocus() }
             if (ok.isSuccess) return@LaunchedEffect
         }
     }

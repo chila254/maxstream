@@ -84,6 +84,7 @@ fun SearchScreen(
     navController: NavController,
     onReturnToSidebar: () -> Unit = {},
     isVisible: Boolean = true,
+    focusKey: Int = 0,
 ) {
     val scope = rememberCoroutineScope()
 
@@ -171,8 +172,10 @@ fun SearchScreen(
         }
     }
 
-    // ── Focus seed on tab visible ──────────────────────────────────────────
-    LaunchedEffect(isVisible) {
+    // ── Focus seed on tab visible / focus returns from the sidebar ─────────
+    // Re-seeds the keyboard so navigation never parks on the invisible box
+    // when returning to the same tab.
+    LaunchedEffect(isVisible, focusKey) {
         if (!isVisible) return@LaunchedEffect
         repeat(6) { attempt ->
             delay(50L * (attempt + 1))

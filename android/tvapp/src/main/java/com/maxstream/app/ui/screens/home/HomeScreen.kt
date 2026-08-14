@@ -81,6 +81,7 @@ fun HomeScreen(
     navController: NavController,
     onReturnToSidebar: () -> Unit,
     isVisible: Boolean = true,
+    focusKey: Int = 0,
 ) {
     val viewModel: HomeViewModel = viewModel()
     val trendingMovies  by viewModel.trendingMovies.observeAsState(emptyList())
@@ -141,9 +142,10 @@ fun HomeScreen(
     }
 
     // Entry animation + initial focus seed.
-    // Re-runs whenever this tab becomes visible so focus is restored on tab return.
+    // Re-runs whenever this tab becomes visible OR focus returns from the
+    // sidebar (focusKey bump), so focus is restored on tab return.
     // Uses retry pattern (6 attempts × 50 ms) matching Dart's _requestFocusAfterFrames.
-    LaunchedEffect(isVisible) {
+    LaunchedEffect(isVisible, focusKey) {
         if (!isVisible) return@LaunchedEffect
         isEntryVisible = true
         repeat(6) { attempt ->

@@ -85,6 +85,7 @@ fun WatchlistScreen(
     navController: NavController,
     onReturnToSidebar: () -> Unit = {},
     isVisible: Boolean = true,
+    focusKey: Int = 0,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -128,12 +129,18 @@ fun WatchlistScreen(
         onDispose { gridNav.unregisterGrid(GRID_ID) }
     }
 
-    // Seed focus on first tab chip when visible.
-    LaunchedEffect(isVisible, loading) {
+    // Seed focus when the tab becomes visible, or re-seed when focus returns
+    // from the sidebar (focusKey bump). Restores the grid if a card was
+    // focused, otherwise the selected tab chip.
+    LaunchedEffect(isVisible, loading, focusKey) {
         if (!isVisible || loading) return@LaunchedEffect
+        if (gridNav.activeGridId == GRID_ID && filtered.isNotEmpty()) {
+            gridNav.focusFirstCard(GRID_ID, null, scope)
+            return@LaunchedEffect
+        }
         repeat(6) { attempt ->
             delay(50L * (attempt + 1))
-            val ok = runCatching { tabFocusRequesters[0].requestFocus() }
+            val ok = runCatching { tabFocusRequesters[selectedTab].requestFocus() }
             if (ok.isSuccess) return@LaunchedEffect
         }
     }

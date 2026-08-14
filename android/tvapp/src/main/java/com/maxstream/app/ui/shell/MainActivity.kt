@@ -22,6 +22,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -106,6 +107,13 @@ private fun TvAppRoot() {
     }
 
     var exitDialogVisible by remember { mutableStateOf(false) }
+
+    // Bumped on every sidebar → content hand-off so the active screen re-seeds
+    // its own focus. Mirrors Dart's _focusContent(): focusing the content
+    // FocusScope restores the last-focused descendant; Compose has no such
+    // auto-forward on a plain focusable Box, so we nudge each screen to
+    // restore focus via this tick (passed down as `focusKey`).
+    var contentFocusTick by remember { mutableIntStateOf(0) }
 
     // ── Back state machine (Nuvio pattern) ──────────────────────────────
     // root=tab0, sidebar=expanded, content=collapsed.
@@ -203,6 +211,11 @@ private fun TvAppRoot() {
                     sidebarFocusRequesters  = sidebarFocusRequesters,
                     contentFocusRequester   = contentFocusRequester,
                     deepNavController       = deepNavController,
+                    contentFocusTick        = contentFocusTick,
+                    requestContentFocus     = {
+                        contentFocusTick++
+                        runCatching { contentFocusRequester.requestFocus() }
+                    },
                 )
             }
             composable(Screen.Details.route) { backStackEntry ->
@@ -256,6 +269,8 @@ private fun TvShell(
     sidebarFocusRequesters: List<FocusRequester>,
     contentFocusRequester: FocusRequester,
     deepNavController: androidx.navigation.NavController,
+    contentFocusTick: Int,
+    requestContentFocus: () -> Unit,
 ) {
     Row(modifier = Modifier.fillMaxSize()) {
 
@@ -266,11 +281,10 @@ private fun TvShell(
             onItemSelected  = { index -> appState.selectTab(index) },
             onReturnToContent = {
                 appState.updateFocusOnSidebar(false)
-                // Mirrors Dart's _focusContent(): request the content area so
-                // focus leaves the pill and the sidebar collapses. The active
-                // screen re-seeds its own first item via its isVisible effect
-                // (tab switch) — the box focus is the immediate hand-off.
-                runCatching { contentFocusRequester.requestFocus() }
+                // Mirrors Dart's _focusContent(): move focus off the pill so the
+                // sidebar collapses, then bump the tick so the active screen
+                // re-seeds its own (last) focus instead of parking on the box.
+                requestContentFocus()
             },
             onFocusEntered  = { appState.updateFocusOnSidebar(true) },
             active          = appState.focusOnSidebar,
@@ -299,6 +313,7 @@ private fun TvShell(
                     navController     = deepNavController,
                     onReturnToSidebar = { appState.updateFocusOnSidebar(true) },
                     isVisible         = appState.selectedTab == 0,
+                    focusKey          = contentFocusTick,
                 )
             }
             TabScreen(visible = appState.selectedTab == 1) {
@@ -306,6 +321,7 @@ private fun TvShell(
                     navController     = deepNavController,
                     onReturnToSidebar = { appState.updateFocusOnSidebar(true) },
                     isVisible         = appState.selectedTab == 1,
+                    focusKey          = contentFocusTick,
                 )
             }
             TabScreen(visible = appState.selectedTab == 2) {
@@ -313,6 +329,7 @@ private fun TvShell(
                     navController     = deepNavController,
                     onReturnToSidebar = { appState.updateFocusOnSidebar(true) },
                     isVisible         = appState.selectedTab == 2,
+                    focusKey          = contentFocusTick,
                 )
             }
             TabScreen(visible = appState.selectedTab == 3) {
@@ -320,6 +337,7 @@ private fun TvShell(
                     navController     = deepNavController,
                     onReturnToSidebar = { appState.updateFocusOnSidebar(true) },
                     isVisible         = appState.selectedTab == 3,
+                    focusKey          = contentFocusTick,
                 )
             }
             TabScreen(visible = appState.selectedTab == 4) {
@@ -327,6 +345,7 @@ private fun TvShell(
                     navController     = deepNavController,
                     onReturnToSidebar = { appState.updateFocusOnSidebar(true) },
                     isVisible         = appState.selectedTab == 4,
+                    focusKey          = contentFocusTick,
                 )
             }
             TabScreen(visible = appState.selectedTab == 5) {
@@ -339,6 +358,7 @@ private fun TvShell(
                         }
                     },
                     isVisible = appState.selectedTab == 5,
+                    focusKey  = contentFocusTick,
                 )
             }
         }
@@ -381,11 +401,13 @@ private fun SeriesListTab(
     navController: androidx.navigation.NavController,
     onReturnToSidebar: () -> Unit,
     isVisible: Boolean,
+    focusKey: Int,
 ) {
     SeriesListScreen(
         navController     = navController,
         onReturnToSidebar = onReturnToSidebar,
         isVisible         = isVisible,
+        focusKey          = focusKey,
     )
 }
 

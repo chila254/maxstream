@@ -86,6 +86,7 @@ fun SeriesListScreen(
     navController: NavController,
     onReturnToSidebar: () -> Unit = {},
     isVisible: Boolean = true,
+    focusKey: Int = 0,
 ) {
     val viewModel: HomeViewModel = viewModel()
     val trendingSeries   by viewModel.trendingSeries.observeAsState(emptyList())
@@ -131,8 +132,9 @@ fun SeriesListScreen(
         heroItem = item
     }
 
-    // Focus seed on tab visible — retry pattern (mirrors Dart retries:6)
-    LaunchedEffect(isVisible) {
+    // Focus seed on tab visible — retry pattern (mirrors Dart retries:6).
+    // Also re-runs when focus returns from the sidebar (focusKey bump).
+    LaunchedEffect(isVisible, focusKey) {
         if (!isVisible) return@LaunchedEffect
         isEntryVisible = true
         repeat(6) { attempt ->
