@@ -296,11 +296,7 @@ fun WatchlistScreen(
                                 },
                                 onKeyEvent = { onCardKey(index, it) },
                                 onClick = {
-                                    val route = if (item.mediaType == "tv")
-                                        Screen.Series.createRoute(item.id.toString())
-                                    else
-                                        Screen.Details.createRoute(item.id.toString())
-                                    navController.navigate(route)
+                                    navController.navigate(Screen.Details.createRoute(item.id.toString()))
                                 },
                             )
                         }

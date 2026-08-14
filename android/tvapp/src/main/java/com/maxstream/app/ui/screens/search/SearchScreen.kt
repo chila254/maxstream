@@ -492,11 +492,7 @@ private fun SearchCard(
             .onFocusChanged { state -> onFocusChanged(state.hasFocus) }
             .onKeyEvent(onKeyEvent)
             .clickable {
-                val route = if (isSeries)
-                    Screen.Series.createRoute(item.id.toString())
-                else
-                    Screen.Details.createRoute(item.id.toString())
-                navController.navigate(route)
+                navController.navigate(Screen.Details.createRoute(item.id.toString()))
             }
     ) {
         // Poster image

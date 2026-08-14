@@ -662,11 +662,7 @@ private fun TvCinematicDetailsView(
                                     focusRequester = requester(rowId, i),
                                     onKeyEvent = { onTileKey(rowId, 5, state.recommendations.size, i, it) },
                                     onPress = {
-                                        val route = if (rec.mediaType == "tv")
-                                            Screen.Series.createRoute(rec.id.toString())
-                                        else
-                                            Screen.Details.createRoute(rec.id.toString())
-                                        navController.navigate(route)
+                                        navController.navigate(Screen.Details.createRoute(rec.id.toString()))
                                     },
                                 ) {
                                     RecommendationCard(item = rec)

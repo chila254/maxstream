@@ -179,7 +179,7 @@ fun SeriesListScreen(
                         },
                         onDetails = { item ->
                             item ?: return@SeriesHeroSection
-                            navController.navigate(Screen.Series.createRoute(item.id.toString()))
+                            navController.navigate(Screen.Details.createRoute(item.id.toString()))
                         },
                         onReturnToSidebar = onReturnToSidebar,
                         onArrowDown = { heroDown() },
@@ -500,7 +500,7 @@ private fun SeriesContentRow(
                     isFocused  = focusedItemIndex == index,
                     focusRequester = rowNav.requester(rowId, index),
                     onClick    = {
-                        navController.navigate(Screen.Series.createRoute(item.id.toString()))
+                        navController.navigate(Screen.Details.createRoute(item.id.toString()))
                     },
                     onFocusChanged = { focused ->
                         if (focused) {

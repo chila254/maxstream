@@ -331,9 +331,7 @@ fun GenreScreen(
     fun open(index: Int) {
         if (index < 0 || index >= items.size) return
         val item = items[index]
-        val route = if (item.mediaType == "tv") Screen.Series.createRoute(item.id.toString())
-                    else Screen.Details.createRoute(item.id.toString())
-        navController.navigate(route)
+        navController.navigate(Screen.Details.createRoute(item.id.toString()))
     }
 
     // ── Key handlers ─────────────────────────────────────────────────────────

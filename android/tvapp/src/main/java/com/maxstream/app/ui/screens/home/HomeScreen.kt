@@ -182,7 +182,7 @@ fun HomeScreen(
                         onPlay = { mediaItem ->
                             if (mediaItem != null) {
                                 val route = if (heroType == "series")
-                                    Screen.Series.createRoute(mediaItem.id.toString())
+                                    Screen.Player.createRoute(mediaItem.id.toString(), "tv", 1, 1)
                                 else
                                     Screen.Player.createRoute(mediaItem.id.toString(), "movie")
                                 navController.navigate(route)
@@ -190,11 +190,7 @@ fun HomeScreen(
                         },
                         onDetails = { mediaItem ->
                             if (mediaItem != null) {
-                                val route = if (heroType == "series")
-                                    Screen.Series.createRoute(mediaItem.id.toString())
-                                else
-                                    Screen.Details.createRoute(mediaItem.id.toString())
-                                navController.navigate(route)
+                                navController.navigate(Screen.Details.createRoute(mediaItem.id.toString()))
                             }
                         },
                         onReturnToSidebar = onReturnToSidebar,
@@ -591,9 +587,7 @@ private fun ContentRow(
                                 )
                             )
                         } else {
-                            val route = if (isSeries) Screen.Series.createRoute(item.id.toString())
-                                        else Screen.Details.createRoute(item.id.toString())
-                            navController.navigate(route)
+                            navController.navigate(Screen.Details.createRoute(item.id.toString()))
                         }
                     },
                     onFocusChanged = { focused ->
