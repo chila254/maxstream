@@ -9,6 +9,7 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -27,6 +28,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -208,7 +210,7 @@ fun HomeScreen(
                 ) {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
-                        state = rememberLazyListState(),
+                        state = outerListState,
                         contentPadding = PaddingValues(bottom = 56.dp),
                         userScrollEnabled = false,
                     ) {
@@ -440,10 +442,18 @@ private fun HeroSection(
 
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     // ── Play button ── Key handlers are on the BUTTON, not a container
+                    var playFocused by remember { mutableStateOf(false) }
+                    var detailsFocused by remember { mutableStateOf(false) }
                     androidx.compose.material3.Button(
                         onClick = { onPlay(item) },
                         modifier = Modifier
                             .focusRequester(playFocusRequester)
+                            .onFocusChanged { playFocused = it.hasFocus }
+                            .border(
+                                width = if (playFocused) 2.dp else 0.dp,
+                                color = if (playFocused) Color.White else Color.Transparent,
+                                shape = RoundedCornerShape(8.dp),
+                            )
                             .onKeyEvent { event ->
                                 if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
                                 when (event.key) {
@@ -474,6 +484,12 @@ private fun HeroSection(
                         onClick = { onDetails(item) },
                         modifier = Modifier
                             .focusRequester(detailsFocusRequester)
+                            .onFocusChanged { detailsFocused = it.hasFocus }
+                            .border(
+                                width = if (detailsFocused) 2.dp else 0.dp,
+                                color = if (detailsFocused) Color.White else Color.Transparent,
+                                shape = RoundedCornerShape(8.dp),
+                            )
                             .onKeyEvent { event ->
                                 if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
                                 when (event.key) {
@@ -558,6 +574,7 @@ private fun ContentRow(
                     year = item.releaseDate.take(4).toIntOrNull(),
                     contentTypeLabel = if (isSeries) "TV Series" else "Movie",
                     isFocused = focusedItemIndex == index,
+                    focusRequester = rowNav.requester(rowId, index),
                     progress = if (showProgress) {
                         WatchEntryCompat.progressOf(
                             item.id, item.mediaType, item.season, item.episode

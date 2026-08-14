@@ -258,12 +258,13 @@ private fun SidebarPillItem(
 
     val bgColor = when {
         isSelected -> Color(0x38FFFFFF)
-        isFocused  -> Color(0x14FFFFFF)
+        isFocused  -> Color(0x1FFFFFFF)
         else       -> Color.Transparent
     }
-    val borderColor = if (isFocused) Color(0x30FFFFFF) else Color.Transparent
+    val borderColor = if (isFocused) Color.White else Color.Transparent
+    val borderWidth = if (isFocused) 2.dp else 0.dp
     val iconTint = if (isSelected || isFocused) Color.White else Color(0xFF999999)
-    val iconBg   = if (isSelected) Color(0x28FFFFFF) else Color(0xFF222222)
+    val iconBg   = if (isSelected || isFocused) Color(0x38FFFFFF) else Color(0xFF222222)
     val labelColor = if (isSelected || isFocused) Color.White else Color(0xFF999999)
 
     Row(
@@ -273,7 +274,7 @@ private fun SidebarPillItem(
             .clip(RoundedCornerShape(28.dp))
             .background(bgColor)
             .border(
-                width = if (isFocused) 1.5.dp else 0.dp,
+                width = borderWidth,
                 color = borderColor,
                 shape = RoundedCornerShape(28.dp),
             )

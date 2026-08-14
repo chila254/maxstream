@@ -9,6 +9,7 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -27,6 +28,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -371,11 +373,19 @@ private fun SeriesHeroSection(
                 }
                 Spacer(Modifier.height(18.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    var playFocused by remember { mutableStateOf(false) }
+                    var detailsFocused by remember { mutableStateOf(false) }
                     // Play button
                     androidx.compose.material3.Button(
                         onClick = { onPlay(item) },
                         modifier = Modifier
                             .focusRequester(playFocusRequester)
+                            .onFocusChanged { playFocused = it.hasFocus }
+                            .border(
+                                width = if (playFocused) 2.dp else 0.dp,
+                                color = if (playFocused) Color.White else Color.Transparent,
+                                shape = RoundedCornerShape(8.dp),
+                            )
                             .onKeyEvent { event ->
                                 if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
                                 when (event.key) {
@@ -403,6 +413,12 @@ private fun SeriesHeroSection(
                         onClick = { onDetails(item) },
                         modifier = Modifier
                             .focusRequester(detailsFocusRequester)
+                            .onFocusChanged { detailsFocused = it.hasFocus }
+                            .border(
+                                width = if (detailsFocused) 2.dp else 0.dp,
+                                color = if (detailsFocused) Color.White else Color.Transparent,
+                                shape = RoundedCornerShape(8.dp),
+                            )
                             .onKeyEvent { event ->
                                 if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
                                 when (event.key) {
@@ -480,6 +496,7 @@ private fun SeriesContentRow(
                     year       = item.releaseDate.take(4).toIntOrNull(),
                     contentTypeLabel = "TV Series",
                     isFocused  = focusedItemIndex == index,
+                    focusRequester = rowNav.requester(rowId, index),
                     onClick    = {
                         navController.navigate(Screen.Series.createRoute(item.id.toString()))
                     },

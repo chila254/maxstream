@@ -142,19 +142,19 @@ private fun TvAppRoot() {
     // sidebar may still be expanding/animating — a single delayed request
     // can fail silently and leave the content Box (which is focusable) to
     // reclaim focus, undoing the transfer.
+    //
+    // When focusOnSidebar is false we deliberately do nothing: the active
+    // screen seeds its own content focus via its isVisible effect, so we
+    // must not fight it by re-requesting the content box.
     LaunchedEffect(appState.focusOnSidebar, appState.selectedTab) {
+        if (!appState.focusOnSidebar) return@LaunchedEffect
+        val target = sidebarFocusRequesters.getOrNull(appState.selectedTab) ?: return@LaunchedEffect
+        // requestFocus() throws IllegalStateException only when the node
+        // isn't attached yet — retry until it stops throwing. Keep issuing
+        // requests across all attempts so a silent miss still lands.
         repeat(6) { attempt ->
             delay(50L * (attempt + 1))
-            val target: FocusRequester? = if (appState.focusOnSidebar) {
-                sidebarFocusRequesters.getOrNull(appState.selectedTab)
-            } else {
-                contentFocusRequester
-            }
-            if (target == null) return@LaunchedEffect
-            // requestFocus() throws IllegalStateException only when the node
-            // isn't attached yet — retry until it stops throwing.
-            val ok = runCatching { target.requestFocus(); true }.getOrDefault(false)
-            if (ok) return@LaunchedEffect
+            runCatching { target.requestFocus() }
         }
     }
 
