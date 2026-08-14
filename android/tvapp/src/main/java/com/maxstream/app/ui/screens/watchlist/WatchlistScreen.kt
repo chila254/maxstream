@@ -131,17 +131,19 @@ fun WatchlistScreen(
 
     // Seed focus when the tab becomes visible, or re-seed when focus returns
     // from the sidebar (focusKey bump). Restores the grid if a card was
-    // focused, otherwise the selected tab chip.
+    // focused, otherwise the selected tab chip. First attempt is immediate.
     LaunchedEffect(isVisible, loading, focusKey) {
         if (!isVisible || loading) return@LaunchedEffect
         if (gridNav.activeGridId == GRID_ID && filtered.isNotEmpty()) {
             gridNav.focusFirstCard(GRID_ID, null, scope)
             return@LaunchedEffect
         }
-        repeat(6) { attempt ->
-            delay(50L * (attempt + 1))
+        var attempt = 0
+        while (attempt < 6) {
+            if (attempt > 0) delay(50L * attempt)
             val ok = runCatching { tabFocusRequesters[selectedTab].requestFocus() }
             if (ok.isSuccess) return@LaunchedEffect
+            attempt++
         }
     }
 
@@ -184,72 +186,84 @@ fun WatchlistScreen(
     )
 
     Box(modifier = Modifier.fillMaxSize().background(Background)) {
-        when {
-            loading -> CircularProgressIndicator(
-                color = Primary,
-                modifier = Modifier.align(Alignment.Center),
+        // Header + tab chips are ALWAYS composed (matches Dart) so the tabs
+        // stay reachable even when the list is empty or loading.
+        Column(modifier = Modifier.fillMaxSize()) {
+            Text(
+                text = "My Watchlist",
+                color = Color.White,
+                fontSize = 28.sp,
+                fontWeight = FontWeight.ExtraBold,
+                modifier = Modifier
+                    .padding(top = 48.dp)
+                    .padding(horizontal = 48.dp),
             )
 
-            error != null -> Text(
-                text = "Error: $error",
-                color = Color(0xFFCF6679),
-                modifier = Modifier.align(Alignment.Center),
-            )
+            Spacer(Modifier.height(20.dp))
 
-            watchlist.isEmpty() -> Column(
-                modifier = Modifier.align(Alignment.Center),
-                horizontalAlignment = Alignment.CenterHorizontally,
+            // ── Tab chips ─────────────────────────────────────────────
+            Row(
+                modifier = Modifier.padding(horizontal = 48.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text("Your watchlist is empty", color = Color.White, fontSize = 18.sp)
-                Spacer(Modifier.height(16.dp))
-                Text(
-                    "Browse content to add items",
-                    color = Color.White.copy(alpha = 0.5f),
-                    fontSize = 14.sp,
-                )
+                TABS.forEachIndexed { index, label ->
+                    WatchlistTabChip(
+                        label = label,
+                        isSelected = index == selectedTab,
+                        focusRequester = tabFocusRequesters[index],
+                        onSelect = { selectedTab = index },
+                        onKeyEvent = { onTabKey(index, it) },
+                    )
+                }
             }
 
-            else -> Column(modifier = Modifier.fillMaxSize()) {
-                // ── Header ────────────────────────────────────────────────
-                Text(
-                    text = "My Watchlist",
-                    color = Color.White,
-                    fontSize = 28.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    modifier = Modifier
-                        .padding(top = 48.dp)
-                        .padding(horizontal = 48.dp),
-                )
+            Spacer(Modifier.height(24.dp))
 
-                Spacer(Modifier.height(20.dp))
-
-                // ── Tab chips ─────────────────────────────────────────────
-                Row(
-                    modifier = Modifier.padding(horizontal = 48.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+            // ── Content ───────────────────────────────────────────────
+            when {
+                loading -> Box(
+                    Modifier.fillMaxWidth().weight(1f),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    TABS.forEachIndexed { index, label ->
-                        WatchlistTabChip(
-                            label = label,
-                            isSelected = index == selectedTab,
-                            focusRequester = tabFocusRequesters[index],
-                            onSelect = { selectedTab = index },
-                            onKeyEvent = { onTabKey(index, it) },
+                    CircularProgressIndicator(color = Primary)
+                }
+
+                error != null -> Box(
+                    Modifier.fillMaxWidth().weight(1f),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "Error: $error",
+                        color = Color(0xFFCF6679),
+                    )
+                }
+
+                watchlist.isEmpty() -> Box(
+                    Modifier.fillMaxWidth().weight(1f),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("Your watchlist is empty", color = Color.White, fontSize = 18.sp)
+                        Spacer(Modifier.height(16.dp))
+                        Text(
+                            "Browse content to add items",
+                            color = Color.White.copy(alpha = 0.5f),
+                            fontSize = 14.sp,
                         )
                     }
                 }
 
-                Spacer(Modifier.height(24.dp))
+                filtered.isEmpty() -> Box(
+                    Modifier.fillMaxWidth().weight(1f),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "No items in this category",
+                        color = Color.White.copy(alpha = 0.6f),
+                    )
+                }
 
-                // ── Content ───────────────────────────────────────────────
-                if (filtered.isEmpty()) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(
-                            text = "No items in this category",
-                            color = Color.White.copy(alpha = 0.6f),
-                        )
-                    }
-                } else {
+                else -> {
                     var focusedIndex by remember { mutableIntStateOf(-1) }
 
                     LazyVerticalGrid(

@@ -9,6 +9,7 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -42,6 +43,10 @@ class GridNavState(private val columns: Int) {
     private val requesters = mutableMapOf<String, FocusRequester>()
     private val gridStates = mutableMapOf<String, LazyGridState>()
     private val savedIndices = mutableMapOf<String, Int>()
+
+    /** In-flight focus move. Cancelled before every new move so rapid D-pad
+     *  presses never queue up stale scroll+focus jobs that fight each other. */
+    private var focusJob: Job? = null
 
     /** Ordered list of grid sections currently visible (top to bottom). */
     var grids: List<GridDesc> = emptyList()
@@ -94,11 +99,25 @@ class GridNavState(private val columns: Int) {
         runCatching { gridStates[gridId]?.animateScrollToItem(index) }
 
         val requester = requester(gridId, index)
-        repeat(6) { attempt ->
-            delay(50L * (attempt + 1))
+        var attempt = 0
+        while (attempt < 6) {
+            if (attempt > 0) delay(50L * attempt)
             val ok = runCatching { requester.requestFocus(); true }.getOrDefault(false)
             if (ok) return
+            attempt++
         }
+    }
+
+    /** Cancels the previous move then starts a new one — keeps navigation
+     *  snappy and prevents stale focus requests from stealing focus back. */
+    fun moveTo(
+        gridId: String,
+        index: Int,
+        outerListState: LazyListState?,
+        scope: CoroutineScope,
+    ) {
+        focusJob?.cancel()
+        focusJob = scope.launch { focusCard(gridId, index, outerListState) }
     }
 
     /**
@@ -126,13 +145,13 @@ class GridNavState(private val columns: Int) {
 
             Key.DirectionLeft -> {
                 if (column == 0) onReturnToKeyboard()
-                else scope.launch { focusCard(gridId, index - 1, outerListState) }
+                else moveTo(gridId, index - 1, outerListState, scope)
                 true
             }
 
             Key.DirectionRight -> {
                 if (column < columns - 1 && index + 1 < desc.count) {
-                    scope.launch { focusCard(gridId, index + 1, outerListState) }
+                    moveTo(gridId, index + 1, outerListState, scope)
                 }
                 true
             }
@@ -141,14 +160,12 @@ class GridNavState(private val columns: Int) {
                 if (row == 0) {
                     if (gridIndex > 0) {
                         val target = grids[gridIndex - 1]
-                        scope.launch {
-                            focusCard(target.id, column.coerceAtMost(target.count - 1), outerListState)
-                        }
+                        moveTo(target.id, column.coerceAtMost(target.count - 1), outerListState, scope)
                     } else {
                         onReturnToKeyboard()
                     }
                 } else {
-                    scope.launch { focusCard(gridId, index - columns, outerListState) }
+                    moveTo(gridId, index - columns, outerListState, scope)
                 }
                 true
             }
@@ -156,12 +173,10 @@ class GridNavState(private val columns: Int) {
             Key.DirectionDown -> {
                 val nextRowStart = (row + 1) * columns
                 if (nextRowStart < desc.count) {
-                    scope.launch {
-                        focusCard(gridId, (nextRowStart + column).coerceIn(nextRowStart, desc.count - 1), outerListState)
-                    }
+                    moveTo(gridId, (nextRowStart + column).coerceIn(nextRowStart, desc.count - 1), outerListState, scope)
                 } else if (gridIndex < grids.lastIndex) {
                     val target = grids[gridIndex + 1]
-                    scope.launch { focusCard(target.id, column.coerceAtMost(target.count - 1), outerListState) }
+                    moveTo(target.id, column.coerceAtMost(target.count - 1), outerListState, scope)
                 }
                 true
             }
@@ -172,7 +187,7 @@ class GridNavState(private val columns: Int) {
 
     /** Moves focus to the first grid's previously focused card (keyboard → results). */
     fun focusFirstCard(gridId: String, outerListState: LazyListState?, scope: CoroutineScope) {
-        scope.launch { focusCard(gridId, focusedIndex(gridId), outerListState) }
+        moveTo(gridId, focusedIndex(gridId), outerListState, scope)
     }
 
     /** Drops requesters for grids that no longer exist. */

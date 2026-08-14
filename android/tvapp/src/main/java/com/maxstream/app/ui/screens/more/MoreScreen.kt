@@ -113,10 +113,12 @@ fun MoreScreen(
     LaunchedEffect(isVisible, focusKey) {
         if (!isVisible) return@LaunchedEffect
         val index = focusedIndex.coerceIn(0, MENU_ITEMS.lastIndex)
-        repeat(6) { attempt ->
-            delay(50L * (attempt + 1))
+        var attempt = 0
+        while (attempt < 6) {
+            if (attempt > 0) delay(50L * attempt)
             val ok = runCatching { focusRequesters[index].requestFocus() }
             if (ok.isSuccess) return@LaunchedEffect
+            attempt++
         }
     }
 

@@ -113,6 +113,7 @@ fun GenreScreen(
     var generation by remember { mutableIntStateOf(0) }
     var pendingEnterGrid by remember { mutableStateOf(false) }
     var sectionFocus by remember { mutableIntStateOf(0) }
+    var navJob by remember { mutableStateOf<Job?>(null) }
 
     // ── Focus requesters ────────────────────────────────────────────────────
     val typeFocusRequesters = remember { mutableMapOf<String, FocusRequester>() }
@@ -153,35 +154,42 @@ fun GenreScreen(
     }
 
     // ── Focus helpers ────────────────────────────────────────────────────────
-    suspend fun focusWithRetry(requester: FocusRequester?) {
-        val r = requester ?: return
-        repeat(6) { attempt ->
-            delay(50L * (attempt + 1))
-            val ok = runCatching { r.requestFocus(); true }.getOrDefault(false)
-            if (ok) return
+    // Retries focus attempts. The requester is looked up fresh on every
+    // attempt via [provider] so it picks up nodes that are only created once
+    // a lazy item has been composed (e.g. a grid card after scrolling).
+    // First attempt is immediate; later attempts back off 50/150/300/…ms.
+    suspend fun focusWithRetry(provider: () -> FocusRequester?) {
+        var attempt = 0
+        while (attempt < 6) {
+            if (attempt > 0) delay(50L * attempt)
+            val r = provider()
+            if (r != null) {
+                val ok = runCatching { r.requestFocus(); true }.getOrDefault(false)
+                if (ok) return
+            }
+            attempt++
         }
     }
 
-    fun requestFocus(requester: FocusRequester?) {
-        scope.launch { focusWithRetry(requester) }
+    fun requestFocus(provider: () -> FocusRequester?) {
+        navJob?.cancel()
+        navJob = scope.launch { focusWithRetry(provider) }
     }
 
     fun focusType(source: String) {
         sectionFocus = 0
         focusedType = source
-        requestFocus(typeFocusRequesters[source])
+        requestFocus { typeFocusRequesters[source] }
     }
 
     fun focusGenreChip(index: Int) {
-        if (genres.isEmpty()) {
-            focusType(selectedType)
-            return
-        }
+        if (genres.isEmpty()) return
         val target = index.coerceIn(0, genres.lastIndex)
         sectionFocus = 1
-        scope.launch {
+        navJob?.cancel()
+        navJob = scope.launch {
             runCatching { genreListState.animateScrollToItem(target) }
-            focusWithRetry(genreFocusRequesters[genres[target].key])
+            focusWithRetry { genreFocusRequesters[genres.getOrNull(target)?.key] }
         }
     }
 
@@ -190,9 +198,10 @@ fun GenreScreen(
         val target = index.coerceIn(0, items.lastIndex)
         sectionFocus = 2
         focusedCard = target
-        scope.launch {
+        navJob?.cancel()
+        navJob = scope.launch {
             runCatching { gridState.animateScrollToItem(target) }
-            focusWithRetry(cardFocusRequesters[cardKey(items[target])])
+            focusWithRetry { items.getOrNull(target)?.let { cardFocusRequesters[cardKey(it)] } }
         }
         if (target >= items.size - COLUMNS * 2) loadMore()
     }
@@ -304,7 +313,7 @@ fun GenreScreen(
                 loadingGenres = false
                 loadingContent = false
                 genreError = "Genres could not be loaded."
-                requestFocus(typeFocusRequesters[source])
+                requestFocus { typeFocusRequesters[source] }
             }
         }
     }
@@ -326,7 +335,7 @@ fun GenreScreen(
                 val delta = if (event.key == Key.DirectionUp) -1 else 1
                 val next = (index + delta).coerceIn(0, TYPE_OPTIONS.lastIndex)
                 focusedType = TYPE_OPTIONS[next].first
-                requestFocus(typeFocusRequesters[TYPE_OPTIONS[next].first])
+                requestFocus { typeFocusRequesters[TYPE_OPTIONS[next].first] }
                 true
             }
             Key.DirectionRight, Key.DirectionCenter, Key.Enter -> {
