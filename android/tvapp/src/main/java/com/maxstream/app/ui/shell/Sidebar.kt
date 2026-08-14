@@ -247,6 +247,15 @@ private fun SidebarPillItem(
         label = "pillScale",
     )
 
+    // Animated pill width — mirrors Dart's AnimatedContainer (196 ↔ 56 dp,
+    // 200ms easeOutCubic). Padding stays constant (12dp) so only the pill
+    // width and the inner label slide.
+    val pillWidth by animateDpAsState(
+        targetValue = if (isExpanded) 196.dp else 56.dp,
+        animationSpec = tween(200, easing = FastOutSlowInEasing),
+        label = "pillWidth",
+    )
+
     val bgColor = when {
         isSelected -> Color(0x38FFFFFF)
         isFocused  -> Color(0x14FFFFFF)
@@ -260,6 +269,7 @@ private fun SidebarPillItem(
     Row(
         modifier = Modifier
             .scale(scale)
+            .width(pillWidth)
             .clip(RoundedCornerShape(28.dp))
             .background(bgColor)
             .border(
@@ -290,10 +300,7 @@ private fun SidebarPillItem(
                 }
             }
             .clickable { runCatching { onSelect() } }
-            .padding(
-                horizontal = if (isExpanded) 12.dp else 0.dp,
-                vertical = 10.dp,
-            ),
+            .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = if (isExpanded) Arrangement.Start else Arrangement.Center,
     ) {

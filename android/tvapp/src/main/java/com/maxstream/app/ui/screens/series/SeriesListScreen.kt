@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
@@ -62,6 +63,8 @@ import com.maxstream.app.data.model.MediaItem
 import com.maxstream.app.ui.components.ContentCard
 import com.maxstream.app.ui.navigation.Screen
 import com.maxstream.app.ui.theme.Background
+import com.maxstream.app.ui.tv.RowDesc
+import com.maxstream.app.ui.tv.RowNavState
 import com.maxstream.app.ui.viewmodel.HomeViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -93,8 +96,22 @@ fun SeriesListScreen(
 
     val playFocusRequester    = remember { FocusRequester() }
     val detailsFocusRequester = remember { FocusRequester() }
-    val firstRowFocusRequester = remember { FocusRequester() }
     val coroutineScope = rememberCoroutineScope()
+
+    // D-pad navigation across the content rows (shared with every SeriesContentRow).
+    val outerListState = rememberLazyListState()
+    val rowNav = remember { RowNavState() }
+
+    // Ordered list of visible rows — must mirror the LazyColumn item order.
+    val rows = remember(trendingSeries, popularSeries, topRatedSeries) {
+        buildList {
+            if (trendingSeries.isNotEmpty()) add(RowDesc("series:Trending", trendingSeries.size.coerceAtMost(15)))
+            if (popularSeries.isNotEmpty()) add(RowDesc("series:Popular", popularSeries.size.coerceAtMost(15)))
+            if (topRatedSeries.isNotEmpty()) add(RowDesc("series:Top Rated", topRatedSeries.size.coerceAtMost(15)))
+        }
+    }
+    rowNav.setRows(rows)
+    rowNav.clearMissingRows()
 
     // Seed hero from first trending series item
     LaunchedEffect(trendingSeries) {
@@ -121,6 +138,10 @@ fun SeriesListScreen(
             val ok = runCatching { playFocusRequester.requestFocus() }
             if (ok.isSuccess) return@LaunchedEffect
         }
+    }
+
+    fun heroDown() {
+        rowNav.focusFirstRow(outerListState, coroutineScope)
     }
 
     Box(
@@ -157,9 +178,7 @@ fun SeriesListScreen(
                             navController.navigate(Screen.Series.createRoute(item.id.toString()))
                         },
                         onReturnToSidebar = onReturnToSidebar,
-                        onArrowDown = {
-                            coroutineScope.launch { firstRowFocusRequester.requestFocus() }
-                        },
+                        onArrowDown = { heroDown() },
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
@@ -173,7 +192,7 @@ fun SeriesListScreen(
                 ) {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
-                        state = rememberLazyListState(),
+                        state = outerListState,
                         contentPadding = PaddingValues(bottom = 56.dp),
                         userScrollEnabled = false,
                     ) {
@@ -183,9 +202,12 @@ fun SeriesListScreen(
                                     title = "Trending TV Shows",
                                     items = trendingSeries.take(15),
                                     navController = navController,
-                                    rowFocusRequester = firstRowFocusRequester,
+                                    rowId = "series:Trending",
+                                    rowNav = rowNav,
+                                    rows = rows,
+                                    outerListState = outerListState,
                                     onItemFocus = { pendingHeroItem = it },
-                                    onArrowUp = { playFocusRequester.requestFocus() },
+                                    onUpToHero = { runCatching { playFocusRequester.requestFocus() } },
                                     onReturnToSidebar = onReturnToSidebar,
                                     modifier = Modifier.padding(top = 20.dp),
                                 )
@@ -197,9 +219,12 @@ fun SeriesListScreen(
                                     title = "Popular TV Shows",
                                     items = popularSeries.take(15),
                                     navController = navController,
-                                    rowFocusRequester = remember { FocusRequester() },
+                                    rowId = "series:Popular",
+                                    rowNav = rowNav,
+                                    rows = rows,
+                                    outerListState = outerListState,
                                     onItemFocus = { pendingHeroItem = it },
-                                    onArrowUp = { playFocusRequester.requestFocus() },
+                                    onUpToHero = { runCatching { playFocusRequester.requestFocus() } },
                                     onReturnToSidebar = onReturnToSidebar,
                                     modifier = Modifier.padding(top = 20.dp),
                                 )
@@ -211,9 +236,12 @@ fun SeriesListScreen(
                                     title = "Top Rated TV Shows",
                                     items = topRatedSeries.take(15),
                                     navController = navController,
-                                    rowFocusRequester = remember { FocusRequester() },
+                                    rowId = "series:Top Rated",
+                                    rowNav = rowNav,
+                                    rows = rows,
+                                    outerListState = outerListState,
                                     onItemFocus = { pendingHeroItem = it },
-                                    onArrowUp = { playFocusRequester.requestFocus() },
+                                    onUpToHero = { runCatching { playFocusRequester.requestFocus() } },
                                     onReturnToSidebar = onReturnToSidebar,
                                     modifier = Modifier.padding(top = 20.dp),
                                 )
@@ -353,6 +381,7 @@ private fun SeriesHeroSection(
                                 when (event.key) {
                                     Key.DirectionLeft  -> { onReturnToSidebar(); true }
                                     Key.DirectionRight -> { runCatching { detailsFocusRequester.requestFocus() }; true }
+                                    Key.DirectionUp    -> true
                                     Key.DirectionDown  -> { onArrowDown(); true }
                                     else -> false
                                 }
@@ -377,8 +406,10 @@ private fun SeriesHeroSection(
                             .onKeyEvent { event ->
                                 if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
                                 when (event.key) {
-                                    Key.DirectionLeft -> { runCatching { playFocusRequester.requestFocus() }; true }
-                                    Key.DirectionDown -> { onArrowDown(); true }
+                                    Key.DirectionLeft  -> { runCatching { playFocusRequester.requestFocus() }; true }
+                                    Key.DirectionRight -> true
+                                    Key.DirectionUp    -> true
+                                    Key.DirectionDown  -> { onArrowDown(); true }
                                     else -> false
                                 }
                             },
@@ -406,15 +437,23 @@ private fun SeriesContentRow(
     title: String,
     items: List<MediaItem>,
     navController: NavController,
-    rowFocusRequester: FocusRequester,
+    rowId: String,
+    rowNav: RowNavState,
+    rows: List<RowDesc>,
+    outerListState: LazyListState,
     onItemFocus: (MediaItem) -> Unit = {},
-    onArrowUp: () -> Unit = {},
+    onUpToHero: () -> Unit = {},
     onReturnToSidebar: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val coroutineScope = rememberCoroutineScope()
     val rowListState = rememberLazyListState()
     var focusedItemIndex by remember { mutableIntStateOf(-1) }
+
+    // Register this row's horizontal scroll state with the shared navigator.
+    LaunchedEffect(rowId, rowListState) {
+        rowNav.registerRow(rowId, rowListState)
+    }
 
     Column(modifier = modifier.padding(horizontal = 48.dp)) {
         androidx.compose.material3.Text(
@@ -428,23 +467,10 @@ private fun SeriesContentRow(
             state = rowListState,
             contentPadding = PaddingValues(vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
-            modifier = Modifier
-                .focusRequester(rowFocusRequester)
-                .onKeyEvent { event ->
-                    if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
-                    when (event.key) {
-                        Key.DirectionLeft -> {
-                            if (focusedItemIndex <= 0) { onReturnToSidebar(); true }
-                            else false
-                        }
-                        Key.DirectionUp -> { coroutineScope.launch { onArrowUp() }; true }
-                        else -> false
-                    }
-                },
         ) {
             items(
                 count = items.size,
-                key   = { index -> "series:${title.hashCode()}:$index" },
+                key   = { index -> "$rowId:$index" },
             ) { index ->
                 val item = items[index]
                 ContentCard(
@@ -470,6 +496,17 @@ private fun SeriesContentRow(
                                 )
                             }
                         } else if (focusedItemIndex == index) focusedItemIndex = -1
+                    },
+                    onKeyEvent = { event ->
+                        rowNav.onCardKey(
+                            rowId = rowId,
+                            index = index,
+                            event = event,
+                            outerListState = outerListState,
+                            scope = coroutineScope,
+                            onUpToHero = onUpToHero,
+                            onReturnToSidebar = onReturnToSidebar,
+                        )
                     },
                     modifier = Modifier.height(190.dp),
                 )

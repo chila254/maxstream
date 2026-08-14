@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
@@ -63,6 +64,8 @@ import com.maxstream.app.data.model.MediaItem
 import com.maxstream.app.ui.components.ContentCard
 import com.maxstream.app.ui.navigation.Screen
 import com.maxstream.app.ui.theme.Background
+import com.maxstream.app.ui.tv.RowDesc
+import com.maxstream.app.ui.tv.RowNavState
 import com.maxstream.app.ui.viewmodel.HomeViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -87,13 +90,31 @@ fun HomeScreen(
     var heroItem   by remember { mutableStateOf<MediaItem?>(null) }
     var heroType   by remember { mutableStateOf("movie") }
     var heroResume by remember { mutableStateOf(false) }
+    var pendingHeroItem by remember { mutableStateOf<MediaItem?>(null) }
+    var pendingHeroResume by remember { mutableStateOf(false) }
     var isEntryVisible by remember { mutableStateOf(false) }
 
-    // Focus requesters for the hero buttons and the first content row
+    // Focus requesters for the hero buttons
     val playFocusRequester    = remember { FocusRequester() }
     val detailsFocusRequester = remember { FocusRequester() }
-    val firstRowFocusRequester = remember { FocusRequester() }
     val coroutineScope = rememberCoroutineScope()
+
+    // D-pad navigation across the content rows (shared with every ContentRow).
+    val outerListState = rememberLazyListState()
+    val rowNav = remember { RowNavState() }
+
+    // Ordered list of visible rows — must mirror the LazyColumn item order.
+    val rows = remember(continueWatching, trendingMovies, trendingSeries, popularMovies, topRatedMovies) {
+        buildList {
+            if (continueWatching.isNotEmpty()) add(RowDesc("home:Continue Watching", continueWatching.size))
+            if (trendingMovies.isNotEmpty()) add(RowDesc("home:Trending Movies", trendingMovies.size.coerceAtMost(15)))
+            if (trendingSeries.isNotEmpty()) add(RowDesc("home:Trending Series", trendingSeries.size.coerceAtMost(15)))
+            if (popularMovies.isNotEmpty()) add(RowDesc("home:Popular Movies", popularMovies.size.coerceAtMost(15)))
+            if (topRatedMovies.isNotEmpty()) add(RowDesc("home:Top Rated", topRatedMovies.size.coerceAtMost(15)))
+        }
+    }
+    rowNav.setRows(rows)
+    rowNav.clearMissingRows()
 
     // Seed hero item once data loads
     LaunchedEffect(trendingMovies) {
@@ -102,6 +123,19 @@ fun HomeScreen(
             heroType = "movie"
             heroResume = false
         }
+    }
+
+    // Hero debounce — mirrors Dart's Timer(400ms) _queueHero pattern.
+    LaunchedEffect(pendingHeroItem, pendingHeroResume) {
+        val item = pendingHeroItem ?: return@LaunchedEffect
+        delay(400)
+        heroItem = item
+        heroResume = pendingHeroResume
+        heroType = if (item.mediaType == "tv") "series" else "movie"
+    }
+
+    fun heroDown() {
+        rowNav.focusFirstRow(outerListState, coroutineScope)
     }
 
     // Entry animation + initial focus seed.
@@ -160,9 +194,7 @@ fun HomeScreen(
                             }
                         },
                         onReturnToSidebar = onReturnToSidebar,
-                        onArrowDown = {
-                            coroutineScope.launch { firstRowFocusRequester.requestFocus() }
-                        },
+                        onArrowDown = { heroDown() },
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
@@ -186,15 +218,17 @@ fun HomeScreen(
                                     title = stringResource(R.string.continue_watching),
                                     items = continueWatching,
                                     navController = navController,
-                                    rowFocusRequester = firstRowFocusRequester,
+                                    rowId = "home:Continue Watching",
+                                    rowNav = rowNav,
+                                    rows = rows,
+                                    outerListState = outerListState,
                                     showProgress = true,
                                     resumeOnSelect = true,
                                     onItemFocus = { mediaItem ->
-                                        heroItem = mediaItem
-                                        heroType = if (mediaItem.mediaType == "tv") "series" else "movie"
-                                        heroResume = true
+                                        pendingHeroItem = mediaItem
+                                        pendingHeroResume = true
                                     },
-                                    onArrowUp = { playFocusRequester.requestFocus() },
+                                    onUpToHero = { runCatching { playFocusRequester.requestFocus() } },
                                     onReturnToSidebar = onReturnToSidebar,
                                     modifier = Modifier.padding(top = 20.dp),
                                 )
@@ -207,12 +241,15 @@ fun HomeScreen(
                                     title = stringResource(R.string.trending_movies),
                                     items = trendingMovies.take(15),
                                     navController = navController,
-                                    rowFocusRequester = if (continueWatching.isEmpty()) firstRowFocusRequester
-                                                        else remember { FocusRequester() },
+                                    rowId = "home:Trending Movies",
+                                    rowNav = rowNav,
+                                    rows = rows,
+                                    outerListState = outerListState,
                                     onItemFocus = { mediaItem ->
-                                        heroItem = mediaItem; heroType = "movie"; heroResume = false
+                                        pendingHeroItem = mediaItem
+                                        pendingHeroResume = false
                                     },
-                                    onArrowUp = { playFocusRequester.requestFocus() },
+                                    onUpToHero = { runCatching { playFocusRequester.requestFocus() } },
                                     onReturnToSidebar = onReturnToSidebar,
                                     modifier = Modifier.padding(top = 20.dp),
                                 )
@@ -225,11 +262,15 @@ fun HomeScreen(
                                     title = stringResource(R.string.trending_series),
                                     items = trendingSeries.take(15),
                                     navController = navController,
-                                    rowFocusRequester = remember { FocusRequester() },
+                                    rowId = "home:Trending Series",
+                                    rowNav = rowNav,
+                                    rows = rows,
+                                    outerListState = outerListState,
                                     onItemFocus = { mediaItem ->
-                                        heroItem = mediaItem; heroType = "series"; heroResume = false
+                                        pendingHeroItem = mediaItem
+                                        pendingHeroResume = false
                                     },
-                                    onArrowUp = { playFocusRequester.requestFocus() },
+                                    onUpToHero = { runCatching { playFocusRequester.requestFocus() } },
                                     onReturnToSidebar = onReturnToSidebar,
                                     modifier = Modifier.padding(top = 20.dp),
                                 )
@@ -242,11 +283,15 @@ fun HomeScreen(
                                     title = stringResource(R.string.popular_movies),
                                     items = popularMovies.take(15),
                                     navController = navController,
-                                    rowFocusRequester = remember { FocusRequester() },
+                                    rowId = "home:Popular Movies",
+                                    rowNav = rowNav,
+                                    rows = rows,
+                                    outerListState = outerListState,
                                     onItemFocus = { mediaItem ->
-                                        heroItem = mediaItem; heroType = "movie"; heroResume = false
+                                        pendingHeroItem = mediaItem
+                                        pendingHeroResume = false
                                     },
-                                    onArrowUp = { playFocusRequester.requestFocus() },
+                                    onUpToHero = { runCatching { playFocusRequester.requestFocus() } },
                                     onReturnToSidebar = onReturnToSidebar,
                                     modifier = Modifier.padding(top = 20.dp),
                                 )
@@ -259,11 +304,15 @@ fun HomeScreen(
                                     title = stringResource(R.string.top_rated),
                                     items = topRatedMovies.take(15),
                                     navController = navController,
-                                    rowFocusRequester = remember { FocusRequester() },
+                                    rowId = "home:Top Rated",
+                                    rowNav = rowNav,
+                                    rows = rows,
+                                    outerListState = outerListState,
                                     onItemFocus = { mediaItem ->
-                                        heroItem = mediaItem; heroType = "movie"; heroResume = false
+                                        pendingHeroItem = mediaItem
+                                        pendingHeroResume = false
                                     },
-                                    onArrowUp = { playFocusRequester.requestFocus() },
+                                    onUpToHero = { runCatching { playFocusRequester.requestFocus() } },
                                     onReturnToSidebar = onReturnToSidebar,
                                     modifier = Modifier.padding(top = 20.dp),
                                 )
@@ -400,6 +449,7 @@ private fun HeroSection(
                                 when (event.key) {
                                     Key.DirectionLeft  -> { onReturnToSidebar(); true }
                                     Key.DirectionRight -> { runCatching { detailsFocusRequester.requestFocus() }; true }
+                                    Key.DirectionUp    -> true
                                     Key.DirectionDown  -> { onArrowDown(); true }
                                     else -> false
                                 }
@@ -428,6 +478,8 @@ private fun HeroSection(
                                 if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
                                 when (event.key) {
                                     Key.DirectionLeft  -> { runCatching { playFocusRequester.requestFocus() }; true }
+                                    Key.DirectionRight -> true
+                                    Key.DirectionUp    -> true
                                     Key.DirectionDown  -> { onArrowDown(); true }
                                     else -> false
                                 }
@@ -456,17 +508,27 @@ private fun ContentRow(
     title: String,
     items: List<MediaItem>,
     navController: NavController,
-    rowFocusRequester: FocusRequester,
+    rowId: String,
+    rowNav: RowNavState,
+    rows: List<RowDesc>,
+    outerListState: LazyListState,
     showProgress: Boolean = false,
     resumeOnSelect: Boolean = false,
     onItemFocus: (MediaItem) -> Unit = {},
-    onArrowUp: () -> Unit = {},
+    onUpToHero: () -> Unit = {},
     onReturnToSidebar: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val coroutineScope = rememberCoroutineScope()
+    val rowListState = rememberLazyListState()
     // Track which card is focused within THIS row
     var focusedItemIndex by remember { mutableIntStateOf(-1) }
+
+    // Register the row's horizontal scroll state with the shared navigator so
+    // cross-row moves can scroll this row into view before focusing a card.
+    LaunchedEffect(rowId, rowListState) {
+        rowNav.registerRow(rowId, rowListState)
+    }
 
     Column(modifier = modifier.padding(horizontal = 48.dp)) {
         androidx.compose.material3.Text(
@@ -478,30 +540,13 @@ private fun ContentRow(
         )
 
         LazyRow(
-            state = rememberLazyListState(),
+            state = rowListState,
             contentPadding = PaddingValues(vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
-            modifier = Modifier
-                .focusRequester(rowFocusRequester)
-                // Row-level key handler: ← on first item → sidebar, ↑ → hero
-                .onKeyEvent { event ->
-                    if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
-                    when (event.key) {
-                        Key.DirectionLeft -> {
-                            if (focusedItemIndex <= 0) { onReturnToSidebar(); true }
-                            else false // let normal focus traversal handle it
-                        }
-                        Key.DirectionUp -> {
-                            coroutineScope.launch { onArrowUp() }
-                            true
-                        }
-                        else -> false
-                    }
-                },
         ) {
             items(
                 count = items.size,
-                key = { index -> "${title.hashCode()}_$index" },
+                key = { index -> "$rowId:$index" },
             ) { index ->
                 val item = items[index]
                 val isSeries = item.mediaType == "tv"
@@ -539,6 +584,17 @@ private fun ContentRow(
                         } else {
                             if (focusedItemIndex == index) focusedItemIndex = -1
                         }
+                    },
+                    onKeyEvent = { event ->
+                        rowNav.onCardKey(
+                            rowId = rowId,
+                            index = index,
+                            event = event,
+                            outerListState = outerListState,
+                            scope = coroutineScope,
+                            onUpToHero = onUpToHero,
+                            onReturnToSidebar = onReturnToSidebar,
+                        )
                     },
                     modifier = Modifier.height(190.dp),
                 )

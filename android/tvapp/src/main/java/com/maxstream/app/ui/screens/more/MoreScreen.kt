@@ -1,5 +1,7 @@
 package com.maxstream.app.ui.screens.more
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -20,8 +22,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -52,6 +58,7 @@ import com.maxstream.app.R
 import com.maxstream.app.data.local.SessionManager
 import com.maxstream.app.ui.navigation.Screen
 import com.maxstream.app.ui.theme.Background
+import kotlinx.coroutines.delay
 
 private data class MoreMenuItem(val label: String, val isDestructive: Boolean = false)
 
@@ -61,6 +68,17 @@ private val MENU_ITEMS = listOf(
     MoreMenuItem("Join Community"),
     MoreMenuItem("Sign Out", isDestructive = true),
 )
+
+private const val COMMUNITY_URL = "https://t.me/maxstream254"
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MoreScreen (Tab 6)
+//
+// Mirrors Dart TvMoreScreen:
+//  - Help & Support / About MaxStream → AlertDialogs
+//  - Join Community → external browser (t.me/maxstream254)
+//  - Sign Out → confirmation dialog, then SessionManager.signOut + onSignOut()
+// ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
 fun MoreScreen(
@@ -72,6 +90,10 @@ fun MoreScreen(
     val context = LocalContext.current
     var userName  by remember { mutableStateOf("MaxStream User") }
     var userEmail by remember { mutableStateOf("") }
+
+    var showHelpDialog     by remember { mutableStateOf(false) }
+    var showAboutDialog    by remember { mutableStateOf(false) }
+    var showSignOutConfirm by remember { mutableStateOf(false) }
 
     // One FocusRequester per menu item so we can navigate and seed focus precisely
     val focusRequesters = remember { List(MENU_ITEMS.size) { FocusRequester() } }
@@ -89,9 +111,23 @@ fun MoreScreen(
     LaunchedEffect(isVisible) {
         if (!isVisible) return@LaunchedEffect
         repeat(6) { attempt ->
-            kotlinx.coroutines.delay(50L * (attempt + 1))
+            delay(50L * (attempt + 1))
             val ok = runCatching { focusRequesters[0].requestFocus() }
             if (ok.isSuccess) return@LaunchedEffect
+        }
+    }
+
+    fun launchCommunity() {
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(COMMUNITY_URL))
+        runCatching { context.startActivity(intent) }
+    }
+
+    fun handleSelect(index: Int) {
+        when (index) {
+            0 -> showHelpDialog = true
+            1 -> showAboutDialog = true
+            2 -> launchCommunity()
+            3 -> showSignOutConfirm = true
         }
     }
 
@@ -155,17 +191,127 @@ fun MoreScreen(
                         if (index < MENU_ITEMS.lastIndex) focusRequesters[index + 1].requestFocus()
                     },
                     onMoveLeft = { onReturnToSidebar() },
-                    onClick = {
-                        when (index) {
-                            3 -> { // Sign Out
-                                SessionManager.signOut(context)
-                                onSignOut()
-                            }
-                        }
+                    onKeyEvent = { event ->
+                        if (event.type == KeyEventType.KeyDown &&
+                            (event.key == Key.Back || event.key == Key.Escape)
+                        ) {
+                            onReturnToSidebar(); true
+                        } else false
                     },
+                    onClick = { handleSelect(index) },
                 )
             }
         }
+    }
+
+    // ── Dialogs ────────────────────────────────────────────────────────────
+    if (showHelpDialog) {
+        AlertDialog(
+            onDismissRequest = { showHelpDialog = false },
+            containerColor   = Color(0xFF1E1E1E),
+            title = {
+                Text(
+                    text = "Help & Support",
+                    color = Color.White,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            },
+            text = {
+                Text(
+                    text = "For help and support, please join our community or contact us through the app.",
+                    color = Color.White.copy(alpha = 0.85f),
+                    fontSize = 18.sp,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { showHelpDialog = false }) {
+                    Text("OK", color = Color(0xFFE50914), fontSize = 18.sp)
+                }
+            },
+        )
+    }
+
+    if (showAboutDialog) {
+        AlertDialog(
+            onDismissRequest = { showAboutDialog = false },
+            containerColor   = Color(0xFF1E1E1E),
+            title = {
+                Text(
+                    text = "About MaxStream",
+                    color = Color.White,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = "MaxStream v1.1.0",
+                        color = Color.White,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        text = "A modern movie and TV discovery app powered by The Movie Database (TMDb).",
+                        color = Color.White.copy(alpha = 0.85f),
+                        fontSize = 16.sp,
+                    )
+                    Text(
+                        text = "Discover, explore, and manage your watchlist with ease.",
+                        color = Color.Gray,
+                        fontSize = 16.sp,
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showAboutDialog = false }) {
+                    Text("OK", color = Color(0xFFE50914), fontSize = 16.sp)
+                }
+            },
+        )
+    }
+
+    if (showSignOutConfirm) {
+        AlertDialog(
+            onDismissRequest = { showSignOutConfirm = false },
+            containerColor   = Color(0xFF1E1E1E),
+            title = {
+                Text(
+                    text = "Sign Out",
+                    color = Color.White,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            },
+            text = {
+                Text(
+                    text = "Are you sure you want to sign out?",
+                    color = Color.White.copy(alpha = 0.85f),
+                    fontSize = 18.sp,
+                )
+            },
+            dismissButton = {
+                TextButton(onClick = { showSignOutConfirm = false }) {
+                    Text("Cancel", color = Color.Gray, fontSize = 18.sp)
+                }
+            },
+            confirmButton = {
+                FilledTonalButton(
+                    onClick = {
+                        showSignOutConfirm = false
+                        SessionManager.signOut(context)
+                        onSignOut()
+                    },
+                    colors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = Color(0xFFE50914),
+                        contentColor   = Color.White,
+                    ),
+                ) {
+                    Text("Sign Out", color = Color.White, fontSize = 18.sp)
+                }
+            },
+        )
     }
 }
 
@@ -179,6 +325,7 @@ private fun MoreMenuRow(
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
     onMoveLeft: () -> Unit,
+    onKeyEvent: (androidx.compose.ui.input.key.KeyEvent) -> Boolean = { false },
     onClick: () -> Unit,
 ) {
     val scale by animateFloatAsState(
@@ -208,7 +355,7 @@ private fun MoreMenuRow(
                     Key.DirectionDown -> { onMoveDown(); true }
                     Key.DirectionLeft -> { onMoveLeft(); true }
                     Key.Enter, Key.DirectionCenter -> { onClick(); true }
-                    else -> false
+                    else -> onKeyEvent(event)
                 }
             }
             .clickable(onClick = onClick)

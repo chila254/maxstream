@@ -10,21 +10,27 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -32,25 +38,47 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import coil.compose.AsyncImage
+import com.maxstream.app.R
 import com.maxstream.app.data.local.WatchlistRepository
 import com.maxstream.app.data.model.MediaItem
-import com.maxstream.app.ui.components.ContentCard
 import com.maxstream.app.ui.navigation.Screen
 import com.maxstream.app.ui.theme.Background
 import com.maxstream.app.ui.theme.Primary
+import com.maxstream.app.ui.tv.GridDesc
+import com.maxstream.app.ui.tv.GridNavState
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 private val TABS = listOf("All", "Movies", "TV Shows")
+private const val COLUMNS = 5
+private const val GRID_ID = "watchlist:grid"
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WatchlistScreen (Tab 5)
+//
+// Matches Dart TvWatchlistScreen:
+//  - Header + tab chips (All / Movies / TV Shows)
+//  - 5-column poster grid
+//  - D-pad: LEFT on first tab → sidebar, DOWN on a tab → grid,
+//           UP/LEFT/ESC from a grid card → tabs, Enter → details
+// ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
 fun WatchlistScreen(
@@ -59,14 +87,16 @@ fun WatchlistScreen(
     isVisible: Boolean = true,
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     var watchlist    by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
     var selectedTab  by remember { mutableIntStateOf(0) }
     var loading      by remember { mutableStateOf(true) }
     var error        by remember { mutableStateOf<String?>(null) }
 
-    // One FocusRequester per tab chip so we can seed the first one
     val tabFocusRequesters = remember { List(TABS.size) { FocusRequester() } }
+    val gridNav = remember { GridNavState(COLUMNS) }
+    val gridState = rememberLazyGridState()
 
     LaunchedEffect(Unit) {
         try {
@@ -78,21 +108,72 @@ fun WatchlistScreen(
         }
     }
 
-    // Seed focus on first tab chip when visible
-    LaunchedEffect(isVisible, loading) {
-        if (!isVisible || loading) return@LaunchedEffect
-        repeat(6) { attempt ->
-            kotlinx.coroutines.delay(50L * (attempt + 1))
-            val ok = runCatching { tabFocusRequesters[0].requestFocus() }
-            if (ok.isSuccess) return@LaunchedEffect
-        }
-    }
-
     val filtered = when (selectedTab) {
         1    -> watchlist.filter { it.mediaType == "movie" }
         2    -> watchlist.filter { it.mediaType == "tv" }
         else -> watchlist
     }
+
+    // Keep the navigator in sync with the visible grid.
+    val grids = remember(filtered.size) {
+        if (filtered.isNotEmpty()) listOf(GridDesc(GRID_ID, filtered.size))
+        else emptyList()
+    }
+    gridNav.setGrids(grids)
+    gridNav.clearMissingGrids()
+    LaunchedEffect(filtered.size) {
+        if (filtered.isNotEmpty()) gridNav.registerGrid(GRID_ID, gridState)
+    }
+    DisposableEffect(Unit) {
+        onDispose { gridNav.unregisterGrid(GRID_ID) }
+    }
+
+    // Seed focus on first tab chip when visible.
+    LaunchedEffect(isVisible, loading) {
+        if (!isVisible || loading) return@LaunchedEffect
+        repeat(6) { attempt ->
+            delay(50L * (attempt + 1))
+            val ok = runCatching { tabFocusRequesters[0].requestFocus() }
+            if (ok.isSuccess) return@LaunchedEffect
+        }
+    }
+
+    fun focusTab(index: Int) {
+        val target = index.coerceIn(0, TABS.lastIndex)
+        runCatching { tabFocusRequesters[target].requestFocus() }
+    }
+
+    fun focusGrid() {
+        if (filtered.isNotEmpty()) gridNav.focusFirstCard(GRID_ID, null, scope)
+    }
+
+    fun onTabKey(index: Int, event: KeyEvent): Boolean {
+        if (event.type != KeyEventType.KeyDown) return false
+        return when (event.key) {
+            Key.DirectionLeft -> {
+                if (index == 0) onReturnToSidebar() else focusTab(index - 1)
+                true
+            }
+            Key.DirectionRight -> {
+                if (index < TABS.lastIndex) focusTab(index + 1)
+                true
+            }
+            Key.DirectionDown -> { focusGrid(); true }
+            Key.Back, Key.Escape -> { onReturnToSidebar(); true }
+            Key.Enter, Key.DirectionCenter -> { selectedTab = index; true }
+            else -> false
+        }
+    }
+
+    fun onCardKey(index: Int, event: KeyEvent): Boolean = gridNav.onCardKey(
+        gridId = GRID_ID,
+        index = index,
+        event = event,
+        outerListState = null,
+        scope = scope,
+        onReturnToKeyboard = { focusTab(selectedTab) },
+        onReturnToSidebar = { focusTab(selectedTab) },
+    )
 
     Box(modifier = Modifier.fillMaxSize().background(Background)) {
         when {
@@ -100,11 +181,13 @@ fun WatchlistScreen(
                 color = Primary,
                 modifier = Modifier.align(Alignment.Center),
             )
+
             error != null -> Text(
                 text = "Error: $error",
                 color = Color(0xFFCF6679),
                 modifier = Modifier.align(Alignment.Center),
             )
+
             watchlist.isEmpty() -> Column(
                 modifier = Modifier.align(Alignment.Center),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -117,6 +200,7 @@ fun WatchlistScreen(
                     fontSize = 14.sp,
                 )
             }
+
             else -> Column(modifier = Modifier.fillMaxSize()) {
                 // ── Header ────────────────────────────────────────────────
                 Text(
@@ -142,13 +226,7 @@ fun WatchlistScreen(
                             isSelected = index == selectedTab,
                             focusRequester = tabFocusRequesters[index],
                             onSelect = { selectedTab = index },
-                            onMoveLeft = {
-                                if (index == 0) onReturnToSidebar()
-                                else tabFocusRequesters[index - 1].requestFocus()
-                            },
-                            onMoveRight = {
-                                if (index < TABS.lastIndex) tabFocusRequesters[index + 1].requestFocus()
-                            },
+                            onKeyEvent = { onTabKey(index, it) },
                         )
                     }
                 }
@@ -158,35 +236,38 @@ fun WatchlistScreen(
                 // ── Content ───────────────────────────────────────────────
                 if (filtered.isEmpty()) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("No items in this category", color = Color.White.copy(alpha = 0.6f))
+                        Text(
+                            text = "No items in this category",
+                            color = Color.White.copy(alpha = 0.6f),
+                        )
                     }
                 } else {
                     var focusedIndex by remember { mutableIntStateOf(-1) }
 
-                    LazyRow(
-                        contentPadding = PaddingValues(horizontal = 48.dp, vertical = 8.dp),
+                    LazyVerticalGrid(
+                        state = gridState,
+                        columns = GridCells.Fixed(COLUMNS),
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(
+                            start = 48.dp, end = 48.dp, bottom = 56.dp
+                        ),
+                        verticalArrangement = Arrangement.spacedBy(14.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .onKeyEvent { event ->
-                                if (event.type == KeyEventType.KeyDown &&
-                                    event.key == Key.DirectionLeft &&
-                                    focusedIndex <= 0) {
-                                    onReturnToSidebar(); true
-                                } else false
-                            },
                     ) {
-                        items(filtered) { item ->
-                            val idx = filtered.indexOf(item)
-                            ContentCard(
-                                posterUrl = item.posterUrl,
-                                title = item.title,
-                                rating = item.voteAverage.takeIf { it > 0 },
-                                isFocused = focusedIndex == idx,
+                        items(
+                            count = filtered.size,
+                            key = { index -> "${filtered[index].mediaType}:${filtered[index].id}" },
+                        ) { index ->
+                            val item = filtered[index]
+                            WatchlistCard(
+                                item = item,
+                                isFocused = focusedIndex == index,
+                                focusRequester = gridNav.requester(GRID_ID, index),
                                 onFocusChanged = { focused ->
-                                    if (focused) focusedIndex = idx
-                                    else if (focusedIndex == idx) focusedIndex = -1
+                                    if (focused) focusedIndex = index
+                                    else if (focusedIndex == index) focusedIndex = -1
                                 },
+                                onKeyEvent = { onCardKey(index, it) },
                                 onClick = {
                                     val route = if (item.mediaType == "tv")
                                         Screen.Series.createRoute(item.id.toString())
@@ -194,7 +275,6 @@ fun WatchlistScreen(
                                         Screen.Details.createRoute(item.id.toString())
                                     navController.navigate(route)
                                 },
-                                modifier = Modifier.height(200.dp),
                             )
                         }
                     }
@@ -210,8 +290,7 @@ private fun WatchlistTabChip(
     isSelected: Boolean,
     focusRequester: FocusRequester,
     onSelect: () -> Unit,
-    onMoveLeft: () -> Unit,
-    onMoveRight: () -> Unit,
+    onKeyEvent: (KeyEvent) -> Boolean,
 ) {
     var isFocused by remember { mutableStateOf(false) }
 
@@ -233,15 +312,7 @@ private fun WatchlistTabChip(
             .focusRequester(focusRequester)
             .focusable()
             .onFocusChanged { state -> isFocused = state.hasFocus }
-            .onKeyEvent { event ->
-                if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
-                when (event.key) {
-                    Key.DirectionLeft  -> { onMoveLeft(); true }
-                    Key.DirectionRight -> { onMoveRight(); true }
-                    Key.Enter, Key.DirectionCenter -> { onSelect(); true }
-                    else -> false
-                }
-            }
+            .onKeyEvent(onKeyEvent)
             .clickable(onClick = onSelect)
             .padding(horizontal = 22.dp, vertical = 10.dp),
         contentAlignment = Alignment.Center,
@@ -252,5 +323,115 @@ private fun WatchlistTabChip(
             fontSize = 15.sp,
             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
         )
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Grid card (poster + rating + type badge) — matches Search/Genre card style
+// ─────────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun WatchlistCard(
+    item: MediaItem,
+    isFocused: Boolean,
+    focusRequester: FocusRequester,
+    onFocusChanged: (Boolean) -> Unit,
+    onKeyEvent: (KeyEvent) -> Boolean,
+    onClick: () -> Unit,
+) {
+    val isSeries = item.mediaType == "tv"
+    val year = item.releaseDate.take(4).toIntOrNull()
+
+    Box(
+        modifier = Modifier
+            .aspectRatio(0.68f)
+            .clip(RoundedCornerShape(10.dp))
+            .background(Color(0xFF1A1A2E))
+            .border(
+                width = if (isFocused) 2.dp else 0.dp,
+                color = if (isFocused) Color.White else Color.Transparent,
+                shape = RoundedCornerShape(10.dp),
+            )
+            .focusRequester(focusRequester)
+            .focusable()
+            .onFocusChanged { state -> onFocusChanged(state.hasFocus) }
+            .onKeyEvent(onKeyEvent)
+            .clickable(onClick = onClick),
+    ) {
+        AsyncImage(
+            model = item.posterUrl.ifEmpty { item.backdropUrl },
+            contentDescription = item.title,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize(),
+            placeholder = painterResource(R.drawable.ic_launcher_foreground),
+            error = painterResource(R.drawable.ic_launcher_foreground),
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.55f)
+                .align(Alignment.BottomCenter)
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(Color.Transparent, Color(0xE6000000))
+                    )
+                )
+        )
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(8.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(if (isSeries) Color(0xFF1565C0) else Color(0xFFB71C1C))
+                    .padding(horizontal = 5.dp, vertical = 2.dp),
+            ) {
+                Text(
+                    text = if (isSeries) "TV" else "Movie",
+                    color = Color.White,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+            Text(
+                text = item.title,
+                color = Color.White,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                lineHeight = 14.sp,
+            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (item.voteAverage > 0) {
+                    Text(
+                        text = "★ ${String.format("%.1f", item.voteAverage)}",
+                        color = Color(0xFFFFD700),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
+                if (year != null) {
+                    Text(
+                        text = "$year",
+                        color = Color.White.copy(alpha = 0.6f),
+                        fontSize = 10.sp,
+                    )
+                }
+            }
+        }
+        if (isFocused) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .border(2.dp, Color.White.copy(alpha = 0.9f), RoundedCornerShape(10.dp))
+            )
+        }
     }
 }

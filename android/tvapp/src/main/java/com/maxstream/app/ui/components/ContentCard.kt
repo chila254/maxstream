@@ -25,6 +25,8 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.KeyEvent
+import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -58,6 +60,7 @@ fun ContentCard(
     year: Int? = null,
     onClick: () -> Unit = {},
     onFocusChanged: (Boolean) -> Unit = {},
+    onKeyEvent: (KeyEvent) -> Boolean = { false },
 ) {
     val cardHeightPx = with(LocalDensity.current) { CardHeight.toPx() }
 
@@ -71,6 +74,9 @@ fun ContentCard(
         modifier = modifier
             .padding(horizontal = 7.dp)
             .scale(scale)
+            // D-pad navigation: arrow keys handled here so parents can wire
+            // cross-row / sidebar moves (mirrors Dart's card onKeyEvent).
+            .onKeyEvent(onKeyEvent)
             // Focus must be registered BEFORE clickable so the D-pad Enter key
             // fires the click callback correctly.
             .onFocusChanged { state -> onFocusChanged(state.hasFocus) }
