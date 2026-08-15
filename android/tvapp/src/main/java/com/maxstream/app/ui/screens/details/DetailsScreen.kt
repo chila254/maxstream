@@ -9,7 +9,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -331,26 +330,48 @@ private fun TvCinematicDetailsView(
     val rowStates = remember { mutableMapOf<String, LazyListState>() }
 
     val sections = buildList {
-        if (continueWatching.isNotEmpty()) add(DetailsSection("details:continue", 1, continueWatching.size))
-        if (isTv && state.seasons.isNotEmpty()) add(DetailsSection("details:seasons", 2, state.seasons.size))
-        if (isTv && !loadingEpisodes && episodes.isNotEmpty()) add(DetailsSection("details:episodes", 3, episodes.size))
-        if (state.cast.isNotEmpty()) add(DetailsSection("details:cast", 4, state.cast.size))
-        if (state.recommendations.isNotEmpty()) add(DetailsSection("details:recommendations", 5, state.recommendations.size))
+        // Real LazyColumn item indices (hero = 0), incremented in the SAME order
+        // the items are emitted below. The old hardcoded 1/2/3/4/5 were wrong
+        // whenever "Continue Watching" was absent, so focusing a section scrolled
+        // to the wrong item and the tiles were never composed.
+        var next = 1
+        if (continueWatching.isNotEmpty()) add(DetailsSection("details:continue", next++, continueWatching.size))
+        if (isTv && state.seasons.isNotEmpty()) add(DetailsSection("details:seasons", next++, state.seasons.size))
+        if (isTv) {
+            // Episodes item is ALWAYS emitted for TV (spinner while loading) —
+            // reserve its slot even when there is nothing navigable yet.
+            if (!loadingEpisodes && episodes.isNotEmpty()) {
+                add(DetailsSection("details:episodes", next++, episodes.size))
+            } else {
+                next++
+            }
+        }
+        if (state.cast.isNotEmpty()) add(DetailsSection("details:cast", next++, state.cast.size))
+        if (state.recommendations.isNotEmpty()) add(DetailsSection("details:recommendations", next++, state.recommendations.size))
     }
 
     fun requester(rowId: String, index: Int): FocusRequester =
         tileRequesters.getOrPut("$rowId:$index") { FocusRequester() }
 
+    fun sectionIndexOf(rowId: String): Int = sections.firstOrNull { it.rowId == rowId }?.itemIndex ?: 1
+
     suspend fun focusTile(rowId: String, requestedIndex: Int, itemIndex: Int, count: Int) {
         if (count <= 0) return
         val index = requestedIndex.coerceIn(0, count - 1)
-        runCatching { outerListState.animateScrollToItem(itemIndex) }
-        runCatching { rowStates[rowId]?.animateScrollToItem(index) }
         val target = requester(rowId, index)
+        // Immediate-focus-first: tiles inside an already-visible row are composed,
+        // so LEFT/RIGHT lands instantly instead of blocking on a scroll animation.
+        if (runCatching { target.requestFocus() }.isSuccess) {
+            runCatching { outerListState.scrollToItem(itemIndex) }
+            runCatching { rowStates[rowId]?.scrollToItem(index) }
+            return
+        }
+        // Off-screen section: jump to it instantly (no animation), then retry.
+        runCatching { outerListState.scrollToItem(itemIndex) }
+        runCatching { rowStates[rowId]?.scrollToItem(index) }
         repeat(6) { attempt ->
             delay(50L * (attempt + 1))
-            val ok = runCatching { target.requestFocus(); true }.getOrDefault(false)
-            if (ok) return
+            if (runCatching { target.requestFocus() }.isSuccess) return
         }
     }
 
@@ -361,11 +382,11 @@ private fun TvCinematicDetailsView(
 
     fun focusHero() {
         scope.launch {
-            runCatching { outerListState.animateScrollToItem(0) }
+            runCatching { outerListState.scrollToItem(0) }
+            if (runCatching { playFocusRequester.requestFocus() }.isSuccess) return@launch
             repeat(6) { attempt ->
                 delay(50L * (attempt + 1))
-                val ok = runCatching { playFocusRequester.requestFocus(); true }.getOrDefault(false)
-                if (ok) return@launch
+                if (runCatching { playFocusRequester.requestFocus() }.isSuccess) return@launch
             }
         }
     }
@@ -530,7 +551,7 @@ private fun TvCinematicDetailsView(
                                     isFocused = focusedIdx == i,
                                     onFocused = { focusedIdx = i },
                                     focusRequester = requester(rowId, i),
-                                    onKeyEvent = { onTileKey(rowId, 1, continueWatching.size, i, it) },
+                                    onKeyEvent = { onTileKey(rowId, sectionIndexOf(rowId), continueWatching.size, i, it) },
                                     onPress = { /* resume */ },
                                 ) {
                                     ContinueWatchingCard(entry = cw, isTv = isTv)
@@ -561,7 +582,7 @@ private fun TvCinematicDetailsView(
                                     isSelected = s.number == selectedSeason,
                                     onFocused = { focusedSeason = i },
                                     focusRequester = requester(rowId, i),
-                                    onKeyEvent = { onTileKey(rowId, 2, state.seasons.size, i, it) },
+                                    onKeyEvent = { onTileKey(rowId, sectionIndexOf(rowId), state.seasons.size, i, it) },
                                     onPress = { onSeasonSelected(s.number) },
                                 ) {
                                     Text(
@@ -599,7 +620,7 @@ private fun TvCinematicDetailsView(
                                         isFocused = focusedEp == i,
                                         onFocused = { focusedEp = i },
                                         focusRequester = requester(rowId, i),
-                                        onKeyEvent = { onTileKey(rowId, 3, episodes.size, i, it) },
+                                        onKeyEvent = { onTileKey(rowId, sectionIndexOf(rowId), episodes.size, i, it) },
                                         onPress = { onPlay(ep) },
                                     ) {
                                         EpisodeTileContent(ep)
@@ -630,7 +651,7 @@ private fun TvCinematicDetailsView(
                                     isFocused = focusedCast == i,
                                     onFocused = { focusedCast = i },
                                     focusRequester = requester(rowId, i),
-                                    onKeyEvent = { onTileKey(rowId, 4, state.cast.size, i, it) },
+                                    onKeyEvent = { onTileKey(rowId, sectionIndexOf(rowId), state.cast.size, i, it) },
                                     onPress = { /* cast detail */ },
                                 ) {
                                     CastCard(person = person)
@@ -660,7 +681,7 @@ private fun TvCinematicDetailsView(
                                     isFocused = focusedRec == i,
                                     onFocused = { focusedRec = i },
                                     focusRequester = requester(rowId, i),
-                                    onKeyEvent = { onTileKey(rowId, 5, state.recommendations.size, i, it) },
+                                    onKeyEvent = { onTileKey(rowId, sectionIndexOf(rowId), state.recommendations.size, i, it) },
                                     onPress = {
                                         navController.navigate(Screen.Details.createRoute(rec.id.toString(), rec.mediaType))
                                     },
@@ -713,7 +734,6 @@ private fun TvTile(
             .background(bgColor)
             .border(2.dp, borderColor, RoundedCornerShape(10.dp))
             .focusRequester(focusRequester)
-            .focusable()
             .onFocusChanged { state -> if (state.hasFocus) onFocused() }
             .onKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
@@ -771,7 +791,6 @@ private fun CinematicButton(
                 shape = RoundedCornerShape(8.dp),
             )
             .focusRequester(focusRequester)
-            .focusable()
             .onFocusChanged { state -> isFocused = state.hasFocus }
             .onKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
