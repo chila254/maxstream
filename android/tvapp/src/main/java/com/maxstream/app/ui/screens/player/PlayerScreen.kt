@@ -46,6 +46,8 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
 import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
@@ -199,8 +201,21 @@ fun PlayerScreen(
             )
         }
 
-        val player = ExoPlayer.Builder(context)
+        val renderersFactory = DefaultRenderersFactory(context)
+            .setEnableDecoderFallback(true)
+
+        val player = ExoPlayer.Builder(context, renderersFactory)
             .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
+            .setLoadControl(
+                DefaultLoadControl.Builder()
+                    .setBufferDurationsMs(
+                        DefaultLoadControl.DEFAULT_MIN_BUFFER_MS,
+                        300_000,
+                        DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_MS,
+                        DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS,
+                    )
+                    .build(),
+            )
             .build()
         player.setMediaItem(itemBuilder.build(), startMs)
         player.prepare()
@@ -348,7 +363,9 @@ fun PlayerScreen(
                 context, itemId, isMovie, season, episode,
             ) * 1000
 
-            // Primary stream for this title/episode.
+            // Primary stream for this title/episode. This is a parallel race
+            // across all servers, so the first playable one arrives fast (a
+            // single dead server can no longer stall the whole chain).
             val primary = Modules.streamRepository(context).resolve(
                 tmdbId = itemId,
                 isMovie = isMovie,
@@ -362,17 +379,10 @@ fun PlayerScreen(
                 return
             }
 
-            // All servers, for the server picker + cross-server subtitle fallback.
-            val servers = Modules.streamRepository(context).resolveAll(
-                tmdbId = itemId,
-                isMovie = isMovie,
-                season = season,
-                episode = episode,
-                title = title,
-            )
+            // Start with just the primary server so playback begins immediately.
             source = primary
-            allServers = servers
-            subtitleOptions = buildSubtitleOptions(primary, servers)
+            allServers = listOf(primary)
+            subtitleOptions = buildSubtitleOptions(primary, listOf(primary))
 
             // Default subtitle from the primary server (isDefault, else first).
             var defaultSub: SubtitleOption? = null
@@ -404,6 +414,22 @@ fun PlayerScreen(
             activeSubtitle = initialSub
             selectedSubtitleLabel = initialSub?.label ?: "Off"
             loading = false
+
+            // Populate the server picker + cross-server subtitle fallback in the
+            // background so it never blocks the first frame of playback.
+            coroutineScope.launch {
+                val servers = Modules.streamRepository(context).resolveAll(
+                    tmdbId = itemId,
+                    isMovie = isMovie,
+                    season = season,
+                    episode = episode,
+                    title = title,
+                )
+                if (servers.isNotEmpty()) {
+                    allServers = servers
+                    subtitleOptions = buildSubtitleOptions(primary, servers)
+                }
+            }
         } catch (e: Exception) {
             error = e.message ?: "Failed to load stream"
             loading = false

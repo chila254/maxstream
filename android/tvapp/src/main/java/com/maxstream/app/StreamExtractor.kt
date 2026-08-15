@@ -12,10 +12,15 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -150,6 +155,10 @@ class StreamExtractor(private val context: Context) {
 
     private interface HostExtractor {
         val name: String
+        /** True when extraction needs a WebView. WebViews are heavy and crash
+         *  1GB-class boxes when several run at once, so they are skipped there. */
+        val usesWebView: Boolean
+            get() = false
         fun supports(server: StreamServer): Boolean
         suspend fun extract(server: StreamServer): ExtractionResult
     }
@@ -264,22 +273,42 @@ class StreamExtractor(private val context: Context) {
         Log.i(tag, "Resolving TMDB $tmdbId (movie=$isMovie, S$season E$episode)")
 
         val servers = buildServerList(media)
+        if (servers.isEmpty()) {
+            Log.w(tag, "No servers found for TMDB $tmdbId")
+            return@withContext null
+        }
         Log.i(tag, "Built ${servers.size} servers: ${servers.joinToString { it.name }}")
 
-        for (server in servers) {
-            try {
-                val stream = extractServer(server)
-                if (stream != null && stream.url.isNotBlank()) {
-                    Log.i(tag, "Resolved ${server.name} to ${stream.source}")
-                    return@withContext stream.toMap()
+        // Race every server in parallel and take the FIRST playable one instead
+        // of walking them one at a time (a single dead server used to stall the
+        // whole chain on its 12-45s timeouts). WebView extractors are skipped on
+        // 1GB-class boxes so several never render at once and OOM the device.
+        val extractionSlots = Semaphore(if (isLowRamDevice()) 2 else 4)
+        val channel = Channel<StreamResult>(Channel.CONFLATED)
+        val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+        val jobs = servers.map { server ->
+            scope.launch {
+                extractionSlots.withPermit {
+                    try {
+                        extractServer(server)
+                            ?.takeIf { it.url.isNotBlank() }
+                            ?.let { channel.trySend(it) }
+                    } catch (error: Exception) {
+                        Log.e(tag, "Server ${server.name} failed", error)
+                    }
                 }
-            } catch (error: Exception) {
-                Log.e(tag, "Server ${server.name} failed", error)
             }
         }
-
-        Log.w(tag, "No playable stream found for TMDB $tmdbId")
-        null
+        val first = withTimeoutOrNull(15_000) { channel.receive() }
+        jobs.forEach { it.cancel() }
+        scope.cancel()
+        if (first != null) {
+            Log.i(tag, "Resolved ${first.server} to ${first.source}")
+            first.toMap()
+        } else {
+            Log.w(tag, "No playable stream found for TMDB $tmdbId")
+            null
+        }
     }
 
     suspend fun resolveStreams(
@@ -292,27 +321,44 @@ class StreamExtractor(private val context: Context) {
         require(tmdbId.isNotBlank()) { "TMDB ID is required" }
         val media = MediaRequest(tmdbId, isMovie, season, episode, title)
         val servers = buildServerList(media)
-        val extractionSlots = Semaphore(4)
-        coroutineScope {
-            servers.map { server ->
-                async(Dispatchers.IO) {
-                    extractionSlots.withPermit {
-                        try {
-                            extractServer(server)
-                        } catch (error: Exception) {
-                            Log.w(tag, "Alternative server ${server.name} failed: ${error.message}")
-                            null
+        val extractionSlots = Semaphore(if (isLowRamDevice()) 2 else 4)
+        withTimeoutOrNull(25_000) {
+            coroutineScope {
+                servers.map { server ->
+                    async(Dispatchers.IO) {
+                        extractionSlots.withPermit {
+                            try {
+                                extractServer(server)
+                            } catch (error: Exception) {
+                                Log.w(tag, "Alternative server ${server.name} failed: ${error.message}")
+                                null
+                            }
                         }
                     }
-                }
-            }.awaitAll()
-                .filterNotNull()
-                .distinctBy { it.url }
-                .map(StreamResult::toMap)
-        }
+                }.awaitAll()
+                    .filterNotNull()
+                    .distinctBy { it.url }
+                    .map(StreamResult::toMap)
+            }
+        } ?: emptyList()
     }
 
-    private suspend fun buildServerList(media: MediaRequest): List<StreamServer> = coroutineScope {
+    private var cachedServerListKey: String? = null
+    private var cachedServerList: List<StreamServer>? = null
+
+    /** Server discovery runs once per media request; the secondary call from
+     *  [resolveStreams] (server picker) reuses the list instead of re-hitting
+     *  every provider. */
+    private suspend fun buildServerList(media: MediaRequest): List<StreamServer> {
+        val key = "${media.tmdbId}|${media.isMovie}|${media.season}|${media.episode}"
+        cachedServerListKey?.let { if (it == key) return cachedServerList.orEmpty() }
+        val servers = buildServerListUncached(media)
+        cachedServerListKey = key
+        cachedServerList = servers
+        return servers
+    }
+
+    private suspend fun buildServerListUncached(media: MediaRequest): List<StreamServer> = coroutineScope {
         serverProviders.map { provider ->
             async(Dispatchers.IO) {
                 try {
@@ -386,6 +432,10 @@ class StreamExtractor(private val context: Context) {
             val extractor = extractorRegistry.firstOrNull { it.supports(server) }
             if (extractor == null) {
                 Log.w(tag, "No extractor for ${server.name}")
+                return null
+            }
+            if (isLowRamDevice() && extractor.usesWebView) {
+                Log.w(tag, "Skipping WebView extractor ${extractor.name} on low-RAM device")
                 return null
             }
             Log.d(tag, "Dispatching ${server.name} to ${extractor.name}")
@@ -762,6 +812,7 @@ class StreamExtractor(private val context: Context) {
     @SuppressLint("SetJavaScriptEnabled")
     private inner class VidLinkExtractor : HostExtractor {
         override val name = "VidLink"
+        override val usesWebView = true
         override fun supports(server: StreamServer) = host(server.url).endsWith("vidlink.pro")
 
         private val vidLinkKey = hexToBytes(
@@ -1064,6 +1115,7 @@ class StreamExtractor(private val context: Context) {
     @SuppressLint("SetJavaScriptEnabled")
     private inner class MaxstreamVideoExtractor : HostExtractor {
         override val name = "MaxstreamVideo"
+        override val usesWebView = true
         override fun supports(server: StreamServer) = host(server.url).endsWith("maxstream.video")
 
         override suspend fun extract(server: StreamServer): ExtractionResult {
@@ -1196,6 +1248,7 @@ class StreamExtractor(private val context: Context) {
     @SuppressLint("SetJavaScriptEnabled")
     private inner class Mov2DayExtractor : HostExtractor {
         override val name = "Mov2Day"
+        override val usesWebView = true
 
         override fun supports(server: StreamServer): Boolean {
             return host(server.url).endsWith("mov2day.xyz")
@@ -1924,6 +1977,7 @@ class StreamExtractor(private val context: Context) {
 
     private inner class VidsrcRuExtractor : HostExtractor {
         override val name = "VidsrcRu"
+        override val usesWebView = true
         override fun supports(server: StreamServer) = host(server.url).endsWith("vidsrc.ru")
 
         override suspend fun extract(server: StreamServer): ExtractionResult {
@@ -2285,6 +2339,7 @@ class StreamExtractor(private val context: Context) {
     @SuppressLint("SetJavaScriptEnabled")
     private inner class StreamWishExtractor : HostExtractor {
         override val name = "StreamWish"
+        override val usesWebView = true
         private val aliases = setOf(
             "streamwish.to", "streamwish.com", "streamwish.site", "streamwish.club",
             "streamwish.cc", "streamwish.biz", "streamwish.info", "streamwish.net",
