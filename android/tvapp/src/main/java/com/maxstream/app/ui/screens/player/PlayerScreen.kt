@@ -172,6 +172,10 @@ fun PlayerScreen(
     // True after a memory-pressure release so the recovery effect rebuilds the
     // player (distinct from the initial load, which must not double-resolve).
     var memoryReleased by remember { mutableStateOf(false) }
+    // Root focus target so D-pad/OK always reach onKeyDown even when no control
+    // is focused (the PlayerView itself is not focusable). Focus returns here
+    // whenever the controls are hidden.
+    val rootFocusRequester = remember { FocusRequester() }
     var title by remember { mutableStateOf("") }
     var posterPath by remember { mutableStateOf("") }
     var backdropPath by remember { mutableStateOf("") }
@@ -718,6 +722,17 @@ fun PlayerScreen(
         }
     }
 
+    // Ensure the D-pad/OK reach onKeyDown even when nothing is focused: grab
+    // the root focus once the player is ready (the PlayerView is not focusable,
+    // so without this the keys go nowhere and the controls never appear).
+    LaunchedEffect(exoPlayer, loading, controlsVisible, focusedMenuButton, focusedPlaybackControl) {
+        if (exoPlayer != null && !loading && !controlsVisible &&
+            focusedMenuButton < 0 && focusedPlaybackControl < 0
+        ) {
+            runCatching { rootFocusRequester.requestFocus(); true }
+        }
+    }
+
     // ------------------------------------------------------------------
     // D-pad / remote handling
     // ------------------------------------------------------------------
@@ -1109,6 +1124,8 @@ fun PlayerScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
+            .focusRequester(rootFocusRequester)
+            .focusable()
             .onPreviewKeyEvent { event ->
                 if (event.type == KeyEventType.KeyDown) {
                     onKeyDown(event.key)
