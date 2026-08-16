@@ -4,7 +4,6 @@ sealed class Screen(val route: String) {
     // ── Auth / pre-shell ────────────────────────────────────────────────────
     data object Splash  : Screen("splash")
     data object Login   : Screen("login")
-    data object Pairing : Screen("pairing")
 
     // ── Main shell (IndexedStack lives here) ────────────────────────────────
     data object Shell   : Screen("shell")

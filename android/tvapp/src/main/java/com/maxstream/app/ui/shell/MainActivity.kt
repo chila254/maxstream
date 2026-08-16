@@ -46,7 +46,6 @@ import androidx.navigation.compose.rememberNavController
 import com.maxstream.app.data.local.WatchEntryCompat
 import com.maxstream.app.ui.navigation.Screen
 import com.maxstream.app.ui.screens.auth.LoginScreen
-import com.maxstream.app.ui.screens.auth.PairingScreen
 import com.maxstream.app.ui.screens.details.DetailsScreen
 import com.maxstream.app.ui.screens.genre.GenreScreen
 import com.maxstream.app.ui.screens.home.HomeScreen
@@ -184,8 +183,11 @@ private fun TvAppRoot() {
             exitTransition  = { fadeOut(tween(180)) },
         ) {
             composable(Screen.Splash.route) {
+                val context = androidx.compose.ui.platform.LocalContext.current
                 SplashScreen(onComplete = {
-                    deepNavController.navigate(Screen.Shell.route) {
+                    val loggedIn = com.maxstream.app.data.local.SessionManager.isLoggedIn(context)
+                    val destination = if (loggedIn) Screen.Shell.route else Screen.Login.route
+                    deepNavController.navigate(destination) {
                         popUpTo(Screen.Splash.route) { inclusive = true }
                     }
                 })
@@ -194,13 +196,6 @@ private fun TvAppRoot() {
                 LoginScreen(onLoginSuccess = {
                     deepNavController.navigate(Screen.Shell.route) {
                         popUpTo(Screen.Login.route) { inclusive = true }
-                    }
-                })
-            }
-            composable(Screen.Pairing.route) {
-                PairingScreen(onComplete = {
-                    deepNavController.navigate(Screen.Shell.route) {
-                        popUpTo(Screen.Pairing.route) { inclusive = true }
                     }
                 })
             }
