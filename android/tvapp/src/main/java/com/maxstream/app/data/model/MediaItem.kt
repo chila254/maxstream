@@ -18,6 +18,8 @@ data class MediaItem(
     val genreIds: List<Int>,
     val season: Int = 1,
     val episode: Int = 1,
+    val seriesTitle: String = "",
+    val episodeName: String = "",
 ) {
     val isMovie: Boolean get() = mediaType == "movie"
     val posterUrl: String get() = imageUrl(posterPath, "w500")
@@ -41,6 +43,8 @@ data class MediaItem(
         putIntegerArrayList("genreIds", ArrayList(genreIds))
         putInt("season", season)
         putInt("episode", episode)
+        putString("seriesTitle", seriesTitle)
+        putString("episodeName", episodeName)
     }
 
     companion object {
@@ -56,6 +60,8 @@ data class MediaItem(
             genreIds = bundle.getIntegerArrayList("genreIds").orEmpty(),
             season = bundle.getInt("season", 1),
             episode = bundle.getInt("episode", 1),
+            seriesTitle = bundle.getString("seriesTitle").orEmpty(),
+            episodeName = bundle.getString("episodeName").orEmpty(),
         )
 
         /**

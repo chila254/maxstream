@@ -44,6 +44,8 @@ object WatchProgressRepository {
         durationSeconds: Long,
         posterPath: String = "",
         backdropPath: String = "",
+        seriesTitle: String = "",
+        episodeName: String = "",
     ) {
         if (positionSeconds <= POSITION_SAVE_THRESHOLD_SECONDS) return
         val entry = JSONObject()
@@ -56,6 +58,8 @@ object WatchProgressRepository {
             .put("duration", durationSeconds)
             .put("posterPath", posterPath)
             .put("backdropPath", backdropPath)
+            .put("seriesTitle", seriesTitle)
+            .put("episodeName", episodeName)
             .put("timestamp", System.currentTimeMillis())
         prefs(context).edit().putString(progressKey(tmdbId, isMovie, season, episode), entry.toString()).apply()
         upsertRecent(context, entry)
@@ -78,6 +82,8 @@ object WatchProgressRepository {
         posterPath: String,
         backdropPath: String,
         timestamp: Long,
+        seriesTitle: String = "",
+        episodeName: String = "",
     ) {
         if (positionSeconds <= POSITION_SAVE_THRESHOLD_SECONDS) return
         val entry = JSONObject()
@@ -90,6 +96,8 @@ object WatchProgressRepository {
             .put("duration", durationSeconds)
             .put("posterPath", posterPath)
             .put("backdropPath", backdropPath)
+            .put("seriesTitle", seriesTitle)
+            .put("episodeName", episodeName)
             .put("timestamp", if (timestamp > 0L) timestamp else System.currentTimeMillis())
         prefs(context).edit().putString(progressKey(tmdbId, isMovie, season, episode), entry.toString()).apply()
         upsertRecent(context, entry)
@@ -108,18 +116,33 @@ object WatchProgressRepository {
             (0 until arr.length()).mapNotNull { i ->
                 runCatching { WatchEntry.fromJson(arr.getJSONObject(i)) }.getOrNull()
             }
-        }.getOrDefault(emptyList()).take(limit)
+        }.getOrDefault(emptyList())
+            // Newest first — matches Dart WatchHistoryService.getContinueWatching(),
+            // which sorts by timestamp descending.
+            .sortedByDescending { it.timestamp }
+            .take(limit)
     }
 
     private fun upsertRecent(context: Context, entry: JSONObject) {
         val current = runCatching {
             JSONArray(prefs(context).getString(KEY_RECENT, "[]"))
         }.getOrDefault(JSONArray())
-        val key = "${entry.optString("tmdbId")}:${entry.optBoolean("isMovie")}"
+        // Same key as Dart's global history dedup: movies match on tmdbId only,
+        // series on tmdbId+season+episode, so different episodes of a series
+        // each stay in Continue Watching with their own cover art.
+        val key = if (entry.optBoolean("isMovie")) {
+            "${entry.optString("tmdbId")}:movie"
+        } else {
+            "${entry.optString("tmdbId")}:tv:${entry.optInt("season", 1)}:${entry.optInt("episode", 1)}"
+        }
         val filtered = JSONArray()
         for (i in 0 until current.length()) {
             val item = current.optJSONObject(i) ?: continue
-            val itemKey = "${item.optString("tmdbId")}:${item.optBoolean("isMovie")}"
+            val itemKey = if (item.optBoolean("isMovie")) {
+                "${item.optString("tmdbId")}:movie"
+            } else {
+                "${item.optString("tmdbId")}:tv:${item.optInt("season", 1)}:${item.optInt("episode", 1)}"
+            }
             if (itemKey != key) filtered.put(item)
         }
         filtered.put(entry)
@@ -169,13 +192,13 @@ object WatchEntryCompat {
                 Entry(
                     tmdbId = entry.tmdbId,
                     title = entry.title,
+                    seriesTitle = entry.seriesTitle,
+                    episodeName = entry.episodeName,
                     season = entry.season,
                     episode = entry.episode,
                     position = entry.positionSeconds,
                     duration = entry.durationSeconds,
-                    posterUrl = if (entry.posterPath.isNotEmpty())
-                        "https://image.tmdb.org/t/p/w500${entry.posterPath}"
-                    else "",
+                    posterUrl = entry.coverUrl,
                 )
             }
     }
@@ -184,12 +207,19 @@ object WatchEntryCompat {
     data class Entry(
         val tmdbId: String,
         val title: String,
+        val seriesTitle: String,
+        val episodeName: String,
         val season: Int,
         val episode: Int,
         val position: Long,
         val duration: Long,
         val posterUrl: String,
-    )
+    ) {
+        val progress: Float
+            get() = if (duration > 0) {
+                (position.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
+            } else 0f
+    }
 }
 
 /** A single "Continue Watching" entry reconstructed from stored JSON. */
@@ -203,16 +233,31 @@ data class WatchEntry(
     val durationSeconds: Long,
     val posterPath: String,
     val backdropPath: String,
+    val seriesTitle: String = "",
+    val episodeName: String = "",
+    val timestamp: Long = 0L,
 ) {
     val progress: Float
         get() = if (durationSeconds > 0) {
             (positionSeconds.toFloat() / durationSeconds.toFloat()).coerceIn(0f, 1f)
         } else 0f
 
+    /** The display title — for series use the series title, not the episode name. */
+    val displayTitle: String
+        get() = seriesTitle.ifBlank { title }
+
+    /** Poster path that may already be a full still URL (episode cover art). */
+    val coverUrl: String
+        get() = if (posterPath.startsWith("http://") || posterPath.startsWith("https://")) {
+            posterPath
+        } else {
+            "https://image.tmdb.org/t/p/w500$posterPath"
+        }
+
     fun toMediaItem(): MediaItem = MediaItem(
         id = tmdbId.toIntOrNull() ?: 0,
         mediaType = if (isMovie) "movie" else "tv",
-        title = title,
+        title = displayTitle,
         overview = "",
         posterPath = posterPath.ifEmpty { null },
         backdropPath = backdropPath.ifEmpty { null },
@@ -221,6 +266,8 @@ data class WatchEntry(
         genreIds = emptyList(),
         season = season,
         episode = episode,
+        seriesTitle = seriesTitle,
+        episodeName = episodeName,
     )
 
     companion object {
@@ -234,6 +281,9 @@ data class WatchEntry(
             durationSeconds = json.optLong("duration", 0L),
             posterPath = json.optString("posterPath"),
             backdropPath = json.optString("backdropPath"),
+            seriesTitle = json.optString("seriesTitle"),
+            episodeName = json.optString("episodeName"),
+            timestamp = json.optLong("timestamp", 0L),
         )
     }
 }

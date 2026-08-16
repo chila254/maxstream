@@ -132,15 +132,21 @@ fun SeriesListScreen(
         heroItem = item
     }
 
-    // Focus seed on tab visible — retry pattern (mirrors Dart retries:6).
+    // Focus seed on tab visible — first attempt is IMMEDIATE (no pre-delay);
+    // retries only while the node is unattached. The old delay(50..300ms)
+    // before the first attempt made tab entry laggy and let a pending request
+    // steal focus back if the user pressed DOWN during the window.
     // Also re-runs when focus returns from the sidebar (focusKey bump).
     LaunchedEffect(isVisible, focusKey) {
         if (!isVisible) return@LaunchedEffect
         isEntryVisible = true
-        repeat(6) { attempt ->
-            delay(50L * (attempt + 1))
-            val ok = runCatching { playFocusRequester.requestFocus() }
-            if (ok.isSuccess) return@LaunchedEffect
+        var attempt = 0
+        while (attempt < 6) {
+            if (attempt > 0) delay(50L * attempt)
+            // requestFocus() throws only while the node is unattached — retry
+            // on exception until the hero is composed (isSuccess == no throw).
+            if (runCatching { playFocusRequester.requestFocus() }.isSuccess) return@LaunchedEffect
+            attempt++
         }
     }
 
@@ -386,7 +392,7 @@ private fun SeriesHeroSection(
                             .border(
                                 width = if (playFocused) 2.dp else 0.dp,
                                 color = if (playFocused) Color.White else Color.Transparent,
-                                shape = RoundedCornerShape(8.dp),
+                                shape = RoundedCornerShape(28.dp),
                             )
                             .onKeyEvent { event ->
                                 if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
@@ -398,6 +404,7 @@ private fun SeriesHeroSection(
                                     else -> false
                                 }
                             },
+                        shape = RoundedCornerShape(28.dp),
                         colors = androidx.compose.material3.ButtonDefaults.buttonColors(
                             containerColor = Color(0xFFE50914)
                         ),
@@ -419,7 +426,7 @@ private fun SeriesHeroSection(
                             .border(
                                 width = if (detailsFocused) 2.dp else 0.dp,
                                 color = if (detailsFocused) Color.White else Color.Transparent,
-                                shape = RoundedCornerShape(8.dp),
+                                shape = RoundedCornerShape(28.dp),
                             )
                             .onKeyEvent { event ->
                                 if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
@@ -431,6 +438,7 @@ private fun SeriesHeroSection(
                                     else -> false
                                 }
                             },
+                        shape = RoundedCornerShape(28.dp),
                     ) {
                         androidx.compose.material3.Icon(
                             painter = painterResource(R.drawable.ic_info),

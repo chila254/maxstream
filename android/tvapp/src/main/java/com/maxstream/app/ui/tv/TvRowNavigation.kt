@@ -80,6 +80,12 @@ class RowNavState {
      * Moves focus to card [requestedIndex] of [rowId]. Scrolls the outer
      * column to the row, the row itself to the card, then requests focus with
      * retries — the card only becomes focusable after it is composed.
+     *
+     * First attempt is IMMEDIATE: cards in an already-composed row are
+     * focusable, so moves land instantly instead of blocking on a scroll
+     * animation first (the old animateScrollToItem suspended until the
+     * animation finished, which made rapid D-pad presses feel unresponsive
+     * and let stale moves steal focus back).
      */
     suspend fun focusCard(rowId: String, requestedIndex: Int, outerListState: LazyListState) {
         val length = count(rowId)
@@ -91,14 +97,26 @@ class RowNavState {
         savedIndices[rowId] = index
         activeRowId = rowId
 
-        runCatching { outerListState.animateScrollToItem(rowIndex) }
-        runCatching { rowStates[rowId]?.animateScrollToItem(index) }
-
         val requester = requester(rowId, index)
-        repeat(6) { attempt ->
-            delay(50L * (attempt + 1))
-            val ok = runCatching { requester.requestFocus(); true }.getOrDefault(false)
-            if (ok) return
+
+        // requestFocus() throws only while the node is unattached — a
+        // successful call means the requester is attached and focus landed.
+        if (runCatching { requester.requestFocus(); true }.getOrDefault(false)) {
+            runCatching { outerListState.scrollToItem(rowIndex) }
+            runCatching { rowStates[rowId]?.scrollToItem(index) }
+            return
+        }
+
+        // Off-screen target: jump it into view (instant, no animation), then
+        // retry until the lazy item is composed and focus lands.
+        runCatching { outerListState.scrollToItem(rowIndex) }
+        runCatching { rowStates[rowId]?.scrollToItem(index) }
+
+        var attempt = 0
+        while (attempt < 6) {
+            if (attempt > 0) delay(50L * attempt)
+            if (runCatching { requester.requestFocus(); true }.getOrDefault(false)) return
+            attempt++
         }
     }
 

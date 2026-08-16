@@ -110,6 +110,8 @@ fun PlayerScreen(
     var title by remember { mutableStateOf("") }
     var posterPath by remember { mutableStateOf("") }
     var backdropPath by remember { mutableStateOf("") }
+    var seriesTitle by remember { mutableStateOf("") }
+    var episodeName by remember { mutableStateOf("") }
 
     // Current subtitle options across every server (grouped + own headers).
     var subtitleOptions by remember { mutableStateOf<List<SubtitleOption>>(emptyList()) }
@@ -136,6 +138,8 @@ fun PlayerScreen(
             durationSeconds = durationMs / 1000,
             posterPath = posterPath,
             backdropPath = backdropPath,
+            seriesTitle = seriesTitle,
+            episodeName = episodeName,
         )
         // Push to Firestore so the phone (same account) sees this progress live.
         coroutineScope.launch {
@@ -149,6 +153,8 @@ fun PlayerScreen(
                 positionSeconds = positionMs / 1000,
                 durationSeconds = durationMs / 1000,
                 posterPath = posterPath,
+                seriesTitle = seriesTitle,
+                episodeName = episodeName,
             )
         }
     }
@@ -357,17 +363,38 @@ fun PlayerScreen(
         error = null
         try {
             // Fetch metadata so Continue Watching entries carry a title + poster.
+            // For series, also resolve the current episode's still + name so the
+            // Continue Watching card shows that episode's own cover art (mirrors
+            // Dart TvVideoPlayer._loadMediaMetadata).
             val id = itemId.toIntOrNull()
             if (id != null) {
                 try {
-                    val details = if (isMovie) {
-                        Modules.catalogRepository.movieDetails(id)
+                    if (isMovie) {
+                        val details = Modules.catalogRepository.movieDetails(id)
+                        title = details.optString("title").ifBlank { details.optString("name") }
+                        posterPath = details.optString("poster_path")
+                        backdropPath = details.optString("backdrop_path")
                     } else {
-                        Modules.catalogRepository.seriesDetails(id)
+                        val details = Modules.catalogRepository.seriesDetails(id)
+                        val seriesName = details.optString("name").ifBlank { details.optString("title") }
+                        title = seriesName
+                        posterPath = details.optString("poster_path")
+                        backdropPath = details.optString("backdrop_path")
+                        seriesTitle = seriesName
+                        // Current episode still (its own cover art) + name.
+                        val episodes = runCatching {
+                            Modules.catalogRepository.seasonEpisodes(id, season)
+                        }.getOrDefault(emptyList())
+                        val currentEpisode = episodes.firstOrNull { it.number == episode }
+                        currentEpisode?.let { ep ->
+                            episodeName = ep.title
+                            ep.stillPath?.let { still ->
+                                // Still is already a w500 path fragment; coverUrl
+                                // in WatchEntry turns it into a full URL.
+                                posterPath = still
+                            }
+                        }
                     }
-                    title = details.optString("title").ifBlank { details.optString("name") }
-                    posterPath = details.optString("poster_path")
-                    backdropPath = details.optString("backdrop_path")
                 } catch (_: Exception) {
                 }
             }

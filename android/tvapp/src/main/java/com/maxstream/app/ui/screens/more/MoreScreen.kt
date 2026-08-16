@@ -261,7 +261,7 @@ fun MoreScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
-                        text = "MaxStream v1.1.0",
+                        text = "MaxStream Tv v1.4.0",
                         color = Color.White,
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,

@@ -57,7 +57,6 @@ import com.maxstream.app.ui.screens.splash.SplashScreen
 import com.maxstream.app.ui.screens.watchlist.WatchlistScreen
 import com.maxstream.app.ui.theme.MaxStreamTheme
 import com.maxstream.app.ui.tv.TvFocusManager
-import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
 
@@ -142,27 +141,19 @@ private fun TvAppRoot() {
     }
 
     // ── Focus transfer effect ─────────────────────────────────────────────
-    // Mirrors Dart's _requestFocusAfterFrames(node, retries: 6). When the
-    // user presses LEFT on content, focusOnSidebar flips true and we must
-    // move focus onto the sidebar item. Retry across frames because the
-    // sidebar may still be expanding/animating — a single delayed request
-    // can fail silently and leave the content Box (which is focusable) to
-    // reclaim focus, undoing the transfer.
+    // The sidebar handles its own focus transfer: when active flips true,
+    // Sidebar's self-terminating LaunchedEffect retries requestFocus() on
+    // selectedIndex until a pill reports focus (focusedIndex >= 0).
+    //
+    // NOTE: there must be NO competing loop here. An unconditional retry loop
+    // on selectedIndex (as we once had) keeps firing ~1s after focus lands,
+    // so a user navigating within the sidebar during that window gets yanked
+    // back to the selected item — the "focus goes down then comes back up"
+    // flicker. The sidebar owns this transfer; the shell just flips the flag.
     //
     // When focusOnSidebar is false we deliberately do nothing: the active
     // screen seeds its own content focus via its isVisible effect, so we
     // must not fight it by re-requesting the content box.
-    LaunchedEffect(appState.focusOnSidebar, appState.selectedTab) {
-        if (!appState.focusOnSidebar) return@LaunchedEffect
-        val target = sidebarFocusRequesters.getOrNull(appState.selectedTab) ?: return@LaunchedEffect
-        // requestFocus() throws IllegalStateException only when the node
-        // isn't attached yet — retry until it stops throwing. Keep issuing
-        // requests across all attempts so a silent miss still lands.
-        repeat(6) { attempt ->
-            delay(50L * (attempt + 1))
-            runCatching { target.requestFocus() }
-        }
-    }
 
     Box(
         modifier = Modifier

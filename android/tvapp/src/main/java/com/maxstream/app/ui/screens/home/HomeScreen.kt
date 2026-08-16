@@ -2,6 +2,7 @@ package com.maxstream.app.ui.screens.home
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -10,6 +11,7 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -29,6 +31,8 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -40,12 +44,15 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
@@ -145,14 +152,20 @@ fun HomeScreen(
     // Entry animation + initial focus seed.
     // Re-runs whenever this tab becomes visible OR focus returns from the
     // sidebar (focusKey bump), so focus is restored on tab return.
-    // Uses retry pattern (6 attempts × 50 ms) matching Dart's _requestFocusAfterFrames.
+    // First attempt is IMMEDIATE (no pre-delay); retries only while the node
+    // is unattached. The old delay(50..300ms)-before-first-attempt pattern made
+    // tab entry feel laggy and let a pending request steal focus back if the
+    // user pressed DOWN during the window.
     LaunchedEffect(isVisible, focusKey) {
         if (!isVisible) return@LaunchedEffect
         isEntryVisible = true
-        repeat(6) { attempt ->
-            delay(50L * (attempt + 1))
-            val ok = runCatching { playFocusRequester.requestFocus() }
-            if (ok.isSuccess) return@LaunchedEffect
+        var attempt = 0
+        while (attempt < 6) {
+            if (attempt > 0) delay(50L * attempt)
+            // requestFocus() throws only while the node is unattached — retry
+            // on exception until the hero is composed (isSuccess == no throw).
+            if (runCatching { playFocusRequester.requestFocus() }.isSuccess) return@LaunchedEffect
+            attempt++
         }
     }
 
@@ -461,7 +474,9 @@ private fun HeroSection(
                             .border(
                                 width = if (playFocused) 2.dp else 0.dp,
                                 color = if (playFocused) Color.White else Color.Transparent,
-                                shape = RoundedCornerShape(8.dp),
+                                // Match the button's own shape so the focus ring
+                                // traces the rounded corners instead of looking square.
+                                shape = RoundedCornerShape(28.dp),
                             )
                             .onKeyEvent { event ->
                                 if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
@@ -473,6 +488,7 @@ private fun HeroSection(
                                     else -> false
                                 }
                             },
+                        shape = RoundedCornerShape(28.dp),
                         colors = androidx.compose.material3.ButtonDefaults.buttonColors(
                             containerColor = Color(0xFFE50914)
                         ),
@@ -497,7 +513,7 @@ private fun HeroSection(
                             .border(
                                 width = if (detailsFocused) 2.dp else 0.dp,
                                 color = if (detailsFocused) Color.White else Color.Transparent,
-                                shape = RoundedCornerShape(8.dp),
+                                shape = RoundedCornerShape(28.dp),
                             )
                             .onKeyEvent { event ->
                                 if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
@@ -509,6 +525,7 @@ private fun HeroSection(
                                     else -> false
                                 }
                             },
+                        shape = RoundedCornerShape(28.dp),
                     ) {
                         androidx.compose.material3.Icon(
                             painter = painterResource(R.drawable.ic_info),
@@ -568,6 +585,7 @@ private fun ContentRow(
             state = rowListState,
             contentPadding = PaddingValues(vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = if (showProgress) Modifier.height(260.dp) else Modifier,
         ) {
             items(
                 count = items.size,
@@ -576,50 +594,240 @@ private fun ContentRow(
                 val item = items[index]
                 val isSeries = item.mediaType == "tv"
 
-                ContentCard(
-                    posterUrl = item.posterUrl,
-                    title = item.title,
-                    rating = item.voteAverage.takeIf { it > 0 },
-                    year = item.releaseDate.take(4).toIntOrNull(),
-                    contentTypeLabel = if (isSeries) "TV Series" else "Movie",
-                    isFocused = focusedItemIndex == index,
-                    focusRequester = rowNav.requester(rowId, index),
-                    progress = if (showProgress) {
-                        WatchEntryCompat.progressOf(
+                if (showProgress) {
+                    ContinueWatchingCard(
+                        item = item,
+                        isSeries = isSeries,
+                        isFocused = focusedItemIndex == index,
+                        focusRequester = rowNav.requester(rowId, index),
+                        progress = WatchEntryCompat.progressOf(
                             item.id, item.mediaType, item.season, item.episode
-                        ).takeIf { it > 0f }
-                    } else null,
-                    onClick = {
-                        if (resumeOnSelect) {
-                            navController.navigate(
-                                Screen.Player.createRoute(
-                                    item.id.toString(), item.mediaType,
-                                    season = item.season, episode = item.episode,
+                        ).takeIf { it > 0f },
+                        onClick = {
+                            if (resumeOnSelect) {
+                                navController.navigate(
+                                    Screen.Player.createRoute(
+                                        item.id.toString(), item.mediaType,
+                                        season = item.season, episode = item.episode,
+                                    )
                                 )
+                            } else {
+                                navController.navigate(Screen.Details.createRoute(item.id.toString(), item.mediaType))
+                            }
+                        },
+                        onFocusChanged = { focused ->
+                            if (focused) {
+                                focusedItemIndex = index
+                                onItemFocus(item)
+                            } else {
+                                if (focusedItemIndex == index) focusedItemIndex = -1
+                            }
+                        },
+                        onKeyEvent = { event ->
+                            rowNav.onCardKey(
+                                rowId = rowId,
+                                index = index,
+                                event = event,
+                                outerListState = outerListState,
+                                scope = coroutineScope,
+                                onUpToHero = onUpToHero,
+                                onReturnToSidebar = onReturnToSidebar,
                             )
-                        } else {
-                            navController.navigate(Screen.Details.createRoute(item.id.toString(), item.mediaType))
-                        }
-                    },
-                    onFocusChanged = { focused ->
-                        if (focused) {
-                            focusedItemIndex = index
-                            onItemFocus(item)
-                        } else {
-                            if (focusedItemIndex == index) focusedItemIndex = -1
-                        }
-                    },
-                    onKeyEvent = { event ->
-                        rowNav.onCardKey(
-                            rowId = rowId,
-                            index = index,
-                            event = event,
-                            outerListState = outerListState,
-                            scope = coroutineScope,
-                            onUpToHero = onUpToHero,
-                            onReturnToSidebar = onReturnToSidebar,
+                        },
+                    )
+                } else {
+                    ContentCard(
+                        posterUrl = item.posterUrl,
+                        title = item.title,
+                        rating = item.voteAverage.takeIf { it > 0 },
+                        year = item.releaseDate.take(4).toIntOrNull(),
+                        contentTypeLabel = if (isSeries) "TV Series" else "Movie",
+                        isFocused = focusedItemIndex == index,
+                        focusRequester = rowNav.requester(rowId, index),
+                        progress = null,
+                        onClick = {
+                            if (resumeOnSelect) {
+                                navController.navigate(
+                                    Screen.Player.createRoute(
+                                        item.id.toString(), item.mediaType,
+                                        season = item.season, episode = item.episode,
+                                    )
+                                )
+                            } else {
+                                navController.navigate(Screen.Details.createRoute(item.id.toString(), item.mediaType))
+                            }
+                        },
+                        onFocusChanged = { focused ->
+                            if (focused) {
+                                focusedItemIndex = index
+                                onItemFocus(item)
+                            } else {
+                                if (focusedItemIndex == index) focusedItemIndex = -1
+                            }
+                        },
+                        onKeyEvent = { event ->
+                            rowNav.onCardKey(
+                                rowId = rowId,
+                                index = index,
+                                event = event,
+                                outerListState = outerListState,
+                                scope = coroutineScope,
+                                onUpToHero = onUpToHero,
+                                onReturnToSidebar = onReturnToSidebar,
+                            )
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Continue Watching card (mirrors Dart's 220×160 resume card in tv_home_screen)
+// ─────────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun ContinueWatchingCard(
+    item: MediaItem,
+    isSeries: Boolean,
+    isFocused: Boolean,
+    focusRequester: FocusRequester,
+    progress: Float?,
+    onClick: () -> Unit,
+    onFocusChanged: (Boolean) -> Unit,
+    onKeyEvent: (KeyEvent) -> Boolean,
+) {
+    val scale by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (isFocused) 1.02f else 1f,
+        animationSpec = tween(180),
+        label = "cwCardScale",
+    )
+    val episodeName = item.episodeName
+    val overview = item.overview
+
+    Box(
+        modifier = Modifier
+            .padding(horizontal = 7.dp)
+            .scale(scale)
+            .onKeyEvent(onKeyEvent)
+            .focusRequester(focusRequester)
+            .onFocusChanged { state -> onFocusChanged(state.hasFocus) }
+            .focusable()
+            .clickable(onClick = onClick),
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            // ── Poster (220 × 160) ─────────────────────────────────────────
+            Box(
+                modifier = Modifier
+                    .width(220.dp)
+                    .height(160.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .border(
+                        width = if (isFocused) 2.dp else 0.dp,
+                        color = if (isFocused) Color.White else Color.Transparent,
+                        shape = RoundedCornerShape(8.dp),
+                    ),
+            ) {
+                val posterUrl = item.posterUrl
+                if (posterUrl.isNotEmpty()) {
+                    AsyncImage(
+                        model = posterUrl,
+                        contentDescription = item.title,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop,
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color(0xFF242424)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_play),
+                            contentDescription = null,
+                            tint = Color.White.copy(alpha = 0.4f),
+                            modifier = Modifier.size(48.dp),
                         )
-                    },
+                    }
+                }
+
+                // Series badge (S{season}E{episode})
+                if (isSeries) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(6.dp)
+                            .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 5.dp, vertical = 1.dp),
+                    ) {
+                        Text(
+                            text = "S${item.season}E${item.episode}",
+                            color = Color.White,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                }
+
+                // Progress bar at the bottom of the poster
+                if (progress != null) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .height(4.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color(0xFF333333))
+                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(progress.coerceIn(0f, 1f))
+                                .fillMaxSize()
+                                .background(Color(0xFFE50914))
+                        )
+                    }
+                }
+            }
+
+            // ── Title (series title for series, movie title otherwise) ────
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = item.title,
+                color = Color.White,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.W600,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            // Episode name (series only)
+            if (isSeries && episodeName.isNotEmpty()) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = episodeName,
+                    color = Color.White.copy(alpha = 0.7f),
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            // Overview (2 lines)
+            if (overview.isNotBlank() && overview != "No description available.") {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = overview,
+                    color = Color.White.copy(alpha = 0.6f),
+                    fontSize = 10.sp,
+                    lineHeight = 13.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
         }

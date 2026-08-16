@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -199,12 +200,16 @@ fun DetailsScreen(
         } finally {
             loading = false
         }
-        // Seed focus on the hero Play button after render (retry until attached)
+        // Seed focus on the hero Play button after render — first attempt is
+        // IMMEDIATE, retry only while the node is unattached (no pre-delay,
+        // which made Details entry feel laggy).
         delay(100)
-        repeat(6) { attempt ->
-            delay(50L * (attempt + 1))
+        var attempt = 0
+        while (attempt < 6) {
+            if (attempt > 0) delay(50L * attempt)
             val ok = runCatching { playFocusRequester.requestFocus(); true }.getOrDefault(false)
-            if (ok) return@repeat
+            if (ok) return@LaunchedEffect
+            attempt++
         }
     }
 
@@ -275,6 +280,14 @@ fun DetailsScreen(
                                 Screen.Player.createRoute(s.item.id.toString(), "movie")
                             navController.navigate(route)
                         },
+                        onResume = { season, episode ->
+                            navController.navigate(
+                                Screen.Player.createRoute(
+                                    s.item.id.toString(), s.item.mediaType,
+                                    season = season, episode = episode,
+                                )
+                            )
+                        },
                         onReturnToSidebar = onReturnToSidebar,
                     )
                 }
@@ -300,6 +313,7 @@ private fun TvCinematicDetailsView(
     onSeasonSelected: (Int) -> Unit,
     onWatchlistToggle: () -> Unit,
     onPlay: (EpisodeRef?) -> Unit,
+    onResume: (Int, Int) -> Unit,
     onReturnToSidebar: () -> Unit,
 ) {
     val item    = state.item
@@ -380,9 +394,11 @@ private fun TvCinematicDetailsView(
         // Off-screen section: jump to it instantly (no animation), then retry.
         runCatching { outerListState.scrollToItem(itemIndex) }
         runCatching { rowStates[rowId]?.scrollToItem(index) }
-        repeat(6) { attempt ->
-            delay(50L * (attempt + 1))
+        var attempt = 0
+        while (attempt < 6) {
+            if (attempt > 0) delay(50L * attempt)
             if (runCatching { target.requestFocus() }.isSuccess) return
+            attempt++
         }
     }
 
@@ -395,9 +411,11 @@ private fun TvCinematicDetailsView(
         scope.launch {
             runCatching { outerListState.scrollToItem(0) }
             if (runCatching { playFocusRequester.requestFocus() }.isSuccess) return@launch
-            repeat(6) { attempt ->
-                delay(50L * (attempt + 1))
+            var attempt = 0
+            while (attempt < 6) {
+                if (attempt > 0) delay(50L * attempt)
                 if (runCatching { playFocusRequester.requestFocus() }.isSuccess) return@launch
+                attempt++
             }
         }
     }
@@ -563,7 +581,7 @@ private fun TvCinematicDetailsView(
                                     onFocused = { focusedIdx = i },
                                     focusRequester = requester(rowId, i),
                                     onKeyEvent = { onTileKey(rowId, sectionIndexOf(rowId), continueWatching.size, i, it) },
-                                    onPress = { /* resume */ },
+                                    onPress = { onResume(cw.season, cw.episode) },
                                 ) {
                                     ContinueWatchingCard(entry = cw, isTv = isTv)
                                 }
@@ -865,11 +883,11 @@ private fun CinematicSection(title: String, height: Dp, content: @Composable () 
 @Composable
 private fun EpisodeTileContent(episode: EpisodeRef) {
     val stillUrl = episode.stillPath?.let { "${Constants.TMDB_IMAGE_BASE}/w500$it" }.orEmpty()
-    Column(modifier = Modifier.width(286.dp)) {
+    Column(modifier = Modifier.width(286.dp).fillMaxHeight()) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(160.dp)
+                .weight(1f)
                 .clip(RoundedCornerShape(8.dp))
                 .background(Color(0xFF242424)),
         ) {
@@ -988,14 +1006,19 @@ private fun RecommendationCard(item: MediaItem) {
 
 @Composable
 private fun ContinueWatchingCard(entry: WatchEntryCompat.Entry, isTv: Boolean) {
-    val title = if (isTv) "S${entry.season} E${entry.episode}" else entry.title
+    val title = if (isTv) {
+        val base = "S${entry.season} E${entry.episode}"
+        if (entry.episodeName.isNotEmpty()) "$base  ${entry.episodeName}" else base
+    } else entry.title
     Column(
-        modifier = Modifier.width(286.dp),
+        modifier = Modifier
+            .width(286.dp)
+            .fillMaxHeight(),
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(160.dp)
+                .weight(1f)
                 .clip(RoundedCornerShape(8.dp))
                 .background(Color(0xFF242424)),
         ) {
@@ -1008,7 +1031,7 @@ private fun ContinueWatchingCard(entry: WatchEntryCompat.Entry, isTv: Boolean) {
                 )
             }
             // Progress bar
-            val progress = if (entry.duration > 0) (entry.position.toFloat() / entry.duration).coerceIn(0f, 1f) else 0f
+            val progress = entry.progress
             if (progress > 0f) {
                 Box(
                     modifier = Modifier

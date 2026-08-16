@@ -193,6 +193,8 @@ object CloudSyncRepository {
         positionSeconds: Long,
         durationSeconds: Long,
         posterPath: String,
+        seriesTitle: String = "",
+        episodeName: String = "",
     ) {
         val uid = SessionManager.uid(context)
         if (uid.isEmpty() || tmdbId.isEmpty()) return
@@ -206,6 +208,8 @@ object CloudSyncRepository {
             "season" to integer(season.toLong()),
             "episode" to integer(episode.toLong()),
             "posterUrl" to string(fullUrl(posterPath)),
+            "seriesTitle" to string(seriesTitle),
+            "episodeName" to string(episodeName),
             "position" to integer(positionSeconds),
             "duration" to integer(durationSeconds),
             "watchPercentage" to double(percentage),
@@ -214,6 +218,7 @@ object CloudSyncRepository {
         )
         val names = listOf(
             "tmdbId", "title", "isMovie", "season", "episode", "posterUrl",
+            "seriesTitle", "episodeName",
             "position", "duration", "watchPercentage", "isWatched", "timestamp",
         )
         val url = docPath(context, "watch_history", watchHistoryKey(tmdbId, isMovie, season, episode)) +
@@ -292,6 +297,8 @@ object CloudSyncRepository {
                         posterPath = str(f, "posterUrl"),
                         backdropPath = "",
                         timestamp = long(f, "timestamp"),
+                        seriesTitle = str(f, "seriesTitle"),
+                        episodeName = str(f, "episodeName"),
                     )
                 }
             }

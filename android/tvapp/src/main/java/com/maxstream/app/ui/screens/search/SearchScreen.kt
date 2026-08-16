@@ -482,7 +482,7 @@ private fun SearchCard(
             .width(130.dp)
             .height(190.dp)
             .clip(RoundedCornerShape(10.dp))
-            .background(Color(0xFF1A1A2E))
+            .background(Color(0xFF1A1A1E))
             .border(
                 width = if (isFocused) 2.dp else 0.dp,
                 color = if (isFocused) Color.White else Color.Transparent,
