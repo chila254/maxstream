@@ -1,8 +1,6 @@
 package com.maxstream.app.ui.screens.search
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,11 +20,13 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -36,24 +36,19 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.key.onKeyEvent
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
-import coil.compose.AsyncImage
 import com.maxstream.app.R
 import com.maxstream.app.data.model.MediaItem
 import com.maxstream.app.di.Modules
+import com.maxstream.app.ui.components.ContentCard
 import com.maxstream.app.ui.components.TvKeyboard
 import com.maxstream.app.ui.navigation.Screen
 import com.maxstream.app.ui.theme.Background
@@ -392,6 +387,18 @@ private fun SearchSection(
 ) {
     val scope = rememberCoroutineScope()
     var focusedIndex by remember { mutableIntStateOf(-1) }
+    val gridState = rememberLazyGridState()
+
+    // Register the grid with the shared navigator so [GridNavState.focusCard]
+    // can scroll the grid itself to an off-screen card (instead of only
+    // scrolling the outer LazyColumn, which left the focus ring off-screen and
+    // made the panel appear to bounce on every D-pad move).
+    LaunchedEffect(gridId) {
+        gridNav.registerGrid(gridId, gridState)
+    }
+    DisposableEffect(gridId) {
+        onDispose { gridNav.unregisterGrid(gridId) }
+    }
 
     Column {
         if (title != null) {
@@ -399,11 +406,14 @@ private fun SearchSection(
             Spacer(Modifier.height(12.dp))
         }
         LazyVerticalGrid(
+            state = gridState,
             columns = GridCells.Fixed(COLUMNS),
             modifier = Modifier.fillMaxWidth().height(
-                // Approximate height: rows × card height. Each card is ~190dp.
-                // Non-scrollable grid nested in the parent LazyColumn (all items composed).
-                ((items.size + COLUMNS - 1) / COLUMNS * 210 + 20).dp
+                // Approximate height: rows × card height. Each ContentCard is
+                // poster 190dp + title area ~52dp (6dp gap + 42dp + 4dp pad) =
+                // ~242dp; plus 14dp row spacing. Non-scrollable grid nested in
+                // the parent LazyColumn (all items composed).
+                ((items.size + COLUMNS - 1) / COLUMNS * 258 + 20).dp
             ),
             contentPadding = PaddingValues(0.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -415,9 +425,12 @@ private fun SearchSection(
                 key = { index -> "${itemKey(items[index])}" },
             ) { index ->
                 val item = items[index]
-                SearchCard(
-                    item = item,
-                    navController = navController,
+                ContentCard(
+                    posterUrl = item.posterUrl,
+                    title = item.title,
+                    rating = item.voteAverage.takeIf { it > 0 },
+                    year = item.releaseDate.take(4).toIntOrNull(),
+                    contentTypeLabel = if (item.mediaType == "tv") "TV Series" else "Movie",
                     isFocused = focusedIndex == index,
                     focusRequester = gridNav.requester(gridId, index),
                     onFocusChanged = { focused ->
@@ -434,6 +447,9 @@ private fun SearchSection(
                             onReturnToKeyboard = onReturnToKeyboard,
                             onReturnToSidebar = onReturnToSidebar,
                         )
+                    },
+                    onClick = {
+                        navController.navigate(Screen.Details.createRoute(item.id.toString(), item.mediaType))
                     },
                 )
             }
@@ -458,136 +474,6 @@ private fun SectionHeader(title: String) {
             fontSize = 21.sp,
             fontWeight = FontWeight.W700,
         )
-    }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Card — poster + metadata (matches Dart TvContentCard: rating, year, type)
-// ─────────────────────────────────────────────────────────────────────────────
-
-@Composable
-private fun SearchCard(
-    item: MediaItem,
-    navController: NavController,
-    isFocused: Boolean,
-    focusRequester: FocusRequester,
-    onFocusChanged: (Boolean) -> Unit,
-    onKeyEvent: (androidx.compose.ui.input.key.KeyEvent) -> Boolean,
-) {
-    val isSeries = item.mediaType == "tv"
-    val year = item.releaseDate.take(4).toIntOrNull()
-
-    Box(
-        modifier = Modifier
-            .width(130.dp)
-            .height(190.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(Color(0xFF1A1A1E))
-            .border(
-                width = if (isFocused) 2.dp else 0.dp,
-                color = if (isFocused) Color.White else Color.Transparent,
-                shape = RoundedCornerShape(10.dp),
-            )
-            .focusRequester(focusRequester)
-            .onFocusChanged { state -> onFocusChanged(state.hasFocus) }
-            .onKeyEvent(onKeyEvent)
-            .clickable {
-                navController.navigate(Screen.Details.createRoute(item.id.toString(), item.mediaType))
-            }
-    ) {
-        // Poster image
-        AsyncImage(
-            model = item.posterUrl.ifEmpty { item.backdropUrl },
-            contentDescription = item.title,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize(),
-            placeholder = painterResource(R.drawable.ic_launcher_foreground),
-            error = painterResource(R.drawable.ic_launcher_foreground),
-        )
-
-        // Gradient overlay at bottom
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .fillMaxHeight(0.55f)
-                .align(Alignment.BottomCenter)
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(Color.Transparent, Color(0xE6000000))
-                    )
-                )
-        )
-
-        // Metadata overlay
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(8.dp),
-            verticalArrangement = Arrangement.spacedBy(3.dp),
-        ) {
-            // Type badge
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(
-                        if (isSeries) Color(0xFF1565C0) else Color(0xFFB71C1C)
-                    )
-                    .padding(horizontal = 5.dp, vertical = 2.dp),
-            ) {
-                Text(
-                    text = if (isSeries) "TV" else "Movie",
-                    color = Color.White,
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Bold,
-                )
-            }
-
-            // Title
-            Text(
-                text = item.title,
-                color = Color.White,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                lineHeight = 14.sp,
-            )
-
-            // Rating + year row
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (item.voteAverage > 0) {
-                    Text(
-                        text = "★ ${String.format("%.1f", item.voteAverage)}",
-                        color = Color(0xFFFFD700),
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Medium,
-                    )
-                }
-                if (year != null) {
-                    Text(
-                        text = "$year",
-                        color = Color.White.copy(alpha = 0.6f),
-                        fontSize = 10.sp,
-                    )
-                }
-            }
-        }
-
-        // Focus glow border
-        if (isFocused) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .border(
-                        width = 2.dp,
-                        color = Color.White.copy(alpha = 0.9f),
-                        shape = RoundedCornerShape(10.dp),
-                    )
-            )
-        }
     }
 }
 

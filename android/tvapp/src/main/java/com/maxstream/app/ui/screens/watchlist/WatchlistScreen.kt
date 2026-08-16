@@ -9,12 +9,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -38,7 +36,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
@@ -46,18 +43,14 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
-import coil.compose.AsyncImage
-import com.maxstream.app.R
 import com.maxstream.app.data.local.WatchlistRepository
 import com.maxstream.app.data.model.MediaItem
+import com.maxstream.app.ui.components.ContentCard
 import com.maxstream.app.ui.navigation.Screen
 import com.maxstream.app.ui.theme.Background
 import com.maxstream.app.ui.theme.Primary
@@ -305,8 +298,12 @@ fun WatchlistScreen(
                             key = { index -> "${filtered[index].mediaType}:${filtered[index].id}" },
                         ) { index ->
                             val item = filtered[index]
-                            WatchlistCard(
-                                item = item,
+                            ContentCard(
+                                posterUrl = item.posterUrl,
+                                title = item.title,
+                                rating = item.voteAverage.takeIf { it > 0 },
+                                year = item.releaseDate.take(4).toIntOrNull(),
+                                contentTypeLabel = if (item.mediaType == "tv") "TV Series" else "Movie",
                                 isFocused = focusedIndex == index,
                                 focusRequester = gridNav.requester(GRID_ID, index),
                                 onFocusChanged = { focused ->
@@ -368,111 +365,6 @@ private fun WatchlistTabChip(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Grid card (poster + rating + type badge) — matches Search/Genre card style
+// (Cards use the shared ContentCard so every screen renders the same
+// poster + title-below dimensions as Home / SeriesList.)
 // ─────────────────────────────────────────────────────────────────────────────
-
-@Composable
-private fun WatchlistCard(
-    item: MediaItem,
-    isFocused: Boolean,
-    focusRequester: FocusRequester,
-    onFocusChanged: (Boolean) -> Unit,
-    onKeyEvent: (KeyEvent) -> Boolean,
-    onClick: () -> Unit,
-) {
-    val isSeries = item.mediaType == "tv"
-    val year = item.releaseDate.take(4).toIntOrNull()
-
-    Box(
-        modifier = Modifier
-            .width(130.dp)
-            .height(190.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(Color(0xFF1A1A1E))
-            .border(
-                width = if (isFocused) 2.dp else 0.dp,
-                color = if (isFocused) Color.White else Color.Transparent,
-                shape = RoundedCornerShape(10.dp),
-            )
-            .focusRequester(focusRequester)
-            .onFocusChanged { state -> onFocusChanged(state.hasFocus) }
-            .onKeyEvent(onKeyEvent)
-            .clickable(onClick = onClick),
-    ) {
-        AsyncImage(
-            model = item.posterUrl.ifEmpty { item.backdropUrl },
-            contentDescription = item.title,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize(),
-            placeholder = painterResource(R.drawable.ic_launcher_foreground),
-            error = painterResource(R.drawable.ic_launcher_foreground),
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .fillMaxHeight(0.55f)
-                .align(Alignment.BottomCenter)
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(Color.Transparent, Color(0xE6000000))
-                    )
-                )
-        )
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(8.dp),
-            verticalArrangement = Arrangement.spacedBy(3.dp),
-        ) {
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(if (isSeries) Color(0xFF1565C0) else Color(0xFFB71C1C))
-                    .padding(horizontal = 5.dp, vertical = 2.dp),
-            ) {
-                Text(
-                    text = if (isSeries) "TV" else "Movie",
-                    color = Color.White,
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Bold,
-                )
-            }
-            Text(
-                text = item.title,
-                color = Color.White,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                lineHeight = 14.sp,
-            )
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (item.voteAverage > 0) {
-                    Text(
-                        text = "★ ${String.format("%.1f", item.voteAverage)}",
-                        color = Color(0xFFFFD700),
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Medium,
-                    )
-                }
-                if (year != null) {
-                    Text(
-                        text = "$year",
-                        color = Color.White.copy(alpha = 0.6f),
-                        fontSize = 10.sp,
-                    )
-                }
-            }
-        }
-        if (isFocused) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .border(2.dp, Color.White.copy(alpha = 0.9f), RoundedCornerShape(10.dp))
-            )
-        }
-    }
-}

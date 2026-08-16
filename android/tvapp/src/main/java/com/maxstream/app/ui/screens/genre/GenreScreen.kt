@@ -61,6 +61,7 @@ import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import com.maxstream.app.data.model.MediaItem
 import com.maxstream.app.di.Modules
+import com.maxstream.app.ui.components.ContentCard
 import com.maxstream.app.ui.navigation.Screen
 import com.maxstream.app.ui.theme.Primary
 import kotlinx.coroutines.Job
@@ -140,7 +141,12 @@ fun GenreScreen(
             try {
                 val rows = fetch(genre, nextPage)
                 if (request != generation) return@launch
-                items = items + rows
+                // Dedupe: TMDB paging can return titles already on screen (and
+                // the grid key is mediaType:id), which made LazyVerticalGrid
+                // throw "key was already used" and crash on navigation.
+                val seen = items.mapTo(mutableSetOf()) { cardKey(it) }
+                val fresh = rows.filter { cardKey(it) !in seen }
+                items = items + fresh
                 page = nextPage
                 hasMore = rows.isNotEmpty()
                 loadingMore = false
@@ -247,7 +253,7 @@ fun GenreScreen(
             try {
                 val rows = fetch(genre, 1)
                 if (request != generation) return@launch
-                items = rows
+                items = rows.distinctBy { cardKey(it) }
                 hasMore = rows.isNotEmpty()
                 loadingContent = false
                 if (pendingEnterGrid && items.isNotEmpty()) {
@@ -587,8 +593,12 @@ fun GenreScreen(
                                 key = { index -> cardKey(items[index]) },
                             ) { index ->
                                 val item = items[index]
-                                GenreCard(
-                                    item = item,
+                                ContentCard(
+                                    posterUrl = item.posterUrl,
+                                    title = item.title,
+                                    rating = item.voteAverage.takeIf { it > 0 },
+                                    year = item.releaseDate.take(4).toIntOrNull(),
+                                    contentTypeLabel = if (item.mediaType == "tv") "TV Series" else "Movie",
                                     isFocused = focusedCard == index,
                                     focusRequester = cardFocusRequesters.getOrPut(cardKey(item)) { FocusRequester() },
                                     onFocusChanged = { focused ->
@@ -726,78 +736,6 @@ private fun GenreChip(
             fontSize = 16.sp,
             fontWeight = if (selected || focused) FontWeight.W700 else FontWeight.W500,
         )
-    }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Grid card (poster + rating + type badge)
-// ─────────────────────────────────────────────────────────────────────────────
-
-@Composable
-private fun GenreCard(
-    item: MediaItem,
-    isFocused: Boolean,
-    focusRequester: FocusRequester,
-    onFocusChanged: (Boolean) -> Unit,
-    onKeyEvent: (KeyEvent) -> Boolean,
-    onClick: () -> Unit,
-) {
-    val scale by animateFloatAsState(
-        targetValue = if (isFocused) 1.06f else 1f,
-        animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
-        label = "genreCardScale",
-    )
-    val isSeries = item.mediaType == "tv"
-
-    Box(
-        modifier = Modifier
-            .width(130.dp)
-            .height(190.dp)
-            .scale(scale)
-            .clip(RoundedCornerShape(10.dp))
-            .background(Color(0xFF1A1A1E))
-            .border(
-                width = if (isFocused) 2.dp else 0.dp,
-                color = if (isFocused) Color.White else Color.Transparent,
-                shape = RoundedCornerShape(10.dp),
-            )
-            .focusRequester(focusRequester)
-            .onFocusChanged { state -> onFocusChanged(state.hasFocus) }
-            .onKeyEvent(onKeyEvent)
-            .clickable(onClick = onClick),
-    ) {
-        AsyncImage(
-            model = item.posterUrl.ifEmpty { item.backdropUrl },
-            contentDescription = item.title,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize(),
-        )
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(7.dp)
-                .clip(RoundedCornerShape(5.dp))
-                .background(if (isSeries) Color(0xFF564D4D) else Color(0xFFE50914))
-                .padding(horizontal = 5.dp, vertical = 2.dp),
-        ) {
-            Text(
-                text = if (isSeries) "SERIES" else "MOVIE",
-                color = Color.White,
-                fontSize = 8.sp,
-                fontWeight = FontWeight.Bold,
-            )
-        }
-        if (item.voteAverage > 0) {
-            Text(
-                text = "%.1f".format(item.voteAverage),
-                color = Color.White,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(top = 7.dp, end = 7.dp),
-            )
-        }
     }
 }
 

@@ -1,9 +1,13 @@
 package com.maxstream.app.ui.screens.player
 
+import android.app.Activity
 import android.content.ComponentCallbacks2
 import android.content.Context
+import android.content.ContextWrapper
 import android.view.KeyEvent
+import android.view.WindowManager
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
@@ -25,12 +29,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.onPreviewKeyEvent
@@ -56,6 +63,7 @@ import com.maxstream.app.data.local.WatchProgressRepository
 import com.maxstream.app.data.model.Quality
 import com.maxstream.app.data.model.Source
 import com.maxstream.app.data.model.Subtitle
+import com.maxstream.app.data.remote.EpisodeRef
 import com.maxstream.app.di.Modules
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -70,6 +78,20 @@ import kotlin.math.abs
 
 /** Server/quality/subtitle selection panel currently open (null = closed). */
 private enum class PlayerMenu { Servers, Quality, Subtitles }
+
+/** A top-right menu button (Episodes/Subtitles/Quality/Servers). */
+private data class TopMenuButton(
+    val index: Int,
+    val label: String,
+    val onClick: () -> Unit,
+)
+
+/** Walks up the context chain to the hosting Activity (for the keep-screen-on flag). */
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
 
 /** A subtitle option unioned across all discovered servers, tagged with its owner. */
 private data class SubtitleOption(
@@ -95,6 +117,20 @@ fun PlayerScreen(
     var source by remember { mutableStateOf<Source?>(null) }
     var allServers by remember { mutableStateOf<List<Source>>(emptyList()) }
     var exoPlayer by remember { mutableStateOf<ExoPlayer?>(null) }
+    // Live handle to the rendered PlayerView so D-pad / OK can show its
+    // controller. The AndroidView is never focusable in Compose, so ExoPlayer's
+    // default "press to reveal controls" never fires — the keys below drive it.
+    var playerView by remember { mutableStateOf<PlayerView?>(null) }
+    // Mirrors the controller's visible state (media3 has no public getter; the
+    // view auto-hides after its timeout, so this may drift from the view).
+    var controlsVisible by remember { mutableStateOf(false) }
+    // Focus index into the visible top-right menu buttons (0=Episodes when a
+    // series, then Subtitles/Quality/Servers). -1 = focus on the surface so the
+    // D-pad shows/hides controls rather than moving between menus.
+    var focusedMenuButton by remember { mutableIntStateOf(-1) }
+    // One requester per possible top-right button (series + 3 menus). Episodes
+    // is index 0 and only used for series.
+    val menuButtonRequesters = remember { List(4) { FocusRequester() } }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var status by remember { mutableStateOf("") }
@@ -112,6 +148,15 @@ fun PlayerScreen(
     var backdropPath by remember { mutableStateOf("") }
     var seriesTitle by remember { mutableStateOf("") }
     var episodeName by remember { mutableStateOf("") }
+
+    // Current season/episode (mutable so autoplay can advance to the next one;
+    // initialised from the navigation args).
+    var currentSeason by remember { mutableIntStateOf(season) }
+    var currentEpisode by remember { mutableIntStateOf(episode) }
+    // Episode list for the current season (used to find the "next" episode).
+    var seasonEpisodes by remember { mutableStateOf<List<EpisodeRef>>(emptyList()) }
+    // Guards against re-entering autoplay while the next episode is loading.
+    var autoAdvancing by remember { mutableStateOf(false) }
 
     // Current subtitle options across every server (grouped + own headers).
     var subtitleOptions by remember { mutableStateOf<List<SubtitleOption>>(emptyList()) }
@@ -132,8 +177,8 @@ fun PlayerScreen(
             tmdbId = itemId,
             title = title.ifBlank { itemId },
             isMovie = isMovie,
-            season = season,
-            episode = episode,
+            season = currentSeason,
+            episode = currentEpisode,
             positionSeconds = positionMs / 1000,
             durationSeconds = durationMs / 1000,
             posterPath = posterPath,
@@ -148,8 +193,8 @@ fun PlayerScreen(
                 tmdbId = itemId,
                 title = title.ifBlank { itemId },
                 isMovie = isMovie,
-                season = season,
-                episode = episode,
+                season = currentSeason,
+                episode = currentEpisode,
                 positionSeconds = positionMs / 1000,
                 durationSeconds = durationMs / 1000,
                 posterPath = posterPath,
@@ -176,6 +221,38 @@ fun PlayerScreen(
     fun qualityOptions(s: Source?): List<Quality> {
         val q = s?.qualities ?: return emptyList()
         return listOf(Quality(label = "Auto", url = "", height = 0)) + q
+    }
+
+    /**
+     * Advances to the next episode when a series episode finishes. Mirrors
+     * Dart's _resolveNextEpisode/_playNextEpisode: same-season next number, or
+     * season N+1 episode 1 when the current season is exhausted.
+     */
+    suspend fun playNextEpisode() {
+        if (isMovie || autoAdvancing) return
+        autoAdvancing = true
+        try {
+            val numbers = seasonEpisodes.map { it.number }.filter { it > 0 }
+            val maxInSeason = numbers.maxOrNull()
+            val nextSeason: Int
+            val nextEpisode: Int
+            if (maxInSeason != null && currentEpisode >= maxInSeason) {
+                nextSeason = currentSeason + 1
+                nextEpisode = 1
+            } else {
+                nextSeason = currentSeason
+                nextEpisode = currentEpisode + 1
+            }
+            status = "Auto-playing S${nextSeason}E$nextEpisode..."
+            currentSeason = nextSeason
+            currentEpisode = nextEpisode
+            resumePositionMs = 0L
+            // loadAndPlay() is re-invoked by the LaunchedEffect keyed on
+            // (currentSeason, currentEpisode); it refetches metadata + resolves
+            // the stream for the new episode.
+        } finally {
+            autoAdvancing = false
+        }
     }
 
     /**
@@ -240,6 +317,22 @@ fun PlayerScreen(
         player.setMediaItem(itemBuilder.build(), startMs)
         player.prepare()
         player.playWhenReady = true
+
+        // Auto-advance to the next episode when a series episode completes
+        // (mirrors Dart's _completeCurrentItem/_playNextEpisode). Movies stop
+        // at the end screen.
+        if (!isMovie) {
+            player.addListener(
+                object : Player.Listener {
+                    override fun onPlaybackStateChanged(playbackState: Int) {
+                        if (playbackState == Player.STATE_ENDED && !autoAdvancing) {
+                            saveProgress()
+                            coroutineScope.launch { playNextEpisode() }
+                        }
+                    }
+                },
+            )
+        }
         return player
     }
 
@@ -383,10 +476,11 @@ fun PlayerScreen(
                         seriesTitle = seriesName
                         // Current episode still (its own cover art) + name.
                         val episodes = runCatching {
-                            Modules.catalogRepository.seasonEpisodes(id, season)
+                            Modules.catalogRepository.seasonEpisodes(id, currentSeason)
                         }.getOrDefault(emptyList())
-                        val currentEpisode = episodes.firstOrNull { it.number == episode }
-                        currentEpisode?.let { ep ->
+                        seasonEpisodes = episodes
+                        val currentEpisodeInfo = episodes.firstOrNull { it.number == currentEpisode }
+                        currentEpisodeInfo?.let { ep ->
                             episodeName = ep.title
                             ep.stillPath?.let { still ->
                                 // Still is already a w500 path fragment; coverUrl
@@ -401,7 +495,7 @@ fun PlayerScreen(
 
             // Resume position from watch history.
             resumePositionMs = WatchProgressRepository.loadPosition(
-                context, itemId, isMovie, season, episode,
+                context, itemId, isMovie, currentSeason, currentEpisode,
             ) * 1000
 
             // Primary stream for this title/episode. This is a parallel race
@@ -410,8 +504,8 @@ fun PlayerScreen(
             val primary = Modules.streamRepository(context).resolve(
                 tmdbId = itemId,
                 isMovie = isMovie,
-                season = season,
-                episode = episode,
+                season = currentSeason,
+                episode = currentEpisode,
                 title = title,
             )
             if (primary == null) {
@@ -462,8 +556,8 @@ fun PlayerScreen(
                 val servers = Modules.streamRepository(context).resolveAll(
                     tmdbId = itemId,
                     isMovie = isMovie,
-                    season = season,
-                    episode = episode,
+                    season = currentSeason,
+                    episode = currentEpisode,
                     title = title,
                 )
                 if (servers.isNotEmpty()) {
@@ -481,7 +575,7 @@ fun PlayerScreen(
     // Effects
     // ------------------------------------------------------------------
 
-    LaunchedEffect(itemId, mediaType, season, episode) {
+    LaunchedEffect(itemId, mediaType, currentSeason, currentEpisode) {
         loadAndPlay()
     }
 
@@ -536,6 +630,16 @@ fun PlayerScreen(
         onDispose { context.unregisterComponentCallbacks(callbacks) }
     }
 
+    // Keep the screen on while the player is active - including when the video
+    // is paused - so the TV never sleeps mid-binge (mirrors Dart's wakelock).
+    DisposableEffect(Unit) {
+        val activity = context.findActivity()
+        activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        onDispose {
+            activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
+
     // Rebuild the player after a memory-pressure release (and only then -
     // the initial load is driven by the itemId LaunchedEffect).
     LaunchedEffect(loading, exoPlayer) {
@@ -553,6 +657,62 @@ fun PlayerScreen(
     // ------------------------------------------------------------------
     // D-pad / remote handling
     // ------------------------------------------------------------------
+
+    // Visible top-right menu buttons, in display order. Index 0 is the
+    // Episodes button for series (reuses the Servers panel today, per the
+    // Dart reference); 1..3 are Subtitles/Quality/Servers.
+    val topMenuButtons = buildList<TopMenuButton> {
+        if (!isMovie) {
+            add(
+                TopMenuButton(
+                    index = 0,
+                    label = "Episodes",
+                    onClick = {
+                        menuOpen = true
+                        activeMenu = PlayerMenu.Servers // reuse for episodes in future
+                        menuIndex = 0
+                        focusedMenuButton = -1
+                    },
+                ),
+            )
+        }
+        add(
+            TopMenuButton(
+                index = 1,
+                label = "Subtitles [${if (selectedSubtitleLabel == "Off") "Off" else "On"}]",
+                onClick = {
+                    menuOpen = true
+                    activeMenu = PlayerMenu.Subtitles
+                    menuIndex = 0
+                    focusedMenuButton = -1
+                },
+            ),
+        )
+        add(
+            TopMenuButton(
+                index = 2,
+                label = "Quality [$selectedQualityLabel]",
+                onClick = {
+                    menuOpen = true
+                    activeMenu = PlayerMenu.Quality
+                    menuIndex = 0
+                    focusedMenuButton = -1
+                },
+            ),
+        )
+        add(
+            TopMenuButton(
+                index = 3,
+                label = "Servers",
+                onClick = {
+                    menuOpen = true
+                    activeMenu = PlayerMenu.Servers
+                    menuIndex = 0
+                    focusedMenuButton = -1
+                },
+            ),
+        )
+    }
 
     fun selectMenuOption(s: Source?) {
         val menu = activeMenu ?: return
@@ -622,6 +782,16 @@ fun PlayerScreen(
         }
     }
 
+    /** Moves focus onto [position] within the top-right menu buttons row. */
+    fun focusMenuButton(position: Int) {
+        focusedMenuButton = position
+        val btn = topMenuButtons.getOrNull(position) ?: return
+        runCatching {
+            menuButtonRequesters.getOrNull(btn.index)?.requestFocus()
+            true
+        }
+    }
+
     fun onKeyDown(key: Key): Boolean {
         when (key) {
             Key.DirectionUp -> {
@@ -629,6 +799,17 @@ fun PlayerScreen(
                     menuIndex = if (menuIndex > 0) menuIndex - 1 else menuIndex
                     return true
                 }
+                // No menu: reveal the playback controls (ExoPlayer's own
+                // controller isn't focusable inside Compose, so its built-in
+                // "press to show" never triggers). Also give focus to the
+                // top-right menu buttons so Up/Down cycles them like Dart's
+                // control grid.
+                runCatching { playerView?.showController() }
+                controlsVisible = true
+                if (focusedMenuButton < 0 && topMenuButtons.isNotEmpty()) {
+                    focusMenuButton(0)
+                }
+                return true
             }
             Key.DirectionDown -> {
                 if (menuOpen) {
@@ -641,18 +822,58 @@ fun PlayerScreen(
                     if (menuIndex + 1 < count) menuIndex++
                     return true
                 }
+                runCatching { playerView?.showController() }
+                controlsVisible = true
+                if (focusedMenuButton < 0 && topMenuButtons.isNotEmpty()) {
+                    focusMenuButton(topMenuButtons.lastIndex)
+                }
+                return true
             }
             Key.DirectionCenter, Key.Enter -> {
                 if (menuOpen) {
                     selectMenuOption(source)
                     return true
                 }
+                // A focused top-right menu button opens its panel on OK.
+                if (focusedMenuButton >= 0) {
+                    topMenuButtons.getOrNull(focusedMenuButton)?.onClick?.invoke()
+                    return true
+                }
+                // Toggle playback controls on OK (Dart shows them on select).
+                if (controlsVisible) {
+                    runCatching { playerView?.hideController() }
+                    controlsVisible = false
+                } else {
+                    runCatching { playerView?.showController() }
+                    controlsVisible = true
+                }
+                return true
+            }
+            Key.DirectionLeft, Key.DirectionRight -> {
+                if (menuOpen) return false
+                // When a top-right menu button has focus, move between buttons.
+                if (focusedMenuButton >= 0 && topMenuButtons.isNotEmpty()) {
+                    val delta = if (key == Key.DirectionLeft) -1 else 1
+                    val next = (focusedMenuButton + delta + topMenuButtons.size) % topMenuButtons.size
+                    focusMenuButton(next)
+                    return true
+                }
+                // When the controller is already visible, let ExoPlayer handle
+                // the seek (and its focus). When hidden, reveal it first.
+                if (!controlsVisible) {
+                    runCatching { playerView?.showController() }
+                    controlsVisible = true
+                    return true
+                }
+                return false
             }
             Key.Back, Key.Escape -> {
                 if (menuOpen) {
                     menuOpen = false
                     activeMenu = null
                     menuIndex = 0
+                } else if (focusedMenuButton >= 0) {
+                    focusedMenuButton = -1
                 } else {
                     saveProgress()
                     navController.popBackStack()
@@ -687,10 +908,12 @@ fun PlayerScreen(
                         view.player = exoPlayer
                         view.useController = true
                         view.controllerAutoShow = true
+                        playerView = view
                     }
                 },
                 update = { view ->
                     view.player = exoPlayer
+                    playerView = view
                 },
                 modifier = Modifier.fillMaxSize(),
             )
@@ -748,9 +971,16 @@ fun PlayerScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = source?.displayName ?: "",
+                    text = if (isMovie) {
+                        title.ifBlank { source?.displayName ?: "" }
+                    } else {
+                        val ep = episodeName.ifBlank { "Episode $currentEpisode" }
+                        val series = seriesTitle.ifBlank { title }
+                        "$series · S$currentSeason E$currentEpisode · $ep"
+                    },
                     color = Color.White,
                     fontSize = 14.sp,
+                    maxLines = 1,
                     modifier = Modifier
                         .background(Color(0x99000000))
                         .padding(horizontal = 10.dp, vertical = 6.dp),
@@ -758,7 +988,9 @@ fun PlayerScreen(
             }
         }
 
-        // Menu buttons row (top-right) — matches Dart's server/quality/subtitle buttons
+        // Menu buttons row (top-right) — matches Dart's server/quality/subtitle buttons.
+        // Each button is focusable so the D-pad can reach them (Up/Down/Left/Right
+        // move between them; OK opens the panel; Back returns focus to the surface).
         if (!loading && error == null && !menuOpen) {
             Row(
                 modifier = Modifier
@@ -766,27 +998,13 @@ fun PlayerScreen(
                     .padding(16.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                if (!isMovie) {
-                    PlayerTopButton(label = "Episodes") {
-                        menuOpen = true
-                        activeMenu = PlayerMenu.Servers // reuse for episodes in future
-                        menuIndex = 0
-                    }
-                }
-                PlayerTopButton(label = "Subtitles [${if (selectedSubtitleLabel == "Off") "Off" else "On"}]") {
-                    menuOpen = true
-                    activeMenu = PlayerMenu.Subtitles
-                    menuIndex = 0
-                }
-                PlayerTopButton(label = "Quality [$selectedQualityLabel]") {
-                    menuOpen = true
-                    activeMenu = PlayerMenu.Quality
-                    menuIndex = 0
-                }
-                PlayerTopButton(label = "Servers") {
-                    menuOpen = true
-                    activeMenu = PlayerMenu.Servers
-                    menuIndex = 0
+                topMenuButtons.forEach { btn ->
+                    val index = btn.index
+                    PlayerTopButton(
+                        label = btn.label,
+                        requester = menuButtonRequesters[index],
+                        onClick = btn.onClick,
+                    )
                 }
             }
         }
@@ -803,14 +1021,20 @@ fun PlayerScreen(
                 subtitles = subtitleOptions,
                 currentSubtitleLabel = selectedSubtitleLabel,
                 onSelect = { menuOpen = false; activeMenu = null },
-                modifier = Modifier.align(Alignment.CenterEnd),
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 76.dp, end = 16.dp),
             )
         }
     }
 }
 
 @Composable
-private fun PlayerTopButton(label: String, onClick: () -> Unit) {
+private fun PlayerTopButton(
+    label: String,
+    requester: FocusRequester,
+    onClick: () -> Unit,
+) {
     var isFocused by remember { androidx.compose.runtime.mutableStateOf(false) }
     Box(
         modifier = Modifier
@@ -818,6 +1042,7 @@ private fun PlayerTopButton(label: String, onClick: () -> Unit) {
                 if (isFocused) Color(0xFFE50914) else Color(0xCC000000),
                 androidx.compose.foundation.shape.RoundedCornerShape(6.dp),
             )
+            .focusRequester(requester)
             .focusable()
             .onFocusChanged { isFocused = it.hasFocus }
             .clickable(onClick = onClick)
@@ -849,22 +1074,53 @@ private fun MenuPanel(
         null -> emptyList()
     }
 
+    val title = when (activeMenu) {
+        PlayerMenu.Servers -> "Server"
+        PlayerMenu.Quality -> "Quality"
+        PlayerMenu.Subtitles -> "Subtitles"
+        null -> ""
+    }
+
     Column(
         modifier = modifier
-            .padding(16.dp)
-            .background(Color(0xF0111111))
-            .padding(vertical = 8.dp),
+            .width(340.dp)
+            .background(
+                Color(0xF2181818),
+                RoundedCornerShape(12.dp),
+            )
+            .border(
+                1.dp,
+                Color(0x40FFFFFF),
+                RoundedCornerShape(12.dp),
+            ),
     ) {
-        Text(
-            text = when (activeMenu) {
-                PlayerMenu.Servers -> "Servers"
-                PlayerMenu.Quality -> "Quality"
-                PlayerMenu.Subtitles -> "Subtitles"
-                null -> ""
-            },
-            color = Color(0xFFB3B3B3),
-            fontSize = 12.sp,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+        // Header — mirrors Dart's red-accent title with the focus arrow.
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = title,
+                color = Color(0xFFE50914),
+                fontSize = 18.sp,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+            )
+            Spacer(modifier = Modifier.weight(1f))
+            if (menuIndex < 0) {
+                Text(
+                    text = "▲",
+                    color = Color(0xFFE50914),
+                    fontSize = 14.sp,
+                )
+            }
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(Color(0x40FFFFFF)),
         )
         items.forEachIndexed { index, (label, isSelected) ->
             val focused = index == menuIndex
@@ -873,25 +1129,33 @@ private fun MenuPanel(
                     .fillMaxWidth()
                     .background(
                         when {
-                            focused -> Color(0xFFE50914)
-                            isSelected -> Color(0x33FFFFFF)
+                            isSelected -> Color(0xFFE50914)
+                            focused -> Color(0x1FFFFFFF)
                             else -> Color.Transparent
                         },
                     )
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                    .padding(horizontal = 20.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = if (isSelected) "● " else "  ",
-                    color = Color.White,
-                    fontSize = 14.sp,
-                )
-                Text(
                     text = label,
-                    color = Color.White,
-                    fontSize = 14.sp,
+                    color = if (isSelected) Color.White else Color(0xB3FFFFFF),
+                    fontSize = 16.sp,
+                    fontWeight = if (isSelected) {
+                        androidx.compose.ui.text.font.FontWeight.Bold
+                    } else {
+                        androidx.compose.ui.text.font.FontWeight.Normal
+                    },
                     maxLines = 1,
+                    modifier = Modifier.weight(1f),
                 )
+                if (isSelected) {
+                    Text(
+                        text = "✓",
+                        color = Color.White,
+                        fontSize = 18.sp,
+                    )
+                }
             }
         }
     }
