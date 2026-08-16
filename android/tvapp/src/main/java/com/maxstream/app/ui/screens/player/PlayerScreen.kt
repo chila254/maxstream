@@ -21,12 +21,15 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
@@ -146,6 +149,17 @@ fun PlayerScreen(
     // One requester per possible top-right button (series + 3 menus). Episodes
     // is index 0 and only used for series.
     val menuButtonRequesters = remember { List(4) { FocusRequester() } }
+    // Focus index into the bottom playback controls (0=rewind, 1=play/pause,
+    // 2=forward, 3=slider). -1 = focus is on the menus/surface. These controls
+    // are custom Compose widgets (like Dart's control grid) because ExoPlayer's
+    // built-in controller is not focusable inside Compose.
+    var focusedPlaybackControl by remember { mutableIntStateOf(-1) }
+    val playbackControlRequesters = remember { List(4) { FocusRequester() } }
+    // Live playback metrics for the custom progress bar (mirrors Dart's
+    // _position/_duration/_isPlaying listeners).
+    var positionMs by remember { mutableStateOf(0L) }
+    var durationMs by remember { mutableStateOf(0L) }
+    var isPlaying by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var status by remember { mutableStateOf("") }
@@ -691,6 +705,19 @@ fun PlayerScreen(
         }
     }
 
+    // Poll the live playback metrics so the custom progress bar / play button
+    // stay in sync (mirrors Dart's controller position listener). Keyed on the
+    // player instance so it restarts after every rebuild.
+    LaunchedEffect(exoPlayer) {
+        val player = exoPlayer ?: return@LaunchedEffect
+        while (true) {
+            positionMs = player.currentPosition
+            durationMs = player.duration
+            isPlaying = player.isPlaying
+            kotlinx.coroutines.delay(500)
+        }
+    }
+
     // ------------------------------------------------------------------
     // D-pad / remote handling
     // ------------------------------------------------------------------
@@ -908,6 +935,43 @@ fun PlayerScreen(
         }
     }
 
+    /** Moves focus onto one of the bottom playback controls (0..3). */
+    fun focusPlaybackControl(position: Int) {
+        focusedPlaybackControl = position
+        runCatching {
+            playbackControlRequesters.getOrNull(position)?.requestFocus()
+            true
+        }
+    }
+
+    fun seekBy(deltaSec: Int) {
+        val player = exoPlayer ?: return
+        val dur = player.duration
+        val target = if (dur > 0) {
+            (player.currentPosition + deltaSec * 1000L).coerceIn(0L, dur)
+        } else {
+            (player.currentPosition + deltaSec * 1000L).coerceAtLeast(0L)
+        }
+        player.seekTo(target)
+    }
+
+    fun togglePlayPause() {
+        val player = exoPlayer ?: return
+        if (player.isPlaying) player.pause() else player.play()
+    }
+
+    /** Activates the currently focused playback control (mirrors Dart's
+     * _activateControl: rewind/forward seek, playPause toggles). */
+    fun activatePlaybackControl() {
+        when (focusedPlaybackControl) {
+            0 -> seekBy(-10)
+            1 -> togglePlayPause()
+            2 -> seekBy(10)
+            3 -> Unit // slider: OK does nothing
+            else -> Unit
+        }
+    }
+
     fun onKeyDown(key: Key): Boolean {
         when (key) {
             Key.DirectionUp -> {
@@ -917,12 +981,12 @@ fun PlayerScreen(
                     menuIndex = if (menuIndex > 0) menuIndex - 1 else menuIndex
                     return true
                 }
-                // No menu: reveal the playback controls (ExoPlayer's own
-                // controller isn't focusable inside Compose, so its built-in
-                // "press to show" never triggers). Also give focus to the
-                // top-right menu buttons so Up/Down cycles them like Dart's
-                // control grid.
-                runCatching { playerView?.showController() }
+                // Up from a playback control returns to the top-right menus.
+                if (focusedPlaybackControl >= 0) {
+                    if (topMenuButtons.isNotEmpty()) focusMenuButton(0) else focusedPlaybackControl = -1
+                    return true
+                }
+                // Reveal the controls and focus the top-right menu row.
                 controlsVisible = true
                 if (focusedMenuButton < 0 && topMenuButtons.isNotEmpty()) {
                     focusMenuButton(0)
@@ -941,11 +1005,19 @@ fun PlayerScreen(
                     if (menuIndex + 1 < count) menuIndex++
                     return true
                 }
-                runCatching { playerView?.showController() }
-                controlsVisible = true
-                if (focusedMenuButton < 0 && topMenuButtons.isNotEmpty()) {
-                    focusMenuButton(topMenuButtons.lastIndex)
+                // Down from a playback control (0..2) moves to the slider.
+                if (focusedPlaybackControl >= 0) {
+                    if (focusedPlaybackControl < 3) focusPlaybackControl(3)
+                    return true
                 }
+                // Down from the top-right menu buttons drops onto the playback
+                // controls (Dart: arrowDown from the menu row → slider).
+                if (focusedMenuButton >= 0) {
+                    focusPlaybackControl(1)
+                    return true
+                }
+                controlsVisible = true
+                focusPlaybackControl(3)
                 return true
             }
             Key.DirectionCenter, Key.Enter -> {
@@ -958,14 +1030,13 @@ fun PlayerScreen(
                     topMenuButtons.getOrNull(focusedMenuButton)?.onClick?.invoke()
                     return true
                 }
-                // Toggle playback controls on OK (Dart shows them on select).
-                if (controlsVisible) {
-                    runCatching { playerView?.hideController() }
-                    controlsVisible = false
-                } else {
-                    runCatching { playerView?.showController() }
-                    controlsVisible = true
+                // A focused playback control activates (seek / play-pause).
+                if (focusedPlaybackControl >= 0) {
+                    activatePlaybackControl()
+                    return true
                 }
+                // Toggle playback controls on OK (Dart shows them on select).
+                controlsVisible = !controlsVisible
                 return true
             }
             Key.DirectionLeft, Key.DirectionRight -> {
@@ -991,10 +1062,20 @@ fun PlayerScreen(
                     focusMenuButton(next)
                     return true
                 }
-                // When the controller is already visible, let ExoPlayer handle
-                // the seek (and its focus). When hidden, reveal it first.
+                // Playback control focus: slider seeks, the three buttons move
+                // between each other.
+                if (focusedPlaybackControl >= 0) {
+                    if (focusedPlaybackControl == 3) {
+                        seekBy(if (key == Key.DirectionLeft) -10 else 10)
+                    } else {
+                        val delta = if (key == Key.DirectionLeft) -1 else 1
+                        val next = (focusedPlaybackControl + delta).coerceIn(0, 2)
+                        focusPlaybackControl(next)
+                    }
+                    return true
+                }
+                // Reveal controls on a directional press, like Dart.
                 if (!controlsVisible) {
-                    runCatching { playerView?.showController() }
                     controlsVisible = true
                     return true
                 }
@@ -1005,6 +1086,8 @@ fun PlayerScreen(
                     menuOpen = false
                     activeMenu = null
                     menuIndex = 0
+                } else if (focusedPlaybackControl >= 0) {
+                    focusedPlaybackControl = -1
                 } else if (focusedMenuButton >= 0) {
                     focusedMenuButton = -1
                 } else {
@@ -1039,8 +1122,9 @@ fun PlayerScreen(
                 factory = { ctx ->
                     PlayerView(ctx).also { view ->
                         view.player = exoPlayer
-                        view.useController = true
-                        view.controllerAutoShow = true
+                        // Custom focusable Compose controls replace the built-in
+                        // controller (which is not focusable inside Compose).
+                        view.useController = false
                         playerView = view
                     }
                 },
@@ -1143,6 +1227,57 @@ fun PlayerScreen(
                     )
                 }
             }
+
+            // Custom playback controls (bottom-center, like Dart's rewind /
+            // play-pause / forward row + slider). These replace ExoPlayer's
+            // built-in controller and are focusable via the D-pad.
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                // Progress bar / slider (focus index 3).
+                PlayerProgressBar(
+                    positionMs = positionMs,
+                    durationMs = durationMs,
+                    isFocused = focusedPlaybackControl == 3,
+                    requester = playbackControlRequesters[3],
+                    onFocusChanged = {
+                        if (it) focusPlaybackControl(3)
+                    },
+                )
+                Spacer(modifier = Modifier.height(14.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    PlaybackControlButton(
+                        label = "Back 10s",
+                        isFocused = focusedPlaybackControl == 0,
+                        requester = playbackControlRequesters[0],
+                        onClick = { seekBy(-10) },
+                        onFocusChanged = {
+                            if (it) focusPlaybackControl(0)
+                        },
+                    )
+                    PlaybackControlButton(
+                        label = if (isPlaying) "Pause" else "Play",
+                        isFocused = focusedPlaybackControl == 1,
+                        requester = playbackControlRequesters[1],
+                        onClick = { togglePlayPause() },
+                        onFocusChanged = {
+                            if (it) focusPlaybackControl(1)
+                        },
+                    )
+                    PlaybackControlButton(
+                        label = "Fwd 10s",
+                        isFocused = focusedPlaybackControl == 2,
+                        requester = playbackControlRequesters[2],
+                        onClick = { seekBy(10) },
+                        onFocusChanged = {
+                            if (it) focusPlaybackControl(2)
+                        },
+                    )
+                }
+            }
         }
 
         // Selection panel.
@@ -1192,6 +1327,121 @@ fun PlayerScreen(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun PlaybackControlButton(
+    label: String,
+    isFocused: Boolean,
+    requester: FocusRequester,
+    onClick: () -> Unit,
+    onFocusChanged: (Boolean) -> Unit,
+) {
+    val scale by animateFloatAsState(
+        targetValue = if (isFocused) 1.08f else 1f,
+        animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
+        label = "playbackControlScale",
+    )
+    Row(
+        modifier = Modifier
+            .scale(scale)
+            .background(
+                if (isFocused) Color(0xFFE50914) else Color(0xCC000000),
+                RoundedCornerShape(50),
+            )
+            .border(
+                width = if (isFocused) 2.dp else 0.dp,
+                color = if (isFocused) Color.White else Color.Transparent,
+                shape = RoundedCornerShape(50),
+            )
+            .focusRequester(requester)
+            .onFocusChanged { onFocusChanged(it.isFocused) }
+            .focusable()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 22.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            color = Color.White,
+            fontSize = 15.sp,
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun PlayerProgressBar(
+    positionMs: Long,
+    durationMs: Long,
+    isFocused: Boolean,
+    requester: FocusRequester,
+    onFocusChanged: (Boolean) -> Unit,
+) {
+    val fraction = if (durationMs > 0) {
+        (positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
+    val barWidth = 560.dp
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(
+            modifier = Modifier
+                .width(barWidth)
+                .height(8.dp)
+                .background(Color(0x66FFFFFF), RoundedCornerShape(4.dp))
+                .focusRequester(requester)
+                .onFocusChanged { onFocusChanged(it.isFocused) }
+                .focusable(),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(fraction)
+                    .height(8.dp)
+                    .background(Color(0xFFE50914), RoundedCornerShape(4.dp)),
+            )
+            if (isFocused) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .width(4.dp)
+                        .height(20.dp)
+                        .background(Color.White, RoundedCornerShape(2.dp))
+                        .offset(x = (barWidth * fraction) - 2.dp),
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                text = formatTimeMs(positionMs),
+                color = Color.White,
+                fontSize = 13.sp,
+            )
+            Text(
+                text = "/",
+                color = Color(0x66FFFFFF),
+                fontSize = 13.sp,
+            )
+            Text(
+                text = formatTimeMs(durationMs),
+                color = Color(0x66FFFFFF),
+                fontSize = 13.sp,
+            )
+        }
+    }
+}
+
+private fun formatTimeMs(ms: Long): String {
+    val totalSeconds = ms / 1000
+    val hours = totalSeconds / 3600
+    val minutes = (totalSeconds % 3600) / 60
+    val seconds = totalSeconds % 60
+    return if (hours > 0) {
+        String.format("%d:%02d:%02d", hours, minutes, seconds)
+    } else {
+        String.format("%d:%02d", minutes, seconds)
     }
 }
 
@@ -1318,39 +1568,55 @@ private fun MenuPanel(
                 .height(1.dp)
                 .background(Color(0x40FFFFFF)),
         )
-        items.forEachIndexed { index, (label, isSelected) ->
-            val focused = index == menuIndex
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(
-                        when {
-                            isSelected -> Color(0xFFE50914)
-                            focused -> Color(0x1FFFFFFF)
-                            else -> Color.Transparent
-                        },
-                    )
-                    .padding(horizontal = 20.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = label,
-                    color = if (isSelected) Color.White else Color(0xB3FFFFFF),
-                    fontSize = 16.sp,
-                    fontWeight = if (isSelected) {
-                        androidx.compose.ui.text.font.FontWeight.Bold
-                    } else {
-                        androidx.compose.ui.text.font.FontWeight.Normal
-                    },
-                    maxLines = 1,
-                    modifier = Modifier.weight(1f),
-                )
-                if (isSelected) {
+        // Auto-scroll so the focused row stays in view as the D-pad moves
+        // through long lists (mirrors Dart's ListView + ensureVisible).
+        val listState = rememberLazyListState()
+        LaunchedEffect(menuIndex) {
+            if (menuIndex >= 0 && menuIndex < items.size) {
+                listState.animateScrollToItem(menuIndex)
+            }
+        }
+        LazyColumn(
+            state = listState,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 420.dp),
+        ) {
+            items(items.size) { index ->
+                val (label, isSelected) = items[index]
+                val focused = index == menuIndex
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            when {
+                                isSelected -> Color(0xFFE50914)
+                                focused -> Color(0x1FFFFFFF)
+                                else -> Color.Transparent
+                            },
+                        )
+                        .padding(horizontal = 20.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     Text(
-                        text = "✓",
-                        color = Color.White,
-                        fontSize = 18.sp,
+                        text = label,
+                        color = if (isSelected) Color.White else Color(0xB3FFFFFF),
+                        fontSize = 16.sp,
+                        fontWeight = if (isSelected) {
+                            androidx.compose.ui.text.font.FontWeight.Bold
+                        } else {
+                            androidx.compose.ui.text.font.FontWeight.Normal
+                        },
+                        maxLines = 1,
+                        modifier = Modifier.weight(1f),
                     )
+                    if (isSelected) {
+                        Text(
+                            text = "✓",
+                            color = Color.White,
+                            fontSize = 18.sp,
+                        )
+                    }
                 }
             }
         }
@@ -1497,12 +1763,23 @@ private fun EpisodePanel(
                 }
             }
             else -> {
-                Column(
+                // Auto-scroll so the focused episode stays in view as the D-pad
+                // moves through the list (mirrors Dart's ListView + ensureVisible).
+                val listState = rememberLazyListState()
+                LaunchedEffect(focusedEpisode) {
+                    if (focusedEpisode >= 0 && focusedEpisode < episodes.size) {
+                        listState.animateScrollToItem(focusedEpisode)
+                    }
+                }
+                LazyColumn(
+                    state = listState,
                     modifier = Modifier
-                        .verticalScroll(rememberScrollState())
+                        .fillMaxWidth()
+                        .heightIn(max = 420.dp)
                         .padding(vertical = 6.dp),
                 ) {
-                    episodes.forEachIndexed { index, ep ->
+                    items(episodes.size) { index ->
+                        val ep = episodes[index]
                         val isPlaying =
                             menuSeason == currentSeason && ep.number == currentEpisode
                         val isFocused = index == focusedEpisode
