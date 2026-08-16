@@ -42,6 +42,12 @@ object WatchlistRepository {
         save(context, items)
     }
 
+    /** Removes by id+type without needing a full [MediaItem] (cloud reconcile). */
+    fun removeByKey(context: Context, id: String, mediaType: String) {
+        val items = getAll(context).filterNot { it.id.toString() == id && it.mediaType == mediaType }
+        save(context, items)
+    }
+
     fun toggle(context: Context, item: MediaItem): Boolean {
         return if (isIn(context, item)) {
             remove(context, item)

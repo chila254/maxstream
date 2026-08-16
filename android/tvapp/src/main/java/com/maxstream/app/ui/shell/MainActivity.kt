@@ -64,6 +64,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         WatchEntryCompat.init(applicationContext)
+        // Continuous cloud sync (watch progress + watchlist) while signed in —
+        // mirrors the Dart phone app's CloudSyncService.startListening().
+        com.maxstream.app.data.repository.CloudSyncCoordinator.start(applicationContext)
 
         try {
             setContent {

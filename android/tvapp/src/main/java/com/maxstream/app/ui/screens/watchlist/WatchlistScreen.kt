@@ -25,6 +25,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -98,6 +99,13 @@ fun WatchlistScreen(
     val gridNav = remember { GridNavState(COLUMNS) }
     val gridState = rememberLazyGridState()
 
+    // Continuous inbound sync: CloudSyncCoordinator mirrors the phone's real-time
+    // Firestore listener by re-pulling every few seconds and bumping
+    // watchlistRevision when the cloud watchlist changes (add/remove on phone).
+    // On change, reload from local storage so the TV always matches the phone.
+    val watchlistRevision by com.maxstream.app.data.repository.CloudSyncCoordinator.watchlistRevision
+        .collectAsState()
+
     LaunchedEffect(Unit) {
         try {
             // Pull the phone's watchlist into local storage so the TV shows the
@@ -112,10 +120,10 @@ fun WatchlistScreen(
     }
 
     // Re-pull + reload whenever the tab becomes visible again (e.g. returning
-    // from details after toggling the watchlist, or from the sidebar).
-    LaunchedEffect(isVisible, focusKey) {
+    // from details after toggling the watchlist, or from the sidebar), and when
+    // the synced watchlist changes on the phone.
+    LaunchedEffect(isVisible, focusKey, watchlistRevision) {
         if (!isVisible) return@LaunchedEffect
-        runCatching { com.maxstream.app.data.repository.CloudSyncRepository.pullToDevice(context) }
         watchlist = runCatching { WatchlistRepository.getAll(context) }.getOrDefault(watchlist)
     }
 

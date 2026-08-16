@@ -264,15 +264,24 @@ object CloudSyncRepository {
             ?: fields.optJSONObject(name)?.optString("integerValue")?.toDoubleOrNull() ?: 0.0
 
     /** Pulls the signed-in user's cloud data into local storage. Safe to call
-     * repeatedly; missing auth or network failure is silently ignored. */
-    suspend fun pullToDevice(context: Context) {
+     * repeatedly; missing auth or network failure is silently ignored.
+     *
+     * Mirrors the Dart real-time listener's reconcile semantics: cloud is the
+     * source of truth, so an entry deleted on the phone is also removed locally
+     * (watchlist + watch history). Returns which collections changed so screens
+     * can refresh (the Dart equivalent of historyRevision/watchlistRevision). */
+    suspend fun pullToDevice(context: Context): SyncChange {
         val uid = SessionManager.uid(context)
-        if (uid.isEmpty() || auth(context).isEmpty()) return
+        if (uid.isEmpty() || auth(context).isEmpty()) return SyncChange(false, false)
+
+        var historyChanged = false
+        var watchlistChanged = false
 
         runCatching {
             val historyJson = getJson(listPath(context, "watch_history"), context)
             val historyDocs = historyJson?.optJSONArray("documents")
             if (historyDocs != null) {
+                val cloudKeys = mutableSetOf<String>()
                 for (i in 0 until historyDocs.length()) {
                     val doc = historyDocs.optJSONObject(i) ?: continue
                     val f = fieldsOf(doc)
@@ -285,7 +294,8 @@ object CloudSyncRepository {
                     val duration = long(f, "duration")
                     if (position <= 0L) continue
                     val title = str(f, "title").ifBlank { tmdbId }
-                    WatchProgressRepository.importCloudEntry(
+                    cloudKeys += watchHistoryKey(tmdbId, isMovie, season, episode)
+                    historyChanged = WatchProgressRepository.importCloudEntry(
                         context,
                         tmdbId = tmdbId,
                         title = title,
@@ -299,7 +309,18 @@ object CloudSyncRepository {
                         timestamp = long(f, "timestamp"),
                         seriesTitle = str(f, "seriesTitle"),
                         episodeName = str(f, "episodeName"),
-                    )
+                    ) || historyChanged
+                }
+                // Deletions: drop local entries the cloud no longer has.
+                val local = WatchProgressRepository.recent(context, limit = 200)
+                for (entry in local) {
+                    val key = watchHistoryKey(entry.tmdbId, entry.isMovie, entry.season, entry.episode)
+                    if (key !in cloudKeys) {
+                        WatchProgressRepository.removeEntry(
+                            context, entry.tmdbId, entry.isMovie, entry.season, entry.episode,
+                        )
+                        historyChanged = true
+                    }
                 }
             }
         }
@@ -308,6 +329,10 @@ object CloudSyncRepository {
             val watchlistJson = getJson(listPath(context, "watchlist"), context)
             val watchlistDocs = watchlistJson?.optJSONArray("documents")
             if (watchlistDocs != null) {
+                val localKeysBefore = WatchlistRepository.getAll(context)
+                    .map { watchlistKey(it.id.toString(), it.mediaType) }
+                    .toSet()
+                val cloudKeys = mutableSetOf<String>()
                 for (i in 0 until watchlistDocs.length()) {
                     val doc = watchlistDocs.optJSONObject(i) ?: continue
                     val f = fieldsOf(doc)
@@ -325,9 +350,32 @@ object CloudSyncRepository {
                         voteAverage = doubleVal(f, "rating"),
                         genreIds = emptyList(),
                     )
+                    cloudKeys += watchlistKey(id, mediaType)
                     WatchlistRepository.add(context, item)
                 }
+                // Deletions: drop local items the cloud no longer has.
+                val local = WatchlistRepository.getAll(context)
+                for (item in local) {
+                    val key = watchlistKey(item.id.toString(), item.mediaType)
+                    if (key !in cloudKeys) {
+                        WatchlistRepository.removeByKey(context, item.id.toString(), item.mediaType)
+                        watchlistChanged = true
+                    }
+                }
+                // Additions: a new cloud doc that wasn't local before.
+                val localKeysAfter = WatchlistRepository.getAll(context)
+                    .map { watchlistKey(it.id.toString(), it.mediaType) }
+                    .toSet()
+                if (localKeysAfter != localKeysBefore) watchlistChanged = true
             }
         }
+
+        return SyncChange(historyChanged, watchlistChanged)
     }
+
+    /** Result of a cloud pull: which collections actually changed. */
+    data class SyncChange(
+        val historyChanged: Boolean,
+        val watchlistChanged: Boolean,
+    )
 }

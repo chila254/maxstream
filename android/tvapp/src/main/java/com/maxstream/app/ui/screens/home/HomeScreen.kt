@@ -35,6 +35,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.mutableIntStateOf
@@ -169,13 +170,20 @@ fun HomeScreen(
         }
     }
 
-    // While Home is visible, periodically pull the phone's synced progress so
-    // Continue Watching reflects what was watched on the phone (mirrors the
-    // phone's real-time Firestore listener without a streaming client).
+    // While Home is visible, continuously mirror the phone's synced progress so
+    // Continue Watching reflects what was watched on the phone. The 30s poll
+    // keeps the row fresh even if a revision bump is missed; CloudSyncCoordinator
+    // also bumps historyRevision on every inbound change (mirrors the phone's
+    // real-time Firestore listener + historyRevision notifier).
+    val historyRevision by com.maxstream.app.data.repository.CloudSyncCoordinator.historyRevision
+        .collectAsState()
+    LaunchedEffect(isVisible, historyRevision) {
+        if (isVisible) viewModel.refreshSynced()
+    }
     LaunchedEffect(isVisible) {
         while (isVisible && coroutineContext.isActive) {
-            viewModel.refreshSynced()
             delay(30_000)
+            viewModel.refreshSynced()
         }
     }
 

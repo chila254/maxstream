@@ -33,6 +33,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -200,6 +201,7 @@ fun DetailsScreen(
         } finally {
             loading = false
         }
+
         // Seed focus on the hero Play button after render — first attempt is
         // IMMEDIATE, retry only while the node is unattached (no pre-delay,
         // which made Details entry feel laggy).
@@ -211,6 +213,21 @@ fun DetailsScreen(
             if (ok) return@LaunchedEffect
             attempt++
         }
+    }
+
+    // Continuous inbound sync: when the phone changes the watchlist or watch
+    // progress, CloudSyncCoordinator re-pulls and bumps these revisions — refresh
+    // the save state + Continue Watching row to match (like the phone's
+    // historyRevision/watchlistRevision notifiers).
+    val historyRevision by com.maxstream.app.data.repository.CloudSyncCoordinator.historyRevision.collectAsState()
+    val watchlistRevision by com.maxstream.app.data.repository.CloudSyncCoordinator.watchlistRevision.collectAsState()
+    LaunchedEffect(historyRevision, watchlistRevision) {
+        val s = state ?: return@LaunchedEffect
+        val id = itemId.toIntOrNull() ?: return@LaunchedEffect
+        val isTv = mediaType == "tv"
+        val item = MediaItem.fromJson(s.details ?: return@LaunchedEffect).copy(mediaType = mediaType)
+        state = s.copy(isSaved = WatchlistRepository.isIn(context, item))
+        continueWatching = WatchEntryCompat.getEntriesFor(id, isTv)
     }
 
     // Season switch

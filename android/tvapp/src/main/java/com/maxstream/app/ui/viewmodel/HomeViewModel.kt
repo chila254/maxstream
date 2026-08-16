@@ -65,18 +65,20 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** Re-pulls cloud progress/watchlist and refreshes Continue Watching. */
+    /**
+     * Re-reads locally-synced progress for Continue Watching. Inbound cloud
+     * changes are mirrored by [CloudSyncCoordinator] (which also pulls on
+     * [loadAll]); this only re-reads local storage so it is cheap and safe to
+     * call on tab visibility + every revision bump.
+     */
     fun refreshSynced() {
-        viewModelScope.launch {
-            runCatching { CloudSyncRepository.pullToDevice(getApplication()) }
-            _continueWatching.value = WatchProgressRepository
-                .recent(getApplication(), limit = 20)
-                .filter { entry ->
-                    val pct = if (entry.durationSeconds > 0)
-                        entry.positionSeconds.toFloat() / entry.durationSeconds else 0f
-                    pct < 0.9f
-                }
-                .map { it.toMediaItem() }
-        }
+        _continueWatching.value = WatchProgressRepository
+            .recent(getApplication(), limit = 20)
+            .filter { entry ->
+                val pct = if (entry.durationSeconds > 0)
+                    entry.positionSeconds.toFloat() / entry.durationSeconds else 0f
+                pct < 0.9f
+            }
+            .map { it.toMediaItem() }
     }
 }

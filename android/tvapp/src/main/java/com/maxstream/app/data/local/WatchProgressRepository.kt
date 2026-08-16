@@ -69,6 +69,9 @@ object WatchProgressRepository {
      * Imports an entry pulled from the cloud into local storage, preserving the
      * cloud's timestamp so Continue Watching keeps the same ordering as the
      * phone. Mirrors the Dart [WatchHistoryService.importWatchProgress] flow.
+     *
+     * @return true when the stored entry changed (new or different) — lets the
+     *         caller decide whether to bump a refresh revision.
      */
     fun importCloudEntry(
         context: Context,
@@ -84,8 +87,8 @@ object WatchProgressRepository {
         timestamp: Long,
         seriesTitle: String = "",
         episodeName: String = "",
-    ) {
-        if (positionSeconds <= POSITION_SAVE_THRESHOLD_SECONDS) return
+    ): Boolean {
+        if (positionSeconds <= POSITION_SAVE_THRESHOLD_SECONDS) return false
         val entry = JSONObject()
             .put("tmdbId", tmdbId)
             .put("title", title)
@@ -99,13 +102,40 @@ object WatchProgressRepository {
             .put("seriesTitle", seriesTitle)
             .put("episodeName", episodeName)
             .put("timestamp", if (timestamp > 0L) timestamp else System.currentTimeMillis())
-        prefs(context).edit().putString(progressKey(tmdbId, isMovie, season, episode), entry.toString()).apply()
+        val key = progressKey(tmdbId, isMovie, season, episode)
+        val before = prefs(context).getString(key, null)
+        val changed = before != entry.toString()
+        prefs(context).edit().putString(key, entry.toString()).apply()
         upsertRecent(context, entry)
+        return changed
     }
 
     /** Clears the resume position (used when the user watches to the end). */
     fun clearPosition(context: Context, tmdbId: String, isMovie: Boolean, season: Int, episode: Int) {
         prefs(context).edit().remove(progressKey(tmdbId, isMovie, season, episode)).apply()
+    }
+
+    /**
+     * Removes an entry entirely (progress key + recent list). Used by cloud
+     * reconciliation so a title deleted on the phone disappears from the TV.
+     */
+    fun removeEntry(context: Context, tmdbId: String, isMovie: Boolean, season: Int, episode: Int) {
+        prefs(context).edit().remove(progressKey(tmdbId, isMovie, season, episode)).apply()
+        val current = runCatching {
+            JSONArray(prefs(context).getString(KEY_RECENT, "[]"))
+        }.getOrDefault(JSONArray())
+        val key = if (isMovie) "$tmdbId:movie" else "$tmdbId:tv:$season:$episode"
+        val filtered = JSONArray()
+        for (i in 0 until current.length()) {
+            val item = current.optJSONObject(i) ?: continue
+            val itemKey = if (item.optBoolean("isMovie")) {
+                "${item.optString("tmdbId")}:movie"
+            } else {
+                "${item.optString("tmdbId")}:tv:${item.optInt("season", 1)}:${item.optInt("episode", 1)}"
+            }
+            if (itemKey != key) filtered.put(item)
+        }
+        prefs(context).edit().putString(KEY_RECENT, filtered.toString()).apply()
     }
 
     /** Recently-watched entries, newest first, for the Home Continue Watching row. */
