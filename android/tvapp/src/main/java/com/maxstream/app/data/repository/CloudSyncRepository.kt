@@ -51,6 +51,15 @@ object CloudSyncRepository {
         return if (bearer.isEmpty()) emptyMap() else mapOf("Authorization" to bearer)
     }
 
+    /** Ensures the stored idToken is fresh before any Firestore call (see
+     * [AuthRepository.refreshIdToken]). Called by the HTTP helpers below so
+     * both the coordinator's pulls and the eager pushes stay authenticated
+     * even after Firebase's ~1h token expiry. */
+    private suspend fun ensureFreshToken(context: Context) {
+        if (SessionManager.idToken(context).isEmpty()) return
+        AuthRepository.ensureFreshIdToken(context)
+    }
+
     private fun docPath(context: Context, collection: String, docId: String): String {
         val uid = SessionManager.uid(context)
         return "$FIRESTORE_BASE/users/$uid/$collection/$docId"
@@ -70,6 +79,7 @@ object CloudSyncRepository {
 
     private suspend fun getJson(url: String, context: Context): JSONObject? =
         withContext(Dispatchers.IO) {
+            ensureFreshToken(context)
             val builder = Request.Builder().url(url)
             headers(context).forEach { (k, v) -> builder.header(k, v) }
             client.newCall(builder.get().build()).execute().use { response ->
@@ -81,6 +91,7 @@ object CloudSyncRepository {
 
     private suspend fun patchJson(url: String, body: JSONObject, context: Context) {
         withContext(Dispatchers.IO) {
+            ensureFreshToken(context)
             val builder = Request.Builder().url(url)
             headers(context).forEach { (k, v) -> builder.header(k, v) }
             builder.header("Content-Type", "application/json")
@@ -91,6 +102,7 @@ object CloudSyncRepository {
 
     private suspend fun deleteJson(url: String, context: Context) {
         withContext(Dispatchers.IO) {
+            ensureFreshToken(context)
             val builder = Request.Builder().url(url)
             headers(context).forEach { (k, v) -> builder.header(k, v) }
             client.newCall(builder.delete().build()).execute().use { }

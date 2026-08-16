@@ -98,14 +98,50 @@ object AuthRepository {
     }
 
     /**
-     * Extracts the Firebase Auth session fields (uid + idToken) from an Auth
-     * REST response, so the cloud-sync layer can authenticate Firestore calls
-     * as the signed-in user.
+     * Extracts the Firebase Auth session fields (uid + idToken + refreshToken)
+     * from an Auth REST response, so the cloud-sync layer can authenticate
+     * Firestore calls as the signed-in user and renew the token when it expires.
      */
     private fun sessionFrom(auth: JsonObject, email: String): Session {
         val uid = auth.get("localId")?.asString.orEmpty()
         val idToken = auth.get("idToken")?.asString.orEmpty()
-        return Session(email = email, uid = uid, idToken = idToken)
+        val refreshToken = auth.get("refreshToken")?.asString.orEmpty()
+        return Session(email = email, uid = uid, idToken = idToken, refreshToken = refreshToken)
+    }
+
+    /**
+     * Renews the Firebase ID token via the Auth REST securetoken endpoint.
+     * ID tokens expire after ~1 hour, so without this the Firestore REST calls
+     * would start returning 401/403 and cloud sync would silently stop (this is
+     * why sync worked for a while after sign-in, then died). Returns the new
+     * token on success, null on failure.
+     */
+    suspend fun refreshIdToken(context: Context): String? {
+        val refreshToken = SessionManager.refreshToken(context)
+        if (refreshToken.isEmpty()) return null
+        return try {
+            val body = JsonObject().apply {
+                addProperty("grant_type", "refresh_token")
+                addProperty("refresh_token", refreshToken)
+            }
+            val response = postJson("https://securetoken.googleapis.com/v1/token?key=$API_KEY", body)
+                ?: return null
+            if (response.has("error")) return null
+            val idToken = response.get("id_token")?.asString.orEmpty()
+            val newRefreshToken = response.get("refresh_token")?.asString.orEmpty()
+            if (idToken.isEmpty()) return null
+            SessionManager.updateTokens(context, idToken, newRefreshToken)
+            idToken
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /** Ensures a fresh idToken is stored, refreshing it if it has expired. */
+    suspend fun ensureFreshIdToken(context: Context): String {
+        val current = SessionManager.idToken(context)
+        if (current.isNotEmpty() && !SessionManager.idTokenExpired(context)) return current
+        return refreshIdToken(context) ?: current
     }
 
     /**
@@ -218,10 +254,21 @@ object AuthRepository {
     }
 
     fun completeSignIn(context: Context, session: Session) {
-        SessionManager.signIn(context, session.email, session.uid, session.idToken)
+        SessionManager.signIn(
+            context,
+            session.email,
+            session.uid,
+            session.idToken,
+            session.refreshToken,
+        )
     }
 
     fun signOut(context: Context) = SessionManager.signOut(context)
 
-    data class Session(val email: String, val uid: String, val idToken: String)
+    data class Session(
+        val email: String,
+        val uid: String,
+        val idToken: String,
+        val refreshToken: String = "",
+    )
 }

@@ -50,6 +50,9 @@ object CloudSyncCoordinator {
         job = scope.launch {
             while (isActive) {
                 if (SessionManager.isLoggedIn(context)) {
+                    // The stored Firebase idToken expires after ~1h; refresh it
+                    // first so Firestore REST calls don't silently 401/403.
+                    runCatching { AuthRepository.ensureFreshIdToken(context) }
                     val change = runCatching {
                         CloudSyncRepository.pullToDevice(context)
                     }.getOrDefault(CloudSyncRepository.SyncChange(false, false))
