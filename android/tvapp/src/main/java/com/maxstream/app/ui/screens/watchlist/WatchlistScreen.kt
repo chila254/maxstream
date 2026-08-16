@@ -100,12 +100,23 @@ fun WatchlistScreen(
 
     LaunchedEffect(Unit) {
         try {
+            // Pull the phone's watchlist into local storage so the TV shows the
+            // same saved titles as the phone (same account).
+            runCatching { com.maxstream.app.data.repository.CloudSyncRepository.pullToDevice(context) }
             watchlist = WatchlistRepository.getAll(context)
         } catch (e: Exception) {
             error = e.message
         } finally {
             loading = false
         }
+    }
+
+    // Re-pull + reload whenever the tab becomes visible again (e.g. returning
+    // from details after toggling the watchlist, or from the sidebar).
+    LaunchedEffect(isVisible, focusKey) {
+        if (!isVisible) return@LaunchedEffect
+        runCatching { com.maxstream.app.data.repository.CloudSyncRepository.pullToDevice(context) }
+        watchlist = runCatching { WatchlistRepository.getAll(context) }.getOrDefault(watchlist)
     }
 
     val filtered = when (selectedTab) {

@@ -137,6 +137,20 @@ fun PlayerScreen(
             posterPath = posterPath,
             backdropPath = backdropPath,
         )
+        // Push to Firestore so the phone (same account) sees this progress live.
+        coroutineScope.launch {
+            com.maxstream.app.data.repository.CloudSyncRepository.pushWatchProgress(
+                context = context,
+                tmdbId = itemId,
+                title = title.ifBlank { itemId },
+                isMovie = isMovie,
+                season = season,
+                episode = episode,
+                positionSeconds = positionMs / 1000,
+                durationSeconds = durationMs / 1000,
+                posterPath = posterPath,
+            )
+        }
     }
 
     fun qualityLabelFor(s: Source): String {

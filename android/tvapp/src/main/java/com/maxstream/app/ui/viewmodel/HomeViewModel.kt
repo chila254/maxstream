@@ -7,6 +7,7 @@ import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.viewModelScope
 import com.maxstream.app.data.local.WatchProgressRepository
 import com.maxstream.app.data.model.MediaItem
+import com.maxstream.app.data.repository.CloudSyncRepository
 import com.maxstream.app.di.Modules
 import kotlinx.coroutines.launch
 
@@ -41,17 +42,41 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         _loading.value = true
         _error.value = null
         viewModelScope.launch {
+            // Pull the phone's watch progress/watchlist into local storage so
+            // Continue Watching reflects what was watched on the phone.
+            runCatching { CloudSyncRepository.pullToDevice(getApplication()) }
             _trendingMovies.value = repo.trendingMovies() ?: emptyList()
             _trendingSeries.value = repo.trendingSeries() ?: emptyList()
             _popularMovies.value = repo.popularMovies() ?: emptyList()
             _popularSeries.value = repo.popularSeries() ?: emptyList()
             _topRatedMovies.value = repo.topRatedMovies() ?: emptyList()
             _topRatedSeries.value = repo.topRatedSeries() ?: emptyList()
-            // Continue Watching row: locally persisted watch progress, newest first.
+            // Continue Watching row: locally persisted watch progress, newest
+            // first, filtered like the phone (drop anything >= 90% watched).
             _continueWatching.value = WatchProgressRepository
                 .recent(getApplication(), limit = 20)
+                .filter { entry ->
+                    val pct = if (entry.durationSeconds > 0)
+                        entry.positionSeconds.toFloat() / entry.durationSeconds else 0f
+                    pct < 0.9f
+                }
                 .map { it.toMediaItem() }
             _loading.value = false
+        }
+    }
+
+    /** Re-pulls cloud progress/watchlist and refreshes Continue Watching. */
+    fun refreshSynced() {
+        viewModelScope.launch {
+            runCatching { CloudSyncRepository.pullToDevice(getApplication()) }
+            _continueWatching.value = WatchProgressRepository
+                .recent(getApplication(), limit = 20)
+                .filter { entry ->
+                    val pct = if (entry.durationSeconds > 0)
+                        entry.positionSeconds.toFloat() / entry.durationSeconds else 0f
+                    pct < 0.9f
+                }
+                .map { it.toMediaItem() }
         }
     }
 }

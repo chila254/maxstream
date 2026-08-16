@@ -61,6 +61,40 @@ object WatchProgressRepository {
         upsertRecent(context, entry)
     }
 
+    /**
+     * Imports an entry pulled from the cloud into local storage, preserving the
+     * cloud's timestamp so Continue Watching keeps the same ordering as the
+     * phone. Mirrors the Dart [WatchHistoryService.importWatchProgress] flow.
+     */
+    fun importCloudEntry(
+        context: Context,
+        tmdbId: String,
+        title: String,
+        isMovie: Boolean,
+        season: Int,
+        episode: Int,
+        positionSeconds: Long,
+        durationSeconds: Long,
+        posterPath: String,
+        backdropPath: String,
+        timestamp: Long,
+    ) {
+        if (positionSeconds <= POSITION_SAVE_THRESHOLD_SECONDS) return
+        val entry = JSONObject()
+            .put("tmdbId", tmdbId)
+            .put("title", title)
+            .put("isMovie", isMovie)
+            .put("season", season)
+            .put("episode", episode)
+            .put("position", positionSeconds)
+            .put("duration", durationSeconds)
+            .put("posterPath", posterPath)
+            .put("backdropPath", backdropPath)
+            .put("timestamp", if (timestamp > 0L) timestamp else System.currentTimeMillis())
+        prefs(context).edit().putString(progressKey(tmdbId, isMovie, season, episode), entry.toString()).apply()
+        upsertRecent(context, entry)
+    }
+
     /** Clears the resume position (used when the user watches to the end). */
     fun clearPosition(context: Context, tmdbId: String, isMovie: Boolean, season: Int, episode: Int) {
         prefs(context).edit().remove(progressKey(tmdbId, isMovie, season, episode)).apply()

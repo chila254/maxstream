@@ -71,6 +71,7 @@ import com.maxstream.app.ui.tv.RowNavState
 import com.maxstream.app.ui.viewmodel.HomeViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.isActive
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HomeScreen
@@ -152,6 +153,16 @@ fun HomeScreen(
             delay(50L * (attempt + 1))
             val ok = runCatching { playFocusRequester.requestFocus() }
             if (ok.isSuccess) return@LaunchedEffect
+        }
+    }
+
+    // While Home is visible, periodically pull the phone's synced progress so
+    // Continue Watching reflects what was watched on the phone (mirrors the
+    // phone's real-time Firestore listener without a streaming client).
+    LaunchedEffect(isVisible) {
+        while (isVisible && coroutineContext.isActive) {
+            viewModel.refreshSynced()
+            delay(30_000)
         }
     }
 

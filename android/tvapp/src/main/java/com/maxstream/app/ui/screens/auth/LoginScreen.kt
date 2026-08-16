@@ -124,8 +124,8 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
                 val result = AuthRepository.authenticateWithDeviceCode(c)
                 isLoading = false
                 result.fold(
-                    onSuccess = { creds ->
-                        AuthRepository.completeSignIn(context, creds.email)
+                    onSuccess = { session ->
+                        AuthRepository.completeSignIn(context, session)
                         onLoginSuccess()
                     },
                     onFailure = { errorMsg = it.message ?: "Invalid code" },
@@ -140,8 +140,8 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
                 val result = AuthRepository.signInWithEmail(e, p)
                 isLoading = false
                 result.fold(
-                    onSuccess = {
-                        AuthRepository.completeSignIn(context, e)
+                    onSuccess = { session ->
+                        AuthRepository.completeSignIn(context, session)
                         onLoginSuccess()
                     },
                     onFailure = { errorMsg = it.message ?: "Login failed" },
@@ -157,8 +157,8 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
                 val result = AuthRepository.signUpWithEmail(e, p)
                 isLoading = false
                 result.fold(
-                    onSuccess = {
-                        AuthRepository.completeSignIn(context, e)
+                    onSuccess = { session ->
+                        AuthRepository.completeSignIn(context, session)
                         onLoginSuccess()
                     },
                     onFailure = { errorMsg = it.message ?: "Sign up failed" },

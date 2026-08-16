@@ -98,10 +98,21 @@ object AuthRepository {
     }
 
     /**
+     * Extracts the Firebase Auth session fields (uid + idToken) from an Auth
+     * REST response, so the cloud-sync layer can authenticate Firestore calls
+     * as the signed-in user.
+     */
+    private fun sessionFrom(auth: JsonObject, email: String): Session {
+        val uid = auth.get("localId")?.asString.orEmpty()
+        val idToken = auth.get("idToken")?.asString.orEmpty()
+        return Session(email = email, uid = uid, idToken = idToken)
+    }
+
+    /**
      * Reads a device code from Firestore, burns it, and signs the linked user
      * in directly using the email + password carried by the code.
      */
-    suspend fun authenticateWithDeviceCode(code: String): Result<Credentials> {
+    suspend fun authenticateWithDeviceCode(code: String): Result<Session> {
         if (code.isBlank()) return Result.failure(IllegalArgumentException("Enter your code"))
         val encoded = java.net.URLEncoder.encode(code.trim(), "UTF-8")
         return try {
@@ -158,7 +169,7 @@ object AuthRepository {
                 ?: return Result.failure(Exception("Failed to sign in. Check your connection."))
             if (auth.has("error")) return Result.failure(Exception(authError(auth)))
 
-            Result.success(Credentials(email = email, password = password))
+            Result.success(sessionFrom(auth, email))
         } catch (e: Exception) {
             if (e is IllegalStateException || e is java.io.IOException) {
                 Result.failure(Exception("Failed to connect. Check your connection."))
@@ -168,7 +179,7 @@ object AuthRepository {
         }
     }
 
-    suspend fun signInWithEmail(email: String, password: String): Result<Unit> {
+    suspend fun signInWithEmail(email: String, password: String): Result<Session> {
         if (email.isBlank() || password.isBlank()) {
             return Result.failure(IllegalArgumentException("Enter your email and password"))
         }
@@ -181,13 +192,13 @@ object AuthRepository {
             val auth = postJson("$AUTH_BASE:signInWithPassword?key=$API_KEY", body)
                 ?: return Result.failure(Exception("Failed to sign in. Check your connection."))
             if (auth.has("error")) return Result.failure(Exception(authError(auth)))
-            Result.success(Unit)
+            Result.success(sessionFrom(auth, email.trim()))
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
-    suspend fun signUpWithEmail(email: String, password: String): Result<Unit> {
+    suspend fun signUpWithEmail(email: String, password: String): Result<Session> {
         if (email.isBlank() || password.length < 6) {
             return Result.failure(IllegalArgumentException("Invalid email or password (min 6 characters)"))
         }
@@ -200,17 +211,17 @@ object AuthRepository {
             val auth = postJson("$AUTH_BASE:signUp?key=$API_KEY", body)
                 ?: return Result.failure(Exception("Failed to create account. Check your connection."))
             if (auth.has("error")) return Result.failure(Exception(authError(auth)))
-            Result.success(Unit)
+            Result.success(sessionFrom(auth, email.trim()))
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
-    fun completeSignIn(context: Context, email: String) {
-        SessionManager.signIn(context, email)
+    fun completeSignIn(context: Context, session: Session) {
+        SessionManager.signIn(context, session.email, session.uid, session.idToken)
     }
 
     fun signOut(context: Context) = SessionManager.signOut(context)
 
-    data class Credentials(val email: String, val password: String)
+    data class Session(val email: String, val uid: String, val idToken: String)
 }
