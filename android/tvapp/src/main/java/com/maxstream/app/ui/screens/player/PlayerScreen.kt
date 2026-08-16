@@ -118,6 +118,8 @@ private data class SubtitleOption(
     val mimeType: String,
     val owner: String,
     val headers: Map<String, String>,
+    /** Extractor tag from the source (e.g. "HLS" for VixSrc subtitle renditions). */
+    val source: String = "",
 )
 
 @Composable
@@ -262,11 +264,14 @@ fun PlayerScreen(
         return s.qualities.firstOrNull { it.url == currentUrl }?.label ?: "Auto"
     }
 
-    fun subtitleMimeType(url: String): String = when {
+    fun subtitleMimeType(url: String, source: String = ""): String = when {
+        // HLS subtitle renditions (e.g. VixSrc) return an m3u8 playlist even
+        // though their URLs carry no .m3u8 extension, so the extractor's
+        // source tag is the authoritative signal (mirrors Dart's track.source).
+        source.equals("HLS", true) || url.contains(".m3u8", true) -> MimeTypes.APPLICATION_M3U8
         url.contains(".vtt", true) -> MimeTypes.TEXT_VTT
         url.contains(".srt", true) -> MimeTypes.APPLICATION_SUBRIP
         url.contains(".ssa", true) || url.contains(".ass", true) -> MimeTypes.TEXT_SSA
-        url.contains(".m3u8", true) -> MimeTypes.APPLICATION_M3U8
         else -> MimeTypes.TEXT_VTT
     }
 
@@ -326,8 +331,15 @@ fun PlayerScreen(
             .followRedirects(true)
             .followSslRedirects(true)
             .build()
-        val dataSourceFactory = OkHttpDataSource.Factory(httpClient)
+        val okHttpDataSourceFactory = OkHttpDataSource.Factory(httpClient)
             .setDefaultRequestProperties(headers)
+        // Wrap the OkHttp factory so file:// URIs (the local VTT files produced
+        // by resolveHlsSubtitlePlaylist) open via FileDataSource while http(s)
+        // still routes through OkHttp with the server headers.
+        val dataSourceFactory = androidx.media3.datasource.DefaultDataSource.Factory(
+            context,
+            okHttpDataSourceFactory,
+        )
 
         val itemBuilder = MediaItem.Builder()
             .setMediaId(url)
@@ -426,7 +438,21 @@ fun PlayerScreen(
                     }
                 }
                 if (parts.isEmpty()) return@withContext null
-                val vtt = parts.joinToString("\n")
+                // Concatenate into a single WEBVTT document, stripping per-segment
+                // WEBVTT headers and NOTE lines (mirrors the mobile player).
+                val vtt = buildString {
+                    append("WEBVTT\n\n")
+                    for (part in parts) {
+                        val cleaned = part
+                            .replace(Regex("""WEBVTT[\s\S]*?\n\n"""), "")
+                            .replace(Regex("""^NOTE.*$""", RegexOption.MULTILINE), "")
+                            .trim()
+                        if (cleaned.isNotEmpty()) {
+                            append(cleaned)
+                            append("\n\n")
+                        }
+                    }
+                }
                 val file = File(
                     context.cacheDir,
                     "subtitle_${abs(playlistUrl.hashCode())}.vtt",
@@ -451,15 +477,22 @@ fun PlayerScreen(
                     SubtitleOption(
                         label = "${server.displayName} · ${sub.label}",
                         url = sub.url,
-                        mimeType = subtitleMimeType(sub.url),
+                        mimeType = subtitleMimeType(sub.url, sub.source),
                         owner = server.displayName,
                         headers = server.headers,
+                        source = sub.source,
                     ),
                 )
             }
         }
         return result
     }
+
+    /** True when a subtitle option is an HLS subtitle rendition (m3u8 of .vtt
+     * segments). VixSrc subtitle URLs carry no `.m3u8` extension, so the
+     * extractor's source tag is the authoritative signal (mirrors Dart). */
+    fun isHlsSubtitle(sub: SubtitleOption): Boolean =
+        sub.source.equals("HLS", true) || sub.url.contains(".m3u8", true)
 
     /** Rebuilds the player with a new MediaItem while preserving the position. */
     fun switchMedia(
@@ -482,7 +515,7 @@ fun PlayerScreen(
             var sub: SubtitleOption? = newSubtitle
             // HLS subtitle playlists must be resolved to a local VTT before the
             // player can consume them.
-            if (sub != null && sub.url.contains(".m3u8", true)) {
+            if (sub != null && isHlsSubtitle(sub)) {
                 val local = resolveHlsSubtitlePlaylist(sub.url, sub.headers)
                 if (local != null) {
                     sub = sub.copy(url = "file://$local", mimeType = MimeTypes.TEXT_VTT)
@@ -583,7 +616,7 @@ fun PlayerScreen(
             // HLS subtitle playlists must be resolved to a local VTT first
             // (same path as switchMedia) so the player can consume them.
             var initialSub = defaultSub
-            if (initialSub != null && initialSub.url.contains(".m3u8", true)) {
+            if (initialSub != null && isHlsSubtitle(initialSub)) {
                 initialSub = resolveHlsSubtitlePlaylist(initialSub.url, initialSub.headers)
                     ?.let { local ->
                         initialSub.copy(url = "file://$local", mimeType = MimeTypes.TEXT_VTT)
@@ -943,6 +976,7 @@ fun PlayerScreen(
     /** Moves focus onto [position] within the top-right menu buttons row. */
     fun focusMenuButton(position: Int) {
         focusedMenuButton = position
+        focusedPlaybackControl = -1
         val btn = topMenuButtons.getOrNull(position) ?: return
         runCatching {
             menuButtonRequesters.getOrNull(btn.index)?.requestFocus()
@@ -953,6 +987,7 @@ fun PlayerScreen(
     /** Moves focus onto one of the bottom playback controls (0..3). */
     fun focusPlaybackControl(position: Int) {
         focusedPlaybackControl = position
+        focusedMenuButton = -1
         runCatching {
             playbackControlRequesters.getOrNull(position)?.requestFocus()
             true

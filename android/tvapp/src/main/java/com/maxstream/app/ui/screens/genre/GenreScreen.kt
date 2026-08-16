@@ -229,12 +229,9 @@ fun GenreScreen(
     }
 
     fun loadGenreContent(genre: GenreEntry, enterGrid: Boolean = false) {
+        // Same genre already loaded with content: just enter its grid.
         if (selectedGenre?.key == genre.key && items.isNotEmpty()) {
             if (enterGrid) enterGrid(genre)
-            return
-        }
-        if (selectedGenre?.key == genre.key && loadingContent) {
-            if (enterGrid) pendingEnterGrid = true
             return
         }
         genreDebounceJob?.cancel()

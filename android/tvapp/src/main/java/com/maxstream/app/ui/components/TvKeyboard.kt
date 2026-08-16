@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -24,8 +25,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
@@ -36,6 +39,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.maxstream.app.ui.tv.TvKeyboardFocusManager
+
+// Every row is padded to this many columns with invisible placeholders so all
+// keys render at the SAME width (mirrors the uniform key sizes of the Dart
+// keyboard). Without padding, a 7-key row produced much wider keys than a
+// 10-key row.
+private const val KEY_COLUMNS = 10
 
 @Composable
 fun TvKeyboard(
@@ -55,6 +64,11 @@ fun TvKeyboard(
     var capsLock by remember { mutableStateOf(false) }
     var isSymbols by remember { mutableStateOf(false) }
     val keyboardFocusRequester = focusRequester
+
+    // One FocusRequester per key (stable across recompositions), matching the
+    // Dart keyboard's per-key FocusNodes. Focus lands on the actual key so the
+    // remote's OK (DirectionCenter) and Enter both type the focused key.
+    val keyRequesters = remember { mutableMapOf<String, FocusRequester>() }
 
     fun initializeKeyboard() {
         keyboardLayout = if (isSymbols) {
@@ -116,10 +130,65 @@ fun TvKeyboard(
         onInput(input)
     }
 
+    fun focusKey(row: Int, col: Int) {
+        selectedRow = row
+        selectedCol = col
+        runCatching { keyRequesters["$row:$col"]?.requestFocus() }
+    }
+
+    fun handleKey(row: Int, col: Int, event: KeyEvent): Boolean {
+        if (event.type != KeyEventType.KeyDown) return false
+        val currentRow = keyboardLayout.getOrNull(row)
+        return when (event.key) {
+            Key.DirectionUp -> {
+                val nr = (row - 1).coerceAtLeast(0)
+                focusKey(nr, selectedCol.coerceAtMost(keyboardLayout.getOrNull(nr)?.lastIndex ?: 0))
+                true
+            }
+            Key.DirectionDown -> {
+                val nr = (row + 1).coerceAtMost(keyboardLayout.lastIndex)
+                focusKey(nr, selectedCol.coerceAtMost(keyboardLayout.getOrNull(nr)?.lastIndex ?: 0))
+                true
+            }
+            Key.DirectionLeft -> {
+                if (col == 0) onMoveLeft?.invoke()
+                else focusKey(row, col - 1)
+                true
+            }
+            Key.DirectionRight -> {
+                if (currentRow != null && col == currentRow.lastIndex) onMoveRight?.invoke()
+                else focusKey(row, (col + 1).coerceAtMost(currentRow?.lastIndex ?: 0))
+                true
+            }
+            Key.Enter, Key.DirectionCenter -> {
+                val key = keyboardLayout.getOrNull(row)?.getOrNull(col)
+                if (key != null) pressKey(key)
+                true
+            }
+            Key.Escape, Key.Back -> {
+                onMoveLeft?.invoke()
+                true
+            }
+            else -> {
+                // Physical keyboard: type the letter/digit itself instead of the
+                // stale (0,0) "Q" the old whole-column handler fell back to.
+                val ch = event.nativeKeyEvent?.unicodeChar
+                if (ch != null && ch != 0 && (ch.toChar().isLetterOrDigit() || ch.toChar() == ' ')) {
+                    pressKey(ch.toChar().toString())
+                    true
+                } else {
+                    false
+                }
+            }
+        }
+    }
+
     LaunchedEffect(Unit) {
         initializeKeyboard()
-        keyboardFocusRequester.requestFocus()
         focusManager?.activateKeyboard()
+        // Seed focus onto the first key so the remote's D-pad lands in the grid.
+        runCatching { keyboardFocusRequester.requestFocus() }
+        focusKey(0, 0)
     }
 
     Column(
@@ -127,50 +196,11 @@ fun TvKeyboard(
             .focusRequester(keyboardFocusRequester)
             .focusable()
             .onKeyEvent { event ->
-                if (event.type == KeyEventType.KeyDown) {
-                    when (event.key) {
-                        Key.DirectionUp -> {
-                            selectedRow = (selectedRow - 1).coerceAtLeast(0)
-                            selectedCol = selectedCol.coerceAtMost(keyboardLayout.getOrNull(selectedRow)?.lastIndex ?: 0)
-                            true
-                        }
-                        Key.DirectionDown -> {
-                            selectedRow = (selectedRow + 1).coerceAtMost(keyboardLayout.lastIndex)
-                            selectedCol = selectedCol.coerceAtMost(keyboardLayout.getOrNull(selectedRow)?.lastIndex ?: 0)
-                            true
-                        }
-                        Key.DirectionLeft -> {
-                            if (selectedCol == 0) {
-                                onMoveLeft?.invoke()
-                                true
-                            } else {
-                                selectedCol = (selectedCol - 1).coerceAtLeast(0)
-                                true
-                            }
-                        }
-                        Key.DirectionRight -> {
-                            val currentRow = keyboardLayout.getOrNull(selectedRow)
-                            if (currentRow != null && selectedCol == currentRow.lastIndex) {
-                                onMoveRight?.invoke()
-                                true
-                            } else {
-                                selectedCol = (selectedCol + 1).coerceAtMost(currentRow?.lastIndex ?: 0)
-                                true
-                            }
-                        }
-                        Key.Enter -> {
-                            val key = keyboardLayout.getOrNull(selectedRow)?.getOrNull(selectedCol)
-                            if (key != null) {
-                                pressKey(key)
-                            }
-                            true
-                        }
-                        Key.Escape, Key.Back -> {
-                            onMoveLeft?.invoke()
-                            true
-                        }
-                        else -> false
-                    }
+                // Root fallback: when the whole keyboard (not a specific key) has
+                // focus (e.g. after a re-seed), delegate to the current cell so
+                // D-pad / OK behave as if that key were focused.
+                if (event.type == KeyEventType.KeyDown && event.key in KEY_NAV_KEYS) {
+                    handleKey(selectedRow, selectedCol, event)
                 } else false
             }
     ) {
@@ -245,6 +275,9 @@ fun TvKeyboard(
                                     color = if (isFocused) Color.White else Color.Transparent,
                                     shape = RoundedCornerShape(6.dp)
                                 )
+                                .focusRequester(keyRequesters.getOrPut("$rowIndex:$colIndex") { FocusRequester() })
+                                .onFocusChanged { state -> if (state.hasFocus) { selectedRow = rowIndex; selectedCol = colIndex } }
+                                .onKeyEvent { event -> handleKey(rowIndex, colIndex, event) }
                                 .clickable { pressKey(key) },
                             contentAlignment = Alignment.Center
                         ) {
@@ -258,6 +291,16 @@ fun TvKeyboard(
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
+                    }
+                    // Pad short rows with invisible placeholders so every key in
+                    // every row shares the same width.
+                    repeat(KEY_COLUMNS - row.size) {
+                        Spacer(
+                            modifier = Modifier
+                                .weight(1f)
+                                .width(4.dp)
+                                .height(56.dp)
+                        )
                     }
                 }
             }
@@ -283,6 +326,11 @@ fun TvKeyboard(
         }
     }
 }
+
+private val KEY_NAV_KEYS = setOf(
+    Key.DirectionUp, Key.DirectionDown, Key.DirectionLeft, Key.DirectionRight,
+    Key.Enter, Key.DirectionCenter,
+)
 
 @Composable
 private fun TvKeyboardStatusBadge(

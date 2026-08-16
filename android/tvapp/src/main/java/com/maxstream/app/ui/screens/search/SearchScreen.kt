@@ -15,21 +15,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -51,7 +45,6 @@ import com.maxstream.app.di.Modules
 import com.maxstream.app.ui.components.ContentCard
 import com.maxstream.app.ui.components.TvKeyboard
 import com.maxstream.app.ui.navigation.Screen
-import com.maxstream.app.ui.theme.Background
 import com.maxstream.app.ui.tv.GridDesc
 import com.maxstream.app.ui.tv.GridNavState
 import com.maxstream.app.ui.tv.TvKeyboardFocusManager
@@ -96,30 +89,30 @@ fun SearchScreen(
     val keyboardFocusRequester = remember { FocusRequester() }
     val gridNav = remember { GridNavState(COLUMNS) }
     val resultsListState = rememberLazyListState()
+    var focusedKey by remember { mutableStateOf<String?>(null) }
 
     val showingResults =
         query.trim().length >= 2 && !isSearching &&
         (movieResults.isNotEmpty() || seriesResults.isNotEmpty())
 
-    // Ordered grid sections of the right panel — must mirror the LazyColumn items.
-    // Empty while searching: the spinner replaces the grids, so the keyboard
-    // must not be able to move focus onto a grid that is not composed.
-    val grids = remember(showingResults, isSearching, movieResults.size, seriesResults.size, discoverItems.size) {
-        if (isSearching) {
-            emptyList()
-        } else if (showingResults) {
-            buildList {
-                // LazyColumn items: 0 = "Results for" header, then one grid per
-                // non-empty section. Section index = item index inside the column.
-                var index = 1
-                if (movieResults.isNotEmpty()) add(GridDesc("search:movies", movieResults.size, sectionIndex = index++))
-                if (seriesResults.isNotEmpty()) add(GridDesc("search:series", seriesResults.size, sectionIndex = index++))
-            }
-        } else {
-            buildList {
-                if (discoverItems.isNotEmpty()) add(GridDesc("search:discover", discoverItems.size, sectionIndex = 1))
-            }
-        }
+    // Right panel rendered as a single LazyColumn of rows (mirrors the Dart
+    // CustomScrollView + slivers). Each section contributes a section header
+    // item followed by one item per row of cards, so the whole panel scrolls
+    // as one lazy list — like the watchlist grid — instead of a fully-composed
+    // fixed-height nested grid (which let focus land on invisible off-screen
+    // cards because requestFocus always succeeded).
+    val (panel, grids) = remember(
+        showingResults, isSearching, query.trim(),
+        movieResults.size, seriesResults.size, discoverItems.size,
+    ) {
+        buildPanel(
+            showingResults = showingResults,
+            isSearching = isSearching,
+            query = query.trim(),
+            movieResults = movieResults,
+            seriesResults = seriesResults,
+            discoverItems = discoverItems,
+        )
     }
     gridNav.setGrids(grids)
     gridNav.clearMissingGrids()
@@ -201,6 +194,8 @@ fun SearchScreen(
         if (first != null) gridNav.focusFirstCard(first.id, resultsListState, scope)
     }
 
+    fun cardKey(gridId: String, index: Int) = "$gridId:$index"
+
     // ── Layout ─────────────────────────────────────────────────────────────
     Row(
         modifier = Modifier
@@ -259,7 +254,7 @@ fun SearchScreen(
                 .fillMaxHeight()
                 .padding(end = 34.dp, top = 24.dp, bottom = 24.dp),
             contentPadding = PaddingValues(bottom = 56.dp),
-            verticalArrangement = Arrangement.spacedBy(32.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             when {
                 isSearching -> item {
@@ -283,73 +278,64 @@ fun SearchScreen(
                         )
                     }
 
-                query.trim().length >= 2 -> {
-                    item {
-                        Text(
-                            text = "Results for \"${query.trim()}\"",
-                            color = Color.White,
-                            fontSize = 29.sp,
-                            fontWeight = FontWeight.W800,
-                            modifier = Modifier.padding(bottom = 8.dp),
-                        )
-                    }
-                    if (movieResults.isNotEmpty()) {
-                        item {
-                            SearchSection(
-                                title = "Movies",
-                                items = movieResults,
-                                gridId = "search:movies",
-                                sectionIndex = 1,
-                                gridNav = gridNav,
-                                outerListState = resultsListState,
-                                navController = navController,
-                                onReturnToKeyboard = { returnToKeyboard() },
-                                onReturnToSidebar = onReturnToSidebar,
-                            )
-                        }
-                    }
-                    if (seriesResults.isNotEmpty()) {
-                        item {
-                            SearchSection(
-                                title = "TV Series",
-                                items = seriesResults,
-                                gridId = "search:series",
-                                sectionIndex = 2,
-                                gridNav = gridNav,
-                                outerListState = resultsListState,
-                                navController = navController,
-                                onReturnToKeyboard = { returnToKeyboard() },
-                                onReturnToSidebar = onReturnToSidebar,
-                            )
-                        }
-                    }
-                }
-
                 else -> {
-                    item {
-                        Text(
-                            text = "Discover",
-                            color = Color.White,
-                            fontSize = 29.sp,
-                            fontWeight = FontWeight.W800,
-                            modifier = Modifier.padding(bottom = 8.dp),
-                        )
-                    }
-                    if (discoverItems.isNotEmpty()) {
-                        item {
-                            SearchSection(
-                                title = null,
-                                items = discoverItems,
-                                gridId = "search:discover",
-                                sectionIndex = 1,
-                                gridNav = gridNav,
-                                outerListState = resultsListState,
-                                navController = navController,
-                                onReturnToKeyboard = { returnToKeyboard() },
-                                onReturnToSidebar = onReturnToSidebar,
+                    items(
+                        count = panel.size,
+                        key = { i -> panel[i].key },
+                    ) { i ->
+                        when (val entry = panel[i]) {
+                            is PanelTitle -> Text(
+                                text = entry.text,
+                                color = Color.White,
+                                fontSize = 29.sp,
+                                fontWeight = FontWeight.W800,
+                                modifier = Modifier.padding(bottom = 8.dp),
                             )
+
+                            is PanelSection -> SectionHeader(
+                                title = entry.title,
+                                modifier = Modifier.padding(top = 18.dp, bottom = 4.dp),
+                            )
+
+                            is PanelRow -> Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                entry.items.forEachIndexed { col, item ->
+                                    val index = entry.startIndex + col
+                                    ContentCard(
+                                        modifier = Modifier.weight(1f),
+                                        posterUrl = item.posterUrl,
+                                        title = item.title,
+                                        rating = item.voteAverage.takeIf { it > 0 },
+                                        year = item.releaseDate.take(4).toIntOrNull(),
+                                        contentTypeLabel = if (item.mediaType == "tv") "TV Series" else "Movie",
+                                        isFocused = focusedKey == cardKey(entry.gridId, index),
+                                        focusRequester = gridNav.requester(entry.gridId, index),
+                                        onFocusChanged = { focused ->
+                                            if (focused) focusedKey = cardKey(entry.gridId, index)
+                                            else if (focusedKey == cardKey(entry.gridId, index)) focusedKey = null
+                                        },
+                                        onKeyEvent = { event ->
+                                            gridNav.onCardKey(
+                                                gridId = entry.gridId,
+                                                index = index,
+                                                event = event,
+                                                outerListState = resultsListState,
+                                                scope = scope,
+                                                onReturnToKeyboard = { returnToKeyboard() },
+                                                onReturnToSidebar = onReturnToSidebar,
+                                            )
+                                        },
+                                        onClick = {
+                                            navController.navigate(Screen.Details.createRoute(item.id.toString(), item.mediaType))
+                                        },
+                                    )
+                                }
+                            }
                         }
-                    } else {
+                    }
+                    if (!showingResults && discoverItems.isEmpty() && query.trim().length < 2) {
                         item {
                             Box(
                                 modifier = Modifier.fillMaxWidth().height(200.dp),
@@ -370,98 +356,73 @@ fun SearchScreen(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Section: header + grid
+// Results panel model
 // ─────────────────────────────────────────────────────────────────────────────
 
-@Composable
-private fun SearchSection(
-    title: String?,
-    items: List<MediaItem>,
-    gridId: String,
-    sectionIndex: Int,
-    gridNav: GridNavState,
-    outerListState: LazyListState,
-    navController: NavController,
-    onReturnToKeyboard: () -> Unit,
-    onReturnToSidebar: () -> Unit,
-) {
-    val scope = rememberCoroutineScope()
-    var focusedIndex by remember { mutableIntStateOf(-1) }
-    val gridState = rememberLazyGridState()
+private sealed interface PanelItem {
+    val key: String
+}
 
-    // Register the grid with the shared navigator so [GridNavState.focusCard]
-    // can scroll the grid itself to an off-screen card (instead of only
-    // scrolling the outer LazyColumn, which left the focus ring off-screen and
-    // made the panel appear to bounce on every D-pad move).
-    LaunchedEffect(gridId) {
-        gridNav.registerGrid(gridId, gridState)
-    }
-    DisposableEffect(gridId) {
-        onDispose { gridNav.unregisterGrid(gridId) }
-    }
+private data class PanelTitle(val text: String) : PanelItem {
+    override val key: String get() = "title:$text"
+}
 
-    Column {
-        if (title != null) {
-            SectionHeader(title)
-            Spacer(Modifier.height(12.dp))
+private data class PanelSection(val title: String) : PanelItem {
+    override val key: String get() = "section:$title"
+}
+
+private data class PanelRow(val gridId: String, val startIndex: Int, val items: List<MediaItem>) : PanelItem {
+    override val key: String get() = "row:$gridId:$startIndex"
+}
+
+// Builds the right panel as a flat list of LazyColumn items (title / section
+// header / card rows) plus the matching GridDesc sections. Row-based like the
+// Dart CustomScrollView: the panel scrolls as ONE lazy list, and GridNavState
+// scrolls the parent to the exact row (sectionIndex + index / columns) so the
+// focused card is always brought into view.
+private fun buildPanel(
+    showingResults: Boolean,
+    isSearching: Boolean,
+    query: String,
+    movieResults: List<MediaItem>,
+    seriesResults: List<MediaItem>,
+    discoverItems: List<MediaItem>,
+): Pair<List<PanelItem>, List<GridDesc>> {
+    val panel = mutableListOf<PanelItem>()
+    val grids = mutableListOf<GridDesc>()
+
+    fun addSection(gridId: String, title: String, items: List<MediaItem>) {
+        if (items.isEmpty()) return
+        panel.add(PanelSection(title))
+        grids.add(GridDesc(gridId, items.size, sectionIndex = panel.size))
+        items.chunked(COLUMNS).forEachIndexed { row, chunk ->
+            panel.add(PanelRow(gridId, row * COLUMNS, chunk))
         }
-        LazyVerticalGrid(
-            state = gridState,
-            columns = GridCells.Fixed(COLUMNS),
-            modifier = Modifier.fillMaxWidth().height(
-                // Approximate height: rows × card height. Each ContentCard is
-                // poster 190dp + title area ~52dp (6dp gap + 42dp + 4dp pad) =
-                // ~242dp; plus 14dp row spacing. Non-scrollable grid nested in
-                // the parent LazyColumn (all items composed).
-                ((items.size + COLUMNS - 1) / COLUMNS * 258 + 20).dp
-            ),
-            contentPadding = PaddingValues(0.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            userScrollEnabled = false,
-        ) {
-            items(
-                count = items.size,
-                key = { index -> "${itemKey(items[index])}" },
-            ) { index ->
-                val item = items[index]
-                ContentCard(
-                    posterUrl = item.posterUrl,
-                    title = item.title,
-                    rating = item.voteAverage.takeIf { it > 0 },
-                    year = item.releaseDate.take(4).toIntOrNull(),
-                    contentTypeLabel = if (item.mediaType == "tv") "TV Series" else "Movie",
-                    isFocused = focusedIndex == index,
-                    focusRequester = gridNav.requester(gridId, index),
-                    onFocusChanged = { focused ->
-                        if (focused) focusedIndex = index
-                        else if (focusedIndex == index) focusedIndex = -1
-                    },
-                    onKeyEvent = { event ->
-                        gridNav.onCardKey(
-                            gridId = gridId,
-                            index = index,
-                            event = event,
-                            outerListState = outerListState,
-                            scope = scope,
-                            onReturnToKeyboard = onReturnToKeyboard,
-                            onReturnToSidebar = onReturnToSidebar,
-                        )
-                    },
-                    onClick = {
-                        navController.navigate(Screen.Details.createRoute(item.id.toString(), item.mediaType))
-                    },
-                )
+    }
+
+    when {
+        isSearching -> {}
+        showingResults -> {
+            panel.add(PanelTitle("Results for \"$query\""))
+            addSection("search:movies", "Movies", movieResults)
+            addSection("search:series", "TV Series", seriesResults)
+        }
+        else -> {
+            panel.add(PanelTitle("Discover"))
+            if (discoverItems.isNotEmpty()) {
+                grids.add(GridDesc("search:discover", discoverItems.size, sectionIndex = panel.size))
+                discoverItems.chunked(COLUMNS).forEachIndexed { row, chunk ->
+                    panel.add(PanelRow("search:discover", row * COLUMNS, chunk))
+                }
             }
         }
     }
+    return panel to grids
 }
 
-private fun itemKey(item: MediaItem) = "${item.mediaType}:${item.id}"
-
 @Composable
-private fun SectionHeader(title: String) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
+private fun SectionHeader(title: String, modifier: Modifier = Modifier) {
+    Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
         Box(
             modifier = Modifier
                 .size(width = 4.dp, height = 23.dp)

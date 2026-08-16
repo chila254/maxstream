@@ -18,7 +18,10 @@ import kotlinx.coroutines.launch
  *
  * @param id            stable identity used to remember focus across panels.
  * @param count         number of cards in the grid.
- * @param sectionIndex  index of this grid's item within the parent [LazyListState].
+ * @param sectionIndex  index of the grid's FIRST ROW item within the parent
+ *                      [LazyListState]. Row-based panels lay out each row of
+ *                      cards as its own LazyColumn item, so [focusCard] scrolls
+ *                      the parent to `sectionIndex + index / columns`.
  */
 data class GridDesc(
     val id: String,
@@ -107,7 +110,7 @@ class GridNavState(private val columns: Int) {
 
         // Off-screen target: jump it into view (instant, no animation), then
         // retry until the lazy item is composed and focus lands.
-        runCatching { outerListState?.scrollToItem(desc.sectionIndex) }
+        runCatching { outerListState?.scrollToItem(desc.sectionIndex + index / columns) }
         runCatching { gridStates[gridId]?.scrollToItem(index) }
 
         var attempt = 0
