@@ -144,7 +144,7 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
     } catch (e) {
       // Error loading series details
     } finally {
-      setState(() => isLoading = false);
+      if (mounted) setState(() => isLoading = false);
     }
   }
 

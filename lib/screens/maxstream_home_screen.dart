@@ -47,7 +47,7 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
   }
 
   Future<void> _loadContent() async {
-    setState(() => isLoading = true);
+    if (mounted) setState(() => isLoading = true);
 
     try {
       final syncFuture = CloudSyncService.pullToDevice();
@@ -58,6 +58,7 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
         syncFuture.then((_) => WatchHistoryService.getContinueWatching()),
       ]);
 
+      if (!mounted) return;
       setState(() {
         trendingMovies = results[0];
         popularMovies = results[1];
@@ -67,7 +68,7 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
     } catch (e) {
       // Error loading content
     } finally {
-      setState(() => isLoading = false);
+      if (mounted) setState(() => isLoading = false);
     }
   }
 

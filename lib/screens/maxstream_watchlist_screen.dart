@@ -42,10 +42,11 @@ class _MaxStreamWatchlistScreenState extends State<MaxStreamWatchlistScreen>
   }
 
   Future<void> _loadWatchlist({bool showLoading = true}) async {
-    if (showLoading) setState(() => isLoading = true);
+    if (mounted && showLoading) setState(() => isLoading = true);
     try {
       await CloudSyncService.pullToDevice();
       final items = await DBHelper.getWatchlistItems();
+      if (!mounted) return;
       setState(() {
         watchlistItems = items;
         movies = items.where((item) => item.mediaType != 'tv').toList();
@@ -54,7 +55,7 @@ class _MaxStreamWatchlistScreenState extends State<MaxStreamWatchlistScreen>
     } catch (e) {
       // Error loading watchlist
     } finally {
-      setState(() => isLoading = false);
+      if (mounted) setState(() => isLoading = false);
     }
   }
 

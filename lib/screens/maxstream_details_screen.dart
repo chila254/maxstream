@@ -132,7 +132,7 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
     } catch (e) {
       // Error loading details
     } finally {
-      setState(() => isLoading = false);
+      if (mounted) setState(() => isLoading = false);
     }
   }
 
