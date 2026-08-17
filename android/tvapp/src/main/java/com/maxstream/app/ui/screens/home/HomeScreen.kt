@@ -161,10 +161,23 @@ fun HomeScreen(
         if (!isVisible) return@LaunchedEffect
         isEntryVisible = true
         var attempt = 0
-        while (attempt < 6) {
-            if (attempt > 0) delay(50L * attempt)
+        while (attempt < 12) {
+            if (attempt > 0) delay(80L * attempt)
             // requestFocus() throws only while the node is unattached — retry
             // on exception until the hero is composed (isSuccess == no throw).
+            if (runCatching { playFocusRequester.requestFocus() }.isSuccess) return@LaunchedEffect
+            attempt++
+        }
+    }
+
+    // Seed focus once the hero item loads (data arrives from API).
+    // This covers the cold-start case where the initial retry window above
+    // expires before the hero poster is composed.
+    LaunchedEffect(heroItem, isVisible, focusKey) {
+        if (!isVisible || heroItem == null) return@LaunchedEffect
+        var attempt = 0
+        while (attempt < 8) {
+            if (attempt > 0) delay(60L * attempt)
             if (runCatching { playFocusRequester.requestFocus() }.isSuccess) return@LaunchedEffect
             attempt++
         }

@@ -155,7 +155,10 @@ fun Sidebar(
     // ── Width animation ────────────────────────────────────────────────────
     val sidebarWidth by animateDpAsState(
         targetValue = if (isExpanded) 220.dp else 76.dp,
-        animationSpec = tween(durationMillis = 380, easing = FastOutSlowInEasing),
+        animationSpec = tween(
+            durationMillis = if (isExpanded) 200 else 150,
+            easing = FastOutSlowInEasing,
+        ),
         label = "sidebarWidth",
     )
 
@@ -185,11 +188,11 @@ fun Sidebar(
                 .background(Color.Black),
             contentAlignment = Alignment.Center,
         ) {
-            Text(
-                text = "M",
-                color = Color(0xFFE50914),
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Black,
+            Icon(
+                painter = painterResource(R.drawable.maxstream_logo),
+                contentDescription = "MaxStream",
+                tint = Color.Unspecified,
+                modifier = Modifier.size(32.dp),
             )
         }
 
@@ -269,11 +272,11 @@ private fun SidebarPillItem(
     )
 
     // Animated pill width — mirrors Dart's AnimatedContainer (196 ↔ 56 dp,
-    // 200ms easeOutCubic). Padding stays constant (12dp) so only the pill
+    // 150ms easeOutCubic). Padding stays constant (12dp) so only the pill
     // width and the inner label slide.
     val pillWidth by animateDpAsState(
         targetValue = if (isExpanded) 196.dp else 56.dp,
-        animationSpec = tween(200, easing = FastOutSlowInEasing),
+        animationSpec = tween(150, easing = FastOutSlowInEasing),
         label = "pillWidth",
     )
 
@@ -347,7 +350,7 @@ private fun SidebarPillItem(
         // Label — always composed but width-animated so it slides in/out
         val labelWidth by animateDpAsState(
             targetValue = if (isExpanded) 140.dp else 0.dp,
-            animationSpec = tween(durationMillis = 380, easing = FastOutSlowInEasing),
+            animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
             label = "labelWidth",
         )
         if (labelWidth > 0.dp) {
