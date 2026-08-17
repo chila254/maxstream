@@ -890,6 +890,45 @@ fun PlayerScreen(
         )
     }
 
+    // Auto-hide the controls after 5s of inactivity while a menu is closed
+    // (mirrors Dart's _resetHideTimer). Any key-driven change to the focus
+    // target restarts this effect, so idle playback hides the overlay.
+    LaunchedEffect(controlsVisible, menuOpen, focusedMenuButton, focusedPlaybackControl) {
+        if (!controlsVisible || menuOpen) return@LaunchedEffect
+        delay(5_000)
+        if (menuOpen) return@LaunchedEffect
+        controlsVisible = false
+        focusedMenuButton = -1
+        focusedPlaybackControl = -1
+    }
+
+    // Request focus on the intended control AFTER the recomposition puts it in
+    // the tree. Calling FocusRequester.requestFocus() synchronously inside the
+    // key handler fails because the control is not composed yet (Dart solves
+    // the same race with addPostFrameCallback + requestFocus). Because this
+    // effect runs after composition, the requested node is always attached.
+    LaunchedEffect(controlsVisible, exoPlayer, loading, focusedMenuButton, focusedPlaybackControl) {
+        if (exoPlayer == null || loading) return@LaunchedEffect
+        if (controlsVisible && !menuOpen) {
+            if (focusedMenuButton >= 0 && topMenuButtons.isNotEmpty()) {
+                val btn = topMenuButtons.getOrNull(focusedMenuButton) ?: return@LaunchedEffect
+                runCatching {
+                    menuButtonRequesters.getOrNull(btn.index)?.requestFocus()
+                    true
+                }
+            } else if (focusedPlaybackControl >= 0) {
+                runCatching {
+                    playbackControlRequesters.getOrNull(focusedPlaybackControl)?.requestFocus()
+                    true
+                }
+            } else {
+                runCatching { rootFocusRequester.requestFocus(); true }
+            }
+        } else {
+            runCatching { rootFocusRequester.requestFocus(); true }
+        }
+    }
+
     fun selectMenuOption(s: Source?) {
         val menu = activeMenu ?: return
         when (menu) {

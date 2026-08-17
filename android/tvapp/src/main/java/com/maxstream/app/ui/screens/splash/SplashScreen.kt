@@ -66,31 +66,31 @@ fun SplashScreen(onComplete: () -> Unit) {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            // Logo mark — same vector the phone app uses for its native splash
+            // Logo mark — enlarged to match the Dart splash (which uses ~200dp)
             Image(
                 painter = painterResource(R.drawable.maxstream_logo),
                 contentDescription = "MaxStream logo",
                 modifier = Modifier
                     .scale(scale)
-                    .size(110.dp),
+                    .size(240.dp),
             )
 
             Spacer(Modifier.height(24.dp))
 
             Text(
-                text = "MAXSTREAM",
+                text = "MaxStream TV",
                 color = Color.White,
-                fontSize = 22.sp,
+                fontSize = 44.sp,
                 fontWeight = FontWeight.W900,
-                letterSpacing = 4.sp,
+                letterSpacing = 0.sp,
             )
 
             Spacer(Modifier.height(48.dp))
 
             CircularProgressIndicator(
                 color = Primary,
-                strokeWidth = 2.dp,
-                modifier = Modifier.size(28.dp),
+                strokeWidth = 4.dp,
+                modifier = Modifier.size(48.dp),
             )
         }
     }

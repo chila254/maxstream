@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -39,12 +38,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.maxstream.app.ui.tv.TvKeyboardFocusManager
-
-// Every row is padded to this many columns with invisible placeholders so all
-// keys render at the SAME width (mirrors the uniform key sizes of the Dart
-// keyboard). Without padding, a 7-key row produced much wider keys than a
-// 10-key row.
-private const val KEY_COLUMNS = 10
 
 @Composable
 fun TvKeyboard(
@@ -251,7 +244,7 @@ fun TvKeyboard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(bottom = if (rowIndex < keyboardLayout.lastIndex) 12.dp else 0.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     row.forEachIndexed { colIndex, key ->
                         val isFocused = selectedRow == rowIndex && selectedCol == colIndex
@@ -260,8 +253,7 @@ fun TvKeyboard(
                         Box(
                             modifier = Modifier
                                 .weight(1f)
-                                .padding(horizontal = 4.dp)
-                                .height(56.dp)
+                                .height(64.dp)
                                 .clip(RoundedCornerShape(6.dp))
                                 .background(
                                     when {
@@ -284,23 +276,13 @@ fun TvKeyboard(
                             androidx.compose.material3.Text(
                                 text = key,
                                 color = if (isFocused) Color.White else Color.White.copy(alpha = 0.7f),
-                                fontSize = 12.sp,
+                                fontSize = if (key.length > 4) 14.sp else 20.sp,
                                 fontWeight = if (isFocused) FontWeight.Bold else FontWeight.Normal,
                                 textAlign = TextAlign.Center,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
-                    }
-                    // Pad short rows with invisible placeholders so every key in
-                    // every row shares the same width.
-                    repeat(KEY_COLUMNS - row.size) {
-                        Spacer(
-                            modifier = Modifier
-                                .weight(1f)
-                                .width(4.dp)
-                                .height(56.dp)
-                        )
                     }
                 }
             }

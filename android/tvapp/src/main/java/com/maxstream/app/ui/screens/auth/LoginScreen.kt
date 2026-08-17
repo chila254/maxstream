@@ -1,5 +1,6 @@
 package com.maxstream.app.ui.screens.auth
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -35,22 +36,27 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.maxstream.app.R
 import com.maxstream.app.data.repository.AuthRepository
 import com.maxstream.app.ui.theme.Background
 import kotlinx.coroutines.launch
@@ -211,6 +217,33 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
                 }
             },
     ) {
+        // ── Background ─────────────────────────────────────────────────────
+        // Full-bleed background image with a horizontal black gradient overlay,
+        // mirroring the Dart reference login screen.
+        Box(modifier = Modifier.fillMaxSize()) {
+            Image(
+                painter = painterResource(R.drawable.background),
+                contentDescription = null,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .scale(1.1f),
+                contentScale = ContentScale.Crop,
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.horizontalGradient(
+                            colors = listOf(
+                                Color.Black.copy(alpha = 0.85f),
+                                Color.Black.copy(alpha = 0.45f),
+                                Color.Black.copy(alpha = 0.85f),
+                            ),
+                        ),
+                    ),
+            )
+        }
+
         // Start on the tabs row.
         LaunchedEffect(Unit) {
             kotlinx.coroutines.delay(120)
