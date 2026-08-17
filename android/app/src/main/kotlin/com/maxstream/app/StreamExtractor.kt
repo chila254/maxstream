@@ -890,18 +890,63 @@ class StreamExtractor(private val context: Context) {
                 }.orEmpty()
 
                 val url = bestUrl ?: throw IllegalStateException("VidLink no quality URL")
-                validateMediaRequest(url, bestHeaders)
+                val workingHeaders = validateMediaWithFallback(url, bestHeaders)
                 ExtractionResult.Final(
                     StreamResult(
                         url,
                         name,
                         mediaType(url),
-                        bestHeaders,
+                        workingHeaders,
                         qualities = qualityOptions.sortedByDescending { it.height },
                         subtitles = captions,
                     )
                 )
             }
+        }
+
+        /**
+         * VidLink's CDN signs media URLs at request time and frequently starts
+         * returning 428/429 for the exact header set a freshly-minted token
+         * produced seconds earlier.  Keep the filmboom.top referer (it is what
+         * unlocks the requiresProxy sources) as the primary probe, but when the
+         * CDN rejects it, fall back to lighter header sets so a stale-but-still
+         * valid media URL can still be played instead of aborting to WebView.
+         */
+        private fun validateMediaWithFallback(
+            url: String,
+            primaryHeaders: Map<String, String>,
+        ): Map<String, String> {
+            val probeSets = buildList {
+                add(primaryHeaders)
+                // The primary set is refererHeaders(filmboom) + entryHeaders.
+                // Drop the referer next; some CDN routes are keyed only on the
+                // Origin/X-Requested-With style headers embedded in entryHeaders.
+                add(primaryHeaders - "Referer")
+                // Then try VidLink's own origin as a neutral referer.
+                add(refererHeaders("https://vidlink.pro/"))
+                // Last resort: no special headers at all.
+                add(emptyMap())
+            }
+            var lastError: Exception? = null
+            for (headers in probeSets) {
+                try {
+                    validateMediaRequest(url, headers)
+                    Log.i(
+                        tag,
+                        "VidLink media validated with referer=" +
+                            (headers["Referer"] ?: "none"),
+                    )
+                    return headers
+                } catch (error: Exception) {
+                    lastError = error
+                    Log.w(
+                        tag,
+                        "VidLink media probe rejected (referer=${headers["Referer"] ?: "none"}): " +
+                            error.message,
+                    )
+                }
+            }
+            throw lastError ?: IllegalStateException("VidLink media rejected by every header set")
         }
 
         private suspend fun extractViaWebView(server: StreamServer): ExtractionResult {
@@ -1328,6 +1373,17 @@ class StreamExtractor(private val context: Context) {
                                     if (continuation.isActive) webView.loadUrl(embedUrl)
                                 }
                             }
+
+                            @JavascriptInterface
+                            fun onFrameUrl(frameUrl: String) {
+                                if (!continuation.isActive || frameUrl.isBlank()) return
+                                // Load the embed's player iframe as the main frame so
+                                // the invisible Turnstile challenge completes inside the
+                                // WebView and its media requests are reliably intercepted.
+                                webView.post {
+                                    if (continuation.isActive) webView.loadUrl(frameUrl)
+                                }
+                            }
                         }, "NativeBridge")
 
                         webView.webViewClient = object : WebViewClient() {
@@ -1339,6 +1395,20 @@ class StreamExtractor(private val context: Context) {
                                             .map(s => s.textContent || '').join('\n');
                                           const m = text.match(/EMBED_BASE\s*=\s*['"]([^'"]+)['"]/);
                                           window.NativeBridge.onEmbedBase(m ? m[1] : '');
+                                        })();
+                                    """.trimIndent()
+                                    view.evaluateJavascript(script, null)
+                                    return
+                                }
+                                // The embed page (cdn.moviesapi.vip) holds the real
+                                // player in an iframe.  Promote that iframe to the
+                                // main frame so its Turnstile challenge and media
+                                // requests happen at the top level.
+                                if (url.contains("/embed", true) && url.startsWith("https://cdn.moviesapi.vip", true)) {
+                                    val script = """
+                                        (() => {
+                                          const iframe = document.querySelector('iframe[src*="embed"]');
+                                          window.NativeBridge.onFrameUrl(iframe ? iframe.src : '');
                                         })();
                                     """.trimIndent()
                                     view.evaluateJavascript(script, null)
@@ -1355,7 +1425,9 @@ class StreamExtractor(private val context: Context) {
                                     url.contains(".ts?", true) ||
                                     url.contains("/playlist", true) ||
                                     url.contains("/master.", true) ||
-                                    url.contains("videoplayback", true)
+                                    url.contains("videoplayback", true) ||
+                                    url.contains("hls", true) ||
+                                    url.contains("/stream/", true)
                                 if (isMediaRequest && continuation.isActive) {
                                     val origin = URI(url).let { "${it.scheme}://${it.host}" }
                                     val cookies = CookieManager.getInstance()
