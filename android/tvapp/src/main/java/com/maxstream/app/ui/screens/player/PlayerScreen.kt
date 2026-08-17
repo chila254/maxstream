@@ -24,8 +24,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -50,11 +52,14 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.res.painterResource
+import com.maxstream.app.R
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -1321,13 +1326,48 @@ fun PlayerScreen(
 
             // Custom playback controls (bottom-center, like Dart's rewind /
             // play-pause / forward row + slider). These replace ExoPlayer's
-            // built-in controller and are focusable via the D-pad.
+            // built-in controller and are focusable via the D-pad. Mirrors
+            // Dart's layout: the centered icon button row sits raised above
+            // the progress bar.
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    PlaybackControlButton(
+                        iconRes = R.drawable.ic_replay_10,
+                        label = "Back 10s",
+                        isFocused = focusedPlaybackControl == 0,
+                        requester = playbackControlRequesters[0],
+                        onClick = { seekBy(-10) },
+                        onFocusChanged = {
+                            if (it) focusPlaybackControl(0)
+                        },
+                    )
+                    PlaybackControlButton(
+                        iconRes = if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play,
+                        label = if (isPlaying) "Pause" else "Play",
+                        isFocused = focusedPlaybackControl == 1,
+                        requester = playbackControlRequesters[1],
+                        onClick = { togglePlayPause() },
+                        onFocusChanged = {
+                            if (it) focusPlaybackControl(1)
+                        },
+                    )
+                    PlaybackControlButton(
+                        iconRes = R.drawable.ic_forward_10,
+                        label = "Fwd 10s",
+                        isFocused = focusedPlaybackControl == 2,
+                        requester = playbackControlRequesters[2],
+                        onClick = { seekBy(10) },
+                        onFocusChanged = {
+                            if (it) focusPlaybackControl(2)
+                        },
+                    )
+                }
+                Spacer(modifier = Modifier.height(14.dp))
                 // Progress bar / slider (focus index 3).
                 PlayerProgressBar(
                     positionMs = positionMs,
@@ -1338,36 +1378,6 @@ fun PlayerScreen(
                         if (it) focusPlaybackControl(3)
                     },
                 )
-                Spacer(modifier = Modifier.height(14.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    PlaybackControlButton(
-                        label = "Back 10s",
-                        isFocused = focusedPlaybackControl == 0,
-                        requester = playbackControlRequesters[0],
-                        onClick = { seekBy(-10) },
-                        onFocusChanged = {
-                            if (it) focusPlaybackControl(0)
-                        },
-                    )
-                    PlaybackControlButton(
-                        label = if (isPlaying) "Pause" else "Play",
-                        isFocused = focusedPlaybackControl == 1,
-                        requester = playbackControlRequesters[1],
-                        onClick = { togglePlayPause() },
-                        onFocusChanged = {
-                            if (it) focusPlaybackControl(1)
-                        },
-                    )
-                    PlaybackControlButton(
-                        label = "Fwd 10s",
-                        isFocused = focusedPlaybackControl == 2,
-                        requester = playbackControlRequesters[2],
-                        onClick = { seekBy(10) },
-                        onFocusChanged = {
-                            if (it) focusPlaybackControl(2)
-                        },
-                    )
-                }
             }
         }
 
@@ -1423,6 +1433,7 @@ fun PlayerScreen(
 
 @Composable
 private fun PlaybackControlButton(
+    iconRes: Int,
     label: String,
     isFocused: Boolean,
     requester: FocusRequester,
@@ -1450,12 +1461,19 @@ private fun PlaybackControlButton(
             .onFocusChanged { onFocusChanged(it.isFocused) }
             .focusable()
             .clickable(onClick = onClick)
-            .padding(horizontal = 22.dp, vertical = 10.dp),
+            .padding(horizontal = 18.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        Image(
+            painter = painterResource(iconRes),
+            contentDescription = label,
+            colorFilter = ColorFilter.tint(if (isFocused) Color.White else Color(0xCCFFFFFF)),
+            modifier = Modifier.size(22.dp),
+        )
+        Spacer(modifier = Modifier.width(8.dp))
         Text(
             text = label,
-            color = Color.White,
+            color = if (isFocused) Color.White else Color(0xCCFFFFFF),
             fontSize = 15.sp,
             maxLines = 1,
         )
