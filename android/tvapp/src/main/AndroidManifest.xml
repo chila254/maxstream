@@ -7,7 +7,7 @@
 
     <application
         android:label="@string/app_name"
-        android:icon="@mipmap/ic_launcher"
+        android:icon="@mipmap/ic_launcher_foreground"
         android:banner="@drawable/tv_banner"
         android:usesCleartextTraffic="true">
 
