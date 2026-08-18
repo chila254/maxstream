@@ -960,9 +960,10 @@ fun PlayerScreen(
     // requestFocus() is a silent no-op (returns Unit) when it is not, so we
     // retry over a few frames (previously the `; true` masked the failure and
     // the controls never got focus — the "focus escapes the menus" symptom).
-    LaunchedEffect(controlsVisible, menuOpen, exoPlayer, loading, focusedMenuButton, focusedPlaybackControl) {
+    LaunchedEffect(controlsVisible, menuOpen, exoPlayer, loading) {
         if (exoPlayer == null || loading) return@LaunchedEffect
         if (controlsVisible && !menuOpen) {
+            // Determine the best initial focus target from current state.
             val requester: FocusRequester? = when {
                 focusedMenuButton >= 0 && topMenuButtons.isNotEmpty() ->
                     topMenuButtons.getOrNull(focusedMenuButton)?.let { menuButtonRequesters.getOrNull(it.index) }
@@ -971,12 +972,10 @@ fun PlayerScreen(
                 else -> null
             }
             if (requester != null) {
-                var attempt = 0
-                while (attempt < 6) {
-                    if (attempt > 0) delay(40L * attempt)
-                    runCatching { requester.requestFocus() }
-                    attempt++
-                }
+                // Grant focus once; skip the old 6-retry loop that ran on
+                // every LEFT/RIGHT navigation and caused ~760ms lag.
+                delay(60)
+                runCatching { requester.requestFocus() }
             } else {
                 runCatching { rootFocusRequester.requestFocus() }
             }
@@ -1082,9 +1081,12 @@ fun PlayerScreen(
     fun focusPlaybackControl(position: Int) {
         focusedPlaybackControl = position
         focusedMenuButton = -1
-        // Best effort synchronously; the LaunchedEffect above retries after the
-        // controls are composed.
+        // Single sync request; one delayed retry covers the async compose timing.
         runCatching { playbackControlRequesters.getOrNull(position)?.requestFocus() }
+        coroutineScope.launch {
+            delay(50)
+            runCatching { playbackControlRequesters.getOrNull(position)?.requestFocus() }
+        }
     }
 
     fun seekBy(deltaSec: Int) {
@@ -1408,9 +1410,6 @@ fun PlayerScreen(
                         isFocused = focusedPlaybackControl == 0,
                         requester = playbackControlRequesters[0],
                         onClick = { seekBy(-10) },
-                        onFocusChanged = {
-                            if (it) focusPlaybackControl(0)
-                        },
                     )
                     PlaybackControlButton(
                         iconRes = if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play,
@@ -1418,9 +1417,6 @@ fun PlayerScreen(
                         isFocused = focusedPlaybackControl == 1,
                         requester = playbackControlRequesters[1],
                         onClick = { togglePlayPause() },
-                        onFocusChanged = {
-                            if (it) focusPlaybackControl(1)
-                        },
                     )
                     PlaybackControlButton(
                         iconRes = R.drawable.ic_forward_10,
@@ -1428,9 +1424,6 @@ fun PlayerScreen(
                         isFocused = focusedPlaybackControl == 2,
                         requester = playbackControlRequesters[2],
                         onClick = { seekBy(10) },
-                        onFocusChanged = {
-                            if (it) focusPlaybackControl(2)
-                        },
                     )
                 }
                 Spacer(modifier = Modifier.height(14.dp))
@@ -1440,9 +1433,6 @@ fun PlayerScreen(
                     durationMs = durationMs,
                     isFocused = focusedPlaybackControl == 3,
                     requester = playbackControlRequesters[3],
-                    onFocusChanged = {
-                        if (it) focusPlaybackControl(3)
-                    },
                 )
             }
         }
@@ -1504,7 +1494,6 @@ private fun PlaybackControlButton(
     isFocused: Boolean,
     requester: FocusRequester,
     onClick: () -> Unit,
-    onFocusChanged: (Boolean) -> Unit,
 ) {
     val scale by animateFloatAsState(
         targetValue = if (isFocused) 1.08f else 1f,
@@ -1524,8 +1513,6 @@ private fun PlaybackControlButton(
                 shape = RoundedCornerShape(50),
             )
             .focusRequester(requester)
-            .onFocusChanged { onFocusChanged(it.isFocused) }
-            .focusable()
             .clickable(onClick = onClick)
             .padding(horizontal = 18.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1552,7 +1539,6 @@ private fun PlayerProgressBar(
     durationMs: Long,
     isFocused: Boolean,
     requester: FocusRequester,
-    onFocusChanged: (Boolean) -> Unit,
 ) {
     val fraction = if (durationMs > 0) {
         (positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
@@ -1567,8 +1553,7 @@ private fun PlayerProgressBar(
                 .height(8.dp)
                 .background(Color(0x66FFFFFF), RoundedCornerShape(4.dp))
                 .focusRequester(requester)
-                .onFocusChanged { onFocusChanged(it.isFocused) }
-                .focusable(),
+                .clickable { /* slider: OK does nothing */ },
         ) {
             Box(
                 modifier = Modifier
