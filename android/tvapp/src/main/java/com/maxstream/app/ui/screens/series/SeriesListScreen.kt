@@ -514,14 +514,6 @@ private fun SeriesContentRow(
                         if (focused) {
                             focusedItemIndex = index
                             onItemFocus(item)
-                            // Auto-scroll to keep the focused card visible
-                            // (mirrors Dart's Scrollable.ensureVisible)
-                            coroutineScope.launch {
-                                rowListState.animateScrollToItem(
-                                    index = index,
-                                    scrollOffset = -100,
-                                )
-                            }
                         } else if (focusedItemIndex == index) focusedItemIndex = -1
                     },
                     onKeyEvent = { event ->

@@ -172,13 +172,20 @@ fun HomeScreen(
 
     // Seed focus once the hero item loads (data arrives from API).
     // This covers the cold-start case where the initial retry window above
-    // expires before the hero poster is composed.
-    LaunchedEffect(heroItem, isVisible, focusKey) {
-        if (!isVisible || heroItem == null) return@LaunchedEffect
+    // expires before the hero poster is composed. Deliberately runs ONCE:
+    // re-running on every heroItem change (the 400ms pendingHeroItem debounce
+    // fires whenever a content card is focused) stole focus back to the hero
+    // from the card the user was navigating.
+    var heroFocusSeeded by remember { mutableStateOf(false) }
+    LaunchedEffect(heroItem, isVisible) {
+        if (!isVisible || heroItem == null || heroFocusSeeded) return@LaunchedEffect
         var attempt = 0
         while (attempt < 8) {
             if (attempt > 0) delay(60L * attempt)
-            if (runCatching { playFocusRequester.requestFocus() }.isSuccess) return@LaunchedEffect
+            if (runCatching { playFocusRequester.requestFocus() }.isSuccess) {
+                heroFocusSeeded = true
+                return@LaunchedEffect
+            }
             attempt++
         }
     }

@@ -1134,7 +1134,16 @@ fun PlayerScreen(
                         PlayerMenu.Episodes -> (menuEpisodesCache[menuSeason] ?: emptyList()).size
                         null -> 0
                     }
-                    if (menuIndex + 1 < count) menuIndex++
+                    if (menuIndex + 1 < count) {
+                        menuIndex++
+                    } else if (count > 0) {
+                        // Past the last option: close the panel and drop onto
+                        // the playback controls so DOWN always reaches them.
+                        menuOpen = false
+                        activeMenu = null
+                        menuIndex = 0
+                        focusPlaybackControl(1)
+                    }
                     return true
                 }
                 // Down from a playback control (0..2) moves to the slider.

@@ -8,6 +8,7 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -41,6 +42,12 @@ class RowNavState {
     private val cardRequesters = mutableMapOf<String, FocusRequester>()
     private val rowStates = mutableMapOf<String, LazyListState>()
     private val savedIndices = mutableMapOf<String, Int>()
+
+    /** In-flight focus move. Cancelled before every new move so rapid D-pad
+     *  presses never queue up stale scroll+focus jobs that fight each other
+     *  (the same guard GridNavState uses for the watchlist grid, which is why
+     *  it navigates noticeably smoother than the row screens). */
+    private var focusJob: Job? = null
 
     /** Ordered list of currently visible rows. */
     var rows: List<RowDesc> = emptyList()
@@ -120,6 +127,13 @@ class RowNavState {
         }
     }
 
+    /** Cancels the previous move then starts a new one — keeps navigation
+     *  snappy and prevents stale focus requests from stealing focus back. */
+    fun moveTo(rowId: String, index: Int, outerListState: LazyListState, scope: CoroutineScope) {
+        focusJob?.cancel()
+        focusJob = scope.launch { focusCard(rowId, index, outerListState) }
+    }
+
     /**
      * Shared D-pad handler for a card inside [rowId].
      *
@@ -144,7 +158,7 @@ class RowNavState {
         when (event.key) {
             Key.DirectionLeft -> {
                 if (index > 0) {
-                    scope.launch { focusCard(rowId, index - 1, outerListState) }
+                    moveTo(rowId, index - 1, outerListState, scope)
                 } else {
                     onReturnToSidebar()
                 }
@@ -153,7 +167,7 @@ class RowNavState {
 
             Key.DirectionRight -> {
                 if (index + 1 < count(rowId)) {
-                    scope.launch { focusCard(rowId, index + 1, outerListState) }
+                    moveTo(rowId, index + 1, outerListState, scope)
                 }
                 return true
             }
@@ -161,9 +175,12 @@ class RowNavState {
             Key.DirectionUp -> {
                 if (rowIndex > 0) {
                     val target = rows[rowIndex - 1]
-                    scope.launch {
-                        focusCard(target.id, index.coerceAtMost((target.count - 1).coerceAtLeast(0)), outerListState)
-                    }
+                    moveTo(
+                        target.id,
+                        index.coerceAtMost((target.count - 1).coerceAtLeast(0)),
+                        outerListState,
+                        scope,
+                    )
                 } else {
                     onUpToHero()
                 }
@@ -173,9 +190,12 @@ class RowNavState {
             Key.DirectionDown -> {
                 if (rowIndex in 0 until rows.lastIndex) {
                     val target = rows[rowIndex + 1]
-                    scope.launch {
-                        focusCard(target.id, index.coerceAtMost((target.count - 1).coerceAtLeast(0)), outerListState)
-                    }
+                    moveTo(
+                        target.id,
+                        index.coerceAtMost((target.count - 1).coerceAtLeast(0)),
+                        outerListState,
+                        scope,
+                    )
                 }
                 return true
             }
@@ -190,7 +210,7 @@ class RowNavState {
      */
     fun focusFirstRow(outerListState: LazyListState, scope: CoroutineScope) {
         val first = rows.firstOrNull() ?: return
-        scope.launch { focusCard(first.id, focusedIndex(first.id), outerListState) }
+        moveTo(first.id, focusedIndex(first.id), outerListState, scope)
     }
 
     /** Drops requesters for rows that no longer exist (e.g. watchlist emptied). */

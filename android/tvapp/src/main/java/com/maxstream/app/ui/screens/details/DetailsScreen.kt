@@ -76,6 +76,7 @@ import com.maxstream.app.data.remote.EpisodeRef
 import com.maxstream.app.di.Modules
 import com.maxstream.app.ui.navigation.Screen
 import com.maxstream.app.ui.theme.Background
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONObject
@@ -371,6 +372,16 @@ private fun TvCinematicDetailsView(
     val tileRequesters = remember { mutableMapOf<String, FocusRequester>() }
     val rowStates = remember { mutableMapOf<String, LazyListState>() }
 
+    // In-flight focus move. Cancelled before every new move so rapid D-pad
+    // presses never queue up stale scroll+focus jobs that fight each other
+    // (mirrors GridNavState.moveTo used by the watchlist grid).
+    val focusJob = remember { mutableStateOf<Job?>(null) }
+
+    fun launchFocus(block: suspend () -> Unit) {
+        focusJob.value?.cancel()
+        focusJob.value = scope.launch { block() }
+    }
+
     val sections = buildList {
         // Real LazyColumn item indices (hero = 0), incremented in the SAME order
         // the items are emitted below. The old hardcoded 1/2/3/4/5 were wrong
@@ -421,17 +432,17 @@ private fun TvCinematicDetailsView(
 
     fun focusSection(rowId: String) {
         val section = sections.firstOrNull { it.rowId == rowId } ?: return
-        scope.launch { focusTile(rowId, 0, section.itemIndex, section.count) }
+        launchFocus { focusTile(rowId, 0, section.itemIndex, section.count) }
     }
 
     fun focusHero() {
-        scope.launch {
+        launchFocus {
             runCatching { outerListState.scrollToItem(0) }
-            if (runCatching { playFocusRequester.requestFocus() }.isSuccess) return@launch
+            if (runCatching { playFocusRequester.requestFocus() }.isSuccess) return@launchFocus
             var attempt = 0
             while (attempt < 6) {
                 if (attempt > 0) delay(50L * attempt)
-                if (runCatching { playFocusRequester.requestFocus() }.isSuccess) return@launch
+                if (runCatching { playFocusRequester.requestFocus() }.isSuccess) return@launchFocus
                 attempt++
             }
         }
@@ -456,12 +467,12 @@ private fun TvCinematicDetailsView(
         if (event.type != KeyEventType.KeyDown) return false
         return when (event.key) {
             Key.DirectionLeft -> {
-                if (index > 0) scope.launch { focusTile(rowId, index - 1, itemIndex, count) }
+                if (index > 0) launchFocus { focusTile(rowId, index - 1, itemIndex, count) }
                 else focusHero()
                 true
             }
             Key.DirectionRight -> {
-                if (index + 1 < count) scope.launch { focusTile(rowId, index + 1, itemIndex, count) }
+                if (index + 1 < count) launchFocus { focusTile(rowId, index + 1, itemIndex, count) }
                 true
             }
             Key.DirectionUp -> { focusPrevSection(itemIndex); true }
