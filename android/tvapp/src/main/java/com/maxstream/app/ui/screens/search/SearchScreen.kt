@@ -209,9 +209,9 @@ fun SearchScreen(
         // ── Left panel: keyboard ───────────────────────────────────────────
         Column(
             modifier = Modifier
-                .width(360.dp)
+                .width(480.dp)
                 .fillMaxHeight()
-                .padding(horizontal = 34.dp, vertical = 24.dp),
+                .padding(horizontal = 24.dp, vertical = 16.dp),
         ) {
             Text(
                 text = "Search",

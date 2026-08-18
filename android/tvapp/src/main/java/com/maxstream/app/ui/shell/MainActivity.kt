@@ -173,8 +173,10 @@ private fun TvAppRoot() {
         NavHost(
             navController = deepNavController,
             startDestination = Screen.Splash.route,
-            enterTransition = { fadeIn(tween(300)) },
-            exitTransition  = { fadeOut(tween(180)) },
+            enterTransition  = { fadeIn(tween(300)) },
+            exitTransition   = { fadeOut(tween(180)) },
+            popEnterTransition = { fadeIn(tween(250)) },
+            popExitTransition  = { fadeOut(tween(200)) },
         ) {
             composable(Screen.Splash.route) {
                 val context = androidx.compose.ui.platform.LocalContext.current
@@ -358,16 +360,16 @@ private fun TabScreen(
     visible: Boolean,
     content: @Composable () -> Unit,
 ) {
-    Box(
-        modifier = if (visible) {
-            Modifier.fillMaxSize()
-        } else {
-            Modifier
-                .size(0.dp)
-                .focusProperties { canFocus = false }
-        }
+    androidx.compose.animation.AnimatedVisibility(
+        visible = visible,
+        enter  = androidx.compose.animation.fadeIn(tween(220)),
+        exit   = androidx.compose.animation.fadeOut(tween(160)),
     ) {
-        content()
+        Box(
+            modifier = Modifier.fillMaxSize()
+        ) {
+            content()
+        }
     }
 }
 

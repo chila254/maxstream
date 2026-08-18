@@ -1124,17 +1124,15 @@ fun PlayerScreen(
                     menuIndex = if (menuIndex > 0) menuIndex - 1 else menuIndex
                     return true
                 }
-                // Up from a playback control goes to play/pause (Dart: UP from
-                // any control -> back, but playPause is the first interactive
-                // control below back; match the spirit by going to the center).
+                // Up from a playback control goes to the top-right menu row.
                 if (focusedPlaybackControl >= 0) {
-                    focusPlaybackControl(1)
+                    if (topMenuButtons.isNotEmpty()) focusMenuButton(0)
+                    else focusedPlaybackControl = -1
                     return true
                 }
-                // Reveal the controls and focus play/pause (Dart: surface
-                // arrowUp -> showControlsAndFocus(_Pc.playPause)).
+                // Surface: reveal controls and focus the menu row.
                 controlsVisible = true
-                focusPlaybackControl(1)
+                if (topMenuButtons.isNotEmpty()) focusMenuButton(0)
                 return true
             }
             Key.DirectionDown -> {
@@ -1181,8 +1179,16 @@ fun PlayerScreen(
                     activatePlaybackControl()
                     return true
                 }
-                // Toggle playback controls on OK (Dart shows them on select).
-                controlsVisible = !controlsVisible
+                // Toggle playback controls on OK (show on play/pause focus,
+                // hide otherwise — Dart: select toggles _showControls).
+                if (!controlsVisible) {
+                    controlsVisible = true
+                    focusPlaybackControl(1)
+                } else {
+                    controlsVisible = false
+                    focusedMenuButton = -1
+                    focusedPlaybackControl = -1
+                }
                 return true
             }
             Key.DirectionLeft, Key.DirectionRight -> {

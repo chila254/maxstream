@@ -202,7 +202,7 @@ fun TvKeyboard(
                 .fillMaxWidth()
                 .background(Color(0xFF2A2A2A), RoundedCornerShape(12.dp))
                 .border(2.dp, Color.Gray, RoundedCornerShape(12.dp))
-                .padding(16.dp)
+                .padding(12.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -233,7 +233,7 @@ fun TvKeyboard(
             }
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(14.dp))
 
         Column(
             modifier = Modifier.fillMaxWidth(),
@@ -243,7 +243,7 @@ fun TvKeyboard(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = if (rowIndex < keyboardLayout.lastIndex) 12.dp else 0.dp),
+                        .padding(bottom = if (rowIndex < keyboardLayout.lastIndex) 8.dp else 0.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     row.forEachIndexed { colIndex, key ->
@@ -253,7 +253,7 @@ fun TvKeyboard(
                         Box(
                             modifier = Modifier
                                 .weight(1f)
-                                .height(64.dp)
+                                .height(52.dp)
                                 .clip(RoundedCornerShape(6.dp))
                                 .background(
                                     when {
@@ -287,7 +287,7 @@ fun TvKeyboard(
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
