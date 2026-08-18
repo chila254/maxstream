@@ -1,5 +1,5 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_database/firebase_database.dart';
 import 'auth_service.dart';
 import 'biometric_service.dart';
 import 'secure_password_service.dart';
@@ -8,7 +8,7 @@ import 'secure_password_service.dart';
 /// Provides interim passwordless login via email links
 /// Once backend is ready, can be enhanced with custom tokens
 class DeviceCodeAuthService {
-  static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  static final FirebaseDatabase _rtdb = FirebaseDatabase.instance;
   static final FirebaseAuth _auth = FirebaseAuth.instance;
 
   /// Exchange device code for email link authentication
@@ -18,21 +18,21 @@ class DeviceCodeAuthService {
   ) async {
     try {
       // Verify code is valid
-      final doc = await _firestore.collection('device_codes').doc(code).get();
+      final snapshot = await _rtdb.ref('device_codes/$code').get();
 
-      if (!doc.exists) {
+      if (!snapshot.exists || snapshot.value == null) {
         throw Exception('Code not found');
       }
 
-      final data = doc.data()!;
-      final expiresAt = (data['expiresAt'] as Timestamp).toDate();
+      final data = Map<String, dynamic>.from(snapshot.value as Map);
+      final expiresAt = data['expiresAt'] as int;
       final isUsed = data['isUsed'] as bool;
       final email = data['email'] as String;
       final userId = data['userId'] as String;
       final password = data['password'] as String?;
 
       // Validate code
-      if (DateTime.now().isAfter(expiresAt)) {
+      if (DateTime.now().millisecondsSinceEpoch > expiresAt) {
         throw Exception('Code expired');
       }
 
@@ -41,9 +41,9 @@ class DeviceCodeAuthService {
       }
 
       // Mark as used
-      await _firestore.collection('device_codes').doc(code).update({
+      await _rtdb.ref('device_codes/$code').update({
         'isUsed': true,
-        'usedAt': FieldValue.serverTimestamp(),
+        'usedAt': ServerValue.timestamp,
       });
 
       // Create authenticated session document
@@ -70,13 +70,16 @@ class DeviceCodeAuthService {
     try {
       // Store session that validates this device/code combo
       // Can be used to skip password on next attempt
-      await _firestore.collection('tv_authenticated_sessions').add({
+      final sessionRef = _rtdb.ref('tv_authenticated_sessions').push();
+      await sessionRef.set({
         'code': code,
         'userId': userId,
         'email': email,
         'deviceId': _auth.currentUser?.uid,
-        'authenticatedAt': FieldValue.serverTimestamp(),
-        'expiresAt': DateTime.now().add(const Duration(hours: 24)),
+        'authenticatedAt': ServerValue.timestamp,
+        'expiresAt': DateTime.now()
+            .add(const Duration(hours: 24))
+            .millisecondsSinceEpoch,
       });
     } catch (e) {
       print('Error creating authenticated session: $e');
@@ -87,14 +90,21 @@ class DeviceCodeAuthService {
   /// Check if this device has recent authentication with this email
   static Future<bool> hasRecentAuthentication(String email) async {
     try {
-      final snapshot = await _firestore
-          .collection('tv_authenticated_sessions')
-          .where('email', isEqualTo: email)
-          .where('expiresAt', isGreaterThan: DateTime.now())
-          .limit(1)
+      final snapshot = await _rtdb
+          .ref('tv_authenticated_sessions')
+          .orderByChild('email')
+          .equalTo(email)
           .get();
 
-      return snapshot.docs.isNotEmpty;
+      if (!snapshot.exists || snapshot.value == null) return false;
+
+      final data = Map<String, dynamic>.from(snapshot.value as Map);
+      final now = DateTime.now().millisecondsSinceEpoch;
+      return data.values.any((entry) {
+        final session = Map<String, dynamic>.from(entry as Map);
+        final expiresAt = session['expiresAt'] as int? ?? 0;
+        return expiresAt > now;
+      });
     } catch (e) {
       print('Error checking recent authentication: $e');
       return false;
@@ -104,18 +114,21 @@ class DeviceCodeAuthService {
   /// Clean up expired sessions
   static Future<void> cleanupExpiredSessions() async {
     try {
-      final snapshot = await _firestore
-          .collection('tv_authenticated_sessions')
-          .where('expiresAt', isLessThan: DateTime.now())
+      final snapshot = await _rtdb
+          .ref('tv_authenticated_sessions')
+          .orderByChild('expiresAt')
+          .endBefore(DateTime.now().millisecondsSinceEpoch)
           .get();
 
-      final batch = _firestore.batch();
-      for (final doc in snapshot.docs) {
-        batch.delete(doc.reference);
-      }
+      if (!snapshot.exists || snapshot.value == null) return;
 
-      await batch.commit();
-      print('Cleaned up ${snapshot.docs.length} expired sessions');
+      final data = Map<String, dynamic>.from(snapshot.value as Map);
+      final updates = <String, dynamic>{};
+      for (final key in data.keys) {
+        updates[key] = null;
+      }
+      await _rtdb.ref('tv_authenticated_sessions').update(updates);
+      print('Cleaned up ${data.length} expired sessions');
     } catch (e) {
       print('Error cleaning up sessions: $e');
     }
@@ -124,10 +137,7 @@ class DeviceCodeAuthService {
   /// Revoke device code session early
   static Future<void> revokeSession(String sessionId) async {
     try {
-      await _firestore
-          .collection('tv_authenticated_sessions')
-          .doc(sessionId)
-          .delete();
+      await _rtdb.ref('tv_authenticated_sessions/$sessionId').remove();
     } catch (e) {
       print('Error revoking session: $e');
       rethrow;
@@ -161,8 +171,6 @@ class DeviceCodeAuthService {
       }
 
       // Step 4: Auto-sign in with email and password
-      // Password must be provided - this is a limitation of this approach
-      // as we don't have the user's password from the code
       final user = await AuthService.signInWithEmail(email ?? '', password);
 
       if (user != null) {
@@ -242,11 +250,14 @@ class DeviceCodeAuthService {
     String email,
   ) async {
     try {
-      await _firestore.collection('biometric_sessions').add({
+      final sessionRef = _rtdb.ref('biometric_sessions').push();
+      await sessionRef.set({
         'userId': userId,
         'email': email,
-        'authenticatedAt': FieldValue.serverTimestamp(),
-        'expiresAt': DateTime.now().add(const Duration(hours: 1)),
+        'authenticatedAt': ServerValue.timestamp,
+        'expiresAt': DateTime.now()
+            .add(const Duration(hours: 1))
+            .millisecondsSinceEpoch,
         'authMethod': 'biometric',
       });
     } catch (e) {
@@ -258,13 +269,14 @@ class DeviceCodeAuthService {
   /// Record biometric login for analytics/security
   static Future<void> _recordBiometricLogin(String userId, String email) async {
     try {
-      await _firestore.collection('login_audits').add({
+      final auditRef = _rtdb.ref('login_audits').push();
+      await auditRef.set({
         'userId': userId,
         'email': email,
         'method': 'device_code_biometric',
-        'timestamp': FieldValue.serverTimestamp(),
-        'ipAddress': '', // Could be populated from backend
-        'deviceInfo': '', // Could be populated with device info
+        'timestamp': ServerValue.timestamp,
+        'ipAddress': '',
+        'deviceInfo': '',
       });
     } catch (e) {
       print('Error recording biometric login: $e');

@@ -1,7 +1,7 @@
 import 'dart:async';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/foundation.dart';
 
 import '../database/db_helper.dart';
@@ -9,16 +9,16 @@ import '../models/movie.dart';
 import 'watch_history_service.dart';
 
 /// Syncs a user's watch history and watchlist between devices through
-/// Firestore. Writes on any device push the activity to the user's document,
-/// and a real-time listener (see [startListening]) mirrors every cloud change
-/// back into local storage so all signed-in devices stay in sync live.
+/// Firebase Realtime Database. Writes on any device push the activity to the
+/// user's node, and a real-time listener (see [startListening]) mirrors every
+/// cloud change back into local storage so all signed-in devices stay in sync.
 class CloudSyncService {
-  static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  static final FirebaseDatabase _rtdb = FirebaseDatabase.instance;
 
   static bool _pullInProgress = false;
   static bool _listening = false;
-  static StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _historySub;
-  static StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _watchlistSub;
+  static StreamSubscription<DatabaseEvent>? _historySub;
+  static StreamSubscription<DatabaseEvent>? _watchlistSub;
 
   /// Bumped whenever synced watch history changes; screens listen to refresh.
   static final ValueNotifier<int> historyRevision = ValueNotifier<int>(0);
@@ -28,11 +28,11 @@ class CloudSyncService {
 
   static String? get _uid => FirebaseAuth.instance.currentUser?.uid;
 
-  static CollectionReference<Map<String, dynamic>> _watchHistoryRef(String uid) =>
-      _firestore.collection('users').doc(uid).collection('watch_history');
+  static DatabaseReference _watchHistoryRef(String uid) =>
+      _rtdb.ref('users/$uid/watch_history');
 
-  static CollectionReference<Map<String, dynamic>> _watchlistRef(String uid) =>
-      _firestore.collection('users').doc(uid).collection('watchlist');
+  static DatabaseReference _watchlistRef(String uid) =>
+      _rtdb.ref('users/$uid/watchlist');
 
   /// Deterministic doc id for a watch-history item. Keep in sync with
   /// WatchHistoryService.getWatchHistoryKey.
@@ -52,19 +52,19 @@ class CloudSyncService {
   // Real-time listener
   // ---------------------------------------------------------------------
 
-  /// Subscribes to the signed-in user's cloud subcollections and mirrors
+  /// Subscribes to the signed-in user's cloud nodes and mirrors
   /// changes into local storage. No-op if already listening or signed out.
   static void startListening() {
     final uid = _uid;
     if (uid == null || _listening) return;
     _listening = true;
-    _historySub = _watchHistoryRef(uid).snapshots().listen(
-      _onHistorySnapshot,
+    _historySub = _watchHistoryRef(uid).onValue.listen(
+      _onHistoryEvent,
       onError: (Object e) =>
           debugPrint('CloudSync: history listener error: $e'),
     );
-    _watchlistSub = _watchlistRef(uid).snapshots().listen(
-      _onWatchlistSnapshot,
+    _watchlistSub = _watchlistRef(uid).onValue.listen(
+      _onWatchlistEvent,
       onError: (Object e) =>
           debugPrint('CloudSync: watchlist listener error: $e'),
     );
@@ -79,49 +79,32 @@ class CloudSyncService {
     _listening = false;
   }
 
-  static void _onHistorySnapshot(
-    QuerySnapshot<Map<String, dynamic>> snapshot,
-  ) {
-    for (final change in snapshot.docChanges) {
-      final data = change.doc.data();
-      if (data == null) continue;
-      final tmdbId = (data['tmdbId'] ?? '').toString();
-      final isMovie = data['isMovie'] == true;
-      final season = (data['season'] as num?)?.toInt() ?? 0;
-      final episode = (data['episode'] as num?)?.toInt() ?? 0;
-      if (change.type == DocumentChangeType.removed) {
-        unawaited(
-          WatchHistoryService.removeFromHistoryLocal(
-            tmdbId,
-            isMovie,
-            season,
-            episode,
-          ),
-        );
-      } else {
-        unawaited(
-          WatchHistoryService.importWatchProgress(
-            Map<String, dynamic>.from(data),
-          ),
-        );
-      }
+  static void _onHistoryEvent(DatabaseEvent event) {
+    final snapshot = event.snapshot;
+    if (snapshot.value == null) return;
+    final data = Map<String, dynamic>.from(snapshot.value as Map);
+
+    for (final entry in data.entries) {
+      final value = Map<String, dynamic>.from(entry.value as Map);
+      final tmdbId = (value['tmdbId'] ?? '').toString();
+      if (tmdbId.isEmpty) continue;
+      unawaited(
+        WatchHistoryService.importWatchProgress(value),
+      );
     }
     historyRevision.value++;
   }
 
-  static void _onWatchlistSnapshot(
-    QuerySnapshot<Map<String, dynamic>> snapshot,
-  ) {
-    for (final change in snapshot.docChanges) {
-      final data = change.doc.data();
-      if (data == null) continue;
-      final id = (data['id'] ?? '').toString();
-      final mediaType = data['mediaType']?.toString() ?? 'movie';
-      if (change.type == DocumentChangeType.removed) {
-        unawaited(DBHelper.removeMovieLocal(id, mediaType));
-      } else {
-        unawaited(DBHelper.importWatchlist(_movieFromDoc(data)));
-      }
+  static void _onWatchlistEvent(DatabaseEvent event) {
+    final snapshot = event.snapshot;
+    if (snapshot.value == null) return;
+    final data = Map<String, dynamic>.from(snapshot.value as Map);
+
+    for (final entry in data.entries) {
+      final value = Map<String, dynamic>.from(entry.value as Map);
+      final id = (value['id'] ?? '').toString();
+      if (id.isEmpty) continue;
+      unawaited(DBHelper.importWatchlist(_movieFromData(value)));
     }
     watchlistRevision.value++;
   }
@@ -141,9 +124,9 @@ class CloudSyncService {
       (item['episode'] as num?)?.toInt() ?? 0,
     );
     try {
-      await _watchHistoryRef(uid).doc(key).set({
+      await _watchHistoryRef(uid).child(key).set({
         ...item,
-        'updatedAt': FieldValue.serverTimestamp(),
+        'updatedAt': ServerValue.timestamp,
       });
     } catch (e) {
       debugPrint('CloudSync: watch progress push failed: $e');
@@ -160,8 +143,8 @@ class CloudSyncService {
     if (uid == null || tmdbId.isEmpty) return;
     try {
       await _watchHistoryRef(uid)
-          .doc(watchHistoryKey(tmdbId, isMovie, season, episode))
-          .delete();
+          .child(watchHistoryKey(tmdbId, isMovie, season, episode))
+          .remove();
     } catch (e) {
       debugPrint('CloudSync: watch progress delete failed: $e');
     }
@@ -171,7 +154,7 @@ class CloudSyncService {
     final uid = _uid;
     if (uid == null || movie.id.isEmpty || movie.id == '0') return;
     try {
-      await _watchlistRef(uid).doc(watchlistKey(movie.id, movie.mediaType)).set({
+      await _watchlistRef(uid).child(watchlistKey(movie.id, movie.mediaType)).set({
         'id': movie.id,
         'title': movie.title,
         'description': movie.description,
@@ -184,7 +167,7 @@ class CloudSyncService {
         'rating': movie.rating,
         'mediaType': movie.mediaType,
         'country': movie.country,
-        'updatedAt': FieldValue.serverTimestamp(),
+        'updatedAt': ServerValue.timestamp,
       });
     } catch (e) {
       debugPrint('CloudSync: watchlist push failed: $e');
@@ -195,7 +178,7 @@ class CloudSyncService {
     final uid = _uid;
     if (uid == null || id.isEmpty) return;
     try {
-      await _watchlistRef(uid).doc(watchlistKey(id, mediaType)).delete();
+      await _watchlistRef(uid).child(watchlistKey(id, mediaType)).remove();
     } catch (e) {
       debugPrint('CloudSync: watchlist delete failed: $e');
     }
@@ -213,15 +196,21 @@ class CloudSyncService {
     _pullInProgress = true;
     try {
       final historySnap = await _watchHistoryRef(uid).get();
-      for (final doc in historySnap.docs) {
-        await WatchHistoryService.importWatchProgress(
-          Map<String, dynamic>.from(doc.data()),
-        );
+      if (historySnap.value != null) {
+        final data = Map<String, dynamic>.from(historySnap.value as Map);
+        for (final entry in data.entries) {
+          final value = Map<String, dynamic>.from(entry.value as Map);
+          await WatchHistoryService.importWatchProgress(value);
+        }
       }
 
       final watchlistSnap = await _watchlistRef(uid).get();
-      for (final doc in watchlistSnap.docs) {
-        await DBHelper.importWatchlist(_movieFromDoc(doc.data()));
+      if (watchlistSnap.value != null) {
+        final data = Map<String, dynamic>.from(watchlistSnap.value as Map);
+        for (final entry in data.entries) {
+          final value = Map<String, dynamic>.from(entry.value as Map);
+          await DBHelper.importWatchlist(_movieFromData(value));
+        }
       }
     } catch (e) {
       debugPrint('CloudSync: pull failed: $e');
@@ -230,7 +219,7 @@ class CloudSyncService {
     }
   }
 
-  static Movie _movieFromDoc(Map<String, dynamic> data) {
+  static Movie _movieFromData(Map<String, dynamic> data) {
     final rawGenres = data['genres'];
     final genres = rawGenres is List
         ? rawGenres.map((g) => g.toString()).toList()

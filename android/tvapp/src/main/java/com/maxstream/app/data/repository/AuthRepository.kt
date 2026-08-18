@@ -16,12 +16,14 @@ import java.util.concurrent.TimeUnit
  * Authentication for the native TV build, backed by the same Firebase project
  * the phone app uses (project maxstream-8effc). The TV APK intentionally does
  * not bundle the Firebase SDK or google-services.json, so auth goes over the
- * public Firebase REST APIs (Auth REST + Firestore REST) using OkHttp/Gson,
- * which are already on the classpath.
+ * public Firebase REST APIs using OkHttp/Gson.
+ *
+ * Device-code pairing uses Firebase Realtime Database (RTDB) REST API instead
+ * of Firestore to avoid Firestore daily usage limits.
  *
  * Flow:
- *  - Device Code: read the code doc from Firestore `device_codes/{code}`, burn
- *    it (isUsed -> true), then sign in directly with the embedded email and
+ *  - Device Code: read the code from RTDB `device_codes/{code}`, burn it
+ *    (isUsed -> true), then sign in directly with the embedded email and
  *    password via the Auth REST signInWithPassword endpoint.
  *  - Sign In / Sign Up: email + password against the Auth REST endpoints.
  *  - A successful auth persists a lightweight session via [SessionManager] so
@@ -32,8 +34,8 @@ object AuthRepository {
     private const val API_KEY = "AIzaSyAiNjTADd8kA3qi3Dgnvlyo1Vf347QnsYk"
 
     private const val AUTH_BASE = "https://identitytoolkit.googleapis.com/v1/accounts"
-    private const val FIRESTORE_BASE =
-        "https://firestore.googleapis.com/v1/projects/$PROJECT_ID/databases/(default)/documents"
+    private const val RTDB_BASE =
+        "https://$PROJECT_ID-default-rtdb.firebaseio.com"
 
     private val JSON = "application/json".toMediaType()
 
@@ -63,6 +65,7 @@ object AuthRepository {
             val request = Request.Builder().url(url).get().build()
             client.newCall(request).execute().use { response ->
                 val text = response.body?.string() ?: return@use null
+                if (text == "null" || text.isBlank()) return@use null
                 runCatching { gson.fromJson(text, JsonObject::class.java) }.getOrNull()
             }
         }
@@ -99,8 +102,7 @@ object AuthRepository {
 
     /**
      * Extracts the Firebase Auth session fields (uid + idToken + refreshToken)
-     * from an Auth REST response, so the cloud-sync layer can authenticate
-     * Firestore calls as the signed-in user and renew the token when it expires.
+     * from an Auth REST response.
      */
     private fun sessionFrom(auth: JsonObject, email: String): Session {
         val uid = auth.get("localId")?.asString.orEmpty()
@@ -111,10 +113,7 @@ object AuthRepository {
 
     /**
      * Renews the Firebase ID token via the Auth REST securetoken endpoint.
-     * ID tokens expire after ~1 hour, so without this the Firestore REST calls
-     * would start returning 401/403 and cloud sync would silently stop (this is
-     * why sync worked for a while after sign-in, then died). Returns the new
-     * token on success, null on failure.
+     * ID tokens expire after ~1 hour. Returns the new token on success, null on failure.
      */
     suspend fun refreshIdToken(context: Context): String? {
         val refreshToken = SessionManager.refreshToken(context)
@@ -145,47 +144,26 @@ object AuthRepository {
     }
 
     /**
-     * Reads a device code from Firestore, burns it, and signs the linked user
+     * Reads a device code from RTDB, burns it, and signs the linked user
      * in directly using the email + password carried by the code.
      */
     suspend fun authenticateWithDeviceCode(code: String): Result<Session> {
         if (code.isBlank()) return Result.failure(IllegalArgumentException("Enter your code"))
         val clean = code.trim()
-        // Accept both plain digits and hyphen-separated (123-456) display formats.
         val digits = clean.filter { it.isDigit() }
         if (digits.length != 6) return Result.failure(
             IllegalArgumentException("Code must be 6 digits"),
         )
         val encoded = java.net.URLEncoder.encode(digits, "UTF-8")
         return try {
-            val doc = getJson("$FIRESTORE_BASE/device_codes/$encoded?key=$API_KEY")
+            val doc = getJson("$RTDB_BASE/device_codes/$encoded.json")
                 ?: return Result.failure(Exception(
                     "Cannot reach MaxStream servers. Check your internet connection.",
                 ))
-            if (doc.has("error")) {
-                val msg = doc.getAsJsonObject("error")?.get("message")?.asString ?: ""
-                // Firestore REST returns "Missing or insufficient permissions" for
-                // security-rule denials and "not found" for missing docs.
-                if (msg.contains("Not Found") || msg.contains("not found")) {
-                    return Result.failure(Exception(
-                        "Code not found. Check the code and try again, "
-                            + "or generate a new code on your phone.",
-                    ))
-                }
-                return Result.failure(Exception(
-                    "Cannot reach MaxStream servers. Check your internet connection.",
-                ))
-            }
-            val fields = doc.getAsJsonObject("fields") ?: return Result.failure(Exception(
-                "Code not found. Check the code and try again, "
-                    + "or generate a new code on your phone.",
-            ))
 
-            fun string(field: String): String =
-                fields.getAsJsonObject(field)?.get("stringValue")?.asString ?: ""
-
-            val email = string("email")
-            val password = string("password")
+            // RTDB returns plain JSON object with fields directly (no "fields" wrapper)
+            val email = doc.get("email")?.asString.orEmpty()
+            val password = doc.get("password")?.asString.orEmpty()
             if (email.isBlank()) {
                 return Result.failure(Exception(
                     "Code not found. Check the code and try again, "
@@ -200,34 +178,25 @@ object AuthRepository {
                 ))
             }
 
-            val isUsed = fields.getAsJsonObject("isUsed")?.get("booleanValue")?.asBoolean ?: false
+            val isUsed = doc.get("isUsed")?.asBoolean ?: false
             if (isUsed) return Result.failure(Exception(
                 "Code already used. Generate a new code on your phone.",
             ))
 
-            val expiresAt = fields.getAsJsonObject("expiresAt")?.get("timestampValue")?.asString
-            if (expiresAt != null) {
-                val expired = runCatching {
-                    val parsed = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", java.util.Locale.US)
-                        .apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }
-                        .parse(expiresAt.replace("Z", ""))
-                    parsed != null && System.currentTimeMillis() > parsed.time
-                }.getOrDefault(false)
-                if (expired) return Result.failure(Exception(
+            // Check expiry: RTDB stores as epoch millis (number)
+            val expiresAt = doc.get("expiresAt")?.asLong
+            if (expiresAt != null && System.currentTimeMillis() > expiresAt) {
+                return Result.failure(Exception(
                     "Code expired. Generate a new code on your phone.",
                 ))
             }
 
             // Burn the code so it can never be reused.
-            val patchBody = JsonObject().apply {
-                val isUsedField = JsonObject().apply { addProperty("booleanValue", true) }
-                add("fields", JsonObject().apply { add("isUsed", isUsedField) })
+            val burnBody = JsonObject().apply {
+                addProperty("isUsed", true)
             }
-            val patchUrl = buildString {
-                append("$FIRESTORE_BASE/device_codes/$encoded")
-                append("?updateMask.fieldPaths=isUsed&key=$API_KEY")
-            }
-            runCatching { patchJson(patchUrl, patchBody) }
+            val burnUrl = "$RTDB_BASE/device_codes/$encoded.json"
+            runCatching { patchJson(burnUrl, burnBody) }
 
             // Sign in directly with the credentials the code carries.
             val signInBody = JsonObject().apply {

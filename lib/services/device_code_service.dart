@@ -1,14 +1,14 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_database/firebase_database.dart';
 import 'dart:math';
 import 'dart:async';
 import 'secure_password_service.dart';
 
 class DeviceCodeService {
-  static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  static final FirebaseDatabase _rtdb = FirebaseDatabase.instance;
   static final FirebaseAuth _auth = FirebaseAuth.instance;
 
-  /// Generate a 6-digit code and save to Firestore
+  /// Generate a 6-digit code and save to Realtime Database
   static Future<String> generateDeviceCode() async {
     try {
       final user = _auth.currentUser;
@@ -20,10 +20,12 @@ class DeviceCodeService {
       final code = (100000 + Random().nextInt(900000)).toString();
       print('Generated code: $code');
 
-      // Save to Firestore with 15-minute expiry
-      final expiresAt = DateTime.now().add(const Duration(minutes: 15));
+      // Save to RTDB with 15-minute expiry (epoch millis)
+      final expiresAt = DateTime.now()
+          .add(const Duration(minutes: 15))
+          .millisecondsSinceEpoch;
 
-      print('Writing to Firestore collection: device_codes');
+      print('Writing to RTDB path: device_codes/$code');
 
       // Carry the user's password so the TV can sign in directly with the
       // code (interim solution until a custom-token backend exists).
@@ -46,24 +48,23 @@ class DeviceCodeService {
 
       while (retryCount < maxRetries) {
         try {
-          await _firestore
-              .collection('device_codes')
-              .doc(code)
+          await _rtdb
+              .ref('device_codes/$code')
               .set({
                 'code': code,
                 'userId': user.uid,
                 'email': user.email,
                 'displayName': user.displayName,
                 'password': savedPassword,
-                'createdAt': FieldValue.serverTimestamp(),
-                'expiresAt': Timestamp.fromDate(expiresAt),
+                'createdAt': ServerValue.timestamp,
+                'expiresAt': expiresAt,
                 'isUsed': false,
               })
               .timeout(
-                const Duration(seconds: 30), // Increased from 10 to 30 seconds
+                const Duration(seconds: 30),
                 onTimeout: () {
                   throw TimeoutException(
-                    'Firestore write operation timed out after 30 seconds',
+                    'RTDB write operation timed out after 30 seconds',
                   );
                 },
               );
@@ -73,8 +74,7 @@ class DeviceCodeService {
         } on TimeoutException {
           retryCount++;
           if (retryCount < maxRetries) {
-            final delay =
-                baseDelay * (1 << (retryCount - 1)); // Exponential backoff
+            final delay = baseDelay * (1 << (retryCount - 1));
             print(
               'Timeout on attempt $retryCount, retrying in ${delay.inMilliseconds}ms...',
             );
@@ -92,9 +92,6 @@ class DeviceCodeService {
     } on TimeoutException catch (e) {
       print('Timeout error: $e');
       throw Exception(e.toString());
-    } on FirebaseException catch (e) {
-      print('Firebase error generating device code: ${e.code} - ${e.message}');
-      throw Exception('Firebase error: ${e.message}');
     } catch (e) {
       print('Error generating device code: $e');
       rethrow;
@@ -104,18 +101,18 @@ class DeviceCodeService {
   /// Validate code and return user email
   static Future<Map<String, String>> validateDeviceCode(String code) async {
     try {
-      final doc = await _firestore.collection('device_codes').doc(code).get();
+      final snapshot = await _rtdb.ref('device_codes/$code').get();
 
-      if (!doc.exists) {
+      if (!snapshot.exists || snapshot.value == null) {
         throw Exception('Invalid code');
       }
 
-      final data = doc.data()!;
-      final expiresAt = (data['expiresAt'] as Timestamp).toDate();
+      final data = Map<String, dynamic>.from(snapshot.value as Map);
+      final expiresAt = data['expiresAt'] as int;
       final isUsed = data['isUsed'] as bool;
 
       // Check if expired
-      if (DateTime.now().isAfter(expiresAt)) {
+      if (DateTime.now().millisecondsSinceEpoch > expiresAt) {
         throw Exception('Code expired');
       }
 
@@ -125,9 +122,9 @@ class DeviceCodeService {
       }
 
       // Mark as used
-      await _firestore.collection('device_codes').doc(code).update({
+      await _rtdb.ref('device_codes/$code').update({
         'isUsed': true,
-        'usedAt': FieldValue.serverTimestamp(),
+        'usedAt': ServerValue.timestamp,
       });
 
       return {
@@ -147,15 +144,24 @@ class DeviceCodeService {
       final user = _auth.currentUser;
       if (user == null) return [];
 
-      final snapshot = await _firestore
-          .collection('device_codes')
-          .where('userId', isEqualTo: user.uid)
-          .where('isUsed', isEqualTo: false)
+      // Query device_codes where userId matches and isUsed is false
+      final snapshot = await _rtdb
+          .ref('device_codes')
+          .orderByChild('userId')
+          .equalTo(user.uid)
           .get();
 
-      return snapshot.docs
-          .map((doc) => {'code': doc['code'], 'expiresAt': doc['expiresAt']})
-          .toList();
+      if (!snapshot.exists || snapshot.value == null) return [];
+
+      final codes = <Map<String, dynamic>>[];
+      final entries = Map<String, dynamic>.from(snapshot.value as Map);
+      for (final entry in entries.values) {
+        final data = Map<String, dynamic>.from(entry as Map);
+        if (data['isUsed'] == false) {
+          codes.add({'code': data['code'], 'expiresAt': data['expiresAt']});
+        }
+      }
+      return codes;
     } catch (e) {
       print('Error fetching codes: $e');
       return [];
@@ -168,15 +174,18 @@ class DeviceCodeService {
       final user = _auth.currentUser;
       if (user == null) throw Exception('User not authenticated');
 
-      final doc = await _firestore.collection('device_codes').doc(code).get();
-      if (!doc.exists) throw Exception('Code not found');
+      final snapshot = await _rtdb.ref('device_codes/$code').get();
+      if (!snapshot.exists || snapshot.value == null) {
+        throw Exception('Code not found');
+      }
 
-      final userId = doc['userId'];
+      final data = Map<String, dynamic>.from(snapshot.value as Map);
+      final userId = data['userId'];
       if (userId != user.uid) throw Exception('Unauthorized');
 
-      await _firestore.collection('device_codes').doc(code).update({
+      await _rtdb.ref('device_codes/$code').update({
         'isUsed': true,
-        'revokedAt': FieldValue.serverTimestamp(),
+        'revokedAt': ServerValue.timestamp,
       });
     } catch (e) {
       print('Error revoking code: $e');

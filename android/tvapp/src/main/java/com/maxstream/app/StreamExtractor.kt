@@ -238,6 +238,12 @@ class StreamExtractor(private val context: Context) {
             VideasyExtractor(),
             PrimeSrcExtractor(),
             FrembedExtractor(),
+            SeapiLinkExtractor(),
+            VidNestExtractor(),
+            AutoEmbedExtractor(),
+            MultiEmbedExtractor(),
+            EmbedSuExtractor(),
+            VidFastExtractor(),
             VoeExtractor(),
             StreamtapeExtractor(),
             TwoEmbedExtractor(),
@@ -254,6 +260,7 @@ class StreamExtractor(private val context: Context) {
             VeevExtractor(),
             VidplayExtractor(),
             StreamrubyExtractor(),
+            GenericIframeExtractor(),
             GenericMediaExtractor(),
         )
     }
@@ -299,7 +306,7 @@ class StreamExtractor(private val context: Context) {
                 }
             }
         }
-        val first = withTimeoutOrNull(15_000) { channel.receive() }
+        val first = withTimeoutOrNull(30_000) { channel.receive() }
         jobs.forEach { it.cancel() }
         scope.cancel()
         if (first != null) {
@@ -527,6 +534,60 @@ class StreamExtractor(private val context: Context) {
                     "https://vidsrc.to/embed/movie/$id"
                 } else {
                     "https://vidsrc.to/embed/tv/$id/${request.season}/${request.episode}"
+                },
+            )
+
+            servers += StreamServer(
+                "VidNest",
+                if (request.isMovie) {
+                    "https://vidnest.fun/movie/$id"
+                } else {
+                    "https://vidnest.fun/tv/$id/${request.season}/${request.episode}"
+                },
+            )
+
+            servers += StreamServer(
+                "AutoEmbed",
+                if (request.isMovie) {
+                    "https://player.autoembed.app/embed/movie/$id"
+                } else {
+                    "https://player.autoembed.app/embed/tv/$id/${request.season}/${request.episode}"
+                },
+            )
+
+            servers += StreamServer(
+                "MultiEmbed",
+                if (request.isMovie) {
+                    "https://multiembed.mov/?video_id=$id&tmdb=1"
+                } else {
+                    "https://multiembed.mov/?video_id=$id&tmdb=1&s=${request.season}&e=${request.episode}"
+                },
+            )
+
+            servers += StreamServer(
+                "EmbedSu",
+                if (request.isMovie) {
+                    "https://embed.su/movie/$id"
+                } else {
+                    "https://embed.su/tv/$id/${request.season}/${request.episode}"
+                },
+            )
+
+            servers += StreamServer(
+                "VidFast",
+                if (request.isMovie) {
+                    "https://vidfast.pro/movie/$id?autoPlay=true"
+                } else {
+                    "https://vidfast.pro/tv/$id/${request.season}/${request.episode}?autoPlay=true"
+                },
+            )
+
+            servers += StreamServer(
+                "SeapiLink",
+                if (request.isMovie) {
+                    "https://seapi.link/?type=tmdb&id=$id&max_results=1"
+                } else {
+                    "https://seapi.link/?type=tmdb&id=$id&season=${request.season}&episode=${request.episode}&max_results=1"
                 },
             )
 
@@ -2143,6 +2204,113 @@ class StreamExtractor(private val context: Context) {
                 ?: throw IllegalStateException("2Embed iframe not found")
             val absolute = resolveUrl(server.url, iframe)
             return ExtractionResult.Redirect(StreamServer("2Embed host", absolute, refererHeaders(server.url)))
+        }
+    }
+
+    private inner class SeapiLinkExtractor : HostExtractor {
+        override val name = "SeapiLink"
+        override fun supports(server: StreamServer) = host(server.url).contains("seapi.link")
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            val json = getJson(server.url, refererHeaders("https://multiembed.mov"))
+            val results = json.optJSONArray("result") ?: json.optJSONArray("results")
+            require(results != null && results.length() > 0) { "SeapiLink returned no results" }
+            val first = results.getJSONObject(0)
+            val streamUrl = first.optString("url").ifBlank {
+                first.optString("stream").ifBlank {
+                    first.optString("link").ifBlank {
+                        first.optString("video_url")
+                    }
+                }
+            }
+            require(streamUrl.isNotBlank()) { "SeapiLink result has no URL" }
+            return ExtractionResult.Final(
+                StreamResult(streamUrl, name, mediaType(streamUrl), refererHeaders("https://multiembed.mov")),
+            )
+        }
+    }
+
+    private inner class VidNestExtractor : HostExtractor {
+        override val name = "VidNest"
+        override fun supports(server: StreamServer) = host(server.url).contains("vidnest.fun")
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            val html = httpGet(server.url)
+            val iframe = Regex("""<iframe[^>]+src=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+                .find(html)?.groupValues?.get(1)
+                ?: throw IllegalStateException("VidNest iframe not found")
+            val absolute = resolveUrl(server.url, iframe)
+            return ExtractionResult.Redirect(StreamServer("VidNest host", absolute, refererHeaders(server.url)))
+        }
+    }
+
+    private inner class AutoEmbedExtractor : HostExtractor {
+        override val name = "AutoEmbed"
+        override fun supports(server: StreamServer) = host(server.url).contains("autoembed")
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            val html = httpGet(server.url)
+            val iframe = Regex("""<iframe[^>]+src=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+                .find(html)?.groupValues?.get(1)
+                ?: throw IllegalStateException("AutoEmbed iframe not found")
+            val absolute = resolveUrl(server.url, iframe)
+            return ExtractionResult.Redirect(StreamServer("AutoEmbed host", absolute, refererHeaders(server.url)))
+        }
+    }
+
+    private inner class MultiEmbedExtractor : HostExtractor {
+        override val name = "MultiEmbed"
+        override fun supports(server: StreamServer) = host(server.url).contains("multiembed.mov")
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            val html = httpGet(server.url)
+            val iframe = Regex("""<iframe[^>]+src=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+                .find(html)?.groupValues?.get(1)
+                ?: throw IllegalStateException("MultiEmbed iframe not found")
+            val absolute = resolveUrl(server.url, iframe)
+            return ExtractionResult.Redirect(StreamServer("MultiEmbed host", absolute, refererHeaders(server.url)))
+        }
+    }
+
+    private inner class EmbedSuExtractor : HostExtractor {
+        override val name = "EmbedSu"
+        override fun supports(server: StreamServer) = host(server.url).contains("embed.su")
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            val html = httpGet(server.url)
+            val iframe = Regex("""<iframe[^>]+src=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+                .find(html)?.groupValues?.get(1)
+                ?: throw IllegalStateException("Embed.su iframe not found")
+            val absolute = resolveUrl(server.url, iframe)
+            return ExtractionResult.Redirect(StreamServer("EmbedSu host", absolute, refererHeaders(server.url)))
+        }
+    }
+
+    private inner class VidFastExtractor : HostExtractor {
+        override val name = "VidFast"
+        override fun supports(server: StreamServer) = host(server.url).contains("vidfast.pro")
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            val html = httpGet(server.url)
+            val iframe = Regex("""<iframe[^>]+src=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+                .find(html)?.groupValues?.get(1)
+                ?: throw IllegalStateException("VidFast iframe not found")
+            val absolute = resolveUrl(server.url, iframe)
+            return ExtractionResult.Redirect(StreamServer("VidFast host", absolute, refererHeaders(server.url)))
+        }
+    }
+
+    private inner class GenericIframeExtractor : HostExtractor {
+        override val name = "GenericIframe"
+        override fun supports(server: StreamServer) = server.name.contains("Iframe", true)
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            val html = httpGet(server.url)
+            val iframe = Regex("""<iframe[^>]+src=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+                .find(html)?.groupValues?.get(1)
+                ?: throw IllegalStateException("Iframe not found in ${server.name}")
+            val absolute = resolveUrl(server.url, iframe)
+            return ExtractionResult.Redirect(StreamServer("${server.name} host", absolute, refererHeaders(server.url)))
         }
     }
 

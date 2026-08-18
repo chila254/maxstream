@@ -1,14 +1,14 @@
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_database/firebase_database.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'dart:io';
 
 class ProfileService {
   static final FirebaseAuth _auth = FirebaseAuth.instance;
-  static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  static final FirebaseDatabase _rtdb = FirebaseDatabase.instance;
   static final FirebaseStorage _storage = FirebaseStorage.instance;
 
-  /// Upload profile picture to Firebase Storage and save URL to Firestore
+  /// Upload profile picture to Firebase Storage and save URL to RTDB
   static Future<String?> uploadProfilePicture(String imagePath) async {
     try {
       final user = _auth.currentUser;
@@ -29,13 +29,13 @@ class ProfileService {
       // Get download URL from the completed upload snapshot
       final downloadUrl = await snapshot.ref.getDownloadURL();
 
-      // Save URL to Firestore
-      await _firestore.collection('users').doc(user.uid).set({
+      // Save URL to RTDB
+      await _rtdb.ref('users/${user.uid}/profile').update({
         'profilePictureUrl': downloadUrl,
         'email': user.email,
         'displayName': user.displayName,
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+        'updatedAt': ServerValue.timestamp,
+      });
 
       return downloadUrl;
     } catch (e) {
@@ -44,16 +44,17 @@ class ProfileService {
     }
   }
 
-  /// Fetch profile picture URL from Firestore
+  /// Fetch profile picture URL from RTDB
   static Future<String?> getProfilePictureUrl() async {
     try {
       final user = _auth.currentUser;
       if (user == null) return null;
 
-      final doc = await _firestore.collection('users').doc(user.uid).get();
-      if (!doc.exists) return null;
+      final snapshot = await _rtdb.ref('users/${user.uid}/profile').get();
+      if (!snapshot.exists || snapshot.value == null) return null;
 
-      return doc.data()?['profilePictureUrl'] as String?;
+      final data = Map<String, dynamic>.from(snapshot.value as Map);
+      return data['profilePictureUrl'] as String?;
     } catch (e) {
       print('Error fetching profile picture URL: $e');
       return null;
@@ -73,10 +74,8 @@ class ProfileService {
         // Ignore not-found errors — file may never have been uploaded
       }
 
-      // Remove from Firestore
-      await _firestore.collection('users').doc(user.uid).set({
-        'profilePictureUrl': null,
-      }, SetOptions(merge: true));
+      // Remove from RTDB
+      await _rtdb.ref('users/${user.uid}/profile/profilePictureUrl').remove();
     } catch (e) {
       print('Error deleting profile picture: $e');
       rethrow;
@@ -89,8 +88,10 @@ class ProfileService {
       final user = _auth.currentUser;
       if (user == null) return null;
 
-      final doc = await _firestore.collection('users').doc(user.uid).get();
-      return doc.data();
+      final snapshot = await _rtdb.ref('users/${user.uid}/profile').get();
+      if (!snapshot.exists || snapshot.value == null) return null;
+
+      return Map<String, dynamic>.from(snapshot.value as Map);
     } catch (e) {
       print('Error fetching user profile: $e');
       return null;
