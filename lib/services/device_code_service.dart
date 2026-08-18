@@ -31,6 +31,14 @@ class DeviceCodeService {
         user.email ?? '',
       );
 
+      if (savedPassword == null || savedPassword.isEmpty) {
+        throw Exception(
+          'NO_PASSWORD: Your password is not saved on this device. '
+          'Please sign out and sign in again with your email and password '
+          '(not Google sign-in) to enable TV pairing.',
+        );
+      }
+
       // Use exponential backoff retry logic
       int retryCount = 0;
       const maxRetries = 3;

@@ -46,7 +46,14 @@ class _TVPairingScreenState extends State<TVPairingScreen> {
   }
 
   String _formatErrorMessage(String error) {
-    if (error.contains('timed out') ||
+    if (error.contains('NO_PASSWORD') ||
+        error.contains('password is not saved')) {
+      return 'Your password is not saved on this device.\n\n'
+          'Please sign out and sign in again with your email and password '
+          '(not Google sign-in) to enable TV pairing.\n\n'
+          'If you originally signed in with Google, you\'ll need to set '
+          'a password first via Account Settings.';
+    } else if (error.contains('timed out') ||
         error.contains('Timeout') ||
         error.contains('timed out after')) {
       return 'Pairing code generation timed out. This usually happens when:\n'

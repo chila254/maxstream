@@ -150,28 +150,60 @@ object AuthRepository {
      */
     suspend fun authenticateWithDeviceCode(code: String): Result<Session> {
         if (code.isBlank()) return Result.failure(IllegalArgumentException("Enter your code"))
-        val encoded = java.net.URLEncoder.encode(code.trim(), "UTF-8")
+        val clean = code.trim()
+        // Accept both plain digits and hyphen-separated (123-456) display formats.
+        val digits = clean.filter { it.isDigit() }
+        if (digits.length != 6) return Result.failure(
+            IllegalArgumentException("Code must be 6 digits"),
+        )
+        val encoded = java.net.URLEncoder.encode(digits, "UTF-8")
         return try {
             val doc = getJson("$FIRESTORE_BASE/device_codes/$encoded?key=$API_KEY")
-                ?: return Result.failure(Exception("Invalid code"))
+                ?: return Result.failure(Exception(
+                    "Cannot reach MaxStream servers. Check your internet connection.",
+                ))
             if (doc.has("error")) {
-                return Result.failure(Exception("Invalid code"))
+                val msg = doc.getAsJsonObject("error")?.get("message")?.asString ?: ""
+                // Firestore REST returns "Missing or insufficient permissions" for
+                // security-rule denials and "not found" for missing docs.
+                if (msg.contains("Not Found") || msg.contains("not found")) {
+                    return Result.failure(Exception(
+                        "Code not found. Check the code and try again, "
+                            + "or generate a new code on your phone.",
+                    ))
+                }
+                return Result.failure(Exception(
+                    "Cannot reach MaxStream servers. Check your internet connection.",
+                ))
             }
-            val fields = doc.getAsJsonObject("fields") ?: return Result.failure(Exception("Invalid code"))
+            val fields = doc.getAsJsonObject("fields") ?: return Result.failure(Exception(
+                "Code not found. Check the code and try again, "
+                    + "or generate a new code on your phone.",
+            ))
 
             fun string(field: String): String =
                 fields.getAsJsonObject(field)?.get("stringValue")?.asString ?: ""
 
             val email = string("email")
             val password = string("password")
-            if (email.isBlank() || password.isBlank()) {
-                return Result.failure(
-                    Exception("This code has no credentials. Sign in with your email and password instead."),
-                )
+            if (email.isBlank()) {
+                return Result.failure(Exception(
+                    "Code not found. Check the code and try again, "
+                        + "or generate a new code on your phone.",
+                ))
+            }
+            if (password.isBlank()) {
+                return Result.failure(Exception(
+                    "This code has no credentials. Sign in with your email "
+                        + "and password instead, or generate a new code from "
+                        + "a phone that signed in with email/password.",
+                ))
             }
 
             val isUsed = fields.getAsJsonObject("isUsed")?.get("booleanValue")?.asBoolean ?: false
-            if (isUsed) return Result.failure(Exception("Code already used"))
+            if (isUsed) return Result.failure(Exception(
+                "Code already used. Generate a new code on your phone.",
+            ))
 
             val expiresAt = fields.getAsJsonObject("expiresAt")?.get("timestampValue")?.asString
             if (expiresAt != null) {
@@ -181,7 +213,9 @@ object AuthRepository {
                         .parse(expiresAt.replace("Z", ""))
                     parsed != null && System.currentTimeMillis() > parsed.time
                 }.getOrDefault(false)
-                if (expired) return Result.failure(Exception("Code expired"))
+                if (expired) return Result.failure(Exception(
+                    "Code expired. Generate a new code on your phone.",
+                ))
             }
 
             // Burn the code so it can never be reused.
