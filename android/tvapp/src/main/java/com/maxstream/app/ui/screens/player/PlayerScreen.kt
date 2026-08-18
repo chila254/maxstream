@@ -190,9 +190,19 @@ fun PlayerScreen(
     var episodeName by remember { mutableStateOf("") }
 
     // Current season/episode (mutable so autoplay can advance to the next one;
-    // initialised from the navigation args).
+    // initialised from the navigation args). These are the LOAD TARGET: they
+    // are advanced by autoplay/picker BEFORE the new stream is actually built.
     var currentSeason by remember { mutableIntStateOf(season) }
     var currentEpisode by remember { mutableIntStateOf(episode) }
+    // The season/episode the CURRENT player instance actually plays (mirrors
+    // Dart's _activeSeason/_activeEpisode). Progress saves must use these:
+    // currentSeason/currentEpisode can already point at the next episode while
+    // the old player is still alive (autoplay transition, picker jump), so a
+    // save in that window would write the next episode's key with the previous
+    // episode's position, producing the "Continue Watching loads another
+    // episode" corruption.
+    var activeSeason by remember { mutableIntStateOf(season) }
+    var activeEpisode by remember { mutableIntStateOf(episode) }
     // Episode list for the current season (used to find the "next" episode).
     var seasonEpisodes by remember { mutableStateOf<List<EpisodeRef>>(emptyList()) }
     // Guards against re-entering autoplay while the next episode is loading.
@@ -212,7 +222,10 @@ fun PlayerScreen(
     // Generation guard so stale async rebuilds never touch a disposed player.
     val rebuildGeneration = remember { mutableStateOf(0) }
 
-    /** Saves current playback progress (position + title metadata). */
+    /** Saves current playback progress (position + title metadata). Uses the
+     * active episode — the one the current player actually plays — not the
+     * load target, so a save during an autoplay/picker transition can never
+     * stamp the next episode's key with the previous player's position. */
     fun saveProgress() {
         val player = exoPlayer ?: return
         val positionMs = player.currentPosition
@@ -223,8 +236,8 @@ fun PlayerScreen(
             tmdbId = itemId,
             title = title.ifBlank { itemId },
             isMovie = isMovie,
-            season = currentSeason,
-            episode = currentEpisode,
+            season = activeSeason,
+            episode = activeEpisode,
             positionSeconds = positionMs / 1000,
             durationSeconds = durationMs / 1000,
             posterPath = posterPath,
@@ -239,8 +252,8 @@ fun PlayerScreen(
                 tmdbId = itemId,
                 title = title.ifBlank { itemId },
                 isMovie = isMovie,
-                season = currentSeason,
-                episode = currentEpisode,
+                season = activeSeason,
+                episode = activeEpisode,
                 positionSeconds = positionMs / 1000,
                 durationSeconds = durationMs / 1000,
                 posterPath = posterPath,
@@ -248,6 +261,22 @@ fun PlayerScreen(
                 episodeName = episodeName,
             )
         }
+    }
+
+    /** Marks the currently-playing item as fully watched (mirrors Dart's
+     * markAsWatched in _completeCurrentItem) so it leaves Continue Watching. */
+    fun markWatched() {
+        WatchProgressRepository.markAsWatched(
+            context = context,
+            tmdbId = itemId,
+            title = title.ifBlank { itemId },
+            isMovie = isMovie,
+            season = activeSeason,
+            episode = activeEpisode,
+            posterPath = posterPath,
+            seriesTitle = seriesTitle,
+            episodeName = episodeName,
+        )
     }
 
     /**
@@ -387,21 +416,25 @@ fun PlayerScreen(
         player.prepare()
         player.playWhenReady = true
 
-        // Auto-advance to the next episode when a series episode completes
-        // (mirrors Dart's _completeCurrentItem/_playNextEpisode). Movies stop
-        // at the end screen.
-        if (!isMovie) {
-            player.addListener(
-                object : Player.Listener {
-                    override fun onPlaybackStateChanged(playbackState: Int) {
-                        if (playbackState == Player.STATE_ENDED && !autoAdvancing) {
-                            saveProgress()
+        // On completion, persist the final position, mark the item watched (so
+        // it leaves Continue Watching — mirrors Dart's _completeCurrentItem),
+        // and auto-advance to the next episode for series. Movies stop at the
+        // end screen.
+        player.addListener(
+            object : Player.Listener {
+                override fun onPlaybackStateChanged(playbackState: Int) {
+                    if (playbackState == Player.STATE_ENDED && !autoAdvancing) {
+                        saveProgress()
+                        // Mark the finished item watched so it drops out of
+                        // Continue Watching.
+                        markWatched()
+                        if (!isMovie) {
                             coroutineScope.launch { playNextEpisode() }
                         }
                     }
-                },
-            )
-        }
+                }
+            },
+        )
         return player
     }
 
@@ -636,6 +669,11 @@ fun PlayerScreen(
             )
             exoPlayer?.release()
             exoPlayer = player
+            // The player for the load target is now live — from here on, saves
+            // are attributed to this episode (and not the previous one whose
+            // player is still being torn down).
+            activeSeason = currentSeason
+            activeEpisode = currentEpisode
             activeSubtitle = initialSub
             selectedSubtitleLabel = initialSub?.label ?: "Off"
             loading = false

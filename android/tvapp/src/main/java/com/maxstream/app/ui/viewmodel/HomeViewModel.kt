@@ -52,14 +52,11 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             _topRatedMovies.value = repo.topRatedMovies() ?: emptyList()
             _topRatedSeries.value = repo.topRatedSeries() ?: emptyList()
             // Continue Watching row: locally persisted watch progress, newest
-            // first, filtered like the phone (drop anything >= 90% watched).
+            // first, filtered like the phone (drop barely-started, watched and
+            // >= 90% items — mirrors WatchHistoryService.getContinueWatching).
             _continueWatching.value = WatchProgressRepository
                 .recent(getApplication(), limit = 20)
-                .filter { entry ->
-                    val pct = if (entry.durationSeconds > 0)
-                        entry.positionSeconds.toFloat() / entry.durationSeconds else 0f
-                    pct < 0.9f
-                }
+                .filter { entry -> entry.isVisibleInContinueWatching() }
                 .map { it.toMediaItem() }
             _loading.value = false
         }
@@ -74,11 +71,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     fun refreshSynced() {
         _continueWatching.value = WatchProgressRepository
             .recent(getApplication(), limit = 20)
-            .filter { entry ->
-                val pct = if (entry.durationSeconds > 0)
-                    entry.positionSeconds.toFloat() / entry.durationSeconds else 0f
-                pct < 0.9f
-            }
+            .filter { entry -> entry.isVisibleInContinueWatching() }
             .map { it.toMediaItem() }
     }
 }

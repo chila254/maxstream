@@ -321,6 +321,7 @@ object CloudSyncRepository {
                         timestamp = long(f, "timestamp"),
                         seriesTitle = str(f, "seriesTitle"),
                         episodeName = str(f, "episodeName"),
+                        isWatched = bool(f, "isWatched"),
                     ) || historyChanged
                 }
                 // Deletions: drop local entries the cloud no longer has.

@@ -48,6 +48,7 @@ object WatchProgressRepository {
         episodeName: String = "",
     ) {
         if (positionSeconds <= POSITION_SAVE_THRESHOLD_SECONDS) return
+        val watched = durationSeconds > 0 && positionSeconds.toFloat() / durationSeconds >= 0.9f
         val entry = JSONObject()
             .put("tmdbId", tmdbId)
             .put("title", title)
@@ -60,8 +61,45 @@ object WatchProgressRepository {
             .put("backdropPath", backdropPath)
             .put("seriesTitle", seriesTitle)
             .put("episodeName", episodeName)
+            .put("watchPercentage", if (durationSeconds > 0)
+                positionSeconds * 100.0 / durationSeconds else 0.0)
+            .put("isWatched", watched)
             .put("timestamp", System.currentTimeMillis())
         prefs(context).edit().putString(progressKey(tmdbId, isMovie, season, episode), entry.toString()).apply()
+        upsertRecent(context, entry)
+    }
+
+    /**
+     * Marks a title as fully watched (mirrors Dart
+     * [WatchHistoryService.markAsWatched]). Finished items leave Continue
+     * Watching regardless of the stored position/duration ratio.
+     */
+    fun markAsWatched(
+        context: Context,
+        tmdbId: String,
+        title: String,
+        isMovie: Boolean,
+        season: Int,
+        episode: Int,
+        posterPath: String = "",
+        seriesTitle: String = "",
+        episodeName: String = "",
+    ) {
+        val key = progressKey(tmdbId, isMovie, season, episode)
+        val existing = prefs(context).getString(key, null)
+        val entry = runCatching { JSONObject(existing) }.getOrElse { JSONObject() }
+            .put("tmdbId", tmdbId)
+            .put("title", title)
+            .put("isMovie", isMovie)
+            .put("season", season)
+            .put("episode", episode)
+            .put("isWatched", true)
+            .put("watchPercentage", 100.0)
+            .put("timestamp", System.currentTimeMillis())
+        if (posterPath.isNotEmpty()) entry.put("posterPath", posterPath)
+        if (seriesTitle.isNotEmpty()) entry.put("seriesTitle", seriesTitle)
+        if (episodeName.isNotEmpty()) entry.put("episodeName", episodeName)
+        prefs(context).edit().putString(key, entry.toString()).apply()
         upsertRecent(context, entry)
     }
 
@@ -87,6 +125,7 @@ object WatchProgressRepository {
         timestamp: Long,
         seriesTitle: String = "",
         episodeName: String = "",
+        isWatched: Boolean = false,
     ): Boolean {
         if (positionSeconds <= POSITION_SAVE_THRESHOLD_SECONDS) return false
         val entry = JSONObject()
@@ -101,6 +140,9 @@ object WatchProgressRepository {
             .put("backdropPath", backdropPath)
             .put("seriesTitle", seriesTitle)
             .put("episodeName", episodeName)
+            .put("watchPercentage", if (durationSeconds > 0)
+                positionSeconds * 100.0 / durationSeconds else 0.0)
+            .put("isWatched", isWatched)
             .put("timestamp", if (timestamp > 0L) timestamp else System.currentTimeMillis())
         val key = progressKey(tmdbId, isMovie, season, episode)
         val before = prefs(context).getString(key, null)
@@ -211,12 +253,15 @@ object WatchEntryCompat {
     /**
      * Returns Continue Watching entries for a specific title — used by
      * DetailsScreen to show the resume row (mirrors Dart's _continueWatching
-     * filter in TvCinematicDetails._load()).
+     * filter in TvCinematicDetails._load()). Finished (isWatched / >= 90%)
+     * and barely-started (<= 30s) items are dropped, exactly like Dart's
+     * WatchHistoryService.getContinueWatching().
      */
     fun getEntriesFor(tmdbId: Int, isTv: Boolean): List<Entry> {
         val context = appContext ?: return emptyList()
         return WatchProgressRepository.recent(context)
             .filter { it.tmdbId == tmdbId.toString() && it.isMovie == !isTv }
+            .filter { it.isVisibleInContinueWatching() }
             .take(6)
             .map { entry ->
                 Entry(
@@ -229,6 +274,7 @@ object WatchEntryCompat {
                     position = entry.positionSeconds,
                     duration = entry.durationSeconds,
                     posterUrl = entry.coverUrl,
+                    isWatched = entry.isWatched,
                 )
             }
     }
@@ -244,6 +290,7 @@ object WatchEntryCompat {
         val position: Long,
         val duration: Long,
         val posterUrl: String,
+        val isWatched: Boolean = false,
     ) {
         val progress: Float
             get() = if (duration > 0) {
@@ -266,11 +313,23 @@ data class WatchEntry(
     val seriesTitle: String = "",
     val episodeName: String = "",
     val timestamp: Long = 0L,
+    val isWatched: Boolean = false,
 ) {
     val progress: Float
         get() = if (durationSeconds > 0) {
             (positionSeconds.toFloat() / durationSeconds.toFloat()).coerceIn(0f, 1f)
         } else 0f
+
+    /**
+     * Whether this entry belongs on a Continue Watching row. Mirrors Dart's
+     * WatchHistoryService.getContinueWatching() filter: drop barely-started
+     * (<= 30s), finished (isWatched), and >= 90% watched items.
+     */
+    fun isVisibleInContinueWatching(): Boolean =
+        positionSeconds > 30L &&
+            durationSeconds > 0L &&
+            positionSeconds.toFloat() / durationSeconds < 0.9f &&
+            !isWatched
 
     /** The display title — for series use the series title, not the episode name. */
     val displayTitle: String
@@ -314,6 +373,7 @@ data class WatchEntry(
             seriesTitle = json.optString("seriesTitle"),
             episodeName = json.optString("episodeName"),
             timestamp = json.optLong("timestamp", 0L),
+            isWatched = json.optBoolean("isWatched", false),
         )
     }
 }
