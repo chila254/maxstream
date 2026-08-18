@@ -240,7 +240,11 @@ fun HomeScreen(
                         onPlay = { mediaItem ->
                             if (mediaItem != null) {
                                 val route = if (heroType == "series")
-                                    Screen.Player.createRoute(mediaItem.id.toString(), "tv", 1, 1)
+                                    Screen.Player.createRoute(
+                                        mediaItem.id.toString(), "tv",
+                                        season = mediaItem.season,
+                                        episode = mediaItem.episode,
+                                    )
                                 else
                                     Screen.Player.createRoute(mediaItem.id.toString(), "movie")
                                 navController.navigate(route)

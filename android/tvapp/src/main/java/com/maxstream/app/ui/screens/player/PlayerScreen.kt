@@ -153,6 +153,9 @@ fun PlayerScreen(
     // series, then Subtitles/Quality/Servers). -1 = focus on the surface so the
     // D-pad shows/hides controls rather than moving between menus.
     var focusedMenuButton by remember { mutableIntStateOf(-1) }
+    // Position to restore when a menu is closed (mirrors Dart's _closeMenus
+    // refocus on the opener button).
+    var savedMenuButtonPosition by remember { mutableIntStateOf(0) }
     // One requester per possible top-right button (series + 3 menus). Episodes
     // is index 0 and only used for series.
     val menuButtonRequesters = remember { List(4) { FocusRequester() } }
@@ -883,6 +886,7 @@ fun PlayerScreen(
                     label = "Episodes",
                     subLabel = "S$currentSeason  E$currentEpisode",
                     onClick = {
+                        savedMenuButtonPosition = focusedMenuButton
                         menuOpen = true
                         activeMenu = PlayerMenu.Episodes
                         menuIndex = 0
@@ -897,12 +901,13 @@ fun PlayerScreen(
                 index = 1,
                 label = "Subtitles",
                 subLabel = selectedSubtitleLabel,
-                onClick = {
-                    menuOpen = true
-                    activeMenu = PlayerMenu.Subtitles
-                    menuIndex = 0
-                    focusedMenuButton = -1
-                },
+                    onClick = {
+                        savedMenuButtonPosition = focusedMenuButton
+                        menuOpen = true
+                        activeMenu = PlayerMenu.Subtitles
+                        menuIndex = 0
+                        focusedMenuButton = -1
+                    },
             ),
         )
         add(
@@ -910,12 +915,13 @@ fun PlayerScreen(
                 index = 2,
                 label = "Quality",
                 subLabel = selectedQualityLabel,
-                onClick = {
-                    menuOpen = true
-                    activeMenu = PlayerMenu.Quality
-                    menuIndex = 0
-                    focusedMenuButton = -1
-                },
+                    onClick = {
+                        savedMenuButtonPosition = focusedMenuButton
+                        menuOpen = true
+                        activeMenu = PlayerMenu.Quality
+                        menuIndex = 0
+                        focusedMenuButton = -1
+                    },
             ),
         )
         add(
@@ -923,12 +929,13 @@ fun PlayerScreen(
                 index = 3,
                 label = "Server",
                 subLabel = source?.displayName ?: "Auto",
-                onClick = {
-                    menuOpen = true
-                    activeMenu = PlayerMenu.Servers
-                    menuIndex = 0
-                    focusedMenuButton = -1
-                },
+                    onClick = {
+                        savedMenuButtonPosition = focusedMenuButton
+                        menuOpen = true
+                        activeMenu = PlayerMenu.Servers
+                        menuIndex = 0
+                        focusedMenuButton = -1
+                    },
             ),
         )
     }
@@ -1117,16 +1124,17 @@ fun PlayerScreen(
                     menuIndex = if (menuIndex > 0) menuIndex - 1 else menuIndex
                     return true
                 }
-                // Up from a playback control returns to the top-right menus.
+                // Up from a playback control goes to play/pause (Dart: UP from
+                // any control -> back, but playPause is the first interactive
+                // control below back; match the spirit by going to the center).
                 if (focusedPlaybackControl >= 0) {
-                    if (topMenuButtons.isNotEmpty()) focusMenuButton(0) else focusedPlaybackControl = -1
+                    focusPlaybackControl(1)
                     return true
                 }
-                // Reveal the controls and focus the top-right menu row.
+                // Reveal the controls and focus play/pause (Dart: surface
+                // arrowUp -> showControlsAndFocus(_Pc.playPause)).
                 controlsVisible = true
-                if (focusedMenuButton < 0 && topMenuButtons.isNotEmpty()) {
-                    focusMenuButton(0)
-                }
+                focusPlaybackControl(1)
                 return true
             }
             Key.DirectionDown -> {
@@ -1148,11 +1156,10 @@ fun PlayerScreen(
                     if (focusedPlaybackControl < 3) focusPlaybackControl(3)
                     return true
                 }
-                // Down from the top-right menu buttons drops onto the playback
-                // controls (position 1 = play/pause; the next DOWN reaches the
-                // progress bar, mirroring Dart's arrowDown from the menu row).
+                // Down from the top-right menu buttons drops onto the slider
+                // (progress bar) so DOWN always reaches the controls.
                 if (focusedMenuButton >= 0) {
-                    focusPlaybackControl(1)
+                    focusPlaybackControl(3)
                     return true
                 }
                 controlsVisible = true
@@ -1213,18 +1220,26 @@ fun PlayerScreen(
                     }
                     return true
                 }
-                // Reveal controls on a directional press, like Dart.
+                // Reveal controls on a directional press (Dart: LEFT -> rewind,
+                // RIGHT -> forward, DOWN -> slider, UP -> playPause).
                 if (!controlsVisible) {
                     controlsVisible = true
+                    if (key == Key.DirectionLeft) focusPlaybackControl(0)
+                    else focusPlaybackControl(2)
                     return true
                 }
-                return false
+                // Controls visible but nothing focused — consume the event
+                // (prevents stray key propagation on some TV firmware).
+                return true
             }
             Key.Back, Key.Escape -> {
                 if (menuOpen) {
+                    // Close the panel and return focus to the button that
+                    // opened it (mirrors Dart's _closeMenus refocus).
                     menuOpen = false
                     activeMenu = null
                     menuIndex = 0
+                    focusMenuButton(savedMenuButtonPosition)
                 } else if (focusedPlaybackControl >= 0) {
                     focusedPlaybackControl = -1
                 } else if (focusedMenuButton >= 0) {
