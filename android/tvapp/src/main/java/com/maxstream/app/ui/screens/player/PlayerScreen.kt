@@ -1121,15 +1121,24 @@ fun PlayerScreen(
         when (key) {
             Key.DirectionUp -> {
                 if (menuOpen) {
-                    // Episode picker: header/season row handles Up (return to
-                    // season tabs) — simplified to just clamp at 0.
-                    menuIndex = if (menuIndex > 0) menuIndex - 1 else menuIndex
-                    return true
+                    // Let the menu panel handle its own UP/DOWN navigation.
+                    return false
                 }
-                // Up from a playback control goes to the top-right menu row.
-                if (focusedPlaybackControl >= 0) {
+                // Up from a playback control (0..2) goes to the top-right menu row.
+                if (focusedPlaybackControl in 0..2) {
                     if (topMenuButtons.isNotEmpty()) focusMenuButton(0)
                     else focusedPlaybackControl = -1
+                    return true
+                }
+                // Up from the slider goes to play/pause.
+                if (focusedPlaybackControl == 3) {
+                    focusPlaybackControl(1)
+                    return true
+                }
+                // Up from the top-right menu buttons hides controls.
+                if (focusedMenuButton >= 0) {
+                    controlsVisible = false
+                    focusedMenuButton = -1
                     return true
                 }
                 // Surface: reveal controls and focus the menu row.
@@ -1139,27 +1148,23 @@ fun PlayerScreen(
             }
             Key.DirectionDown -> {
                 if (menuOpen) {
-                    // While a panel is open, focus STAYS inside the submenu —
-                    // DOWN only moves to the next option (clamped at the end).
-                    val count = when (activeMenu) {
-                        PlayerMenu.Servers -> allServers.size
-                        PlayerMenu.Quality -> qualityOptions(source).size
-                        PlayerMenu.Subtitles -> subtitleOptions.size + 1
-                        PlayerMenu.Episodes -> (menuEpisodesCache[menuSeason] ?: emptyList()).size
-                        null -> 0
-                    }
-                    if (menuIndex + 1 < count) menuIndex++
-                    return true
+                    // Let the menu panel handle its own UP/DOWN navigation.
+                    return false
                 }
                 // Down from a playback control (0..2) moves to the slider.
-                if (focusedPlaybackControl >= 0) {
-                    if (focusedPlaybackControl < 3) focusPlaybackControl(3)
+                if (focusedPlaybackControl in 0..2) {
+                    focusPlaybackControl(3)
                     return true
                 }
-                // Down from the top-right menu buttons drops onto the slider
-                // (progress bar) so DOWN always reaches the controls.
+                // Down from the top-right menu buttons goes to play/pause.
                 if (focusedMenuButton >= 0) {
-                    focusPlaybackControl(3)
+                    focusPlaybackControl(1)
+                    return true
+                }
+                // Down from the slider hides controls.
+                if (focusedPlaybackControl == 3) {
+                    controlsVisible = false
+                    focusedPlaybackControl = -1
                     return true
                 }
                 controlsVisible = true
@@ -1181,32 +1186,17 @@ fun PlayerScreen(
                     activatePlaybackControl()
                     return true
                 }
-                // Toggle playback controls on OK (show on play/pause focus,
-                // hide otherwise — Dart: select toggles _showControls).
+                // Nothing focused: show controls and focus play/pause.
                 if (!controlsVisible) {
                     controlsVisible = true
                     focusPlaybackControl(1)
-                } else {
-                    controlsVisible = false
-                    focusedMenuButton = -1
-                    focusedPlaybackControl = -1
                 }
                 return true
             }
             Key.DirectionLeft, Key.DirectionRight -> {
                 if (menuOpen) {
-                    // Episode picker: Left/Right switches between seasons.
-                    if (activeMenu == PlayerMenu.Episodes && menuSeasons.size > 1) {
-                        val delta = if (key == Key.DirectionLeft) -1 else 1
-                        val cur = menuSeasons.indexOfFirst { it.number == menuSeason }
-                        val next = (cur + delta + menuSeasons.size) % menuSeasons.size
-                        menuSeason = menuSeasons[next].number
-                        menuIndex = 0
-                        if (!menuEpisodesCache.containsKey(menuSeason)) {
-                            coroutineScope.launch { loadMenuSeasonEpisodes(menuSeason) }
-                        }
-                        return true
-                    }
+                    // Let the menu panel handle its own LEFT/RIGHT navigation
+                    // (episode picker season switching, etc.).
                     return false
                 }
                 // When a top-right menu button has focus, move between buttons.
