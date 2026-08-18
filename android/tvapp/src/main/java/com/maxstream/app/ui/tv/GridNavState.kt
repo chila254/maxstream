@@ -29,6 +29,17 @@ data class GridDesc(
     val sectionIndex: Int = 0,
 )
 
+/** True when the grid card at [index] is completely within the viewport —
+ *  used to avoid scrolling on every key press (the "bounce"). */
+internal fun LazyGridState.isItemFullyVisible(index: Int): Boolean {
+    val info = layoutInfo
+    val item = info.visibleItemsInfo.firstOrNull { it.index == index } ?: return false
+    return item.offset.x >= 0 &&
+        item.offset.x + item.size.width <= info.viewportSize.width &&
+        item.offset.y >= 0 &&
+        item.offset.y + item.size.height <= info.viewportSize.height
+}
+
 /**
  * State holder for D-pad navigation across one or more card grids, mirroring
  * the proven GenreScreen pattern (per-card [FocusRequester] + scroll-then-
@@ -100,23 +111,26 @@ class GridNavState(private val columns: Int) {
 
         val requester = requester(gridId, index)
 
-        // Most targets are already composed and visible — land focus on the
-        // first attempt INSTEAD of blocking on a scroll animation first (the
-        // old animateScrollToItem suspended until the animation finished, which
-        // made rapid D-pad presses feel unresponsive and let stale moves steal
-        // focus back). requestFocus() throws only while the node is unattached,
-        // so a successful call means the requester is attached.
-        if (runCatching { requester.requestFocus() }.isSuccess) return
+        // Most targets are already composed and fully visible — land focus on
+        // the first attempt INSTEAD of blocking on a scroll animation first
+        // (the old animateScrollToItem suspended until the animation finished,
+        // which made rapid D-pad presses feel unresponsive and let stale moves
+        // steal focus back). requestFocus() is a silent no-op (returns Unit)
+        // while the node is unattached, so a single call lands once it exists.
+        runCatching { requester.requestFocus() }
+        val gridState = gridStates[gridId]
+        if (gridState?.isItemFullyVisible(index) == true) return
 
         // Off-screen target: jump it into view (instant, no animation), then
         // retry until the lazy item is composed and focus lands.
         runCatching { outerListState?.scrollToItem(desc.sectionIndex + index / columns) }
-        runCatching { gridStates[gridId]?.scrollToItem(index) }
+        runCatching { gridState?.scrollToItem(index) }
 
         var attempt = 0
         while (attempt < 6) {
             if (attempt > 0) delay(50L * attempt)
-            if (runCatching { requester.requestFocus() }.isSuccess) return
+            runCatching { requester.requestFocus() }
+            if (gridState?.isItemFullyVisible(index) == true) return
             attempt++
         }
     }

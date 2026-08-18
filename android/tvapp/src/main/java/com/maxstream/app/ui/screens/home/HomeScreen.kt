@@ -163,9 +163,12 @@ fun HomeScreen(
         var attempt = 0
         while (attempt < 12) {
             if (attempt > 0) delay(80L * attempt)
-            // requestFocus() throws only while the node is unattached — retry
-            // on exception until the hero is composed (isSuccess == no throw).
-            if (runCatching { playFocusRequester.requestFocus() }.isSuccess) return@LaunchedEffect
+            // requestFocus() is a silent no-op (returns Unit) while the node is
+            // unattached — the Play button is only composed once the hero item
+            // exists (HeroSection renders a placeholder while item == null), so
+            // retry until it does.
+            runCatching { playFocusRequester.requestFocus() }
+            if (heroItem != null) return@LaunchedEffect
             attempt++
         }
     }
@@ -182,7 +185,10 @@ fun HomeScreen(
         var attempt = 0
         while (attempt < 8) {
             if (attempt > 0) delay(60L * attempt)
-            if (runCatching { playFocusRequester.requestFocus() }.isSuccess) {
+            // requestFocus() is a silent no-op while unattached; the hero Play
+            // button exists once heroItem != null, so the call lands then.
+            runCatching { playFocusRequester.requestFocus() }
+            if (heroItem != null) {
                 heroFocusSeeded = true
                 return@LaunchedEffect
             }

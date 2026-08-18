@@ -76,6 +76,7 @@ import com.maxstream.app.data.remote.EpisodeRef
 import com.maxstream.app.di.Modules
 import com.maxstream.app.ui.navigation.Screen
 import com.maxstream.app.ui.theme.Background
+import com.maxstream.app.ui.tv.isItemFullyVisible
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -205,13 +206,15 @@ fun DetailsScreen(
 
         // Seed focus on the hero Play button after render — first attempt is
         // IMMEDIATE, retry only while the node is unattached (no pre-delay,
-        // which made Details entry feel laggy).
+        // which made Details entry feel laggy). requestFocus() is a silent
+        // no-op (returns Unit) while unattached or on a disabled button, so
+        // retry until the button is actually focusable (data loaded).
         delay(100)
         var attempt = 0
         while (attempt < 6) {
             if (attempt > 0) delay(50L * attempt)
-            val ok = runCatching { playFocusRequester.requestFocus(); true }.getOrDefault(false)
-            if (ok) return@LaunchedEffect
+            runCatching { playFocusRequester.requestFocus() }
+            if (mediaType != "tv" || (!loadingEpisodes && episodes.isNotEmpty())) return@LaunchedEffect
             attempt++
         }
     }
@@ -412,20 +415,26 @@ private fun TvCinematicDetailsView(
         if (count <= 0) return
         val index = requestedIndex.coerceIn(0, count - 1)
         val target = requester(rowId, index)
-        // Immediate-focus-first: tiles inside an already-visible row are composed,
-        // so LEFT/RIGHT lands instantly instead of blocking on a scroll animation.
-        if (runCatching { target.requestFocus() }.isSuccess) {
+        val rowState = rowStates[rowId]
+        // Reveal the section and tile ONLY when they are not fully visible.
+        // Snapping via scrollToItem on every move — even between fully-visible
+        // tiles — jumped the rows back and forth on LEFT/RIGHT (the "bounce").
+        if (!outerListState.isItemFullyVisible(itemIndex)) {
             runCatching { outerListState.scrollToItem(itemIndex) }
-            runCatching { rowStates[rowId]?.scrollToItem(index) }
-            return
         }
-        // Off-screen section: jump to it instantly (no animation), then retry.
-        runCatching { outerListState.scrollToItem(itemIndex) }
-        runCatching { rowStates[rowId]?.scrollToItem(index) }
+        if (rowState != null && !rowState.isItemFullyVisible(index)) {
+            runCatching { rowState.scrollToItem(index) }
+        }
+        // requestFocus() is a silent no-op (returns Unit) while the node is not
+        // attached — no success value to test. The tile is composed once
+        // scrollToItem has awaited layout, so this single call lands; retries
+        // only guard the rare case where the scroll silently failed.
         var attempt = 0
-        while (attempt < 6) {
-            if (attempt > 0) delay(50L * attempt)
-            if (runCatching { target.requestFocus() }.isSuccess) return
+        while (attempt < 4) {
+            if (attempt > 0) delay(30L * attempt)
+            runCatching { target.requestFocus() }
+            val composed = rowState?.layoutInfo?.visibleItemsInfo?.any { it.index == index } ?: true
+            if (composed) break
             attempt++
         }
     }
@@ -437,14 +446,12 @@ private fun TvCinematicDetailsView(
 
     fun focusHero() {
         launchFocus {
-            runCatching { outerListState.scrollToItem(0) }
-            if (runCatching { playFocusRequester.requestFocus() }.isSuccess) return@launchFocus
-            var attempt = 0
-            while (attempt < 6) {
-                if (attempt > 0) delay(50L * attempt)
-                if (runCatching { playFocusRequester.requestFocus() }.isSuccess) return@launchFocus
-                attempt++
+            if (!outerListState.isItemFullyVisible(0)) {
+                runCatching { outerListState.scrollToItem(0) }
             }
+            // Hero is LazyColumn item 0 — composed once visible, so a single
+            // requestFocus() lands (it no-ops silently while unattached).
+            runCatching { playFocusRequester.requestFocus() }
         }
     }
 

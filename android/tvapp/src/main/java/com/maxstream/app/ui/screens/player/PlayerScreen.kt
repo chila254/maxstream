@@ -805,7 +805,7 @@ fun PlayerScreen(
         if (exoPlayer != null && !loading && !controlsVisible &&
             focusedMenuButton < 0 && focusedPlaybackControl < 0
         ) {
-            runCatching { rootFocusRequester.requestFocus(); true }
+            runCatching { rootFocusRequester.requestFocus() }
         }
     }
 
@@ -949,26 +949,32 @@ fun PlayerScreen(
     // the tree. Calling FocusRequester.requestFocus() synchronously inside the
     // key handler fails because the control is not composed yet (Dart solves
     // the same race with addPostFrameCallback + requestFocus). Because this
-    // effect runs after composition, the requested node is always attached.
-    LaunchedEffect(controlsVisible, exoPlayer, loading, focusedMenuButton, focusedPlaybackControl) {
+    // effect runs after composition, the requested node is usually attached.
+    // requestFocus() is a silent no-op (returns Unit) when it is not, so we
+    // retry over a few frames (previously the `; true` masked the failure and
+    // the controls never got focus — the "focus escapes the menus" symptom).
+    LaunchedEffect(controlsVisible, menuOpen, exoPlayer, loading, focusedMenuButton, focusedPlaybackControl) {
         if (exoPlayer == null || loading) return@LaunchedEffect
         if (controlsVisible && !menuOpen) {
-            if (focusedMenuButton >= 0 && topMenuButtons.isNotEmpty()) {
-                val btn = topMenuButtons.getOrNull(focusedMenuButton) ?: return@LaunchedEffect
-                runCatching {
-                    menuButtonRequesters.getOrNull(btn.index)?.requestFocus()
-                    true
-                }
-            } else if (focusedPlaybackControl >= 0) {
-                runCatching {
-                    playbackControlRequesters.getOrNull(focusedPlaybackControl)?.requestFocus()
-                    true
+            val requester: FocusRequester? = when {
+                focusedMenuButton >= 0 && topMenuButtons.isNotEmpty() ->
+                    topMenuButtons.getOrNull(focusedMenuButton)?.let { menuButtonRequesters.getOrNull(it.index) }
+                focusedPlaybackControl >= 0 ->
+                    playbackControlRequesters.getOrNull(focusedPlaybackControl)
+                else -> null
+            }
+            if (requester != null) {
+                var attempt = 0
+                while (attempt < 6) {
+                    if (attempt > 0) delay(40L * attempt)
+                    runCatching { requester.requestFocus() }
+                    attempt++
                 }
             } else {
-                runCatching { rootFocusRequester.requestFocus(); true }
+                runCatching { rootFocusRequester.requestFocus() }
             }
         } else {
-            runCatching { rootFocusRequester.requestFocus(); true }
+            runCatching { rootFocusRequester.requestFocus() }
         }
     }
 
@@ -1060,20 +1066,18 @@ fun PlayerScreen(
         focusedMenuButton = position
         focusedPlaybackControl = -1
         val btn = topMenuButtons.getOrNull(position) ?: return
-        runCatching {
-            menuButtonRequesters.getOrNull(btn.index)?.requestFocus()
-            true
-        }
+        // Best effort synchronously; the LaunchedEffect above retries after the
+        // controls are composed.
+        runCatching { menuButtonRequesters.getOrNull(btn.index)?.requestFocus() }
     }
 
     /** Moves focus onto one of the bottom playback controls (0..3). */
     fun focusPlaybackControl(position: Int) {
         focusedPlaybackControl = position
         focusedMenuButton = -1
-        runCatching {
-            playbackControlRequesters.getOrNull(position)?.requestFocus()
-            true
-        }
+        // Best effort synchronously; the LaunchedEffect above retries after the
+        // controls are composed.
+        runCatching { playbackControlRequesters.getOrNull(position)?.requestFocus() }
     }
 
     fun seekBy(deltaSec: Int) {
@@ -1127,6 +1131,8 @@ fun PlayerScreen(
             }
             Key.DirectionDown -> {
                 if (menuOpen) {
+                    // While a panel is open, focus STAYS inside the submenu —
+                    // DOWN only moves to the next option (clamped at the end).
                     val count = when (activeMenu) {
                         PlayerMenu.Servers -> allServers.size
                         PlayerMenu.Quality -> qualityOptions(source).size
@@ -1134,16 +1140,7 @@ fun PlayerScreen(
                         PlayerMenu.Episodes -> (menuEpisodesCache[menuSeason] ?: emptyList()).size
                         null -> 0
                     }
-                    if (menuIndex + 1 < count) {
-                        menuIndex++
-                    } else if (count > 0) {
-                        // Past the last option: close the panel and drop onto
-                        // the playback controls so DOWN always reaches them.
-                        menuOpen = false
-                        activeMenu = null
-                        menuIndex = 0
-                        focusPlaybackControl(1)
-                    }
+                    if (menuIndex + 1 < count) menuIndex++
                     return true
                 }
                 // Down from a playback control (0..2) moves to the slider.
@@ -1152,7 +1149,8 @@ fun PlayerScreen(
                     return true
                 }
                 // Down from the top-right menu buttons drops onto the playback
-                // controls (Dart: arrowDown from the menu row → slider).
+                // controls (position 1 = play/pause; the next DOWN reaches the
+                // progress bar, mirroring Dart's arrowDown from the menu row).
                 if (focusedMenuButton >= 0) {
                     focusPlaybackControl(1)
                     return true

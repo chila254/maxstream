@@ -72,7 +72,7 @@ fun ContentCard(
     val cardHeightPx = with(LocalDensity.current) { CardHeight.toPx() }
 
     val scale by animateFloatAsState(
-        targetValue = if (isFocused) 1.06f else 1f,
+        targetValue = if (isFocused) 1.02f else 1f,
         animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
         label = "cardScale",
     )

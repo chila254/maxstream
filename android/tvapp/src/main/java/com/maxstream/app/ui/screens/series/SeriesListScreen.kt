@@ -143,9 +143,11 @@ fun SeriesListScreen(
         var attempt = 0
         while (attempt < 6) {
             if (attempt > 0) delay(50L * attempt)
-            // requestFocus() throws only while the node is unattached — retry
-            // on exception until the hero is composed (isSuccess == no throw).
-            if (runCatching { playFocusRequester.requestFocus() }.isSuccess) return@LaunchedEffect
+            // requestFocus() is a silent no-op (returns Unit) while the node is
+            // unattached — the hero Play button is only composed once the hero
+            // item exists, so retry until it does.
+            runCatching { playFocusRequester.requestFocus() }
+            if (heroItem != null) return@LaunchedEffect
             attempt++
         }
     }

@@ -1,5 +1,6 @@
 package com.maxstream.app.ui.tv
 
+import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.input.key.Key
@@ -11,6 +12,19 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+/** True when the lazy item at [index] is completely within the viewport along
+ *  the list's scroll axis. Used to decide whether a move actually needs a
+ *  scroll — scrolling on every key press (even for fully-visible cards) made
+ *  rows snap back and forth on LEFT/RIGHT (the "bounce"). */
+internal fun LazyListState.isItemFullyVisible(index: Int): Boolean {
+    val info = layoutInfo
+    val item = info.visibleItemsInfo.firstOrNull { it.index == index } ?: return false
+    return when (info.orientation) {
+        Orientation.Horizontal -> item.offset >= 0 && item.offset + item.size <= info.viewportSize.width
+        else -> item.offset >= 0 && item.offset + item.size <= info.viewportSize.height
+    }
+}
 
 /**
  * A single horizontal content row on a tab screen (matches Dart's stable row ids).
@@ -84,15 +98,14 @@ class RowNavState {
         cardRequesters.getOrPut("$rowId:$index") { FocusRequester() }
 
     /**
-     * Moves focus to card [requestedIndex] of [rowId]. Scrolls the outer
-     * column to the row, the row itself to the card, then requests focus with
-     * retries — the card only becomes focusable after it is composed.
+     * Moves focus to card [requestedIndex] of [rowId]. Reveals the outer
+     * column and the row ONLY when the target is actually off-screen, then
+     * requests focus — the card only becomes focusable after it is composed.
      *
-     * First attempt is IMMEDIATE: cards in an already-composed row are
-     * focusable, so moves land instantly instead of blocking on a scroll
-     * animation first (the old animateScrollToItem suspended until the
-     * animation finished, which made rapid D-pad presses feel unresponsive
-     * and let stale moves steal focus back).
+     * Only-scroll-when-needed is what stops the "bounce": snapping via
+     * scrollToItem on EVERY move — even between cards already in view — jumped
+     * the whole row back and forth on LEFT/RIGHT. Dart's _revealCard also only
+     * reveals when necessary.
      */
     suspend fun focusCard(rowId: String, requestedIndex: Int, outerListState: LazyListState) {
         val length = count(rowId)
@@ -105,24 +118,27 @@ class RowNavState {
         activeRowId = rowId
 
         val requester = requester(rowId, index)
+        val rowState = rowStates[rowId]
 
-        // requestFocus() throws only while the node is unattached — a
-        // successful call means the requester is attached and focus landed.
-        if (runCatching { requester.requestFocus(); true }.getOrDefault(false)) {
+        if (!outerListState.isItemFullyVisible(rowIndex)) {
             runCatching { outerListState.scrollToItem(rowIndex) }
-            runCatching { rowStates[rowId]?.scrollToItem(index) }
-            return
+        }
+        if (rowState != null && !rowState.isItemFullyVisible(index)) {
+            runCatching { rowState.scrollToItem(index) }
         }
 
-        // Off-screen target: jump it into view (instant, no animation), then
-        // retry until the lazy item is composed and focus lands.
-        runCatching { outerListState.scrollToItem(rowIndex) }
-        runCatching { rowStates[rowId]?.scrollToItem(index) }
-
+        // requestFocus() is a silent no-op (returns Unit) while the node is not
+        // attached — there is no success value to test (it never throws in
+        // Compose 1.7). The item is composed once scrollToItem has awaited
+        // layout, so this call lands. Brief retries only guard the rare case
+        // where the scroll silently failed; the visible-items check breaks as
+        // soon as the card exists in the layout so hot paths never wait.
         var attempt = 0
-        while (attempt < 6) {
-            if (attempt > 0) delay(50L * attempt)
-            if (runCatching { requester.requestFocus(); true }.getOrDefault(false)) return
+        while (attempt < 4) {
+            if (attempt > 0) delay(30L * attempt)
+            runCatching { requester.requestFocus() }
+            val composed = rowState?.layoutInfo?.visibleItemsInfo?.any { it.index == index } ?: true
+            if (composed) break
             attempt++
         }
     }
