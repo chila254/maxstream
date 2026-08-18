@@ -1121,8 +1121,8 @@ fun PlayerScreen(
         when (key) {
             Key.DirectionUp -> {
                 if (menuOpen) {
-                    // Let the menu panel handle its own UP/DOWN navigation.
-                    return false
+                    menuIndex = if (menuIndex > 0) menuIndex - 1 else menuIndex
+                    return true
                 }
                 // Up from a playback control (0..2) goes to the top-right menu row.
                 if (focusedPlaybackControl in 0..2) {
@@ -1148,8 +1148,15 @@ fun PlayerScreen(
             }
             Key.DirectionDown -> {
                 if (menuOpen) {
-                    // Let the menu panel handle its own UP/DOWN navigation.
-                    return false
+                    val count = when (activeMenu) {
+                        PlayerMenu.Servers -> allServers.size
+                        PlayerMenu.Quality -> qualityOptions(source).size
+                        PlayerMenu.Subtitles -> subtitleOptions.size + 1
+                        PlayerMenu.Episodes -> (menuEpisodesCache[menuSeason] ?: emptyList()).size
+                        null -> 0
+                    }
+                    if (menuIndex + 1 < count) menuIndex++
+                    return true
                 }
                 // Down from a playback control (0..2) moves to the slider.
                 if (focusedPlaybackControl in 0..2) {
@@ -1195,8 +1202,17 @@ fun PlayerScreen(
             }
             Key.DirectionLeft, Key.DirectionRight -> {
                 if (menuOpen) {
-                    // Let the menu panel handle its own LEFT/RIGHT navigation
-                    // (episode picker season switching, etc.).
+                    if (activeMenu == PlayerMenu.Episodes && menuSeasons.size > 1) {
+                        val delta = if (key == Key.DirectionLeft) -1 else 1
+                        val cur = menuSeasons.indexOfFirst { it.number == menuSeason }
+                        val next = (cur + delta + menuSeasons.size) % menuSeasons.size
+                        menuSeason = menuSeasons[next].number
+                        menuIndex = 0
+                        if (!menuEpisodesCache.containsKey(menuSeason)) {
+                            coroutineScope.launch { loadMenuSeasonEpisodes(menuSeason) }
+                        }
+                        return true
+                    }
                     return false
                 }
                 // When a top-right menu button has focus, move between buttons.
@@ -1276,9 +1292,12 @@ fun PlayerScreen(
                 factory = { ctx ->
                     PlayerView(ctx).also { view ->
                         view.player = exoPlayer
-                        // Custom focusable Compose controls replace the built-in
-                        // controller (which is not focusable inside Compose).
                         view.useController = false
+                        // Prevent the Android View from intercepting D-pad keys —
+                        // Compose handles all navigation via onPreviewKeyEvent.
+                        view.isFocusable = false
+                        view.isFocusableInTouchMode = false
+                        view.setOnKeyListener { _, _, _ -> true }
                         playerView = view
                     }
                 },
