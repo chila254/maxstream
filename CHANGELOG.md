@@ -1,5 +1,39 @@
 # Changelog
 
+## 1.5.0+7
+
+> [!NOTE]
+> This release rebuilds the Android TV app as a native Kotlin/Compose experience with a real D-pad remote player, device-code login, cloud sync with your phone, and more stream servers.
+
+### What's New
+- Native Kotlin TV app with Jetpack Compose UI, D-pad navigation, and a dedicated ExoPlayer-based player
+- Device-code authentication with on-screen keyboard and 3-tab login screen
+- Cloud sync: watch history and watchlist sync with your phone in real time over Firestore
+- Continue watching with per-episode cover art and automatic next-episode playback
+- Season/episode picker with thumbnails, Dart-style episode panel, and autoplay
+- Self-update via GitHub releases with in-app download and install
+
+### Features
+- Focusable playback controls with auto-scrolling submenus and keyboard shortcuts
+- Server and quality switching without restarting playback
+- Parallel stream server racing for faster load times
+- Pre-flight stream validation with friendly loading messages
+- Crash reporting with in-app restart screen
+- LMK detection and memory-pressure handling to prevent player crashes
+- VidLink and additional stream server support
+- Firebase idToken refresh to keep cloud sync alive
+
+### Bug Fixes
+- Fix TV app icon and banner not rendering on the Android TV home screen
+- Fix continue-watching showing wrong episode and finished items lingering in details
+- Fix player focus theft, card bounce, and D-pad navigation across all screens
+- Fix device-code login failing with invalid code
+- Fix sidebar lag, logo branding, and home focus seeding
+- Fix VidLink media header fallback and Mov2Day webview frame promotion
+- Fix Firebase idToken expiry silently killing cloud sync
+- Fix mobile setState-after-dispose crash in async loads
+- Fix player subtitle detection, search keyboard layout, and genre screen loading
+
 ## 1.4.0+6
 
 > [!NOTE]

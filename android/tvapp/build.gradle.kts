@@ -22,8 +22,8 @@ android {
         applicationId = "com.maxstream.tv"
         minSdk = 21
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 7
+        versionName = "1.5.0"
         vectorDrawables.useSupportLibrary = true
     }
 
