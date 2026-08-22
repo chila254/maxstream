@@ -6,6 +6,8 @@ A Flutter streaming app for movies and TV series with native Kotlin stream extra
   <img src="assets/images/maxstream_logo.png" alt="MaxStream Logo" width="128" height="128" />
 </div>
 
+## Screenshots
+
 <table align="center">
   <tr>
     <td align="center"><img src="Images/Home_Screen.jpg" alt="Home" width="220" /><br/><sub>Home</sub></td>
