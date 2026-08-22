@@ -6,6 +6,7 @@ import '../models/series.dart';
 import '../services/media_download_manager.dart';
 import '../services/direct_m3u8_service.dart';
 import '../services/tmdb_api_service.dart';
+import '../services/watch_history_service.dart';
 import '../database/db_helper.dart';
 import '../services/cloud_sync_service.dart';
 import '../widgets/video_player_screen.dart';
@@ -35,6 +36,7 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
   bool _downloadingSeason = false;
   late final MediaDownloadManager _downloadManager;
   final Set<String> _downloadedEpisodeKeys = {};
+  Map<String, dynamic>? _watchProgress;
 
   @override
   void initState() {
@@ -44,6 +46,7 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
     CloudSyncService.watchlistRevision.addListener(_onSyncedWatchlist);
     _loadSeriesDetails();
     _checkWatchlistStatus();
+    _loadWatchProgress();
   }
 
   void _onSyncedWatchlist() {
@@ -401,6 +404,132 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
     }
   }
 
+  Future<void> _loadWatchProgress() async {
+    await CloudSyncService.pullToDevice();
+    final continueWatching = await WatchHistoryService.getContinueWatching();
+    if (!mounted) return;
+    final match = continueWatching.firstWhere(
+      (item) =>
+          item['tmdbId']?.toString() == widget.seriesItem.id &&
+          item['isMovie'] == false,
+      orElse: () => {},
+    );
+    if (match.isNotEmpty) {
+      setState(() => _watchProgress = match);
+      return;
+    }
+
+    final allHistory = await WatchHistoryService.getWatchHistory();
+    if (!mounted) return;
+
+    final matches = allHistory
+        .where((item) =>
+            item['tmdbId']?.toString() == widget.seriesItem.id &&
+            item['isMovie'] == false)
+        .toList()
+      ..sort(
+          (a, b) => (b['timestamp'] ?? 0).compareTo(a['timestamp'] ?? 0));
+
+    if (matches.isNotEmpty) {
+      final first = matches.first;
+      final position = (first['position'] as num?)?.toInt() ?? 0;
+      final duration = (first['duration'] as num?)?.toInt() ?? 1;
+      if (position > 30 && duration > 0) {
+        setState(() => _watchProgress = first);
+      }
+    }
+  }
+
+  Widget _buildContinueWatching() {
+    final position = (_watchProgress!['position'] as num?)?.toInt() ?? 0;
+    final duration = (_watchProgress!['duration'] as num?)?.toInt() ?? 1;
+    final progress =
+        duration > 0 ? (position / duration).clamp(0.0, 1.0) : 0.0;
+    final percent = (progress * 100).round();
+    final remaining = duration - position;
+    final remainingMin = (remaining / 60).round();
+    final season = _watchProgress!['season'] ?? 1;
+    final episode = _watchProgress!['episode'] ?? 1;
+    final epTitle = _watchProgress!['title'] ?? '';
+
+    return GestureDetector(
+      onTap: () async {
+        final epSeason = seasons.firstWhere(
+          (s) => s.seasonNumber == season,
+          orElse: () => seasons.first,
+        );
+        final epIndex = epSeason.episodes.indexWhere(
+          (e) => e.episodeNumber == episode,
+        );
+        if (epIndex >= 0) {
+          _playEpisode(epSeason.episodes[epIndex]);
+        }
+        await Future.delayed(const Duration(seconds: 1));
+        _loadWatchProgress();
+      },
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.grey[900],
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.play_circle_fill,
+                    color: Colors.red, size: 20),
+                const SizedBox(width: 8),
+                const Text(
+                  'Continue Watching',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  '$percent%',
+                  style:
+                      const TextStyle(color: Colors.grey, fontSize: 13),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'S$season E$episode${epTitle.isNotEmpty ? ' - $epTitle' : ''}',
+              style: TextStyle(
+                color: Colors.grey[400],
+                fontSize: 13,
+              ),
+            ),
+            const SizedBox(height: 10),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: LinearProgressIndicator(
+                value: progress,
+                backgroundColor: Colors.grey[800],
+                valueColor:
+                    const AlwaysStoppedAnimation<Color>(Colors.red),
+                minHeight: 4,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '$remainingMin min remaining',
+              style:
+                  const TextStyle(color: Colors.grey, fontSize: 12),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   String getYear() {
     final firstAirDate = seriesDetails?['first_air_date'];
     if (firstAirDate != null && firstAirDate.toString().length >= 4) {
@@ -438,6 +567,7 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         buildDetailsSection(),
+                        if (_watchProgress != null) _buildContinueWatching(),
                         if (cast.isNotEmpty) buildCastSection(),
                         if (seasons.isNotEmpty) buildSeasonsSection(),
                         if (recommendations.isNotEmpty)

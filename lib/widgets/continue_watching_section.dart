@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'video_player_screen.dart';
-import '../services/watch_history_service.dart';
 
 class ContinueWatchingSection extends StatefulWidget {
   final List<Map<String, dynamic>> continueWatching;
@@ -18,44 +17,6 @@ class ContinueWatchingSection extends StatefulWidget {
 }
 
 class _ContinueWatchingSectionState extends State<ContinueWatchingSection> {
-  late Map<String, bool> _resumableMap;
-
-  @override
-  void initState() {
-    super.initState();
-    _resumableMap = {};
-    _loadResumableStates();
-  }
-
-  @override
-  void didUpdateWidget(covariant ContinueWatchingSection oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.continueWatching != widget.continueWatching) {
-      _loadResumableStates();
-    }
-  }
-
-  Future<void> _loadResumableStates() async {
-    final resumableMap = <String, bool>{};
-
-    for (final item in widget.continueWatching) {
-      final key = '${item['tmdbId']}_${item['season']}_${item['episode']}';
-      final isResumable = await WatchHistoryService.isResumable(
-        item['tmdbId'],
-        item['isMovie'],
-        item['season'] ?? 1,
-        item['episode'] ?? 1,
-      );
-      resumableMap[key] = isResumable;
-    }
-
-    if (mounted) {
-      setState(() {
-        _resumableMap = resumableMap;
-      });
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     if (widget.continueWatching.isEmpty) return const SizedBox();
@@ -75,7 +36,7 @@ class _ContinueWatchingSectionState extends State<ContinueWatchingSection> {
           ),
         ),
         SizedBox(
-          height: 220,
+          height: 280,
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -96,35 +57,63 @@ class _ContinueWatchingSectionState extends State<ContinueWatchingSection> {
   ) {
     final progress = (item['position'] ?? 0) / (item['duration'] ?? 1);
     final progressPercent = (progress * 100).round();
-    final key = '${item['tmdbId']}_${item['season']}_${item['episode']}';
-    final isResumable = _resumableMap[key] ?? false;
+    final isMovie = item['isMovie'] == true;
+    final typeLabel = isMovie ? 'MOVIE' : 'TV';
+    final title = item['title'] ?? 'Unknown Title';
+    final season = item['season'] ?? 1;
+    final episode = item['episode'] ?? 1;
+    final subtitle = isMovie ? null : 'S${season}E$episode';
 
     return GestureDetector(
       onTap: () {
         _playContent(context, item);
       },
       child: Container(
-        width: 140,
-        margin: const EdgeInsets.only(right: 12),
+        width: 135,
+        margin: const EdgeInsets.only(right: 10),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             ClipRRect(
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(10),
               child: Stack(
                 children: [
                   SizedBox(
-                    width: 140,
-                    height: 160,
-                    child: Image.network(
-                      item['posterUrl']?.toString() ?? '',
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, _, _) => ColoredBox(
-                        color: Colors.grey[800]!,
-                        child: const Icon(
-                          Icons.movie,
-                          color: Colors.grey,
-                          size: 40,
+                    width: 135,
+                    height: 200,
+                    child: item['posterUrl'] != null &&
+                            item['posterUrl'].toString().isNotEmpty
+                        ? Image.network(
+                            item['posterUrl'].toString(),
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, _, _) => Container(
+                              color: Colors.grey[850],
+                              child: const Icon(Icons.movie,
+                                  color: Colors.grey, size: 40),
+                            ),
+                          )
+                        : Container(
+                            color: Colors.grey[850],
+                            child: const Icon(Icons.movie,
+                                color: Colors.grey, size: 40),
+                          ),
+                  ),
+                  Positioned(
+                    top: 6,
+                    left: 6,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.red,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        typeLabel,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold,
                         ),
                       ),
                     ),
@@ -133,86 +122,43 @@ class _ContinueWatchingSectionState extends State<ContinueWatchingSection> {
                     bottom: 0,
                     left: 0,
                     right: 0,
+                    height: 60,
                     child: Container(
-                      height: 4,
                       decoration: BoxDecoration(
-                        color: Colors.grey[700],
-                        borderRadius: const BorderRadius.only(
-                          bottomLeft: Radius.circular(8),
-                          bottomRight: Radius.circular(8),
-                        ),
-                      ),
-                      child: FractionallySizedBox(
-                        alignment: Alignment.centerLeft,
-                        widthFactor: progress,
-                        child: Container(
-                          decoration: const BoxDecoration(
-                            color: Colors.red,
-                            borderRadius: BorderRadius.only(
-                              bottomLeft: Radius.circular(8),
-                              bottomRight: Radius.circular(8),
-                            ),
-                          ),
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Colors.transparent,
+                            Colors.black.withValues(alpha: 0.8),
+                          ],
                         ),
                       ),
                     ),
                   ),
-                  // Resume button overlay for resumable content
-                  if (isResumable)
-                    Positioned.fill(
+                  Positioned.fill(
+                    child: Center(
                       child: Container(
+                        width: 44,
+                        height: 44,
                         decoration: BoxDecoration(
                           color: Colors.black.withValues(alpha: 0.5),
-                          borderRadius: BorderRadius.circular(8),
+                          shape: BoxShape.circle,
                         ),
-                        child: Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const Icon(
-                                Icons.play_circle_filled,
-                                color: Colors.white,
-                                size: 40,
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                'Resume',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                  shadows: [
-                                    Shadow(
-                                      offset: const Offset(0, 1),
-                                      blurRadius: 2,
-                                      color: Colors.black.withValues(
-                                        alpha: 0.7,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    )
-                  else
-                    const Positioned.fill(
-                      child: Center(
-                        child: Icon(
-                          Icons.play_circle_filled,
+                        child: const Icon(
+                          Icons.play_arrow,
                           color: Colors.white,
-                          size: 50,
+                          size: 28,
                         ),
                       ),
                     ),
+                  ),
                 ],
               ),
             ),
             const SizedBox(height: 8),
             Text(
-              item['title'] ?? 'Unknown Title',
+              title,
               style: const TextStyle(
                 color: Colors.white,
                 fontSize: 12,
@@ -221,18 +167,42 @@ class _ContinueWatchingSectionState extends State<ContinueWatchingSection> {
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
             ),
-            if (!item['isMovie'])
-              Text(
-                'S${item['season']}E${item['episode']}',
-                style: const TextStyle(color: Colors.grey, fontSize: 10),
+            if (subtitle != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text(
+                  subtitle,
+                  style: TextStyle(
+                    color: Colors.grey[500],
+                    fontSize: 11,
+                  ),
+                ),
               ),
-            Text(
-              '$progressPercent% watched',
-              style: const TextStyle(
-                color: Colors.red,
-                fontSize: 10,
-                fontWeight: FontWeight.w500,
-              ),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Expanded(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(2),
+                    child: LinearProgressIndicator(
+                      value: progress,
+                      backgroundColor: Colors.grey[800],
+                      valueColor:
+                          const AlwaysStoppedAnimation<Color>(Colors.red),
+                      minHeight: 3,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  '$progressPercent%',
+                  style: const TextStyle(
+                    color: Colors.red,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
             ),
           ],
         ),

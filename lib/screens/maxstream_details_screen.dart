@@ -87,9 +87,11 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
 
   Future<void> _loadWatchProgress() async {
     await CloudSyncService.pullToDevice();
-    final history = await WatchHistoryService.getContinueWatching();
+    final continueWatching = await WatchHistoryService.getContinueWatching();
     if (!mounted) return;
-    final match = history.firstWhere(
+
+    // Search in continue watching first (partially watched)
+    final match = continueWatching.firstWhere(
       (item) =>
           item['tmdbId']?.toString() == widget.item.id &&
           item['isMovie'] == true,
@@ -97,6 +99,24 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
     );
     if (match.isNotEmpty) {
       setState(() => _watchProgress = match);
+      return;
+    }
+
+    // Also check full watch history for recently watched movies
+    final allHistory = await WatchHistoryService.getWatchHistory();
+    if (!mounted) return;
+    final historyMatch = allHistory.firstWhere(
+      (item) =>
+          item['tmdbId']?.toString() == widget.item.id &&
+          item['isMovie'] == true,
+      orElse: () => {},
+    );
+    if (historyMatch.isNotEmpty) {
+      final position = (historyMatch['position'] as num?)?.toInt() ?? 0;
+      final duration = (historyMatch['duration'] as num?)?.toInt() ?? 1;
+      if (position > 30 && duration > 0) {
+        setState(() => _watchProgress = historyMatch);
+      }
     }
   }
 
@@ -628,8 +648,8 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
     final remainingMin = (remaining / 60).round();
 
     return GestureDetector(
-      onTap: () {
-        Navigator.push(
+      onTap: () async {
+        await Navigator.push(
           context,
           MaterialPageRoute(
             builder: (context) => buildVideoPlayerScreen(
@@ -639,6 +659,7 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
             ),
           ),
         );
+        _loadWatchProgress();
       },
       child: Container(
         margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
