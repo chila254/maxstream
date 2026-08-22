@@ -2561,10 +2561,10 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
 
     // When the stream uses separate audio renditions (e.g. VixSrc), variant
     // media-playlist URLs have no audio groups.  ExoPlayer throws Source
-    // error if given a variant directly.  Always reload the master URL so
+    // error if given one directly.  Always reload the master URL so
     // ExoPlayer can mux audio + video itself.
     final playUrl = _separateAudio
-        ? (_qualities.isNotEmpty ? _qualities.first.url : quality.url)
+        ? (_currentStreamUrl ?? quality.url)
         : quality.url;
 
     final position = current.value.position;
