@@ -61,7 +61,7 @@ class TmdbApiService {
     }
   }
 
-  static Future<List<Map<String, dynamic>>> _results(
+  static Future<List<Map<String, dynamic>>> results(
     String path, [
     Map<String, Object?> parameters = const {},
   ]) async {
@@ -71,52 +71,52 @@ class TmdbApiService {
 
   static Future<List<Map<String, dynamic>>> fetchTrendingMovies({
     int page = 1,
-  }) => _results('/trending/movie/week', {'page': page});
+  }) => results('/trending/movie/week', {'page': page});
   static Future<List<Map<String, dynamic>>> fetchPopularMovies({
     int page = 1,
-  }) => _results('/movie/popular', {'page': page});
+  }) => results('/movie/popular', {'page': page});
   static Future<List<Map<String, dynamic>>> fetchTopRatedMovies({
     int page = 1,
-  }) => _results('/movie/top_rated', {'page': page});
+  }) => results('/movie/top_rated', {'page': page});
   static Future<List<Map<String, dynamic>>> fetchUpcomingMovies({
     int page = 1,
-  }) => _results('/movie/upcoming', {'page': page});
+  }) => results('/movie/upcoming', {'page': page});
   static Future<List<Map<String, dynamic>>> fetchNowPlayingMovies({
     int page = 1,
-  }) => _results('/movie/now_playing', {'page': page});
+  }) => results('/movie/now_playing', {'page': page});
 
   static Future<List<Map<String, dynamic>>> fetchTrendingSeries({
     int page = 1,
-  }) => _results('/trending/tv/week', {'page': page});
+  }) => results('/trending/tv/week', {'page': page});
   static Future<List<Map<String, dynamic>>> fetchPopularSeries({
     int page = 1,
-  }) => _results('/tv/popular', {'page': page});
+  }) => results('/tv/popular', {'page': page});
   static Future<List<Map<String, dynamic>>> fetchTopRatedSeries({
     int page = 1,
-  }) => _results('/tv/top_rated', {'page': page});
+  }) => results('/tv/top_rated', {'page': page});
   static Future<List<Map<String, dynamic>>> fetchOnTheAirSeries({
     int page = 1,
-  }) => _results('/tv/on_the_air', {'page': page});
+  }) => results('/tv/on_the_air', {'page': page});
   static Future<List<Map<String, dynamic>>> fetchAiringTodaySeries({
     int page = 1,
-  }) => _results('/tv/airing_today', {'page': page});
+  }) => results('/tv/airing_today', {'page': page});
 
   static Future<List<Map<String, dynamic>>> searchMovies(
     String query, {
     int page = 1,
-  }) => _results('/search/movie', {'query': query, 'page': page});
+  }) => results('/search/movie', {'query': query, 'page': page});
   static Future<List<Map<String, dynamic>>> searchSeries(
     String query, {
     int page = 1,
-  }) => _results('/search/tv', {'query': query, 'page': page});
+  }) => results('/search/tv', {'query': query, 'page': page});
   static Future<List<Map<String, dynamic>>> searchActors(
     String query, {
     int page = 1,
-  }) => _results('/search/person', {'query': query, 'page': page});
+  }) => results('/search/person', {'query': query, 'page': page});
   static Future<List<Map<String, dynamic>>> searchAll(
     String query, {
     int page = 1,
-  }) => _results('/search/multi', {'query': query, 'page': page});
+  }) => results('/search/multi', {'query': query, 'page': page});
 
   static Future<Map<String, dynamic>?> getMovieDetails(int movieId) =>
       _getJson('/movie/$movieId', {
@@ -152,16 +152,16 @@ class TmdbApiService {
   static Future<List<Map<String, dynamic>>> getMoviesByGenre(
     int genreId, {
     int page = 1,
-  }) => _results('/discover/movie', {'with_genres': genreId, 'page': page});
+  }) => results('/discover/movie', {'with_genres': genreId, 'page': page});
   static Future<List<Map<String, dynamic>>> getSeriesByGenre(
     int genreId, {
     int page = 1,
-  }) => _results('/discover/tv', {'with_genres': genreId, 'page': page});
+  }) => results('/discover/tv', {'with_genres': genreId, 'page': page});
 
   static Future<List<Map<String, dynamic>>> getVideos(
     int id, {
     bool isMovie = true,
-  }) => _results('/${isMovie ? 'movie' : 'tv'}/$id/videos');
+  }) => results('/${isMovie ? 'movie' : 'tv'}/$id/videos');
 
   static Future<String> getTrailerUrl(int id, {bool isMovie = true}) async {
     final videos = await getVideos(id, isMovie: isMovie);
@@ -198,7 +198,7 @@ class TmdbApiService {
   static Future<List<Map<String, dynamic>>> getMoviesByProvider(
     int providerId, {
     int page = 1,
-  }) => _results('/discover/movie', {
+  }) => results('/discover/movie', {
     'with_watch_providers': providerId,
     'watch_region': 'US',
     'page': page,
@@ -207,7 +207,7 @@ class TmdbApiService {
   static Future<List<Map<String, dynamic>>> getSeriesByProvider(
     int providerId, {
     int page = 1,
-  }) => _results('/discover/tv', {
+  }) => results('/discover/tv', {
     'with_watch_providers': providerId,
     'watch_region': 'US',
     'page': page,

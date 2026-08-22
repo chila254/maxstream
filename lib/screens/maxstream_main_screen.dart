@@ -6,10 +6,12 @@ import 'maxstream_home_screen.dart';
 import 'maxstream_search_screen.dart';
 import 'maxstream_series_list_screen.dart';
 import 'maxstream_watchlist_screen.dart';
+import 'maxstream_recommendations_screen.dart';
 import 'maxstream_more_screen.dart';
 import '../services/update_service.dart';
 import '../services/notification_permission_service.dart';
 import '../services/content_notification_service.dart';
+import '../services/recommendation_notification_service.dart';
 
 class MaxStreamMainScreen extends StatefulWidget {
   const MaxStreamMainScreen({super.key});
@@ -22,6 +24,7 @@ class _MaxStreamMainScreenState extends State<MaxStreamMainScreen> {
   int _currentIndex = 0;
   Timer? _updateTimer;
   Timer? _contentCheckTimer;
+  Timer? _recommendationTimer;
   bool _checkingForUpdate = false;
 
   void _onTabChange(int index) {
@@ -42,6 +45,7 @@ class _MaxStreamMainScreenState extends State<MaxStreamMainScreen> {
   void dispose() {
     _updateTimer?.cancel();
     _contentCheckTimer?.cancel();
+    _recommendationTimer?.cancel();
     super.dispose();
   }
 
@@ -57,6 +61,11 @@ class _MaxStreamMainScreenState extends State<MaxStreamMainScreen> {
       (_) => unawaited(ContentNotificationService.checkAndNotifyNewContent()),
     );
     unawaited(ContentNotificationService.checkAndNotifyNewContent());
+    _recommendationTimer = Timer.periodic(
+      const Duration(hours: 8),
+      (_) => unawaited(RecommendationNotificationService.checkAndNotify()),
+    );
+    unawaited(RecommendationNotificationService.checkAndNotify());
   }
 
   Future<void> _checkForUpdates() async {
@@ -154,6 +163,7 @@ class _MaxStreamMainScreenState extends State<MaxStreamMainScreen> {
 
   List<Widget> get _screens => [
     MaxStreamHomeScreen(onTabChange: _onTabChange),
+    const MaxStreamRecommendationsScreen(),
     const MaxStreamSearchScreen(),
     const MaxStreamSeriesListScreen(),
     const MaxStreamWatchlistScreen(),
@@ -179,30 +189,45 @@ class _MaxStreamMainScreenState extends State<MaxStreamMainScreen> {
           },
           child: _screens[_currentIndex],
         ),
-        bottomNavigationBar: BottomNavigationBar(
-          type: BottomNavigationBarType.fixed,
-          backgroundColor: const Color(0xFF1A1A1A),
-          selectedItemColor: Colors.red,
-          unselectedItemColor: Colors.grey,
-          currentIndex: _currentIndex,
-          onTap: (index) {
-            setState(() {
-              _currentIndex = index;
-            });
-          },
-          items: const [
-            BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
-            BottomNavigationBarItem(icon: Icon(Icons.search), label: 'Search'),
-            BottomNavigationBarItem(icon: Icon(Icons.tv), label: 'Series'),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.bookmark),
-              label: 'Watchlist',
+        bottomNavigationBar: Container(
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+          decoration: BoxDecoration(
+            color: const Color(0xFF1A1A1A),
+            borderRadius: BorderRadius.circular(28),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.4),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(28),
+            child: BottomNavigationBar(
+              type: BottomNavigationBarType.fixed,
+              backgroundColor: Colors.transparent,
+              selectedItemColor: Colors.red,
+              unselectedItemColor: Colors.grey,
+              currentIndex: _currentIndex,
+              showSelectedLabels: false,
+              showUnselectedLabels: false,
+              elevation: 0,
+              onTap: (index) {
+                setState(() {
+                  _currentIndex = index;
+                });
+              },
+              items: const [
+                BottomNavigationBarItem(icon: Icon(Icons.home), label: ''),
+                BottomNavigationBarItem(icon: Icon(Icons.explore), label: ''),
+                BottomNavigationBarItem(icon: Icon(Icons.search), label: ''),
+                BottomNavigationBarItem(icon: Icon(Icons.tv), label: ''),
+                BottomNavigationBarItem(icon: Icon(Icons.bookmark), label: ''),
+                BottomNavigationBarItem(icon: Icon(Icons.more_horiz), label: ''),
+              ],
             ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.more_horiz),
-              label: 'More',
-            ),
-          ],
+          ),
         ),
       ),
     );

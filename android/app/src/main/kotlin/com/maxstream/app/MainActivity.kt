@@ -2,7 +2,9 @@ package com.maxstream.app
 
 import android.content.ComponentCallbacks2
 import android.content.Intent
+import android.net.Uri
 import android.provider.Settings
+import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -18,6 +20,7 @@ class MainActivity : FlutterActivity() {
     private val RESTART_CHANNEL = "com.maxstream.app/restart"
     private val CRASHLOG_CHANNEL = "com.maxstream.app/crashlog"
     private val MEMORY_CHANNEL = "com.maxstream.app/memory"
+    private val INSTALL_CHANNEL = "com.maxstream.app/install"
     private val extractor by lazy { StreamExtractor(this) }
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var memoryChannel: MethodChannel? = null
@@ -195,6 +198,39 @@ class MainActivity : FlutterActivity() {
                             } catch (e: Exception) {
                                 result.error("EXTRACT_ERROR", e.message, null)
                             }
+                        }
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, INSTALL_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "installApk" -> {
+                        val filePath = call.argument<String>("filePath") ?: ""
+                        try {
+                            val file = File(filePath)
+                            if (!file.exists()) {
+                                result.error("FILE_NOT_FOUND", "APK file not found", null)
+                                return@setMethodCallHandler
+                            }
+
+                            val uri = FileProvider.getUriForFile(
+                                this,
+                                "${packageName}.fileprovider",
+                                file,
+                            )
+
+                            val intent = Intent(Intent.ACTION_VIEW).apply {
+                                setDataAndType(uri, "application/vnd.android.package-archive")
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            startActivity(intent)
+                            result.success("ok")
+                        } catch (e: Exception) {
+                            result.error("INSTALL_FAILED", e.message, null)
                         }
                     }
                     else -> result.notImplemented()

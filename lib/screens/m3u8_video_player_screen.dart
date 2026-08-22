@@ -22,6 +22,7 @@ class M3U8VideoPlayerScreen extends StatefulWidget {
   final String? offlinePath;
   final List<Map<String, dynamic>> offlineSubtitles;
   final List<Map<String, dynamic>> offlineEpisodes;
+  final List<int> genreIds;
 
   const M3U8VideoPlayerScreen({
     super.key,
@@ -33,6 +34,7 @@ class M3U8VideoPlayerScreen extends StatefulWidget {
     this.offlinePath,
     this.offlineSubtitles = const [],
     this.offlineEpisodes = const [],
+    this.genreIds = const [],
   });
 
   @override
@@ -1602,6 +1604,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       posterUrl: _posterUrl,
       position: position,
       duration: duration,
+      genreIds: widget.genreIds,
     );
   }
 

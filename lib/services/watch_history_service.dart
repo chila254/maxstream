@@ -85,6 +85,7 @@ class WatchHistoryService {
     String posterUrl = '',
     String? seriesTitle,
     String? episodeName,
+    List<int> genreIds = const [],
   }) async {
     if (position.inSeconds <= 30) return;
     (season, episode) = _normalizedSeasonEpisode(isMovie, season, episode);
@@ -105,6 +106,7 @@ class WatchHistoryService {
       'duration': duration.inSeconds,
       'watchPercentage': percentage,
       'isWatched': percentage >= 90,
+      'genreIds': genreIds,
       'timestamp': DateTime.now().millisecondsSinceEpoch,
     };
     final prefs = await SharedPreferences.getInstance();

@@ -276,14 +276,14 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
       actions: [
         IconButton(
           onPressed: () {
-            widget.onTabChange?.call(1); // Navigate to search tab
+            widget.onTabChange?.call(2); // Navigate to search tab
           },
           icon: const Icon(Icons.search, color: Colors.white),
         ),
         IconButton(
           onPressed: () {
             widget.onTabChange?.call(
-              4,
+              5,
             ); // Navigate to more/profile tab (updated index)
           },
           icon: const Icon(Icons.person, color: Colors.white),

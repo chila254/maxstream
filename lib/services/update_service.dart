@@ -1,8 +1,10 @@
+import 'dart:io';
+
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:open_file/open_file.dart';
 import 'notification_service.dart';
 
 class UpdateInfo {
@@ -155,10 +157,7 @@ class UpdateService {
     String downloadUrl,
   ) async {
     try {
-      final directory = await getExternalStorageDirectory();
-      if (directory == null) {
-        throw StateError('App storage is unavailable');
-      }
+      final directory = await getTemporaryDirectory();
       final filePath = '${directory.path}/MaxStream.apk';
 
       if (context.mounted) {
@@ -168,6 +167,9 @@ class UpdateService {
           builder: (_) => const DownloadProgressDialog(),
         );
       }
+
+      final file = File(filePath);
+      if (await file.exists()) await file.delete();
 
       await Dio().download(
         downloadUrl,
@@ -180,46 +182,39 @@ class UpdateService {
         },
       );
 
-      if (context.mounted) {
-        Navigator.of(context).pop(); // Close progress dialog
+      final downloadedFile = File(filePath);
+      final fileSize = await downloadedFile.length();
+      if (fileSize < 1000) {
+        throw StateError('Downloaded file is too small — likely an error page');
+      }
 
-        showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (context) => AlertDialog(
-            title: const Text('Download Complete'),
-            content: const Text('The update has been downloaded. Install now?'),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('Later'),
+      if (context.mounted) {
+        Navigator.of(context).pop();
+
+        final packageInfo = await PackageInfo.fromPlatform();
+        final result = await const MethodChannel(
+          'com.maxstream.app/install',
+        ).invokeMethod<String>('installApk', {
+          'filePath': filePath,
+          'packageName': packageInfo.packageName,
+        });
+
+        if (result != 'ok' && context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Failed to launch installer. Check your downloads folder.',
               ),
-              ElevatedButton(
-                onPressed: () async {
-                  Navigator.of(context).pop();
-                  final result = await OpenFile.open(filePath);
-                  if (result.type != ResultType.done && context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                          'Failed to install. Check your downloads folder.',
-                        ),
-                      ),
-                    );
-                  }
-                },
-                child: const Text('Install'),
-              ),
-            ],
-          ),
-        );
+            ),
+          );
+        }
       }
     } catch (e) {
       if (context.mounted) {
-        Navigator.of(context).pop(); // Close progress dialog if open
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Error downloading update: $e')));
+        Navigator.of(context).pop();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error downloading update: $e')),
+        );
       }
     }
   }

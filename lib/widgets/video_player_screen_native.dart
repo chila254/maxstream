@@ -12,6 +12,7 @@ Widget buildVideoPlayerScreen({
   String? offlinePath,
   List<Map<String, dynamic>> offlineSubtitles = const [],
   List<Map<String, dynamic>> offlineEpisodes = const [],
+  List<int> genreIds = const [],
 }) {
   return M3U8VideoPlayerScreen(
     title: title,
@@ -22,5 +23,6 @@ Widget buildVideoPlayerScreen({
     offlinePath: offlinePath,
     offlineSubtitles: offlineSubtitles,
     offlineEpisodes: offlineEpisodes,
+    genreIds: genreIds,
   );
 }
