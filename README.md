@@ -6,6 +6,18 @@ A Flutter streaming app for movies and TV series with native Kotlin stream extra
   <img src="assets/images/maxstream_logo.png" alt="MaxStream Logo" width="128" height="128" />
 </div>
 
+<div align="center">
+  <img src="Images/Home_Screen.jpg" alt="Home Screen" width="250" />
+  <img src="Images/Search_Screen1.jpg" alt="Search" width="250" />
+  <img src="Images/Watchlist_Screen.jpg" alt="Watchlist" width="250" />
+</div>
+
+<div align="center">
+  <img src="Images/Login-Signup_Screen.jpg" alt="Login" width="250" />
+  <img src="Images/Search_Screen2.jpg" alt="Search Results" width="250" />
+  <img src="Images/More_Screen.jpg" alt="More" width="250" />
+</div>
+
 ## Features
 
 - **Native Stream Extraction** — Kotlin-powered extraction using OkHttp with DNS-over-HTTPS, parallel server discovery, and HLS validation
@@ -184,7 +196,7 @@ flutter build appbundle --release
 
 ## Version
 
-- **Current**: 1.1.0+3
+- **Current**: 1.5.0+7
 - **Min SDK**: 3.8.0
 
 ## Contributing
