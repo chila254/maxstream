@@ -455,25 +455,18 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
 
     return GestureDetector(
       onTap: () async {
-        if (seasons.isEmpty) return;
-        try {
-          final epSeason = seasons.firstWhere(
-            (s) => s.seasonNumber == season,
-            orElse: () => seasons.first,
-          );
-          final episodes = epSeason.episodes;
-          if (episodes.isEmpty) return;
-          final epIndex = episodes.indexWhere(
-            (e) => e.episodeNumber == episode,
-          );
-          final targetEpisode =
-              epIndex >= 0 ? episodes[epIndex] : episodes.first;
-          _playEpisode(targetEpisode);
-          await Future.delayed(const Duration(seconds: 1));
-          _loadWatchProgress();
-        } catch (e) {
-          debugPrint('Continue watching error: $e');
-        }
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => buildVideoPlayerScreen(
+              title: '${widget.seriesItem.title} - S${season}E$episode',
+              tmdbId: widget.seriesItem.id.toString(),
+              isMovie: false,
+              season: season,
+              episode: episode,
+            ),
+          ),
+        ).then((_) => _loadWatchProgress());
       },
       child: Container(
         margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
