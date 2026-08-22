@@ -4,6 +4,7 @@ import '../models/movie.dart';
 import '../services/tmdb_api_service.dart';
 import '../utils/tmdb_list_utils.dart';
 import '../widgets/series_hero_banner.dart';
+import '../widgets/profile_menu_button.dart';
 import 'maxstream_series_screen.dart';
 
 class MaxStreamSeriesListScreen extends StatefulWidget {
@@ -97,6 +98,12 @@ class _MaxStreamSeriesListScreenState extends State<MaxStreamSeriesListScreen> {
           ),
         ],
       ),
+      actions: const [
+        Padding(
+          padding: EdgeInsets.only(right: 8),
+          child: ProfileMenuButton(),
+        ),
+      ],
     );
   }
 

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/movie.dart';
 import '../services/tmdb_api_service.dart';
 import '../widgets/custom_loading_widget.dart';
+import '../widgets/profile_menu_button.dart';
 import 'maxstream_details_screen.dart';
 import 'maxstream_series_screen.dart';
 import 'actor_details_screen.dart';
@@ -119,6 +120,12 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
           'Search',
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
+        actions: const [
+          Padding(
+            padding: EdgeInsets.only(right: 12),
+            child: ProfileMenuButton(),
+          ),
+        ],
         bottom: TabBar(
           controller: _tabController,
           indicatorColor: Colors.red,

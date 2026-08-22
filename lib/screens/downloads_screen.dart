@@ -7,7 +7,8 @@ import '../services/media_download_manager.dart';
 import '../widgets/video_player_screen.dart';
 
 class DownloadsScreen extends StatefulWidget {
-  const DownloadsScreen({super.key});
+  final bool embedded;
+  const DownloadsScreen({super.key, this.embedded = false});
 
   @override
   State<DownloadsScreen> createState() => _DownloadsScreenState();
@@ -185,6 +186,64 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
       series.putIfAbsent(key, () => []).add(episode);
     }
 
+    final body = _loading && _downloadManager.activeDownloads.isEmpty
+        ? const Center(child: CircularProgressIndicator(color: Colors.red))
+        : _downloads.isEmpty && _downloadManager.activeDownloads.isEmpty
+        ? const Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.download_done, size: 64, color: Colors.white38),
+                SizedBox(height: 16),
+                Text(
+                  'No downloads yet',
+                  style: TextStyle(color: Colors.white, fontSize: 20),
+                ),
+                SizedBox(height: 6),
+                Text(
+                  'Use the download button inside the video player.',
+                  style: TextStyle(color: Colors.white54),
+                ),
+              ],
+            ),
+          )
+        : RefreshIndicator(
+            onRefresh: _loadDownloads,
+            child: ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                if (_downloadManager.activeDownloads.isNotEmpty) ...[
+                  _sectionTitle(
+                    'Downloading',
+                    _downloadManager.activeDownloads.length,
+                  ),
+                  ..._downloadManager.activeDownloads.map(
+                    _activeDownloadTile,
+                  ),
+                  const SizedBox(height: 20),
+                ],
+                if (_downloads.isNotEmpty)
+                  _sectionTitle('Downloaded', _downloads.length),
+                if (movies.isNotEmpty) ...[
+                  _subsectionTitle('Movies'),
+                  ...movies.map(_downloadTile),
+                  const SizedBox(height: 20),
+                ],
+                if (series.isNotEmpty) ...[
+                  _subsectionTitle('Series'),
+                  ...series.values.map(_seriesGroup),
+                ],
+              ],
+            ),
+          );
+
+    if (widget.embedded) {
+      return RefreshIndicator(
+        onRefresh: _loadDownloads,
+        child: body,
+      );
+    }
+
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
       appBar: AppBar(
@@ -198,56 +257,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
           ),
         ],
       ),
-      body: _loading && _downloadManager.activeDownloads.isEmpty
-          ? const Center(child: CircularProgressIndicator(color: Colors.red))
-          : _downloads.isEmpty && _downloadManager.activeDownloads.isEmpty
-          ? const Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.download_done, size: 64, color: Colors.white38),
-                  SizedBox(height: 16),
-                  Text(
-                    'No downloads yet',
-                    style: TextStyle(color: Colors.white, fontSize: 20),
-                  ),
-                  SizedBox(height: 6),
-                  Text(
-                    'Use the download button inside the video player.',
-                    style: TextStyle(color: Colors.white54),
-                  ),
-                ],
-              ),
-            )
-          : RefreshIndicator(
-              onRefresh: _loadDownloads,
-              child: ListView(
-                padding: const EdgeInsets.all(16),
-                children: [
-                  if (_downloadManager.activeDownloads.isNotEmpty) ...[
-                    _sectionTitle(
-                      'Downloading',
-                      _downloadManager.activeDownloads.length,
-                    ),
-                    ..._downloadManager.activeDownloads.map(
-                      _activeDownloadTile,
-                    ),
-                    const SizedBox(height: 20),
-                  ],
-                  if (_downloads.isNotEmpty)
-                    _sectionTitle('Downloaded', _downloads.length),
-                  if (movies.isNotEmpty) ...[
-                    _subsectionTitle('Movies'),
-                    ...movies.map(_downloadTile),
-                    const SizedBox(height: 20),
-                  ],
-                  if (series.isNotEmpty) ...[
-                    _subsectionTitle('Series'),
-                    ...series.values.map(_seriesGroup),
-                  ],
-                ],
-              ),
-            ),
+      body: body,
     );
   }
 

@@ -4,6 +4,7 @@ import 'package:shimmer/shimmer.dart';
 import '../models/movie.dart';
 import '../services/recommendation_service.dart';
 import '../services/tmdb_api_service.dart';
+import '../widgets/profile_menu_button.dart';
 import 'maxstream_details_screen.dart';
 import 'maxstream_series_screen.dart';
 
@@ -204,6 +205,10 @@ class _MaxStreamRecommendationsScreenState
             RecommendationService.clearCache();
             await _loadRecommendations();
           },
+        ),
+        const Padding(
+          padding: EdgeInsets.only(right: 8),
+          child: ProfileMenuButton(),
         ),
       ],
     );

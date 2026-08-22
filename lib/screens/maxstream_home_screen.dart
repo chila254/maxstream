@@ -9,6 +9,7 @@ import '../services/watch_history_service.dart';
 import '../widgets/hero_banner.dart';
 import '../widgets/custom_loading_widget.dart';
 import '../widgets/continue_watching_section.dart';
+import '../widgets/profile_menu_button.dart';
 import 'maxstream_details_screen.dart';
 import 'maxstream_series_screen.dart';
 import 'provider_content_screen.dart';
@@ -273,20 +274,10 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
           ),
         ],
       ),
-      actions: [
-        IconButton(
-          onPressed: () {
-            widget.onTabChange?.call(2); // Navigate to search tab
-          },
-          icon: const Icon(Icons.search, color: Colors.white),
-        ),
-        IconButton(
-          onPressed: () {
-            widget.onTabChange?.call(
-              5,
-            ); // Navigate to more/profile tab (updated index)
-          },
-          icon: const Icon(Icons.person, color: Colors.white),
+      actions: const [
+        Padding(
+          padding: EdgeInsets.only(right: 8),
+          child: ProfileMenuButton(),
         ),
       ],
     );

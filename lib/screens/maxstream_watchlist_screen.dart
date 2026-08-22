@@ -7,7 +7,8 @@ import 'maxstream_details_screen.dart';
 import 'maxstream_series_screen.dart';
 
 class MaxStreamWatchlistScreen extends StatefulWidget {
-  const MaxStreamWatchlistScreen({super.key});
+  final bool embedded;
+  const MaxStreamWatchlistScreen({super.key, this.embedded = false});
 
   @override
   State<MaxStreamWatchlistScreen> createState() =>
@@ -110,6 +111,44 @@ class _MaxStreamWatchlistScreenState extends State<MaxStreamWatchlistScreen>
 
   @override
   Widget build(BuildContext context) {
+    final body = isLoading
+        ? const Center(
+            child: MovieLoadingWidget(text: 'Loading watchlist...'),
+          )
+        : TabBarView(
+            controller: _tabController,
+            children: [
+              watchlistItems.isEmpty
+                  ? _buildEmptyState()
+                  : _buildWatchlistGrid(watchlistItems),
+              movies.isEmpty
+                  ? _buildEmptyState()
+                  : _buildWatchlistGrid(movies),
+              series.isEmpty
+                  ? _buildEmptyState()
+                  : _buildWatchlistGrid(series),
+            ],
+          );
+
+    if (widget.embedded) {
+      return Column(
+        children: [
+          TabBar(
+            controller: _tabController,
+            indicatorColor: Colors.red,
+            labelColor: Colors.white,
+            unselectedLabelColor: Colors.grey,
+            tabs: [
+              Tab(text: 'All (${watchlistItems.length})'),
+              Tab(text: 'Movies (${movies.length})'),
+              Tab(text: 'Series (${series.length})'),
+            ],
+          ),
+          Expanded(child: body),
+        ],
+      );
+    }
+
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
       appBar: AppBar(
@@ -136,24 +175,7 @@ class _MaxStreamWatchlistScreenState extends State<MaxStreamWatchlistScreen>
           ],
         ),
       ),
-      body: isLoading
-          ? const Center(
-              child: MovieLoadingWidget(text: 'Loading watchlist...'),
-            )
-          : TabBarView(
-              controller: _tabController,
-              children: [
-                watchlistItems.isEmpty
-                    ? _buildEmptyState()
-                    : _buildWatchlistGrid(watchlistItems),
-                movies.isEmpty
-                    ? _buildEmptyState()
-                    : _buildWatchlistGrid(movies),
-                series.isEmpty
-                    ? _buildEmptyState()
-                    : _buildWatchlistGrid(series),
-              ],
-            ),
+      body: body,
     );
   }
 

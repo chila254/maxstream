@@ -6,9 +6,8 @@ import 'package:flutter/foundation.dart';
 import 'maxstream_home_screen.dart';
 import 'maxstream_search_screen.dart';
 import 'maxstream_series_list_screen.dart';
-import 'maxstream_watchlist_screen.dart';
+import 'maxstream_library_screen.dart';
 import 'maxstream_recommendations_screen.dart';
-import 'maxstream_more_screen.dart';
 import '../services/update_service.dart';
 import '../services/notification_permission_service.dart';
 import '../services/content_notification_service.dart';
@@ -167,8 +166,7 @@ class _MaxStreamMainScreenState extends State<MaxStreamMainScreen> {
     const MaxStreamRecommendationsScreen(),
     const MaxStreamSearchScreen(),
     const MaxStreamSeriesListScreen(),
-    const MaxStreamWatchlistScreen(),
-    const MaxStreamMoreScreen(),
+    const MaxStreamLibraryScreen(),
   ];
 
   Widget _buildNavBar() {
@@ -178,8 +176,7 @@ class _MaxStreamMainScreenState extends State<MaxStreamMainScreen> {
       Icons.explore,
       Icons.search,
       Icons.tv,
-      Icons.bookmark,
-      Icons.more_horiz,
+      Icons.library_books,
     ];
 
     return Positioned(

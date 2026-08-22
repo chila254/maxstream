@@ -5,8 +5,6 @@ import '../services/user_service.dart';
 import '../services/auth_service.dart';
 import '../screens/sign_in_screen.dart';
 import '../screens/profile_settings_screen.dart';
-import '../screens/watch_history_screen.dart';
-import '../screens/downloads_screen.dart';
 import '../screens/streaming_provider_settings_screen.dart';
 import '../screens/tv_pairing_screen.dart';
 
@@ -49,7 +47,7 @@ class _MaxStreamMoreScreenState extends State<MaxStreamMoreScreen> {
       appBar: AppBar(
         backgroundColor: const Color(0xFF1A1A1A),
         title: const Text(
-          'More',
+          'Settings',
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
       ),
@@ -122,30 +120,6 @@ class _MaxStreamMoreScreenState extends State<MaxStreamMoreScreen> {
                     },
                 transitionDuration: const Duration(milliseconds: 250),
               ),
-            );
-            // No need to check result, ValueListenableBuilder will handle the update
-          },
-        ),
-        _buildMenuItem(
-          icon: Icons.history,
-          title: 'Watch History',
-          onTap: () {
-            if (!mounted) return;
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => const WatchHistoryScreen(),
-              ),
-            );
-          },
-        ),
-        _buildMenuItem(
-          icon: Icons.download_for_offline_outlined,
-          title: 'Downloads',
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => const DownloadsScreen()),
             );
           },
         ),

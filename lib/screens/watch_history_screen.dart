@@ -4,7 +4,8 @@ import '../services/watch_history_service.dart';
 import 'package:maxstream/widgets/video_player_screen.dart';
 
 class WatchHistoryScreen extends StatefulWidget {
-  const WatchHistoryScreen({super.key});
+  final bool embedded;
+  const WatchHistoryScreen({super.key, this.embedded = false});
 
   @override
   State<WatchHistoryScreen> createState() => _WatchHistoryScreenState();
@@ -104,6 +105,20 @@ class _WatchHistoryScreenState extends State<WatchHistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final body = RefreshIndicator(
+      onRefresh: _loadWatchHistory,
+      color: Colors.red,
+      child: _isLoading
+          ? const Center(child: CircularProgressIndicator(color: Colors.red))
+          : _watchHistory.isEmpty
+          ? _buildEmptyState()
+          : _buildHistoryList(),
+    );
+
+    if (widget.embedded) {
+      return body;
+    }
+
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
@@ -122,15 +137,7 @@ class _WatchHistoryScreenState extends State<WatchHistoryScreen> {
             ),
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: _loadWatchHistory,
-        color: Colors.red,
-        child: _isLoading
-            ? const Center(child: CircularProgressIndicator(color: Colors.red))
-            : _watchHistory.isEmpty
-            ? _buildEmptyState()
-            : _buildHistoryList(),
-      ),
+      body: body,
     );
   }
 
