@@ -60,9 +60,6 @@ class _ContinueWatchingSectionState extends State<ContinueWatchingSection> {
     final isMovie = item['isMovie'] == true;
     final typeLabel = isMovie ? 'MOVIE' : 'TV';
     final title = item['title'] ?? 'Unknown Title';
-    final season = item['season'] ?? 1;
-    final episode = item['episode'] ?? 1;
-    final subtitle = isMovie ? null : 'S${season}E$episode';
 
     return GestureDetector(
       onTap: () {
@@ -167,17 +164,6 @@ class _ContinueWatchingSectionState extends State<ContinueWatchingSection> {
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
             ),
-            if (subtitle != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 2),
-                child: Text(
-                  subtitle,
-                  style: TextStyle(
-                    color: Colors.grey[500],
-                    fontSize: 11,
-                  ),
-                ),
-              ),
             const SizedBox(height: 4),
             Row(
               children: [

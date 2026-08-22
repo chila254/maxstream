@@ -8,6 +8,7 @@ import '../services/direct_m3u8_service.dart';
 import '../services/media_download_manager.dart';
 import '../services/tmdb_api_service.dart';
 import '../services/watch_history_service.dart';
+import '../widgets/app_network_image.dart';
 import '../widgets/video_player_screen.dart';
 
 class MaxStreamDetailsScreen extends StatefulWidget {
@@ -394,10 +395,10 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
           fit: StackFit.expand,
           children: [
             if (backdropPath != null)
-              Image.network(
-                TmdbApiService.getBackdropUrl(backdropPath),
+              AppNetworkImage(
+                url: TmdbApiService.getBackdropUrl(backdropPath),
                 fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) => Container(
+                errorWidget: Container(
                   color: Colors.grey[900],
                   child: const Icon(
                     Icons.broken_image,

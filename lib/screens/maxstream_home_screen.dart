@@ -7,6 +7,7 @@ import '../services/tmdb_api_service.dart';
 import '../utils/tmdb_list_utils.dart';
 import '../services/watch_history_service.dart';
 import '../widgets/hero_banner.dart';
+import '../widgets/app_network_image.dart';
 import '../widgets/custom_loading_widget.dart';
 import '../widgets/continue_watching_section.dart';
 import '../widgets/profile_menu_button.dart';
@@ -409,25 +410,19 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
                                   borderRadius: BorderRadius.circular(8),
                                 ),
                                 child: provider.logoPath != null
-                                    ? Image.network(
-                                        'https://image.tmdb.org/t/p/w92${provider.logoPath}',
+                                    ? AppNetworkImage(
+                                        url: 'https://image.tmdb.org/t/p/w92${provider.logoPath}',
                                         fit: BoxFit.contain,
-                                        errorBuilder:
-                                            (context, error, stackTrace) =>
-                                                Center(
-                                                  child: Text(
-                                                    provider.name.substring(
-                                                      0,
-                                                      1,
-                                                    ),
-                                                    style: const TextStyle(
-                                                      color: Colors.white,
-                                                      fontWeight:
-                                                          FontWeight.bold,
-                                                      fontSize: 20,
-                                                    ),
-                                                  ),
-                                                ),
+                                        errorWidget: Center(
+                                          child: Text(
+                                            provider.name.substring(0, 1),
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 20,
+                                            ),
+                                          ),
+                                        ),
                                       )
                                     : Center(
                                         child: Text(
@@ -570,18 +565,11 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
               child: Stack(
                 children: [
                   posterPath != null
-                      ? Image.network(
-                          TmdbApiService.getPosterUrl(posterPath),
+                      ? AppNetworkImage(
+                          url: TmdbApiService.getPosterUrl(posterPath),
                           width: 135,
                           height: 200,
                           fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => Container(
-                            width: 135,
-                            height: 200,
-                            color: Colors.grey[850],
-                            child: const Icon(Icons.movie,
-                                color: Colors.grey, size: 40),
-                          ),
                         )
                       : Container(
                           width: 135,
@@ -911,8 +899,8 @@ class _FullListScreenState extends State<_FullListScreen> {
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(8),
                           child: item['poster_path'] != null
-                              ? Image.network(
-                                  TmdbApiService.getPosterUrl(
+                              ? AppNetworkImage(
+                                  url: TmdbApiService.getPosterUrl(
                                     item['poster_path'],
                                   ),
                                   width: double.infinity,

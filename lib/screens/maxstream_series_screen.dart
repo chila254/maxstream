@@ -9,6 +9,7 @@ import '../services/tmdb_api_service.dart';
 import '../services/watch_history_service.dart';
 import '../database/db_helper.dart';
 import '../services/cloud_sync_service.dart';
+import '../widgets/app_network_image.dart';
 import '../widgets/video_player_screen.dart';
 
 class MaxStreamSeriesScreen extends StatefulWidget {
@@ -697,10 +698,10 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
           fit: StackFit.expand,
           children: [
             if (backdropPath != null && backdropPath.isNotEmpty)
-              Image.network(
-                TmdbApiService.getBackdropUrl(backdropPath),
+              AppNetworkImage(
+                url: TmdbApiService.getBackdropUrl(backdropPath),
                 fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) => Container(
+                errorWidget: Container(
                   color: Colors.grey[900],
                   child: const Icon(
                     Icons.broken_image,
