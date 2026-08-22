@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
@@ -170,6 +171,77 @@ class _MaxStreamMainScreenState extends State<MaxStreamMainScreen> {
     const MaxStreamMoreScreen(),
   ];
 
+  Widget _buildNavBar() {
+    final bottomPadding = MediaQuery.of(context).padding.bottom;
+    final icons = [
+      Icons.home,
+      Icons.explore,
+      Icons.search,
+      Icons.tv,
+      Icons.bookmark,
+      Icons.more_horiz,
+    ];
+
+    return Positioned(
+      left: 24,
+      right: 24,
+      bottom: bottomPadding + 12,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(28),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+          child: Container(
+            height: 60,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(28),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.2),
+                width: 1,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.3),
+                  blurRadius: 16,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: List.generate(icons.length, (i) {
+                final isSelected = _currentIndex == i;
+                return GestureDetector(
+                  onTap: () => setState(() => _currentIndex = i),
+                  behavior: HitTestBehavior.opaque,
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 250),
+                    curve: Curves.easeInOut,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: isSelected
+                          ? Colors.red.withValues(alpha: 0.2)
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Icon(
+                      icons[i],
+                      size: 24,
+                      color: isSelected ? Colors.red : Colors.grey[400],
+                    ),
+                  ),
+                );
+              }),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return PopScope(
@@ -182,52 +254,18 @@ class _MaxStreamMainScreenState extends State<MaxStreamMainScreen> {
         }
       },
       child: Scaffold(
-        body: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 200),
-          transitionBuilder: (child, animation) {
-            return FadeTransition(opacity: animation, child: child);
-          },
-          child: _screens[_currentIndex],
-        ),
-        bottomNavigationBar: Container(
-          margin: const EdgeInsets.fromLTRB(16, 0, 16, 20),
-          decoration: BoxDecoration(
-            color: const Color(0xFF1A1A1A),
-            borderRadius: BorderRadius.circular(28),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.4),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(28),
-            child: BottomNavigationBar(
-              type: BottomNavigationBarType.fixed,
-              backgroundColor: Colors.transparent,
-              selectedItemColor: Colors.red,
-              unselectedItemColor: Colors.grey,
-              currentIndex: _currentIndex,
-              showSelectedLabels: false,
-              showUnselectedLabels: false,
-              elevation: 0,
-              onTap: (index) {
-                setState(() {
-                  _currentIndex = index;
-                });
+        extendBody: true,
+        body: Stack(
+          children: [
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 200),
+              transitionBuilder: (child, animation) {
+                return FadeTransition(opacity: animation, child: child);
               },
-              items: const [
-                BottomNavigationBarItem(icon: Icon(Icons.home), label: ''),
-                BottomNavigationBarItem(icon: Icon(Icons.explore), label: ''),
-                BottomNavigationBarItem(icon: Icon(Icons.search), label: ''),
-                BottomNavigationBarItem(icon: Icon(Icons.tv), label: ''),
-                BottomNavigationBarItem(icon: Icon(Icons.bookmark), label: ''),
-                BottomNavigationBarItem(icon: Icon(Icons.more_horiz), label: ''),
-              ],
+              child: _screens[_currentIndex],
             ),
-          ),
+            _buildNavBar(),
+          ],
         ),
       ),
     );
