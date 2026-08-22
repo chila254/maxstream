@@ -9,14 +9,44 @@ class RecommendationService {
   static const Duration _cacheTtl = Duration(minutes: 30);
 
   /// Analyze the user's watch history and return top genre IDs weighted by
-  /// watch count and completion percentage.
+  /// watch count and completion percentage. Fetches genres from TMDB for
+  /// any items that don't have stored genre IDs.
   static Future<List<int>> getTopGenres({int limit = 5}) async {
     final history = await WatchHistoryService.getWatchHistory();
     if (history.isEmpty) return [];
 
-    final genreWeights = <int, double>{};
+    // Group unique items by tmdbId + isMovie to avoid duplicate API calls.
+    final uniqueItems = <String, Map<String, dynamic>>{};
     for (final item in history) {
-      final genreIds = List<int>.from(item['genreIds'] ?? item['genre_ids'] ?? const []);
+      final key = '${item['tmdbId']}_${item['isMovie']}';
+      uniqueItems.putIfAbsent(key, () => item);
+    }
+
+    final genreWeights = <int, double>{};
+    for (final item in uniqueItems.values) {
+      List<int> genreIds = List<int>.from(
+        item['genreIds'] ?? item['genre_ids'] ?? const [],
+      );
+
+      // Fetch from TMDB if no genre IDs stored.
+      if (genreIds.isEmpty) {
+        final tmdbId = int.tryParse(item['tmdbId']?.toString() ?? '') ?? 0;
+        if (tmdbId > 0) {
+          try {
+            final isMovie = item['isMovie'] == true;
+            final details = isMovie
+                ? await TmdbApiService.getMovieDetails(tmdbId)
+                : await TmdbApiService.getSeriesDetails(tmdbId);
+            final genres = details?['genres'] as List<dynamic>? ?? [];
+            genreIds = genres
+                .map((g) => g['id'] as int)
+                .toList();
+          } catch (_) {
+            // Skip — genre enrichment is best-effort.
+          }
+        }
+      }
+
       final isWatched = item['isWatched'] == true;
       final watchPct = (item['watchPercentage'] as num?)?.toDouble() ?? 0.0;
 
