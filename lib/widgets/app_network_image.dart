@@ -17,11 +17,15 @@ class AppNetworkImage extends StatelessWidget {
     this.errorWidget,
   });
 
+  int? _safeInt(double? value) {
+    if (value == null || value.isInfinite || value.isNaN) return null;
+    return value.toInt();
+  }
+
   @override
   Widget build(BuildContext context) {
     if (url.isEmpty) {
-      return errorWidget ??
-          _defaultError();
+      return errorWidget ?? _defaultError();
     }
 
     return CachedNetworkImage(
@@ -29,8 +33,8 @@ class AppNetworkImage extends StatelessWidget {
       width: width,
       height: height,
       fit: fit,
-      memCacheWidth: width?.toInt(),
-      memCacheHeight: height?.toInt(),
+      memCacheWidth: _safeInt(width),
+      memCacheHeight: _safeInt(height),
       fadeInDuration: const Duration(milliseconds: 200),
       placeholder: (context, _) => Container(
         width: width,
