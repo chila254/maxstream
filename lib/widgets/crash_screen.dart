@@ -397,6 +397,34 @@ class CrashScreen extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 20),
+                    SizedBox(
+                      height: 56,
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          final fullReport =
+                              'Tag: ${report.tag}\n'
+                              'Time: ${report.time}\n'
+                              'Error: ${report.error}\n\n'
+                              'Stack Trace:\n${report.stack}';
+                          Clipboard.setData(
+                              ClipboardData(text: fullReport));
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Error copied to clipboard'),
+                              duration: Duration(seconds: 2),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.copy),
+                        label: const Text('Copy error details'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.white70,
+                          side: const BorderSide(color: Colors.white24),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
                     Row(
                       children: [
                         Expanded(
