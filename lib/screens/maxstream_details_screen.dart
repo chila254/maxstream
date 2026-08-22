@@ -7,6 +7,7 @@ import '../services/cloud_sync_service.dart';
 import '../services/direct_m3u8_service.dart';
 import '../services/media_download_manager.dart';
 import '../services/tmdb_api_service.dart';
+import '../services/watch_history_service.dart';
 import '../widgets/video_player_screen.dart';
 
 class MaxStreamDetailsScreen extends StatefulWidget {
@@ -35,6 +36,7 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
   bool _isMovieDownloaded = false;
   late ScrollController _scrollController;
   late final MediaDownloadManager _downloadManager;
+  Map<String, dynamic>? _watchProgress;
 
   @override
   void initState() {
@@ -45,6 +47,7 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
     CloudSyncService.watchlistRevision.addListener(_onSyncedWatchlist);
     _loadDetails();
     _checkDownloadStatus();
+    _loadWatchProgress();
   }
 
   void _onSyncedWatchlist() {
@@ -79,6 +82,21 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
       setState(() {
         _isMovieDownloaded = isDownloaded && activeTask == null;
       });
+    }
+  }
+
+  Future<void> _loadWatchProgress() async {
+    await CloudSyncService.pullToDevice();
+    final history = await WatchHistoryService.getContinueWatching();
+    if (!mounted) return;
+    final match = history.firstWhere(
+      (item) =>
+          item['tmdbId']?.toString() == widget.item.id &&
+          item['isMovie'] == true,
+      orElse: () => {},
+    );
+    if (match.isNotEmpty) {
+      setState(() => _watchProgress = match);
     }
   }
 
@@ -288,6 +306,7 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         buildDetailsSection(),
+                        if (_watchProgress != null) _buildContinueWatching(),
                         if (cast.isNotEmpty) buildCastSection(),
                         if (recommendations.isNotEmpty)
                           buildRecommendationsSection(),
@@ -597,6 +616,78 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildContinueWatching() {
+    final position = (_watchProgress!['position'] as num?)?.toInt() ?? 0;
+    final duration = (_watchProgress!['duration'] as num?)?.toInt() ?? 1;
+    final progress = duration > 0 ? (position / duration).clamp(0.0, 1.0) : 0.0;
+    final percent = (progress * 100).round();
+    final remaining = duration - position;
+    final remainingMin = (remaining / 60).round();
+
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => buildVideoPlayerScreen(
+              title: widget.item.title,
+              tmdbId: widget.item.id.toString(),
+              isMovie: true,
+            ),
+          ),
+        );
+      },
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.grey[900],
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.play_circle_fill, color: Colors.red, size: 20),
+                const SizedBox(width: 8),
+                const Text(
+                  'Continue Watching',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  '$percent%',
+                  style: const TextStyle(color: Colors.grey, fontSize: 13),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: LinearProgressIndicator(
+                value: progress,
+                backgroundColor: Colors.grey[800],
+                valueColor: const AlwaysStoppedAnimation<Color>(Colors.red),
+                minHeight: 4,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '$remainingMin min remaining',
+              style: const TextStyle(color: Colors.grey, fontSize: 12),
+            ),
+          ],
+        ),
+      ),
     );
   }
 

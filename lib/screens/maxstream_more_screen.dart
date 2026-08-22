@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../services/user_service.dart';
 import '../services/auth_service.dart';
@@ -7,6 +6,7 @@ import '../screens/sign_in_screen.dart';
 import '../screens/profile_settings_screen.dart';
 import '../screens/streaming_provider_settings_screen.dart';
 import '../screens/tv_pairing_screen.dart';
+import '../screens/maxstream_about_screen.dart';
 
 import '../widgets/profile_avatar.dart';
 
@@ -168,24 +168,34 @@ class _MaxStreamMoreScreenState extends State<MaxStreamMoreScreen> {
           },
         ),
         _buildMenuItem(
-          icon: Icons.help,
-          title: 'Help & Support',
+          icon: Icons.info_outline,
+          title: 'About',
           onTap: () {
-            _showHelpDialog();
-          },
-        ),
-        _buildMenuItem(
-          icon: Icons.info,
-          title: 'About MaxStream',
-          onTap: () {
-            _showAboutDialog();
-          },
-        ),
-        _buildMenuItem(
-          icon: Icons.telegram,
-          title: 'Join Community',
-          onTap: () {
-            _launchUrl('https://t.me/maxstream254');
+            if (!mounted) return;
+            Navigator.push(
+              context,
+              PageRouteBuilder(
+                pageBuilder: (context, animation, secondaryAnimation) =>
+                    const MaxStreamAboutScreen(),
+                transitionsBuilder:
+                    (context, animation, secondaryAnimation, child) {
+                      return SlideTransition(
+                        position:
+                            Tween<Offset>(
+                              begin: const Offset(1.0, 0.0),
+                              end: Offset.zero,
+                            ).animate(
+                              CurvedAnimation(
+                                parent: animation,
+                                curve: Curves.fastOutSlowIn,
+                              ),
+                            ),
+                        child: child,
+                      );
+                    },
+                transitionDuration: const Duration(milliseconds: 250),
+              ),
+            );
           },
         ),
         const SizedBox(height: 20),
@@ -228,71 +238,6 @@ class _MaxStreamMoreScreenState extends State<MaxStreamMoreScreen> {
         tileColor: Colors.transparent,
         hoverColor: Colors.white.withAlpha(12),
         splashColor: Colors.white.withAlpha(25),
-      ),
-    );
-  }
-
-  void _showHelpDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF1E1E1E),
-        title: const Text(
-          'Help & Support',
-          style: TextStyle(color: Colors.white),
-        ),
-        content: const Text(
-          'For help and support, please join our community or contact us through the app.',
-          style: TextStyle(color: Colors.white),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('OK', style: TextStyle(color: Colors.red)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showAboutDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF1E1E1E),
-        title: const Text(
-          'About MaxStream',
-          style: TextStyle(color: Colors.white),
-        ),
-        content: const Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'MaxStream v1.1.0',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            SizedBox(height: 8),
-            Text(
-              'A modern movie and TV discovery app powered by The Movie Database (TMDb).',
-              style: TextStyle(color: Colors.white),
-            ),
-            SizedBox(height: 8),
-            Text(
-              'Discover, explore, and manage your watchlist with ease.',
-              style: TextStyle(color: Colors.grey),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('OK', style: TextStyle(color: Colors.red)),
-          ),
-        ],
       ),
     );
   }
@@ -340,12 +285,5 @@ class _MaxStreamMoreScreenState extends State<MaxStreamMoreScreen> {
         ],
       ),
     );
-  }
-
-  Future<void> _launchUrl(String url) async {
-    final uri = Uri.parse(url);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    }
   }
 }

@@ -503,7 +503,7 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
             ),
           ),
           SizedBox(
-            height: 200,
+            height: 280,
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -520,6 +520,12 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
   }
 
   Widget _buildMovieCard(Map<String, dynamic> item, String mediaType) {
+    final name = item['title'] ?? item['name'] ?? 'Unknown';
+    final posterPath = item['poster_path'];
+    final rating = (item['vote_average'] as num?)?.toDouble();
+    final year = _getYear(item);
+    final typeLabel = mediaType == 'tv' ? 'TV' : 'MOVIE';
+
     return GestureDetector(
       onTap: () {
         if (!mounted) return;
@@ -554,54 +560,109 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
         );
       },
       child: Container(
-        width: 120,
-        margin: const EdgeInsets.only(right: 12),
+        width: 135,
+        margin: const EdgeInsets.only(right: 10),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             ClipRRect(
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(10),
               child: Stack(
                 children: [
-                  item['poster_path'] != null
+                  posterPath != null
                       ? Image.network(
-                          TmdbApiService.getPosterUrl(item['poster_path']),
-                          width: 120,
-                          height: 160,
+                          TmdbApiService.getPosterUrl(posterPath),
+                          width: 135,
+                          height: 200,
                           fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => Container(
+                            width: 135,
+                            height: 200,
+                            color: Colors.grey[850],
+                            child: const Icon(Icons.movie,
+                                color: Colors.grey, size: 40),
+                          ),
                         )
                       : Container(
-                          width: 120,
-                          height: 160,
-                          color: Colors.grey[800],
-                          child: const Icon(Icons.movie, color: Colors.grey),
-                        ),
-                  Positioned(
-                    top: 4,
-                    right: 4,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 6,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.7),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(Icons.star, color: Colors.amber, size: 12),
-                          const SizedBox(width: 2),
-                          Text(
-                            '${item['vote_average']?.toStringAsFixed(1) ?? 'N/A'}',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
+                          width: 135,
+                          height: 200,
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [
+                                Colors.grey[850]!,
+                                Colors.grey[900]!,
+                              ],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
                             ),
                           ),
-                        ],
+                          child: const Icon(Icons.movie,
+                              color: Colors.grey, size: 40),
+                        ),
+                  Positioned(
+                    top: 6,
+                    left: 6,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.red,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        typeLabel,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (rating != null && rating > 0)
+                    Positioned(
+                      top: 6,
+                      right: 6,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 5, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.75),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.star,
+                                color: Colors.amber, size: 10),
+                            const SizedBox(width: 2),
+                            Text(
+                              rating.toStringAsFixed(1),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  Positioned(
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    height: 60,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Colors.transparent,
+                            Colors.black.withValues(alpha: 0.8),
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -610,7 +671,7 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              item['title'] ?? item['name'] ?? 'Unknown',
+              name,
               style: const TextStyle(
                 color: Colors.white,
                 fontSize: 12,
@@ -619,10 +680,11 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
             ),
-            Text(
-              _getYear(item),
-              style: const TextStyle(color: Colors.grey, fontSize: 10),
-            ),
+            if (year.isNotEmpty)
+              Text(
+                year,
+                style: TextStyle(color: Colors.grey[500], fontSize: 11),
+              ),
           ],
         ),
       ),
