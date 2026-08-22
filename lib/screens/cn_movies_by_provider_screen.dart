@@ -7,6 +7,7 @@ import '../utils/tmdb_list_utils.dart';
 import '../database/db_helper.dart';
 import '../widgets/custom_loading_widget.dart';
 import 'maxstream_details_screen.dart';
+import '../widgets/app_network_image.dart';
 
 class StreamingProvider {
   final int id;
@@ -405,20 +406,18 @@ class _CnMoviesByProviderScreenState extends State<CnMoviesByProviderScreen> {
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(8),
                   child: movie['poster_path'] != null
-                      ? Image.network(
-                          TmdbApiService.getPosterUrl(movie['poster_path']),
+                      ? AppNetworkImage(
+                          url: TmdbApiService.getPosterUrl(movie['poster_path']),
                           width: double.infinity,
                           fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) {
-                            return Container(
-                              color: Colors.grey[800],
-                              child: const Icon(
-                                Icons.movie,
-                                color: Colors.grey,
-                                size: 40,
-                              ),
-                            );
-                          },
+                          errorWidget: Container(
+                            color: Colors.grey[800],
+                            child: const Icon(
+                              Icons.movie,
+                              color: Colors.grey,
+                              size: 40,
+                            ),
+                          ),
                         )
                       : Container(
                           color: Colors.grey[800],

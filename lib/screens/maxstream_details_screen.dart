@@ -436,18 +436,17 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
                       child: Container(
                         color: Colors.grey[800],
                         child: posterPath != null
-                            ? Image.network(
-                                TmdbApiService.getPosterUrl(posterPath),
+                            ? AppNetworkImage(
+                                url: TmdbApiService.getPosterUrl(posterPath),
                                 width: 110,
                                 height: 165,
                                 fit: BoxFit.cover,
-                                errorBuilder: (context, error, stackTrace) =>
-                                    Container(
-                                      width: 110,
-                                      height: 165,
-                                      color: Colors.grey[800],
-                                      child: const Icon(Icons.movie, size: 40),
-                                    ),
+                                errorWidget: Container(
+                                  width: 110,
+                                  height: 165,
+                                  color: Colors.grey[800],
+                                  child: const Icon(Icons.movie, size: 40),
+                                ),
                               )
                             : Container(
                                 width: 110,
@@ -886,18 +885,17 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
                   if ((provider['logo'] as String).isNotEmpty)
                     ClipRRect(
                       borderRadius: BorderRadius.circular(4),
-                      child: Image.network(
-                        'https://image.tmdb.org/t/p/original${provider['logo']}',
+                      child: AppNetworkImage(
+                        url:
+                            'https://image.tmdb.org/t/p/original${provider['logo']}',
                         width: 24,
                         height: 24,
                         fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) {
-                          return Icon(
-                            Icons.play_circle,
-                            color: provider['color'] as Color,
-                            size: 20,
-                          );
-                        },
+                        errorWidget: Icon(
+                          Icons.play_circle,
+                          color: provider['color'] as Color,
+                          size: 20,
+                        ),
                       ),
                     )
                   else
@@ -983,8 +981,8 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
                     ClipRRect(
                       borderRadius: BorderRadius.circular(8),
                       child: actor['profile_path'] != null
-                          ? Image.network(
-                              TmdbApiService.getProfileUrl(
+                          ? AppNetworkImage(
+                              url: TmdbApiService.getProfileUrl(
                                 actor['profile_path'],
                               ),
                               width: 120,
@@ -1091,8 +1089,8 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
                       ClipRRect(
                         borderRadius: BorderRadius.circular(8),
                         child: item['poster_path'] != null
-                            ? Image.network(
-                                TmdbApiService.getPosterUrl(
+                            ? AppNetworkImage(
+                                url: TmdbApiService.getPosterUrl(
                                   item['poster_path'],
                                 ),
                                 width: 120,

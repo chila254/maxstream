@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../database/db_helper.dart';
 import '../services/content_notification_service.dart';
+import '../widgets/app_network_image.dart';
 
 class StreamingProvider {
   final int id;
@@ -265,10 +266,10 @@ class _StreamingProviderSettingsScreenState
                 borderRadius: BorderRadius.circular(8),
               ),
               child: provider.logoPath != null
-                  ? Image.network(
-                      'https://image.tmdb.org/t/p/w92${provider.logoPath}',
+                  ? AppNetworkImage(
+                      url: 'https://image.tmdb.org/t/p/w92${provider.logoPath}',
                       fit: BoxFit.contain,
-                      errorBuilder: (context, error, stackTrace) => Center(
+                      errorWidget: Center(
                         child: Text(
                           provider.name.substring(0, 1),
                           style: const TextStyle(

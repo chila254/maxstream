@@ -12,6 +12,7 @@ import '../services/media_download_manager.dart';
 import '../services/native_stream_extractor.dart';
 import '../services/tmdb_api_service.dart';
 import '../services/watch_history_service.dart';
+import '../widgets/app_network_image.dart';
 
 class M3U8VideoPlayerScreen extends StatefulWidget {
   final String title;
@@ -2842,12 +2843,12 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
                 children: [
                   ClipRRect(
                     borderRadius: BorderRadius.circular(6),
-                    child: Image.network(
-                      _nextEpisode!['stillUrl']?.toString() ?? '',
+                    child: AppNetworkImage(
+                      url: _nextEpisode!['stillUrl']?.toString() ?? '',
                       width: 110,
                       height: 66,
                       fit: BoxFit.cover,
-                      errorBuilder: (_, _, _) => const ColoredBox(
+                      errorWidget: const ColoredBox(
                         color: Colors.black45,
                         child: SizedBox(
                           width: 110,

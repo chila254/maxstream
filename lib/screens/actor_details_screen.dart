@@ -3,6 +3,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../models/movie.dart';
 import '../services/tmdb_api_service.dart';
 import 'maxstream_details_screen.dart';
+import '../widgets/app_network_image.dart';
 
 class ActorDetailsScreen extends StatefulWidget {
   final int actorId;
@@ -151,10 +152,10 @@ class _ActorDetailsScreenState extends State<ActorDetailsScreen>
           fit: StackFit.expand,
           children: [
             if (profilePath != null)
-              Image.network(
-                TmdbApiService.getFullImageUrl(profilePath),
+              AppNetworkImage(
+                url: TmdbApiService.getFullImageUrl(profilePath),
                 fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) => Container(
+                errorWidget: Container(
                   color: Colors.grey[900],
                   child: const Icon(
                     Icons.person,
@@ -353,8 +354,8 @@ class _ActorDetailsScreenState extends State<ActorDetailsScreen>
             child: ClipRRect(
               borderRadius: BorderRadius.circular(8),
               child: credit['poster_path'] != null
-                  ? Image.network(
-                      TmdbApiService.getPosterUrl(credit['poster_path']),
+                  ? AppNetworkImage(
+                      url: TmdbApiService.getPosterUrl(credit['poster_path']),
                       width: double.infinity,
                       height: double.infinity,
                       fit: BoxFit.cover,

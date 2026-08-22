@@ -742,8 +742,8 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
                   ClipRRect(
                     borderRadius: BorderRadius.circular(8),
                     child: posterPath != null && posterPath.isNotEmpty
-                        ? Image.network(
-                            TmdbApiService.getPosterUrl(posterPath),
+                        ? AppNetworkImage(
+                            url: TmdbApiService.getPosterUrl(posterPath),
                             width: 100,
                             height: 150,
                             fit: BoxFit.cover,
@@ -989,8 +989,8 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
                     ClipRRect(
                       borderRadius: BorderRadius.circular(8),
                       child: actor['profile_path'] != null
-                          ? Image.network(
-                              TmdbApiService.getProfileUrl(
+                          ? AppNetworkImage(
+                              url: TmdbApiService.getProfileUrl(
                                 actor['profile_path'],
                               ),
                               width: 120,
@@ -1165,8 +1165,8 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
                         borderRadius: const BorderRadius.horizontal(
                           left: Radius.circular(8),
                         ),
-                        child: Image.network(
-                          'https://image.tmdb.org/t/p/w300${episode.stillPath}',
+                        child: AppNetworkImage(
+                          url: 'https://image.tmdb.org/t/p/w300${episode.stillPath}',
                           fit: BoxFit.cover,
                         ),
                       )
@@ -1356,8 +1356,8 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
                       ClipRRect(
                         borderRadius: BorderRadius.circular(8),
                         child: item['poster_path'] != null
-                            ? Image.network(
-                                TmdbApiService.getPosterUrl(
+                            ? AppNetworkImage(
+                                url: TmdbApiService.getPosterUrl(
                                   item['poster_path'],
                                 ),
                                 width: 120,

@@ -7,6 +7,7 @@ import '../services/tmdb_api_service.dart';
 import '../widgets/profile_menu_button.dart';
 import 'maxstream_details_screen.dart';
 import 'maxstream_series_screen.dart';
+import '../widgets/app_network_image.dart';
 
 class MaxStreamRecommendationsScreen extends StatefulWidget {
   const MaxStreamRecommendationsScreen({super.key});
@@ -353,12 +354,12 @@ class _MaxStreamRecommendationsScreenState
               child: Stack(
                 children: [
                   posterPath != null
-                      ? Image.network(
-                          TmdbApiService.getPosterUrl(posterPath),
+                      ? AppNetworkImage(
+                          url: TmdbApiService.getPosterUrl(posterPath),
                           width: 135,
                           height: 200,
                           fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => Container(
+                          errorWidget: Container(
                             width: 135,
                             height: 200,
                             color: Colors.grey[850],

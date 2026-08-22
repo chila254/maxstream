@@ -5,6 +5,7 @@ import '../services/cloud_sync_service.dart';
 import '../widgets/custom_loading_widget.dart';
 import 'maxstream_details_screen.dart';
 import 'maxstream_series_screen.dart';
+import '../widgets/app_network_image.dart';
 
 class MaxStreamWatchlistScreen extends StatefulWidget {
   final bool embedded;
@@ -262,19 +263,18 @@ class _MaxStreamWatchlistScreenState extends State<MaxStreamWatchlistScreen>
                 ClipRRect(
                   borderRadius: BorderRadius.circular(8),
                   child: item.thumbnail.isNotEmpty
-                      ? Image.network(
-                          item.thumbnail,
+                      ? AppNetworkImage(
+                          url: item.thumbnail,
                           width: double.infinity,
                           height: double.infinity,
                           fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) =>
-                              Container(
-                                color: Colors.grey[800],
-                                child: const Icon(
-                                  Icons.movie,
-                                  color: Colors.grey,
-                                ),
-                              ),
+                          errorWidget: Container(
+                            color: Colors.grey[800],
+                            child: const Icon(
+                              Icons.movie,
+                              color: Colors.grey,
+                            ),
+                          ),
                         )
                       : Container(
                           width: double.infinity,

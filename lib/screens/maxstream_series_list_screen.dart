@@ -6,6 +6,7 @@ import '../utils/tmdb_list_utils.dart';
 import '../widgets/series_hero_banner.dart';
 import '../widgets/profile_menu_button.dart';
 import 'maxstream_series_screen.dart';
+import '../widgets/app_network_image.dart';
 
 class MaxStreamSeriesListScreen extends StatefulWidget {
   const MaxStreamSeriesListScreen({super.key});
@@ -272,12 +273,12 @@ class _MaxStreamSeriesListScreenState extends State<MaxStreamSeriesListScreen> {
               child: Stack(
                 children: [
                   posterPath != null
-                      ? Image.network(
-                          TmdbApiService.getPosterUrl(posterPath),
+                      ? AppNetworkImage(
+                          url: TmdbApiService.getPosterUrl(posterPath),
                           width: 135,
                           height: 200,
                           fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => Container(
+                          errorWidget: Container(
                             width: 135,
                             height: 200,
                             color: Colors.grey[850],
@@ -602,8 +603,8 @@ class _FullListScreenState extends State<_FullListScreen> {
                           child: ClipRRect(
                             borderRadius: BorderRadius.circular(8),
                             child: item['poster_path'] != null
-                                ? Image.network(
-                                    TmdbApiService.getPosterUrl(
+                                ? AppNetworkImage(
+                                    url: TmdbApiService.getPosterUrl(
                                       item['poster_path'],
                                     ),
                                     width: double.infinity,

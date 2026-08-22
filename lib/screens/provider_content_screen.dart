@@ -6,6 +6,7 @@ import '../utils/tmdb_list_utils.dart';
 import '../widgets/custom_loading_widget.dart';
 import 'maxstream_details_screen.dart';
 import 'maxstream_series_screen.dart';
+import '../widgets/app_network_image.dart';
 
 class ProviderContentScreen extends StatefulWidget {
   final int providerId;
@@ -376,23 +377,21 @@ class _ProviderContentScreenState extends State<ProviderContentScreen> {
               ClipRRect(
                 borderRadius: BorderRadius.circular(8),
                 child: movie['poster_path'] != null
-                    ? Image.network(
-                        TmdbApiService.getPosterUrl(movie['poster_path']),
+                    ? AppNetworkImage(
+                        url: TmdbApiService.getPosterUrl(movie['poster_path']),
                         width: 80,
                         height: 120,
                         fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) {
-                          return Container(
-                            width: 80,
-                            height: 120,
-                            color: Colors.grey[800],
-                            child: const Icon(
-                              Icons.movie,
-                              color: Colors.grey,
-                              size: 40,
-                            ),
-                          );
-                        },
+                        errorWidget: Container(
+                          width: 80,
+                          height: 120,
+                          color: Colors.grey[800],
+                          child: const Icon(
+                            Icons.movie,
+                            color: Colors.grey,
+                            size: 40,
+                          ),
+                        ),
                       )
                     : Container(
                         width: 80,
@@ -519,23 +518,21 @@ class _ProviderContentScreenState extends State<ProviderContentScreen> {
               ClipRRect(
                 borderRadius: BorderRadius.circular(8),
                 child: show['poster_path'] != null
-                    ? Image.network(
-                        TmdbApiService.getPosterUrl(show['poster_path']),
+                    ? AppNetworkImage(
+                        url: TmdbApiService.getPosterUrl(show['poster_path']),
                         width: 80,
                         height: 120,
                         fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) {
-                          return Container(
-                            width: 80,
-                            height: 120,
-                            color: Colors.grey[800],
-                            child: const Icon(
-                              Icons.tv,
-                              color: Colors.grey,
-                              size: 40,
-                            ),
-                          );
-                        },
+                        errorWidget: Container(
+                          width: 80,
+                          height: 120,
+                          color: Colors.grey[800],
+                          child: const Icon(
+                            Icons.tv,
+                            color: Colors.grey,
+                            size: 40,
+                          ),
+                        ),
                       )
                     : Container(
                         width: 80,

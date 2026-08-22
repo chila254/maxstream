@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../database/db_helper.dart';
 import '../services/media_download_manager.dart';
 import '../widgets/video_player_screen.dart';
+import '../widgets/app_network_image.dart';
 
 class DownloadsScreen extends StatefulWidget {
   final bool embedded;
@@ -445,10 +446,10 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                 color: Colors.black38,
                 child: Icon(Icons.movie, color: Colors.white38),
               )
-            : Image.network(
-                url,
+            : AppNetworkImage(
+                url: url,
                 fit: BoxFit.cover,
-                errorBuilder: (_, _, _) => const ColoredBox(
+                errorWidget: const ColoredBox(
                   color: Colors.black38,
                   child: Icon(Icons.movie, color: Colors.white38),
                 ),

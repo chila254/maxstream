@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../services/watch_history_service.dart';
 
 import 'package:maxstream/widgets/video_player_screen.dart';
+import '../widgets/app_network_image.dart';
 
 class WatchHistoryScreen extends StatefulWidget {
   final bool embedded;
@@ -205,12 +206,12 @@ class _WatchHistoryScreenState extends State<WatchHistoryScreen> {
             children: [
               ClipRRect(
                 borderRadius: BorderRadius.circular(8),
-                child: Image.network(
-                  item['posterUrl']?.toString() ?? '',
+                child: AppNetworkImage(
+                  url: item['posterUrl']?.toString() ?? '',
                   width: 80,
                   height: 120,
                   fit: BoxFit.cover,
-                  errorBuilder: (_, _, _) => Container(
+                  errorWidget: Container(
                     width: 80,
                     height: 120,
                     color: Colors.grey[800],

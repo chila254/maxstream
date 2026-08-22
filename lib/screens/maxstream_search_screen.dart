@@ -6,6 +6,7 @@ import '../widgets/profile_menu_button.dart';
 import 'maxstream_details_screen.dart';
 import 'maxstream_series_screen.dart';
 import 'actor_details_screen.dart';
+import '../widgets/app_network_image.dart';
 
 class MaxStreamSearchScreen extends StatefulWidget {
   const MaxStreamSearchScreen({super.key});
@@ -376,8 +377,8 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
               child: Stack(
                 children: [
                   item['poster_path'] != null
-                      ? Image.network(
-                          TmdbApiService.getPosterUrl(item['poster_path']),
+                      ? AppNetworkImage(
+                          url: TmdbApiService.getPosterUrl(item['poster_path']),
                           width: double.infinity,
                           height: double.infinity,
                           fit: BoxFit.cover,
@@ -477,8 +478,8 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
             child: ClipRRect(
               borderRadius: BorderRadius.circular(8),
               child: actor['profile_path'] != null
-                  ? Image.network(
-                      TmdbApiService.getProfileUrl(actor['profile_path']),
+                  ? AppNetworkImage(
+                      url: TmdbApiService.getProfileUrl(actor['profile_path']),
                       width: double.infinity,
                       height: double.infinity,
                       fit: BoxFit.cover,
