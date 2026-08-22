@@ -6,17 +6,18 @@ A Flutter streaming app for movies and TV series with native Kotlin stream extra
   <img src="assets/images/maxstream_logo.png" alt="MaxStream Logo" width="128" height="128" />
 </div>
 
-<div align="center">
-  <img src="Images/Home_Screen.jpg" alt="Home Screen" width="250" />
-  <img src="Images/Search_Screen1.jpg" alt="Search" width="250" />
-  <img src="Images/Watchlist_Screen.jpg" alt="Watchlist" width="250" />
-</div>
-
-<div align="center">
-  <img src="Images/Login-Signup_Screen.jpg" alt="Login" width="250" />
-  <img src="Images/Search_Screen2.jpg" alt="Search Results" width="250" />
-  <img src="Images/More_Screen.jpg" alt="More" width="250" />
-</div>
+<table align="center">
+  <tr>
+    <td align="center"><img src="Images/Home_Screen.jpg" alt="Home" width="220" /><br/><sub>Home</sub></td>
+    <td align="center"><img src="Images/Search_Screen1.jpg" alt="Search" width="220" /><br/><sub>Search</sub></td>
+    <td align="center"><img src="Images/Watchlist_Screen.jpg" alt="Watchlist" width="220" /><br/><sub>Watchlist</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="Images/Login-Signup_Screen.jpg" alt="Login" width="220" /><br/><sub>Login</sub></td>
+    <td align="center"><img src="Images/Search_Screen2.jpg" alt="Search Results" width="220" /><br/><sub>Search Results</sub></td>
+    <td align="center"><img src="Images/More_Screen.jpg" alt="More" width="220" /><br/><sub>More</sub></td>
+  </tr>
+</table>
 
 ## Features
 
