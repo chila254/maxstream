@@ -18,14 +18,13 @@ class UserService {
 
   Future<void> loadProfilePicture() async {
     try {
-      // First try to fetch from Firebase (cloud URL)
-      final firebaseUrl = await ProfileService.getProfilePictureUrl();
-      if (firebaseUrl != null) {
-        profilePictureUrl.value = firebaseUrl;
+      final path = await ProfileService.getProfilePicturePath();
+      if (path != null) {
+        profilePictureUrl.value = path;
         return;
       }
     } catch (e) {
-      print('Error loading profile picture from Firebase: $e');
+      print('Error loading profile picture: $e');
     }
 
     // Fallback to local cache

@@ -14,10 +14,6 @@ class ProfileAvatar extends StatelessWidget {
     this.onTap,
   });
 
-  bool _isNetworkUrl(String path) {
-    return path.startsWith('http://') || path.startsWith('https://');
-  }
-
   @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder<String?>(
@@ -27,36 +23,7 @@ class ProfileAvatar extends StatelessWidget {
           valueListenable: userService.avatar,
           builder: (context, selectedAvatar, child) {
             final hasProfilePicture = profilePictureUrl != null &&
-                (profilePictureUrl.startsWith('http') ||
-                    File(profilePictureUrl).existsSync());
-
-            Widget imageWidget;
-            if (hasProfilePicture) {
-              if (_isNetworkUrl(profilePictureUrl)) {
-                imageWidget = Image.network(
-                  profilePictureUrl,
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) => Center(
-                    child: Text(
-                      selectedAvatar.isNotEmpty ? selectedAvatar : '🐰',
-                      style: TextStyle(fontSize: size * 0.65),
-                    ),
-                  ),
-                );
-              } else {
-                imageWidget = Image.file(
-                  File(profilePictureUrl),
-                  fit: BoxFit.cover,
-                );
-              }
-            } else {
-              imageWidget = Center(
-                child: Text(
-                  selectedAvatar.isNotEmpty ? selectedAvatar : '🐰',
-                  style: TextStyle(fontSize: size * 0.65),
-                ),
-              );
-            }
+                File(profilePictureUrl).existsSync();
 
             final container = Container(
               width: size,
@@ -66,7 +33,19 @@ class ProfileAvatar extends StatelessWidget {
                 shape: BoxShape.circle,
                 border: Border.all(color: Colors.white, width: 3),
               ),
-              child: ClipOval(child: imageWidget),
+              child: hasProfilePicture
+                  ? ClipOval(
+                      child: Image.file(
+                        File(profilePictureUrl),
+                        fit: BoxFit.cover,
+                      ),
+                    )
+                  : Center(
+                      child: Text(
+                        selectedAvatar.isNotEmpty ? selectedAvatar : '🐰',
+                        style: TextStyle(fontSize: size * 0.65),
+                      ),
+                    ),
             );
 
             if (onTap != null) {

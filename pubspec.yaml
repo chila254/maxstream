@@ -26,7 +26,6 @@ dependencies:
   firebase_auth: ^5.1.0
   cloud_firestore: ^5.0.1
   firebase_database: ^11.3.2
-  firebase_storage: ^12.4.10
   google_sign_in: ^6.3.0
   glassmorphism: ^3.0.0
   shimmer: ^3.0.0
