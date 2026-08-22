@@ -36,6 +36,10 @@ class AppNetworkImage extends StatelessWidget {
       memCacheWidth: _safeInt(width),
       memCacheHeight: _safeInt(height),
       fadeInDuration: const Duration(milliseconds: 200),
+      // Consume load failures (e.g. a TMDB poster/backdrop dropped mid-stream)
+      // here so they never reach FlutterError / Crashlytics as a fatal crash.
+      // The errorWidget below still renders the fallback UI.
+      errorListener: (Object error) {},
       placeholder: (context, _) => Container(
         width: width,
         height: height,

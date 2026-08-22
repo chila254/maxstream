@@ -26,17 +26,17 @@ void attachCrashlyticsFatalHandlers() {
   final previousFlutter = FlutterError.onError;
   FlutterError.onError = (FlutterErrorDetails details) {
     // Let the local handlers do their thing (they filter benign errors), but
-    // never record a benign video player channel race to Crashlytics - it is
-    // a progress nicety, not a failure, and recording it as "fatal" would be
-    // worse than the non-fatal noise it replaced.
+    // never record a benign error to Crashlytics - e.g. a video player channel
+    // race or an image load dropped mid-stream is a progress/network nicety,
+    // not a failure, and recording it as "fatal" would be false noise.
     previousFlutter?.call(details);
-    if (isBenignVideoPlayerChannelError(details.exception)) return;
+    if (isBenignError(details.exception)) return;
     unawaited(crashlytics?.recordFlutterFatalError(details));
   };
   final previousPlatform = PlatformDispatcher.instance.onError;
   PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
     final handled = previousPlatform?.call(error, stack) ?? true;
-    if (!isBenignVideoPlayerChannelError(error)) {
+    if (!isBenignError(error)) {
       unawaited(crashlytics?.recordError(error, stack, fatal: true));
     }
     return handled;

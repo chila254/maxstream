@@ -206,13 +206,36 @@ bool isBenignVideoPlayerChannelError(Object error) {
       message.contains('getBufferedPosition');
 }
 
+/// True for transient image-network load failures, e.g. a TMDB poster/backdrop
+/// dropped mid-download ("Connection closed while receiving data"). These are
+/// never app bugs - the image widget already renders its fallback - so they
+/// must not show the crash screen or be reported as a fatal Crashlytics event.
+bool isBenignImageNetworkError(Object error) {
+  if (error is SocketException) return true;
+  if (error is HttpException) return true;
+  final message = error.toString();
+  return message.contains('Connection closed while receiving data') ||
+      message.contains('image.tmdb.org') ||
+      message.contains('Failed host lookup') ||
+      message.contains('Connection timed out') ||
+      message.contains('Connection reset') ||
+      message.contains('Network is unreachable');
+}
+
+/// Single decision point for whether an error should be ignored by every
+/// crash funnel (zone, FlutterError, PlatformDispatcher). A benign error never
+/// shows the crash screen and is never recorded as fatal.
+bool isBenignError(Object error) {
+  return isBenignVideoPlayerChannelError(error) ||
+      isBenignImageNetworkError(error);
+}
+
 Future<void> recordCrash(String tag, Object error, StackTrace stack) async {
-  // Swallow the benign buffered-position poll race (see
-  // isBenignVideoPlayerChannelError) before anything records it: no crash
-  // screen, no Crashlytics non-fatal. Every handler (zone, FlutterError,
+  // Swallow benign errors (see isBenignError) before anything records them: no
+  // crash screen, no Crashlytics non-fatal. Every handler (zone, FlutterError,
   // PlatformDispatcher) funnels through here, so a single check covers all.
-  if (isBenignVideoPlayerChannelError(error)) {
-    debugPrint('Ignoring benign video player channel error: $error');
+  if (isBenignError(error)) {
+    debugPrint('Ignoring benign error: $error');
     return;
   }
   final time = DateTime.now();
