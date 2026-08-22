@@ -1261,7 +1261,10 @@ class _QualitySelectionSheetState extends State<_QualitySelectionSheet> {
     if (qualities is List && qualities.isNotEmpty) {
       final idx = _selectedQualityIndex ?? 0;
       if (idx < qualities.length) {
-        final q = qualities[idx] as Map<String, dynamic>;
+        final raw = qualities[idx];
+        final q = raw is Map
+            ? raw.map((k, v) => MapEntry(k.toString(), v))
+            : <String, dynamic>{};
         return {
           'url': q['url']?.toString() ?? server['url']?.toString() ?? '',
           'source': server['source']?.toString() ?? 'Server',
@@ -1483,7 +1486,10 @@ class _QualitySelectionSheetState extends State<_QualitySelectionSheet> {
                         if (isServerSelected && hasQualities) ...[
                           const SizedBox(height: 6),
                           ...List.generate(qualities.length, (qIdx) {
-                            final q = qualities[qIdx] as Map<String, dynamic>;
+                            final raw = qualities[qIdx];
+                            final q = raw is Map
+                                ? raw.map((k, v) => MapEntry(k.toString(), v))
+                                : <String, dynamic>{};
                             final label =
                                 q['label']?.toString() ?? 'Auto';
                             final height =

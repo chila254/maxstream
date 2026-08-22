@@ -66,6 +66,14 @@ class StreamSecurity {
           )
           .toList();
     }
+    if (result['qualities'] is List) {
+      output['qualities'] = (result['qualities'] as List)
+          .whereType<Map>()
+          .map(
+            (q) => q.map((key, value) => MapEntry(key.toString(), value)),
+          )
+          .toList();
+    }
     return output;
   }
 

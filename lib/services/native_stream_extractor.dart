@@ -24,6 +24,18 @@ class NativeStreamExtractor {
           (header, headerValue) =>
               MapEntry(header.toString(), headerValue.toString()),
         );
+      } else if (key.toString() == 'qualities' && value is List) {
+        map['qualities'] = value.whereType<Map>().map((q) {
+          final normalized = <String, dynamic>{};
+          q.forEach((k, v) => normalized[k.toString()] = v);
+          return normalized;
+        }).toList();
+      } else if (key.toString() == 'subtitles' && value is List) {
+        map['subtitles'] = value.whereType<Map>().map((s) {
+          final normalized = <String, dynamic>{};
+          s.forEach((k, v) => normalized[k.toString()] = v);
+          return normalized;
+        }).toList();
       } else {
         map[key.toString()] = value;
       }

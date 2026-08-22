@@ -48,6 +48,7 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
     _downloadManager = MediaDownloadManager.instance;
     _downloadManager.addListener(_onDownloadChanged);
     CloudSyncService.watchlistRevision.addListener(_onSyncedWatchlist);
+    CloudSyncService.historyRevision.addListener(_onHistoryChanged);
     _loadSeriesDetails();
     _checkWatchlistStatus();
     _loadWatchProgress();
@@ -57,9 +58,14 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
     if (mounted) _checkWatchlistStatus();
   }
 
+  void _onHistoryChanged() {
+    if (mounted) _loadWatchProgress();
+  }
+
   @override
   void dispose() {
     CloudSyncService.watchlistRevision.removeListener(_onSyncedWatchlist);
+    CloudSyncService.historyRevision.removeListener(_onHistoryChanged);
     _youtubeController?.dispose();
     _downloadManager.removeListener(_onDownloadChanged);
     super.dispose();
@@ -277,7 +283,7 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
           episode: episode.episodeNumber,
         ),
       ),
-    );
+    ).then((_) => _loadWatchProgress());
   }
 
   void _showEpisodeQualitySheet(Episode episode) {
@@ -494,13 +500,15 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
       return;
     }
 
+    // No resumable episode found — clear the card.
     final allHistory = await WatchHistoryService.getWatchHistory();
     if (!mounted) return;
 
     final matches = allHistory
         .where((item) =>
             item['tmdbId']?.toString() == widget.seriesItem.id &&
-            item['isMovie'] == false)
+            item['isMovie'] == false &&
+            item['isWatched'] != true)
         .toList()
       ..sort(
           (a, b) => (b['timestamp'] ?? 0).compareTo(a['timestamp'] ?? 0));
@@ -511,7 +519,12 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
       final duration = (first['duration'] as num?)?.toInt() ?? 1;
       if (position > 30 && duration > 0) {
         setState(() => _watchProgress = first);
+        return;
       }
+    }
+    // Nothing resumable — hide the continue watching card.
+    if (mounted && _watchProgress != null) {
+      setState(() => _watchProgress = null);
     }
   }
 
@@ -1566,7 +1579,10 @@ class _EpisodeQualitySheetState extends State<_EpisodeQualitySheet> {
     if (qualities is List && qualities.isNotEmpty) {
       final idx = _selectedQualityIndex ?? 0;
       if (idx < qualities.length) {
-        final q = qualities[idx] as Map<String, dynamic>;
+        final raw = qualities[idx];
+        final q = raw is Map
+            ? raw.map((k, v) => MapEntry(k.toString(), v))
+            : <String, dynamic>{};
         return {
           'url': q['url']?.toString() ?? server['url']?.toString() ?? '',
           'source': server['source']?.toString() ?? 'Server',
@@ -1785,7 +1801,10 @@ class _EpisodeQualitySheetState extends State<_EpisodeQualitySheet> {
                         if (isServerSelected && hasQualities) ...[
                           const SizedBox(height: 6),
                           ...List.generate(qualities.length, (qIdx) {
-                            final q = qualities[qIdx] as Map<String, dynamic>;
+                            final raw = qualities[qIdx];
+                            final q = raw is Map
+                                ? raw.map((k, v) => MapEntry(k.toString(), v))
+                                : <String, dynamic>{};
                             final label = q['label']?.toString() ?? 'Auto';
                             final height =
                                 int.tryParse(q['height']?.toString() ?? '') ??
