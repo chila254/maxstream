@@ -693,13 +693,24 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         _availableServers = [result];
         _serversLoading = true;
         _selectedServerKey = _serverIdentity(result);
+
+        // Auto-select subtitle: English CC > English > default > first available.
         _SubtitleTrack? initialSubtitle;
+        _SubtitleTrack? defaultTrack;
+        _SubtitleTrack? englishTrack;
+        _SubtitleTrack? englishCcTrack;
         for (final track in subtitleTracks) {
+          final lower = track.label.toLowerCase();
+          if (lower.contains('english') && lower.contains('cc')) {
+            englishCcTrack ??= track;
+          } else if (lower.contains('english')) {
+            englishTrack ??= track;
+          }
           if (track.isDefault) {
-            initialSubtitle = track;
-            break;
+            defaultTrack ??= track;
           }
         }
+        initialSubtitle = englishCcTrack ?? englishTrack ?? defaultTrack;
         var initialSubtitles = const <Subtitle>[];
         if (initialSubtitle != null) {
           try {

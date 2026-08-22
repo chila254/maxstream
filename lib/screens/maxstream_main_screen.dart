@@ -183,18 +183,18 @@ class _MaxStreamMainScreenState extends State<MaxStreamMainScreen> {
     ];
 
     return Positioned(
-      left: 24,
-      right: 24,
-      bottom: bottomPadding + 12,
+      left: MediaQuery.of(context).size.width * 0.15,
+      right: MediaQuery.of(context).size.width * 0.15,
+      bottom: bottomPadding + 10,
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(28),
+        borderRadius: BorderRadius.circular(24),
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
           child: Container(
-            height: 60,
+            height: 52,
             decoration: BoxDecoration(
               color: Colors.white.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(28),
+              borderRadius: BorderRadius.circular(24),
               border: Border.all(
                 color: Colors.white.withValues(alpha: 0.2),
                 width: 1,
@@ -218,18 +218,18 @@ class _MaxStreamMainScreenState extends State<MaxStreamMainScreen> {
                     duration: const Duration(milliseconds: 250),
                     curve: Curves.easeInOut,
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 8,
+                      horizontal: 6,
+                      vertical: 6,
                     ),
                     decoration: BoxDecoration(
                       color: isSelected
                           ? Colors.red.withValues(alpha: 0.2)
                           : Colors.transparent,
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius: BorderRadius.circular(12),
                     ),
                     child: Icon(
                       icons[i],
-                      size: 24,
+                      size: 22,
                       color: isSelected ? Colors.red : Colors.grey[400],
                     ),
                   ),
