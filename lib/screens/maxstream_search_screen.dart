@@ -220,6 +220,7 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
           if (tvShows.isNotEmpty) _buildMovieGrid(tvShows),
           if (actors.isNotEmpty) _buildSectionHeader('Actors'),
           if (actors.isNotEmpty) _buildActorGrid(actors),
+          const SizedBox(height: 100),
         ],
       ),
     );
@@ -230,7 +231,14 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
     if (searchResults.isEmpty && _searchController.text.isNotEmpty) {
       return _buildNoResults();
     }
-    return SingleChildScrollView(child: _buildMovieGrid(searchResults));
+    return SingleChildScrollView(
+      child: Column(
+        children: [
+          _buildMovieGrid(searchResults),
+          const SizedBox(height: 100),
+        ],
+      ),
+    );
   }
 
   Widget _buildTVResults() {
@@ -238,7 +246,14 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
     if (searchResults.isEmpty && _searchController.text.isNotEmpty) {
       return _buildNoResults();
     }
-    return SingleChildScrollView(child: _buildMovieGrid(searchResults));
+    return SingleChildScrollView(
+      child: Column(
+        children: [
+          _buildMovieGrid(searchResults),
+          const SizedBox(height: 100),
+        ],
+      ),
+    );
   }
 
   Widget _buildActorResults() {
@@ -246,7 +261,14 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
     if (actorResults.isEmpty && _searchController.text.isNotEmpty) {
       return _buildNoResults();
     }
-    return SingleChildScrollView(child: _buildActorGrid(actorResults));
+    return SingleChildScrollView(
+      child: Column(
+        children: [
+          _buildActorGrid(actorResults),
+          const SizedBox(height: 100),
+        ],
+      ),
+    );
   }
 
   Widget _buildSectionHeader(String title) {

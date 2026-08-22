@@ -59,6 +59,7 @@ class _MaxStreamMoreScreenState extends State<MaxStreamMoreScreen> {
             _buildUserSection(),
             const SizedBox(height: 20),
             _buildMenuItems(),
+            const SizedBox(height: 100),
           ],
         ),
       ),

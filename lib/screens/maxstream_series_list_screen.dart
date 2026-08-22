@@ -64,7 +64,7 @@ class _MaxStreamSeriesListScreenState extends State<MaxStreamSeriesListScreen> {
               _buildSection('Trending TV Shows', trendingSeries, 'tv'),
               _buildSection('Popular TV Shows', popularSeries, 'tv'),
               _buildSection('Top Rated TV Shows', topRatedSeries, 'tv'),
-              const SliverToBoxAdapter(child: SizedBox(height: 20)),
+              const SliverToBoxAdapter(child: SizedBox(height: 100)),
             ],
           ],
         ),

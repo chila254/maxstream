@@ -20,8 +20,13 @@ class _MaxStreamRecommendationsScreenState
   List<Map<String, dynamic>> _forYou = [];
   List<Map<String, dynamic>> _becauseYouWatched = [];
   Map<String, List<Map<String, dynamic>>> _byGenre = {};
+  Map<int, String> _genreIdByName = {};
   bool _loading = true;
   bool _hasHistory = false;
+  int _forYouPage = 1;
+  bool _loadingMoreForYou = false;
+  final Map<String, int> _genrePage = {};
+  final Map<String, bool> _loadingMoreGenre = {};
 
   @override
   void initState() {
@@ -51,15 +56,54 @@ class _MaxStreamRecommendationsScreenState
         final allGenres = {...genreNames, ...genreNamesTv};
 
         _byGenre = {};
+        _genreIdByName = {};
         for (int i = 0; i < topGenres.length; i++) {
           final name = allGenres[topGenres[i]] ?? 'Genre ${topGenres[i]}';
           _byGenre[name] = results[2 + i];
+          _genreIdByName[topGenres[i]] = name;
+          _genrePage[name] = 1;
         }
       }
     } catch (e) {
       debugPrint('Error loading recommendations: $e');
     }
     if (mounted) setState(() => _loading = false);
+  }
+
+  Future<void> _loadMoreForYou() async {
+    if (_loadingMoreForYou) return;
+    setState(() => _loadingMoreForYou = true);
+    try {
+      _forYouPage++;
+      final more = await RecommendationService.getForYou(page: _forYouPage);
+      if (mounted) setState(() => _forYou = [..._forYou, ...more]);
+    } catch (_) {}
+    if (mounted) setState(() => _loadingMoreForYou = false);
+  }
+
+  Future<void> _loadMoreGenre(String genreName) async {
+    if (_loadingMoreGenre[genreName] == true) return;
+    setState(() => _loadingMoreGenre[genreName] = true);
+    final current = _genrePage[genreName] ?? 1;
+    final genreId = _genreIdByName.entries
+        .where((e) => e.value == genreName)
+        .map((e) => e.key)
+        .firstOrNull;
+    if (genreId == null) {
+      if (mounted) setState(() => _loadingMoreGenre[genreName] = false);
+      return;
+    }
+    try {
+      final more =
+          await RecommendationService.getByGenre(genreId, page: current + 1);
+      if (mounted) {
+        setState(() {
+          _genrePage[genreName] = current + 1;
+          _byGenre[genreName] = [...(_byGenre[genreName] ?? []), ...more];
+        });
+      }
+    } catch (_) {}
+    if (mounted) setState(() => _loadingMoreGenre[genreName] = false);
   }
 
   void _navigateToItem(Map<String, dynamic> item, String mediaType) {
@@ -110,15 +154,29 @@ class _MaxStreamRecommendationsScreenState
                   ] else ...[
                     if (_becauseYouWatched.isNotEmpty)
                       _buildSection(
-                        'Because You Watched ${_becauseYouWatched.first['recommendedFrom'] ?? ''}',
+                        'Because You Watched',
+                        _becauseYouWatched.first['recommendedFrom'] ?? '',
                         _becauseYouWatched,
                       ),
                     if (_forYou.isNotEmpty)
-                      _buildSection('For You', _forYou),
+                      _buildSection(
+                        'For You',
+                        'Picked for you',
+                        _forYou,
+                        onLoadMore: _loadMoreForYou,
+                        loadingMore: _loadingMoreForYou,
+                      ),
                     for (final entry in _byGenre.entries)
                       if (entry.value.isNotEmpty)
-                        _buildSection('More ${entry.key}', entry.value),
-                    const SliverToBoxAdapter(child: SizedBox(height: 20)),
+                        _buildSection(
+                          'Top in ${entry.key}',
+                          entry.key,
+                          entry.value,
+                          onLoadMore: () => _loadMoreGenre(entry.key),
+                          loadingMore:
+                              _loadingMoreGenre[entry.key] == true,
+                        ),
+                    const SliverToBoxAdapter(child: SizedBox(height: 100)),
                   ],
                 ],
               ),
@@ -152,9 +210,12 @@ class _MaxStreamRecommendationsScreenState
   }
 
   Widget _buildSection(
+    String label,
     String title,
-    List<Map<String, dynamic>> items,
-  ) {
+    List<Map<String, dynamic>> items, {
+    VoidCallback? onLoadMore,
+    bool loadingMore = false,
+  }) {
     if (items.isEmpty) return const SliverToBoxAdapter(child: SizedBox());
 
     return SliverToBoxAdapter(
@@ -162,23 +223,54 @@ class _MaxStreamRecommendationsScreenState
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: Text(
-              title,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-              ),
+            padding: const EdgeInsets.fromLTRB(16, 20, 16, 4),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 3,
+                      height: 16,
+                      decoration: BoxDecoration(
+                        color: Colors.red,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      label,
+                      style: TextStyle(
+                        color: Colors.grey[500],
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
             ),
           ),
+          const SizedBox(height: 10),
           SizedBox(
-            height: 200,
+            height: 280,
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 16),
-              itemCount: items.length,
+              itemCount: items.length + (onLoadMore != null ? 1 : 0),
               itemBuilder: (context, index) {
+                if (index == items.length) {
+                  return _buildLoadMoreTile(onLoadMore!, loadingMore);
+                }
                 final item = items[index];
                 final mediaType = item['mediaType'] ??
                     (item.containsKey('first_air_date') ? 'tv' : 'movie');
@@ -191,54 +283,136 @@ class _MaxStreamRecommendationsScreenState
     );
   }
 
+  Widget _buildLoadMoreTile(VoidCallback onTap, bool loading) {
+    return GestureDetector(
+      onTap: loading ? null : onTap,
+      child: Container(
+        width: 120,
+        margin: const EdgeInsets.only(right: 12),
+        decoration: BoxDecoration(
+          color: Colors.grey[900],
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: Colors.grey[800]!),
+        ),
+        child: Center(
+          child: loading
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.red,
+                  ),
+                )
+              : Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.add_circle_outline,
+                        color: Colors.grey[500], size: 28),
+                    const SizedBox(height: 8),
+                    Text(
+                      'More',
+                      style: TextStyle(
+                        color: Colors.grey[500],
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildCard(Map<String, dynamic> item, String mediaType) {
     final name = item['title'] ?? item['name'] ?? 'Unknown';
     final posterPath = item['poster_path'];
-    final rating = item['vote_average'];
+    final rating = (item['vote_average'] as num?)?.toDouble();
+    final year = (item['release_date'] ?? item['first_air_date'] ?? '')
+        .toString()
+        .split('-')
+        .first;
+    final typeLabel = mediaType == 'tv' ? 'TV' : 'MOVIE';
 
     return GestureDetector(
       onTap: () => _navigateToItem(item, mediaType),
       child: Container(
-        width: 120,
-        margin: const EdgeInsets.only(right: 12),
+        width: 135,
+        margin: const EdgeInsets.only(right: 10),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             ClipRRect(
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(10),
               child: Stack(
                 children: [
                   posterPath != null
                       ? Image.network(
                           TmdbApiService.getPosterUrl(posterPath),
-                          width: 120,
-                          height: 160,
+                          width: 135,
+                          height: 200,
                           fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => Container(
+                            width: 135,
+                            height: 200,
+                            color: Colors.grey[850],
+                            child: const Icon(Icons.movie,
+                                color: Colors.grey, size: 40),
+                          ),
                         )
                       : Container(
-                          width: 120,
-                          height: 160,
-                          color: Colors.grey[800],
-                          child: const Icon(Icons.movie, color: Colors.grey),
+                          width: 135,
+                          height: 200,
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [
+                                Colors.grey[850]!,
+                                Colors.grey[900]!,
+                              ],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                          ),
+                          child: const Icon(Icons.movie,
+                              color: Colors.grey, size: 40),
                         ),
-                  if (rating != null)
+                  Positioned(
+                    top: 6,
+                    left: 6,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.red,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        typeLabel,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (rating != null && rating > 0)
                     Positioned(
-                      top: 4,
-                      right: 4,
+                      top: 6,
+                      right: 6,
                       child: Container(
                         padding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                          vertical: 2,
-                        ),
+                            horizontal: 5, vertical: 2),
                         decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.7),
+                          color: Colors.black.withValues(alpha: 0.75),
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             const Icon(Icons.star,
-                                color: Colors.amber, size: 12),
+                                color: Colors.amber, size: 10),
                             const SizedBox(width: 2),
                             Text(
                               rating.toStringAsFixed(1),
@@ -252,6 +426,24 @@ class _MaxStreamRecommendationsScreenState
                         ),
                       ),
                     ),
+                  Positioned(
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    height: 60,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Colors.transparent,
+                            Colors.black.withValues(alpha: 0.8),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -266,6 +458,14 @@ class _MaxStreamRecommendationsScreenState
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
             ),
+            if (year.isNotEmpty)
+              Text(
+                year,
+                style: TextStyle(
+                  color: Colors.grey[500],
+                  fontSize: 11,
+                ),
+              ),
           ],
         ),
       ),
@@ -291,13 +491,13 @@ class _MaxStreamRecommendationsScreenState
                 ),
                 const SizedBox(height: 12),
                 SizedBox(
-                  height: 200,
+                  height: 280,
                   child: ListView.builder(
                     scrollDirection: Axis.horizontal,
                     itemCount: 5,
                     itemBuilder: (ctx, idx) => Container(
-                      width: 120,
-                      height: 200,
+                      width: 135,
+                      height: 280,
                       margin: const EdgeInsets.only(right: 12),
                       decoration: BoxDecoration(
                         color: Colors.white,

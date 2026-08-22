@@ -95,7 +95,7 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
                   _buildSection('Trending Movies', trendingMovies, 'movie'),
                   _buildSection('Popular Movies', popularMovies, 'movie'),
                   _buildSection('Top Rated Movies', topRatedMovies, 'movie'),
-                  const SliverToBoxAdapter(child: SizedBox(height: 20)),
+                  const SliverToBoxAdapter(child: SizedBox(height: 100)),
                 ],
               ),
       ),

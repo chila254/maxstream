@@ -139,9 +139,12 @@ class RecommendationService {
   }
 
   /// Genre rows — fetch content for each of the user's top genres.
-  static Future<List<Map<String, dynamic>>> getByGenre(int genreId) async {
-    final movies = await TmdbApiService.getMoviesByGenre(genreId);
-    final series = await TmdbApiService.getSeriesByGenre(genreId);
+  static Future<List<Map<String, dynamic>>> getByGenre(
+    int genreId, {
+    int page = 1,
+  }) async {
+    final movies = await TmdbApiService.getMoviesByGenre(genreId, page: page);
+    final series = await TmdbApiService.getSeriesByGenre(genreId, page: page);
     return _mergeAndShuffle(movies, series, 'movie', 'tv');
   }
 

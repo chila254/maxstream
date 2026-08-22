@@ -185,7 +185,7 @@ class _MaxStreamWatchlistScreenState extends State<MaxStreamWatchlistScreen>
 
   Widget _buildWatchlistGrid(List<Movie> items) {
     return GridView.builder(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 3,
         childAspectRatio: 0.6,
