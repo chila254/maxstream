@@ -49,6 +49,7 @@ class NotificationService {
           importance: Importance.max,
           priority: Priority.high,
           showWhen: true,
+          largeIcon: DrawableResourceAndroidBitmap('ic_launcher'),
         );
 
     const DarwinNotificationDetails iosDetails = DarwinNotificationDetails(
@@ -85,6 +86,7 @@ class NotificationService {
       showProgress: true,
       maxProgress: 100,
       progress: progress.clamp(0, 100),
+      largeIcon: const DrawableResourceAndroidBitmap('ic_launcher'),
     );
     await _notificationsPlugin.show(
       id,
@@ -108,6 +110,7 @@ class NotificationService {
       priority: Priority.defaultPriority,
       autoCancel: true,
       onlyAlertOnce: true,
+      largeIcon: DrawableResourceAndroidBitmap('ic_launcher'),
     );
     await _notificationsPlugin.show(
       id,

@@ -83,16 +83,15 @@ class RecommendationNotificationService {
           priority: Priority.high,
           autoCancel: true,
           category: AndroidNotificationCategory.recommendation,
-          largeIcon: FilePathAndroidBitmap(posterFile),
+          largeIcon: const DrawableResourceAndroidBitmap('ic_launcher'),
           styleInformation: BigPictureStyleInformation(
             FilePathAndroidBitmap(posterFile),
-            largeIcon: FilePathAndroidBitmap(posterFile),
             contentTitle: title,
             summaryText: body,
           ),
         );
       } else {
-        androidDetails = const AndroidNotificationDetails(
+        androidDetails = AndroidNotificationDetails(
           'maxstream_content_channel',
           'New Content Notifications',
           channelDescription:
@@ -101,6 +100,7 @@ class RecommendationNotificationService {
           priority: Priority.high,
           autoCancel: true,
           category: AndroidNotificationCategory.recommendation,
+          largeIcon: const DrawableResourceAndroidBitmap('ic_launcher'),
         );
       }
 
