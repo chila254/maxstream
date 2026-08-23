@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import '../models/movie.dart';
@@ -10,6 +11,7 @@ class DBHelper {
   static Database? _db;
 
   static Future<Database> get database async {
+    if (kIsWeb) throw UnsupportedError('sqflite is not available on web');
     if (_db != null) return _db!;
     _db = await _initDb();
     return _db!;
@@ -213,6 +215,7 @@ class DBHelper {
     int? episodeNumber,
     DateTime? downloadDate,
   }) async {
+    if (kIsWeb) return;
     final db = await database;
     await db.insert('media_downloads', {
       'downloadKey': downloadKey,
@@ -232,6 +235,7 @@ class DBHelper {
   static Future<List<Map<String, dynamic>>> getMediaDownloads({
     String? mediaType,
   }) async {
+    if (kIsWeb) return const [];
     final db = await database;
     final downloads = await db.query(
       'media_downloads',
@@ -253,6 +257,7 @@ class DBHelper {
   }
 
   static Future<void> deleteMediaDownload(String downloadKey) async {
+    if (kIsWeb) return;
     final db = await database;
     await db.delete(
       'media_downloads',
@@ -262,6 +267,7 @@ class DBHelper {
   }
 
   static Future<void> addToWatchlist(Movie movie) async {
+    if (kIsWeb) return;
     await _insertWatchlist(movie);
     unawaited(CloudSyncService.pushWatchlist(movie));
   }
@@ -269,6 +275,7 @@ class DBHelper {
   /// Upserts a watchlist item into local storage without pushing it back to
   /// the cloud (used by the cloud listener to apply a remote change).
   static Future<void> importWatchlist(Movie movie) async {
+    if (kIsWeb) return;
     await _insertWatchlist(movie);
   }
 
@@ -291,6 +298,7 @@ class DBHelper {
   }
 
   static Future<void> updateMovie(Movie movie) async {
+    if (kIsWeb) return;
     final db = await database;
     await db.update(
       'watchlist',
@@ -312,6 +320,7 @@ class DBHelper {
   }
 
   static Future<void> removeMovie(dynamic id, String mediaType) async {
+    if (kIsWeb) return;
     await removeMovieLocal(id, mediaType);
     unawaited(CloudSyncService.deleteWatchlist(id.toString(), mediaType));
   }
@@ -319,6 +328,7 @@ class DBHelper {
   /// Removes a watchlist item from local storage only (used by the cloud
   /// listener to apply a remote deletion without pushing it back).
   static Future<void> removeMovieLocal(dynamic id, String mediaType) async {
+    if (kIsWeb) return;
     final db = await database;
     await db.delete(
       'watchlist',
@@ -328,6 +338,7 @@ class DBHelper {
   }
 
   static Future<bool> isInWatchlist(dynamic id, String mediaType) async {
+    if (kIsWeb) return false;
     final db = await database;
     final result = await db.query(
       'watchlist',
@@ -340,6 +351,7 @@ class DBHelper {
   static Future<List<Movie>> getWatchlist({
     String? orderBy = 'releaseDate DESC',
   }) async {
+    if (kIsWeb) return const [];
     final db = await database;
     final result = await db.query(
       'watchlist',
@@ -372,6 +384,7 @@ class DBHelper {
   }
 
   static Future<List<Movie>> getDownloads() async {
+    if (kIsWeb) return const [];
     final db = await database;
     final result = await db.query(
       'watchlist',
@@ -417,6 +430,7 @@ class DBHelper {
   }
 
   static Future<List<Movie>> searchFromLocal(String keyword) async {
+    if (kIsWeb) return const [];
     final db = await database;
     final result = await db.query(
       'watchlist',
@@ -473,6 +487,7 @@ class DBHelper {
     required String thumbnail,
     required String offlinePath,
   }) async {
+    if (kIsWeb) return;
     final db = await database;
     await db.insert('downloaded_episodes', {
       'seriesId': seriesId,
@@ -493,6 +508,7 @@ class DBHelper {
     int seasonNumber,
     int episodeNumber,
   ) async {
+    if (kIsWeb) return;
     final db = await database;
     await db.delete(
       'downloaded_episodes',
@@ -506,6 +522,7 @@ class DBHelper {
     int seasonNumber,
     int episodeNumber,
   ) async {
+    if (kIsWeb) return false;
     final db = await database;
     final result = await db.query(
       'downloaded_episodes',
@@ -517,14 +534,17 @@ class DBHelper {
 
   // OnStream-style methods for backwards compatibility
   static Future<List<Movie>> getWatchlistItems() async {
+    if (kIsWeb) return const [];
     return await getWatchlist();
   }
 
   static Future<void> addToWatchlistItem(Movie movie) async {
+    if (kIsWeb) return;
     await DBHelper.addToWatchlist(movie);
   }
 
   static Future<void> removeFromWatchlist(dynamic id, String mediaType) async {
+    if (kIsWeb) return;
     await removeMovie(id, mediaType);
   }
 
@@ -532,6 +552,7 @@ class DBHelper {
     String id, [
     String mediaType = 'movie',
   ]) async {
+    if (kIsWeb) return false;
     return await isInWatchlist(id, mediaType);
   }
 
@@ -551,6 +572,7 @@ class DBHelper {
   }
 
   static Future<void> initializeProviderPreferences() async {
+    if (kIsWeb) return;
     final db = await database;
     await _ensureProviderPreferencesTable(db);
 
@@ -588,6 +610,7 @@ class DBHelper {
     int providerId,
     bool isPreferred,
   ) async {
+    if (kIsWeb) return;
     final db = await database;
     await _ensureProviderPreferencesTable(db);
 
@@ -607,12 +630,14 @@ class DBHelper {
   }
 
   static Future<List<Map<String, dynamic>>> getProviderPreferences() async {
+    if (kIsWeb) return const [];
     final db = await database;
     await _ensureProviderPreferencesTable(db);
     return await db.query('provider_preferences', orderBy: 'providerName ASC');
   }
 
   static Future<List<int>> getPreferredProviderIds() async {
+    if (kIsWeb) return const [];
     final db = await database;
     await _ensureProviderPreferencesTable(db);
     final result = await db.query(
@@ -624,6 +649,7 @@ class DBHelper {
   }
 
   static Future<bool> isProviderPreferred(int providerId) async {
+    if (kIsWeb) return false;
     final db = await database;
     await _ensureProviderPreferencesTable(db);
     final result = await db.query(
@@ -635,6 +661,7 @@ class DBHelper {
   }
 
   static Future<List<Map<String, dynamic>>> getPreferredProviders() async {
+    if (kIsWeb) return const [];
     final db = await database;
     await _ensureProviderPreferencesTable(db);
     final result = await db.query(
