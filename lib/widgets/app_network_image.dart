@@ -17,24 +17,21 @@ class AppNetworkImage extends StatelessWidget {
     this.errorWidget,
   });
 
-  int? _safeInt(double? value) {
-    if (value == null || value.isInfinite || value.isNaN) return null;
-    return value.toInt();
-  }
-
   @override
   Widget build(BuildContext context) {
     if (url.isEmpty) {
       return errorWidget ?? _defaultError();
     }
 
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+
     return CachedNetworkImage(
       imageUrl: url,
       width: width,
       height: height,
       fit: fit,
-      memCacheWidth: _safeInt(width),
-      memCacheHeight: _safeInt(height),
+      memCacheWidth: width != null ? (width! * dpr).toInt() : null,
+      memCacheHeight: height != null ? (height! * dpr).toInt() : null,
       fadeInDuration: const Duration(milliseconds: 200),
       // Consume load failures (e.g. a TMDB poster/backdrop dropped mid-stream)
       // here so they never reach FlutterError / Crashlytics as a fatal crash.
