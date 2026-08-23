@@ -25,10 +25,11 @@ class DefaultFirebaseOptions {
     apiKey: "AIzaSyAl1ehmMvnoJ8PMeFymmq30IhGLS5_guPQ",
     authDomain: "maxstream-8effc.firebaseapp.com",
     projectId: "maxstream-8effc",
-    storageBucket: "maxstream-8effc.appspot.com", // ✅ FIXED
+    storageBucket: "maxstream-8effc.appspot.com",
     messagingSenderId: "799710852137",
     appId: "1:799710852137:web:19068a6c609e22a3649838",
     measurementId: "G-XR7XE1T7RE",
+    databaseURL: "https://maxstream-8effc-default-rtdb.firebaseio.com",
   );
 
   static const FirebaseOptions android = FirebaseOptions(
