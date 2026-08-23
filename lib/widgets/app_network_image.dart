@@ -30,8 +30,8 @@ class AppNetworkImage extends StatelessWidget {
       width: width,
       height: height,
       fit: fit,
-      memCacheWidth: width != null ? (width! * dpr).toInt() : null,
-      memCacheHeight: height != null ? (height! * dpr).toInt() : null,
+      memCacheWidth: _safeCacheSize(width, dpr),
+      memCacheHeight: _safeCacheSize(height, dpr),
       fadeInDuration: const Duration(milliseconds: 200),
       // Consume load failures (e.g. a TMDB poster/backdrop dropped mid-stream)
       // here so they never reach FlutterError / Crashlytics as a fatal crash.
@@ -44,6 +44,17 @@ class AppNetworkImage extends StatelessWidget {
       ),
       errorWidget: (context, url, error) => errorWidget ?? _defaultError(),
     );
+  }
+
+  /// Safely derives the in-memory cache size (pixels) for CachedNetworkImage.
+  /// Returns null (no caching) when the size or device pixel ratio is null or
+  /// non-finite (e.g. a parent passing double.infinity to "fill" width), since
+  /// Infinity/NaN.toInt() throws "Unsupported operation".
+  int? _safeCacheSize(double? value, double dpr) {
+    if (value == null || !value.isFinite || !dpr.isFinite) return null;
+    final scaled = value * dpr;
+    if (!scaled.isFinite) return null;
+    return scaled.toInt();
   }
 
   Widget _defaultError() {
