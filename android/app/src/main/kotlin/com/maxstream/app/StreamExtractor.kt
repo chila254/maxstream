@@ -912,13 +912,16 @@ class StreamExtractor(private val context: Context) {
                 }.orEmpty()
 
                 val url = bestUrl ?: throw IllegalStateException("VidLink no quality URL")
-                val workingHeaders = validateMediaWithFallback(url, bestHeaders)
+                // Skip validateMediaWithFallback: the /api/b/ endpoint already
+                // confirmed these URLs are valid.  The CDN frequently 428s/429s
+                // fresh token-derived URLs during the Range probe, causing the
+                // extraction to fall back to WebView unnecessarily.
                 ExtractionResult.Final(
                     StreamResult(
                         url,
                         name,
                         mediaType(url),
-                        workingHeaders,
+                        bestHeaders,
                         qualities = qualityOptions.sortedByDescending { it.height },
                         subtitles = captions,
                     )
@@ -1505,6 +1508,22 @@ class StreamExtractor(private val context: Context) {
             val id = uri.rawFragment?.substringBefore('&').orEmpty()
             require(id.isNotBlank()) { "RPM link has no media ID" }
             val origin = "${uri.scheme}://${uri.host}"
+
+            // Try API extraction first
+            runCatching {
+                extractViaApi(server, id, origin)
+            }.getOrNull()?.let { return it }
+
+            Log.i(tag, "RPM API extraction failed; falling back to WebView for ${server.url}")
+            // WebView fallback: load the RPM page and hook into network requests
+            return extractViaWebView(server)
+        }
+
+        private suspend fun extractViaApi(
+            server: StreamServer,
+            id: String,
+            origin: String,
+        ): ExtractionResult? = withContext(Dispatchers.IO) {
             // RPM is the primary server on TV, and most of its streams reach the
             // player either as a multi-variant master or a single-route playlist
             // (TikTok/Cloudflare) that bypasses the Dart-side 720p pin entirely.
@@ -1557,12 +1576,94 @@ class StreamExtractor(private val context: Context) {
                     subtitles = server.subtitles.distinctBy { it.url },
                 )
                 try {
-                    return ExtractionResult.Final(validateStream(candidate))
+                    return@withContext ExtractionResult.Final(validateStream(candidate))
                 } catch (error: Exception) {
                     Log.w(tag, "RPM route failed: ${error.message}")
                 }
             }
             throw IllegalStateException("RPM returned no playable route")
+        }
+
+        @SuppressLint("SetJavaScriptEnabled")
+        private suspend fun extractViaWebView(server: StreamServer): ExtractionResult {
+            return withContext(Dispatchers.Main) {
+                withTimeout(30_000) {
+                    suspendCancellableCoroutine { continuation ->
+                        val webView = WebView(context)
+                        webView.settings.javaScriptEnabled = true
+                        webView.settings.domStorageEnabled = true
+                        webView.settings.mediaPlaybackRequiresUserGesture = false
+
+                        fun finish(result: Result<StreamResult>) {
+                            if (!continuation.isActive) return
+                            result.fold(
+                                onSuccess = { continuation.resume(ExtractionResult.Final(it)) },
+                                onFailure = { continuation.resumeWithException(it) },
+                            )
+                            webView.post { webView.destroy() }
+                        }
+
+                        webView.addJavascriptInterface(object {
+                            @JavascriptInterface
+                            fun onStreamFound(url: String) {
+                                if (url.isBlank()) return
+                                val result = runCatching {
+                                    val type = if (url.contains(".m3u8")) "hls" else "direct"
+                                    val origin = "${URI(server.url).scheme}://${URI(server.url).host}"
+                                    StreamResult(url, name, type, refererHeaders(origin))
+                                }
+                                finish(result)
+                            }
+                        }, "NativeBridge")
+
+                        webView.webViewClient = object : WebViewClient() {
+                            override fun onPageFinished(view: WebView, url: String) {
+                                val script = """
+                                    (() => {
+                                      if (window.__rpmHook) return;
+                                      window.__rpmHook = true;
+                                      const send = url => window.NativeBridge.onStreamFound(url);
+                                      const isPlayable = s => typeof s === 'string' &&
+                                        /\.(m3u8|mp4)([?#]|$)/i.test(s);
+                                      const origOpen = XMLHttpRequest.prototype.open;
+                                      XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+                                        this.addEventListener('load', function() {
+                                          try { if (isPlayable(url)) send(url); } catch (e) {}
+                                        });
+                                        return origOpen.apply(this, [method, url, ...rest]);
+                                      };
+                                      const originalFetch = window.fetch.bind(window);
+                                      window.fetch = async (...args) => {
+                                        const response = await originalFetch(...args);
+                                        try {
+                                          const u = response.url || '';
+                                          if (isPlayable(u)) send(u);
+                                        } catch (e) {}
+                                        return response;
+                                      };
+                                      setInterval(() => {
+                                        try {
+                                          const v = document.querySelector('video');
+                                          if (!v) return;
+                                          const src = v.currentSrc || v.src || '';
+                                          if (isPlayable(src) && !src.startsWith('blob:')) send(src);
+                                        } catch (e) {}
+                                      }, 1500);
+                                    })();
+                                """.trimIndent()
+                                view.evaluateJavascript(script, null)
+                            }
+                        }
+                        webView.loadUrl(server.url)
+                        continuation.invokeOnCancellation {
+                            webView.post {
+                                webView.stopLoading()
+                                webView.destroy()
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
