@@ -226,7 +226,6 @@ class StreamExtractor(private val context: Context) {
             VidLinkExtractor(),
             MaxstreamVideoExtractor(),
             Mov2DayExtractor(),
-            RpmExtractor(),
             VixSrcExtractor(),
             CommunityExtractor(),
             VixcloudExtractor(),
@@ -261,6 +260,7 @@ class StreamExtractor(private val context: Context) {
             VidplayExtractor(),
             StreamrubyExtractor(),
             GenericIframeExtractor(),
+            WorkerExtractor(),
             GenericMediaExtractor(),
         )
     }
@@ -620,6 +620,14 @@ class StreamExtractor(private val context: Context) {
                 },
             )
 
+            val workerBase = "https://maxstream-extractor.maxstream123.workers.dev/api/extract"
+            val workerUrl = "$workerBase?tmdb_id=$id" +
+                "&is_movie=${request.isMovie}" +
+                "&season=${request.season}" +
+                "&episode=${request.episode}" +
+                "&server=vidlink"
+            servers += StreamServer("Worker (VidLink)", workerUrl)
+
             return servers
         }
     }
@@ -859,13 +867,16 @@ class StreamExtractor(private val context: Context) {
                     )
                 }
             }.orEmpty()
-            val targetName = if (URI(videoUrl).rawFragment.isNullOrBlank()) {
-                "Vidflix host"
-            } else {
-                "RPM video"
+            val uri = URI(videoUrl)
+            val hasFragment = !uri.rawFragment.isNullOrBlank()
+
+            if (hasFragment) {
+                Log.i(tag, "Vidflix returned RPM-style URL (dead backend); skipping")
+                throw IllegalStateException("Vidflix RPM backend unavailable")
             }
+
             return ExtractionResult.Redirect(
-                StreamServer(targetName, videoUrl, subtitles = subtitles),
+                StreamServer("Vidlix host", videoUrl, subtitles = subtitles),
             )
         }
     }
@@ -1170,6 +1181,65 @@ class StreamExtractor(private val context: Context) {
                     }
                 }
             }
+        }
+    }
+
+    private inner class WorkerExtractor : HostExtractor {
+        override val name = "Worker"
+
+        override fun supports(server: StreamServer): Boolean =
+            host(server.url).endsWith("maxstream123.workers.dev")
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            val json = runCatching {
+                JSONObject(httpGet(server.url))
+            }.getOrNull() ?: throw IllegalStateException("Worker returned invalid JSON")
+
+            val url = json.optString("url").ifBlank {
+                val error = json.optString("error").ifBlank { "Worker returned no URL" }
+                throw IllegalStateException(error)
+            }
+            val type = json.optString("type").ifBlank { mediaType(url) }
+
+            if (type == "embed") {
+                val source = json.optString("source").ifBlank { "Worker (VidLink)" }
+                return ExtractionResult.Redirect(
+                    StreamServer(source, url, refererHeaders("https://maxstream123.workers.dev")),
+                )
+            }
+
+            val source = json.optString("source").ifBlank { "Worker (VidLink)" }
+            val workerHeaders = runCatching {
+                val h = json.optJSONObject("headers")
+                if (h != null) {
+                    val map = mutableMapOf<String, String>()
+                    for (key in h.keys()) {
+                        h.optString(key).ifBlank { null }?.let { map[key] = it }
+                    }
+                    map.toMap()
+                } else emptyMap()
+            }.getOrDefault(emptyMap()).ifEmpty { refererHeaders("https://maxstream123.workers.dev") }
+
+            val subtitles = runCatching {
+                val subs = json.optJSONArray("subtitles")
+                if (subs != null) {
+                    (0 until subs.length()).mapNotNull { i ->
+                        val sub = subs.getJSONObject(i)
+                        val subUrl = sub.optString("url").ifBlank { return@mapNotNull null }
+                        SubtitleOption(
+                            sub.optString("language", "Subtitle"),
+                            subUrl,
+                            source = source,
+                        )
+                    }
+                } else emptyList()
+            }.getOrDefault(emptyList())
+
+            return ExtractionResult.Final(
+                validateStream(
+                    StreamResult(url, source, type, workerHeaders, subtitles = subtitles),
+                ),
+            )
         }
     }
 
@@ -1496,84 +1566,6 @@ class StreamExtractor(private val context: Context) {
                     }
                 }
             }
-        }
-    }
-
-    private inner class RpmExtractor : HostExtractor {
-        override val name = "RPM"
-        private val key = "kiemtienmua911ca".toByteArray()
-        private val iv = "1234567890oiuytr".toByteArray()
-
-        override fun supports(server: StreamServer): Boolean {
-            val domain = host(server.url)
-            return server.name.contains("rpm", true) ||
-                domain.contains("rpm") ||
-                domain in setOf("flixcdn.cyou", "primevid.click", "loadm.cam")
-        }
-
-        override suspend fun extract(server: StreamServer): ExtractionResult {
-            val uri = URI(server.url)
-            val id = uri.rawFragment?.substringBefore('&').orEmpty()
-            require(id.isNotBlank()) { "RPM link has no media ID" }
-            val origin = "${uri.scheme}://${uri.host}"
-            // RPM is the primary server on TV, and most of its streams reach the
-            // player either as a multi-variant master or a single-route playlist
-            // (TikTok/Cloudflare) that bypasses the Dart-side 720p pin entirely.
-            // On 1GB-class boxes (HiSilicon/Mali Android 14) a 1080p stream lags
-            // then natively crashes while the GPU uploads video textures, so ask
-            // the RPM API for a 720p ceiling there: every route it returns is then
-            // <=720p, giving the GPU 2.25x fewer pixels per frame. Phones with
-            // 2GB+ of RAM keep the full 1080p master.
-            val lowRam = isLowRamDevice()
-            val maxWidth = if (lowRam) "1280" else "1920"
-            val maxHeight = if (lowRam) "720" else "1080"
-            val apiUrl = "$origin/api/v1/video?id=${encode(id)}&w=$maxWidth&h=$maxHeight&r="
-            val encrypted = httpGet(apiUrl, refererHeaders(origin)).trim()
-            val json = JSONObject(decryptHexPayload(encrypted, key, iv))
-
-            val hls = json.optString("hls").takeIf { it.isNotBlank() }
-            val hlsTiktok = json.optString("hlsVideoTiktok").takeIf { it.isNotBlank() }
-            val cloudflare = json.optString("cf").takeIf { it.isNotBlank() }
-            val cloudflareNative = json.optString("cfNative").takeIf { it.isNotBlank() }
-            val directSource = json.optString("source").takeIf { it.isNotBlank() }
-            val tiktokVersion = runCatching {
-                JSONObject(json.optString("streamingConfig"))
-                    .optJSONObject("adjust")
-                    ?.optJSONObject("Tiktok")
-                    ?.optJSONObject("params")
-                    ?.optString("v")
-                    .orEmpty()
-            }.getOrDefault("")
-
-            val candidates = buildList {
-                hls?.let { add(absoluteMediaUrl(origin, it)) }
-                hlsTiktok?.let {
-                    add(
-                        absoluteMediaUrl(origin, it) +
-                            if (tiktokVersion.isBlank()) "" else "?v=${encode(tiktokVersion)}",
-                    )
-                }
-                cloudflareNative?.let(::add)
-                cloudflare?.let { add(addCloudflareToken(json, it)) }
-                directSource?.let(::add)
-            }.distinct()
-            require(candidates.isNotEmpty()) { "RPM response contains no playback routes" }
-
-            for (candidateUrl in candidates) {
-                val candidate = StreamResult(
-                    candidateUrl,
-                    name,
-                    mediaType(candidateUrl),
-                    refererHeaders(origin),
-                    subtitles = server.subtitles.distinctBy { it.url },
-                )
-                try {
-                    return ExtractionResult.Final(validateStream(candidate))
-                } catch (error: Exception) {
-                    Log.w(tag, "RPM route failed: ${error.message}")
-                }
-            }
-            throw IllegalStateException("RPM returned no playable route")
         }
     }
 
@@ -3620,28 +3612,6 @@ class StreamExtractor(private val context: Context) {
     }
 
     private fun resolveUrl(base: String, value: String): String = URI(base).resolve(value).toString()
-    private fun absoluteMediaUrl(origin: String, value: String) =
-        if (value.startsWith("http")) value else "$origin${if (value.startsWith('/')) "" else "/"}$value"
-
-    private fun addCloudflareToken(json: JSONObject, url: String): String {
-        val configured = runCatching {
-            val cloudflare = JSONObject(json.optString("streamingConfig"))
-                .optJSONObject("adjust")
-                ?.optJSONObject("Cloudflare")
-            if (cloudflare?.optBoolean("disabled", true) != false) return@runCatching null
-            val parameters = cloudflare.optJSONObject("params")
-            parameters?.optString("t") to parameters?.optString("e")
-        }.getOrNull()
-        val fallback = json.optString("cfExpire").split("::").let {
-            if (it.size >= 2) it[0] to it[1] else null
-        }
-        val token = configured?.takeIf { !it.first.isNullOrBlank() && !it.second.isNullOrBlank() }
-            ?: fallback
-        return if (token == null) url else {
-            val separator = if (url.contains('?')) '&' else '?'
-            "$url${separator}t=${encode(token.first.orEmpty())}&e=${encode(token.second.orEmpty())}"
-        }
-    }
 
     private fun encode(value: String) = URLEncoder.encode(value, Charsets.UTF_8.name())
     private fun isMediaUrl(url: String) = url.contains(".m3u8", true) || url.contains(".mp4", true)
@@ -3663,17 +3633,6 @@ class StreamExtractor(private val context: Context) {
             cipher.doFinal(value.toByteArray()),
             Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING,
         )
-    }
-
-    private fun decryptHexPayload(value: String, key: ByteArray, iv: ByteArray): String {
-        val cleaned = value.lowercase().replace(Regex("[^0-9a-f]"), "")
-        require(cleaned.length % 2 == 0) { "Encrypted hex payload has odd length" }
-        val bytes = ByteArray(cleaned.length / 2) { index ->
-            cleaned.substring(index * 2, index * 2 + 2).toInt(16).toByte()
-        }
-        val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
-        cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), IvParameterSpec(iv))
-        return String(cipher.doFinal(bytes), Charsets.UTF_8)
     }
 
     private fun between(value: String, before: String, after: String): String? {

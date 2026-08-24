@@ -15,7 +15,7 @@ data class Source(
 ) {
     val isHls: Boolean get() = type == "direct_m3u8" || url.contains(".m3u8", ignoreCase = true)
 
-    /** Display label like mobile's "RPM via Vidflix": extractor + route host when they differ. */
+    /** Display label like "VidLink via Worker": extractor + route host when they differ. */
     val displayName: String
         get() = when {
             extractor.isNotBlank() && server.isNotBlank() && extractor != server -> "$extractor via $server"

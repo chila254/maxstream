@@ -69,7 +69,7 @@ class _SubtitleTrack {
   final bool isDefault;
   final String source;
 
-  /// Server display label the track belongs to (e.g. "RPM via Vidflix"),
+  /// Server display label the track belongs to (e.g. "VidLink via Worker"),
   /// used to group cross-server subtitle fallback options.
   final String group;
 
@@ -2982,6 +2982,57 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
               style: const TextStyle(color: Colors.grey, fontSize: 11),
               textAlign: TextAlign.center,
             ),
+            if (_availableServers.isNotEmpty) ...[
+              const SizedBox(height: 20),
+              const Text(
+                'Try another server:',
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 10),
+              ..._availableServers.take(6).map((stream) {
+                final source =
+                    stream['source']?.toString() ?? stream['server']?.toString() ?? 'Server';
+                final selected = _serverIdentity(stream) == _selectedServerKey;
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: selected || _isSwitchingServer
+                          ? null
+                          : () => _switchServer(stream),
+                      icon: Icon(
+                        selected ? Icons.check_circle : Icons.play_circle_outline,
+                        size: 18,
+                        color: selected ? Colors.red : Colors.white70,
+                      ),
+                      label: Text(
+                        source,
+                        style: TextStyle(
+                          color: selected ? Colors.red : Colors.white,
+                          fontSize: 13,
+                        ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        backgroundColor: Colors.white.withOpacity(0.05),
+                        side: BorderSide(
+                          color: selected ? Colors.red : Colors.white24,
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 10,
+                        ),
+                        alignment: Alignment.centerLeft,
+                      ),
+                    ),
+                  ),
+                );
+              }),
+            ],
             const SizedBox(height: 24),
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
