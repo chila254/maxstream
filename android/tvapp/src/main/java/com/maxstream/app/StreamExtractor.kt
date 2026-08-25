@@ -241,6 +241,7 @@ class StreamExtractor(private val context: Context) {
             FrembedExtractor(),
             SeapiLinkExtractor(),
             VidNestExtractor(),
+            VidLoveExtractor(),
             AutoEmbedExtractor(),
             MultiEmbedExtractor(),
             EmbedSuExtractor(),
@@ -559,6 +560,15 @@ class StreamExtractor(private val context: Context) {
                     "https://vidnest.fun/movie/$id"
                 } else {
                     "https://vidnest.fun/tv/$id/${request.season}/${request.episode}"
+                },
+            )
+
+            servers += StreamServer(
+                "VidLove",
+                if (request.isMovie) {
+                    "https://player.vidlove.cc/embed/movie/$id"
+                } else {
+                    "https://player.vidlove.cc/embed/tv/$id/${request.season}/${request.episode}"
                 },
             )
 
@@ -2252,6 +2262,50 @@ class StreamExtractor(private val context: Context) {
                 ?: throw IllegalStateException("VidNest iframe not found")
             val absolute = resolveUrl(server.url, iframe)
             return ExtractionResult.Redirect(StreamServer("VidNest host", absolute, refererHeaders(server.url)))
+        }
+    }
+
+    private inner class VidLoveExtractor : HostExtractor {
+        override val name = "VidLove"
+        override val usesWebView = true
+        override fun supports(server: StreamServer) = host(server.url).contains("vidlove.cc")
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            return withContext(Dispatchers.Main) {
+                withTimeout(30_000) {
+                    suspendCancellableCoroutine { continuation ->
+                        val webView = WebView(context)
+                        webView.settings.javaScriptEnabled = true
+                        webView.settings.domStorageEnabled = true
+
+                        webView.webViewClient = object : WebViewClient() {
+                            override fun shouldInterceptRequest(
+                                view: WebView?,
+                                request: WebResourceRequest?,
+                            ): WebResourceResponse? {
+                                val url = request?.url?.toString() ?: ""
+                                if (url.endsWith(".m3u8") && !url.contains("master")) {
+                                    if (continuation.isActive) {
+                                        continuation.resume(
+                                            ExtractionResult.Final(
+                                                StreamResult(url, name, "direct_m3u8", refererHeaders(server.url)),
+                                            ),
+                                        )
+                                    }
+                                }
+                                return super.shouldInterceptRequest(view, request)
+                            }
+                        }
+                        webView.loadUrl(server.url)
+                        continuation.invokeOnCancellation {
+                            webView.post {
+                                webView.stopLoading()
+                                webView.destroy()
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
