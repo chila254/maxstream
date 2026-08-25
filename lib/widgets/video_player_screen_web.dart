@@ -12,6 +12,7 @@ Widget buildVideoPlayerScreen({
   String? offlinePath,
   List<Map<String, dynamic>> offlineSubtitles = const [],
   List<Map<String, dynamic>> offlineEpisodes = const [],
+  List<int> genreIds = const [],
 }) {
   return WebVideoPlayerScreen(
     title: title,
