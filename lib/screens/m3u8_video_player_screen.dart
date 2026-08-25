@@ -624,14 +624,16 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     debugPrint('M3U8Player: $message');
     if (mounted) {
       setState(() => _statusMessage = message);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(message),
-          duration: const Duration(seconds: 2),
-          backgroundColor: Colors.blue.shade800,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      try {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(message),
+            duration: const Duration(seconds: 2),
+            backgroundColor: Colors.blue.shade800,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      } catch (_) {}
     }
   }
 

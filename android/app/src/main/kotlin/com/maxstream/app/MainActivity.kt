@@ -139,26 +139,34 @@ class MainActivity : FlutterActivity() {
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "getBrightness" -> {
-                        val windowBrightness = window.attributes.screenBrightness
-                        val brightness = if (windowBrightness >= 0f) {
-                            windowBrightness
-                        } else {
-                            Settings.System.getInt(
-                                contentResolver,
-                                Settings.System.SCREEN_BRIGHTNESS,
-                                128,
-                            ) / 255f
+                        try {
+                            val windowBrightness = window.attributes.screenBrightness
+                            val brightness = if (windowBrightness >= 0f) {
+                                windowBrightness
+                            } else {
+                                Settings.System.getInt(
+                                    contentResolver,
+                                    Settings.System.SCREEN_BRIGHTNESS,
+                                    128,
+                                ) / 255f
+                            }
+                            result.success(brightness.toDouble())
+                        } catch (e: Exception) {
+                            result.success(0.5)
                         }
-                        result.success(brightness.toDouble())
                     }
                     "setBrightness" -> {
-                        val brightness = (call.argument<Double>("value") ?: 0.5)
-                            .coerceIn(0.01, 1.0)
-                            .toFloat()
-                        window.attributes = window.attributes.apply {
-                            screenBrightness = brightness
+                        try {
+                            val brightness = (call.argument<Double>("value") ?: 0.5)
+                                .coerceIn(0.01, 1.0)
+                                .toFloat()
+                            window.attributes = window.attributes.apply {
+                                screenBrightness = brightness
+                            }
+                            result.success(null)
+                        } catch (e: Exception) {
+                            result.success(null)
                         }
-                        result.success(null)
                     }
                     "resolveStream" -> {
                         val tmdbId = call.argument<String>("tmdbId") ?: ""
@@ -172,13 +180,16 @@ class MainActivity : FlutterActivity() {
                                 val stream = withContext(Dispatchers.IO) {
                                     extractor.resolveStream(tmdbId, isMovie, season, episode, title)
                                 }
-                                if (stream != null) {
-                                    result.success(stream)
-                                } else {
-                                    result.error("NO_STREAM", "No stream found", null)
-                                }
+                                try {
+                                    if (stream != null) {
+                                        result.success(stream)
+                                    } else {
+                                        result.error("NO_STREAM", "No stream found", null)
+                                    }
+                                } catch (_: IllegalStateException) { }
                             } catch (e: Exception) {
-                                result.error("EXTRACT_ERROR", e.message, null)
+                                try { result.error("EXTRACT_ERROR", e.message, null) }
+                                catch (_: IllegalStateException) { }
                             }
                         }
                     }
@@ -194,9 +205,11 @@ class MainActivity : FlutterActivity() {
                                 val streams = withContext(Dispatchers.IO) {
                                     extractor.resolveStreams(tmdbId, isMovie, season, episode, title)
                                 }
-                                result.success(streams)
+                                try { result.success(streams) }
+                                catch (_: IllegalStateException) { }
                             } catch (e: Exception) {
-                                result.error("EXTRACT_ERROR", e.message, null)
+                                try { result.error("EXTRACT_ERROR", e.message, null) }
+                                catch (_: IllegalStateException) { }
                             }
                         }
                     }

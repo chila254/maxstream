@@ -283,7 +283,7 @@ class StreamExtractor(private val context: Context) {
         // Race every server in parallel and take the FIRST playable one instead
         // of walking them one at a time (a single dead server used to stall the
         // whole chain on its 12-45s timeouts).
-        val extractionSlots = Semaphore(if (isLowRamDevice()) 2 else 4)
+        val extractionSlots = Semaphore(if (isLowRamDevice()) 1 else 3)
         val channel = Channel<StreamResult>(Channel.CONFLATED)
         val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
         val jobs = servers.map { server ->
@@ -299,7 +299,7 @@ class StreamExtractor(private val context: Context) {
                 }
             }
         }
-        val first = withTimeoutOrNull(30_000) { channel.receive() }
+        val first = withTimeoutOrNull(45_000) { channel.receive() }
         jobs.forEach { it.cancel() }
         scope.cancel()
         if (first != null) {
@@ -321,8 +321,8 @@ class StreamExtractor(private val context: Context) {
         require(tmdbId.isNotBlank()) { "TMDB ID is required" }
         val media = MediaRequest(tmdbId, isMovie, season, episode, title)
         val servers = buildServerList(media)
-        val extractionSlots = Semaphore(if (isLowRamDevice()) 2 else 4)
-        withTimeoutOrNull(25_000) {
+        val extractionSlots = Semaphore(if (isLowRamDevice()) 1 else 3)
+        withTimeoutOrNull(45_000) {
             coroutineScope {
                 servers.map { server ->
                     async(Dispatchers.IO) {
@@ -867,6 +867,9 @@ class StreamExtractor(private val context: Context) {
                 val response = client.newCall(request).execute()
                 require(response.isSuccessful) { "VidLink /api/b/ HTTP ${response.code}" }
                 val body = response.body?.string() ?: throw IllegalStateException("VidLink empty response")
+                if (body.startsWith("<") || body.startsWith("<!")) {
+                    throw IllegalStateException("VidLink API returned HTML (content not in API database)")
+                }
                 val json = JSONObject(body)
                 val stream = json.optJSONObject("stream")
                     ?: throw IllegalStateException("VidLink response has no stream")
