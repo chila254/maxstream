@@ -309,9 +309,8 @@ class _MaxStreamMainScreenState extends State<MaxStreamMainScreen> {
             ),
             if (_miniplayerActive)
               Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
+                right: 16,
+                bottom: MediaQuery.of(context).padding.bottom + 70,
                 child: MiniplayerBar(
                   onTap: _restoreMiniplayer,
                   onClose: _closeMiniplayer,

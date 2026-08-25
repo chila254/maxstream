@@ -97,6 +97,7 @@ class _StablePlayerControls extends StatefulWidget {
   const _StablePlayerControls({
     required this.controller,
     required this.onBack,
+    required this.onMinimize,
     required this.mediaTitle,
     required this.onQuality,
     required this.qualityLabel,
@@ -118,6 +119,7 @@ class _StablePlayerControls extends StatefulWidget {
 
   final VideoPlayerController controller;
   final VoidCallback onBack;
+  final VoidCallback onMinimize;
   final String mediaTitle;
   final VoidCallback onQuality;
   final String qualityLabel;
@@ -303,6 +305,14 @@ class _StablePlayerControlsState extends State<_StablePlayerControls> {
                             onPressed: widget.onBack,
                             icon: const Icon(
                               Icons.arrow_back,
+                              color: Colors.white,
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: 'Minimize',
+                            onPressed: widget.onMinimize,
+                            icon: const Icon(
+                              Icons.picture_in_picture_alt,
                               color: Colors.white,
                             ),
                           ),
@@ -1650,7 +1660,14 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     if (_isLeaving) return;
     _isLeaving = true;
     await _saveProgress();
-    // Minimize to miniplayer instead of fully closing
+    _videoPlayerController?.dispose();
+    if (mounted) Navigator.of(context).pop(true);
+  }
+
+  void _minimizePlayer() async {
+    if (_isLeaving) return;
+    _isLeaving = true;
+    await _saveProgress();
     final controller = _videoPlayerController;
     if (controller != null && controller.value.isInitialized) {
       _isMinimizing = true;
@@ -2778,6 +2795,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
           child: _StablePlayerControls(
             controller: controller,
             onBack: _exitPlayer,
+            onMinimize: _minimizePlayer,
             mediaTitle: _currentTitle,
             onQuality: _showQualityPicker,
             qualityLabel: _selectedQuality,
