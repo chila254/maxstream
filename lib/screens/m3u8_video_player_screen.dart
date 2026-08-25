@@ -308,6 +308,14 @@ class _StablePlayerControlsState extends State<_StablePlayerControls> {
                               color: Colors.white,
                             ),
                           ),
+                          IconButton(
+                            tooltip: 'Minimize',
+                            onPressed: widget.onMinimize,
+                            icon: const Icon(
+                              Icons.picture_in_picture_alt,
+                              color: Colors.white,
+                            ),
+                          ),
                           if (widget.mediaTitle.isNotEmpty)
                             Flexible(
                               child: Container(
@@ -332,32 +340,6 @@ class _StablePlayerControlsState extends State<_StablePlayerControls> {
                               ),
                             ),
                         ],
-                      ),
-                    ),
-                  ),
-                ),
-              if (_visible && widget.showServer)
-                Align(
-                  alignment: Alignment.topRight,
-                  child: SafeArea(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(0, 8, 8, 0),
-                      child: IconButton(
-                        tooltip: 'Servers',
-                        onPressed: widget.onServer,
-                        icon: widget.serversLoading
-                            ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : const Icon(
-                                Icons.dns_outlined,
-                                color: Colors.white,
-                              ),
                       ),
                     ),
                   ),
@@ -467,14 +449,27 @@ class _StablePlayerControlsState extends State<_StablePlayerControls> {
                                         ),
                                       ),
                               ),
-                            IconButton(
-                              tooltip: 'Minimize',
-                              onPressed: widget.onMinimize,
-                              icon: const Icon(
-                                Icons.picture_in_picture_alt,
-                                color: Colors.white,
+                            if (widget.showServer)
+                              TextButton.icon(
+                                onPressed: widget.onServer,
+                                icon: widget.serversLoading
+                                    ? const SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Colors.white,
+                                        ),
+                                      )
+                                    : const Icon(
+                                        Icons.dns_outlined,
+                                        color: Colors.white,
+                                      ),
+                                label: Text(
+                                  widget.serverLabel,
+                                  style: const TextStyle(color: Colors.white),
+                                ),
                               ),
-                            ),
                             if (widget.showSubtitles)
                               ValueListenableBuilder<String>(
                                 valueListenable: widget.subtitleLabel,
