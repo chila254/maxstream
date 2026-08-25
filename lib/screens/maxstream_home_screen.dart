@@ -70,7 +70,7 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
         popularMovies = results[1];
         topRatedMovies = results[2];
         nowPlayingMovies = results[3];
-        upcomingMovies = results[4];
+        upcomingMovies = TmdbApiService.filterUnreleased(results[4]);
         continueWatching = results[5].take(10).toList();
       });
     } catch (e) {
@@ -1064,7 +1064,9 @@ class _FullListScreenState extends State<_FullListScreen> {
         initialItems = await TmdbApiService.fetchNowPlayingMovies(page: 1);
       } else if (widget.title.contains('Upcoming') &&
           widget.mediaType == 'movie') {
-        initialItems = await TmdbApiService.fetchUpcomingMovies(page: 1);
+        initialItems = TmdbApiService.filterUnreleased(
+          await TmdbApiService.fetchUpcomingMovies(page: 1),
+        );
       } else if (widget.title.contains('Trending') &&
           widget.mediaType == 'tv') {
         initialItems = await TmdbApiService.fetchTrendingSeries(page: 1);
@@ -1126,7 +1128,9 @@ class _FullListScreenState extends State<_FullListScreen> {
         newItems = await TmdbApiService.fetchNowPlayingMovies(page: nextPage);
       } else if (widget.title.contains('Upcoming') &&
           widget.mediaType == 'movie') {
-        newItems = await TmdbApiService.fetchUpcomingMovies(page: nextPage);
+        newItems = TmdbApiService.filterUnreleased(
+          await TmdbApiService.fetchUpcomingMovies(page: nextPage),
+        );
       } else if (widget.title.contains('Trending') &&
           widget.mediaType == 'tv') {
         newItems = await TmdbApiService.fetchTrendingSeries(page: nextPage);

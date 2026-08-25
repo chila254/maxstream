@@ -61,6 +61,25 @@ class TmdbApiService {
     }
   }
 
+  /// Filter a TMDB results list to only include items whose release/air date
+  /// is strictly in the future (i.e. not yet released).
+  static List<Map<String, dynamic>> filterUnreleased(
+    List<Map<String, dynamic>> items, {
+    String dateField = 'release_date',
+  }) {
+    final today = DateTime.now();
+    return items.where((item) {
+      final dateStr = item[dateField]?.toString();
+      if (dateStr == null || dateStr.length < 10) return false;
+      try {
+        final releaseDate = DateTime.parse(dateStr);
+        return releaseDate.isAfter(today);
+      } catch (_) {
+        return false;
+      }
+    }).toList();
+  }
+
   static Future<List<Map<String, dynamic>>> results(
     String path, [
     Map<String, Object?> parameters = const {},
