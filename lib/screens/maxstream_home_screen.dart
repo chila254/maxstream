@@ -29,8 +29,7 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
   List<Map<String, dynamic>> trendingMovies = [];
   List<Map<String, dynamic>> popularMovies = [];
   List<Map<String, dynamic>> topRatedMovies = [];
-  List<Map<String, dynamic>> nowPlayingMovies = [];
-  List<Map<String, dynamic>> upcomingMovies = [];
+  List<Map<String, dynamic>> upcomingContent = [];
   List<Map<String, dynamic>> continueWatching = [];
 
   @override
@@ -59,18 +58,31 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
         TmdbApiService.fetchTrendingMovies(),
         TmdbApiService.fetchPopularMovies(),
         TmdbApiService.fetchTopRatedMovies(),
-        TmdbApiService.fetchNowPlayingMovies(),
         TmdbApiService.fetchUpcomingMovies(),
+        TmdbApiService.fetchUpcomingSeries(),
         syncFuture.then((_) => WatchHistoryService.getContinueWatching()),
       ]);
 
       if (!mounted) return;
+      final upcomingMv =
+          TmdbApiService.filterUnreleased(results[3]);
+      final upcomingTv = TmdbApiService.filterUnreleased(
+        results[4],
+        dateField: 'first_air_date',
+      );
+      // Merge and shuffle movies + series into one "Coming Soon" section
+      for (final item in upcomingTv) {
+        item['media_type'] = 'tv';
+      }
+      for (final item in upcomingMv) {
+        item['media_type'] = 'movie';
+      }
+      final mergedUpcoming = [...upcomingMv, ...upcomingTv]..shuffle();
       setState(() {
         trendingMovies = results[0];
         popularMovies = results[1];
         topRatedMovies = results[2];
-        nowPlayingMovies = results[3];
-        upcomingMovies = TmdbApiService.filterUnreleased(results[4]);
+        upcomingContent = mergedUpcoming;
         continueWatching = results[5].take(10).toList();
       });
     } catch (e) {
@@ -101,10 +113,9 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
                   ),
                   SliverToBoxAdapter(child: _buildProvidersSection()),
                   _buildSection('Trending Movies', trendingMovies, 'movie'),
-                  _buildSection('Now Playing', nowPlayingMovies, 'movie'),
                   _buildSection('Popular Movies', popularMovies, 'movie'),
                   _buildSection('Top Rated Movies', topRatedMovies, 'movie'),
-                  if (upcomingMovies.isNotEmpty) _buildUpcomingMoviesSection(),
+                  if (upcomingContent.isNotEmpty) _buildUpcomingSection(),
                   const SliverToBoxAdapter(child: SizedBox(height: 100)),
                 ],
               ),
@@ -522,7 +533,7 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
     );
   }
 
-  Widget _buildUpcomingMoviesSection() {
+  Widget _buildUpcomingSection() {
     return SliverToBoxAdapter(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -577,10 +588,10 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 16),
-              itemCount: upcomingMovies.length,
+              itemCount: upcomingContent.length,
               itemBuilder: (context, index) {
-                final item = upcomingMovies[index];
-                return _buildUpcomingMovieCard(item);
+                final item = upcomingContent[index];
+                return _buildUpcomingCard(item);
               },
             ),
           ),
@@ -589,13 +600,17 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
     );
   }
 
-  Widget _buildUpcomingMovieCard(Map<String, dynamic> item) {
+  Widget _buildUpcomingCard(Map<String, dynamic> item) {
     final name = item['title'] ?? item['name'] ?? 'Unknown';
     final posterPath = item['poster_path'];
     final backdropPath = item['backdrop_path'];
     final rating = (item['vote_average'] as num?)?.toDouble();
-    final releaseDate = item['release_date']?.toString() ?? '';
+    final releaseDate = (item['release_date'] ?? item['first_air_date'])
+            ?.toString() ??
+        '';
     final overview = item['overview']?.toString() ?? '';
+    final isTv = item['media_type'] == 'tv';
+    final typeLabel = isTv ? 'TV' : 'MOVIE';
 
     return GestureDetector(
       onTap: () {
@@ -603,10 +618,12 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => MaxStreamDetailsScreen(
-              item: Movie.fromJson(item),
-              mediaType: 'movie',
-            ),
+            builder: (context) => isTv
+                ? MaxStreamSeriesScreen(seriesItem: Movie.fromJson(item))
+                : MaxStreamDetailsScreen(
+                    item: Movie.fromJson(item),
+                    mediaType: 'movie',
+                  ),
           ),
         );
       },
@@ -657,28 +674,51 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
                     ),
                   ),
                 ),
-              // "UPCOMING" badge
+              // Badge row: type + UPCOMING
               Positioned(
                 top: 10,
                 left: 10,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.purple.shade700,
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: const Text(
-                    'UPCOMING',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 9,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 0.5,
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: isTv ? Colors.teal : Colors.red,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        typeLabel,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ),
-                  ),
+                    const SizedBox(width: 4),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.purple.shade700,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: const Text(
+                        'UPCOMING',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
               // Rating
