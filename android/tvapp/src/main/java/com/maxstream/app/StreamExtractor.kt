@@ -25,7 +25,9 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import okhttp3.Cookie
 import okhttp3.CookieJar
@@ -267,6 +269,9 @@ class StreamExtractor(private val context: Context) {
 
     private val goodstreamExtractor = GoodstreamExtractor()
 
+    /** Serialises WebView-based extractors so only one WebView is alive at a time. */
+    private val webViewMutex = Mutex()
+
     suspend fun resolveStream(
         tmdbId: String,
         isMovie: Boolean,
@@ -290,7 +295,7 @@ class StreamExtractor(private val context: Context) {
         // of walking them one at a time (a single dead server used to stall the
         // whole chain on its 12-45s timeouts). WebView extractors are skipped on
         // 1GB-class boxes so several never render at once and OOM the device.
-        val extractionSlots = Semaphore(if (isLowRamDevice()) 1 else 3)
+        val extractionSlots = Semaphore(4)
         val channel = Channel<StreamResult>(Channel.CONFLATED)
         val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
         val jobs = servers.map { server ->
@@ -328,7 +333,7 @@ class StreamExtractor(private val context: Context) {
         require(tmdbId.isNotBlank()) { "TMDB ID is required" }
         val media = MediaRequest(tmdbId, isMovie, season, episode, title)
         val servers = buildServerList(media)
-        val extractionSlots = Semaphore(if (isLowRamDevice()) 1 else 3)
+        val extractionSlots = Semaphore(4)
         withTimeoutOrNull(45_000) {
             coroutineScope {
                 servers.map { server ->
@@ -447,11 +452,22 @@ class StreamExtractor(private val context: Context) {
             }
             Log.d(tag, "Dispatching ${server.name} to ${extractor.name}")
 
-            val result = try {
-                extractor.extract(server)
-            } catch (error: Exception) {
-                Log.e(tag, "Extractor ${extractor.name} failed: ${error.message}")
-                return null
+            val result = if (extractor.usesWebView) {
+                webViewMutex.withLock {
+                    try {
+                        extractor.extract(server)
+                    } catch (error: Exception) {
+                        Log.e(tag, "Extractor ${extractor.name} failed: ${error.message}")
+                        return null
+                    }
+                }
+            } else {
+                try {
+                    extractor.extract(server)
+                } catch (error: Exception) {
+                    Log.e(tag, "Extractor ${extractor.name} failed: ${error.message}")
+                    return null
+                }
             }
 
             when (result) {
