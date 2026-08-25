@@ -43,6 +43,7 @@ class Season {
   final String name;
   final String overview;
   final String posterPath;
+  final String airDate;
   List<Episode> episodes;
 
   Season({
@@ -52,6 +53,7 @@ class Season {
     required this.name,
     required this.overview,
     required this.posterPath,
+    this.airDate = '',
     this.episodes = const [],
   });
 
@@ -63,7 +65,14 @@ class Season {
       name: json['name'],
       overview: json['overview'],
       posterPath: json['poster_path'] ?? '',
+      airDate: json['air_date'] ?? '',
     );
+  }
+
+  bool get isReleased {
+    if (airDate.isEmpty) return true;
+    final date = DateTime.tryParse(airDate);
+    return date == null || date.isBefore(DateTime.now());
   }
 }
 
@@ -73,6 +82,7 @@ class Episode {
   final int episodeNumber;
   final String overview;
   final String stillPath;
+  final String airDate;
 
   Episode({
     required this.id,
@@ -80,6 +90,7 @@ class Episode {
     required this.episodeNumber,
     required this.overview,
     required this.stillPath,
+    this.airDate = '',
   });
 
   factory Episode.fromJson(Map<String, dynamic> json) {
@@ -89,6 +100,24 @@ class Episode {
       episodeNumber: json['episode_number'],
       overview: json['overview'],
       stillPath: json['still_path'] ?? '',
+      airDate: json['air_date'] ?? '',
     );
+  }
+
+  bool get isReleased {
+    if (airDate.isEmpty) return true;
+    final date = DateTime.tryParse(airDate);
+    return date == null || date.isBefore(DateTime.now());
+  }
+
+  String get formattedAirDate {
+    if (airDate.isEmpty) return '';
+    final date = DateTime.tryParse(airDate);
+    if (date == null) return airDate;
+    final months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    return '${months[date.month - 1]} ${date.day}, ${date.year}';
   }
 }

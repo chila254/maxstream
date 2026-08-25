@@ -21,6 +21,8 @@ class _MaxStreamSeriesListScreenState extends State<MaxStreamSeriesListScreen> {
   List<Map<String, dynamic>> trendingSeries = [];
   List<Map<String, dynamic>> popularSeries = [];
   List<Map<String, dynamic>> topRatedSeries = [];
+  List<Map<String, dynamic>> onTheAirSeries = [];
+  List<Map<String, dynamic>> airingTodaySeries = [];
 
   @override
   void initState() {
@@ -36,12 +38,16 @@ class _MaxStreamSeriesListScreenState extends State<MaxStreamSeriesListScreen> {
         TmdbApiService.fetchTrendingSeries(),
         TmdbApiService.fetchPopularSeries(),
         TmdbApiService.fetchTopRatedSeries(),
+        TmdbApiService.fetchOnTheAirSeries(),
+        TmdbApiService.fetchAiringTodaySeries(),
       ]);
 
       setState(() {
         trendingSeries = results[0];
         popularSeries = results[1];
         topRatedSeries = results[2];
+        onTheAirSeries = results[3];
+        airingTodaySeries = results[4];
       });
     } catch (e) {
       // Error loading series content
@@ -66,6 +72,8 @@ class _MaxStreamSeriesListScreenState extends State<MaxStreamSeriesListScreen> {
               _buildSection('Trending TV Shows', trendingSeries, 'tv'),
               _buildSection('Popular TV Shows', popularSeries, 'tv'),
               _buildSection('Top Rated TV Shows', topRatedSeries, 'tv'),
+              _buildSection('On The Air', onTheAirSeries, 'tv'),
+              _buildSection('Airing Today', airingTodaySeries, 'tv'),
               const SliverToBoxAdapter(child: SizedBox(height: 100)),
             ],
           ],
@@ -453,6 +461,12 @@ class _FullListScreenState extends State<_FullListScreen> {
       } else if (widget.title.contains('Top Rated') &&
           widget.mediaType == 'tv') {
         initialItems = await TmdbApiService.fetchTopRatedSeries(page: 1);
+      } else if (widget.title.contains('On The Air') &&
+          widget.mediaType == 'tv') {
+        initialItems = await TmdbApiService.fetchOnTheAirSeries(page: 1);
+      } else if (widget.title.contains('Airing Today') &&
+          widget.mediaType == 'tv') {
+        initialItems = await TmdbApiService.fetchAiringTodaySeries(page: 1);
       }
 
       setState(() {
@@ -501,6 +515,12 @@ class _FullListScreenState extends State<_FullListScreen> {
       } else if (widget.title.contains('Top Rated') &&
           widget.mediaType == 'tv') {
         newItems = await TmdbApiService.fetchTopRatedSeries(page: nextPage);
+      } else if (widget.title.contains('On The Air') &&
+          widget.mediaType == 'tv') {
+        newItems = await TmdbApiService.fetchOnTheAirSeries(page: nextPage);
+      } else if (widget.title.contains('Airing Today') &&
+          widget.mediaType == 'tv') {
+        newItems = await TmdbApiService.fetchAiringTodaySeries(page: nextPage);
       }
 
       if (!mounted) return;

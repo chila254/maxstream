@@ -412,14 +412,17 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
   }
 
   Future<void> _downloadCurrentSeason() async {
-    if (_downloadingSeason || currentEpisodes.isEmpty) return;
+    final releasedEpisodes = currentEpisodes.where((e) => e.isReleased).toList();
+    if (_downloadingSeason || releasedEpisodes.isEmpty) return;
     final season = seasons[selectedSeasonIndex].seasonNumber;
+    final unreleasedCount = currentEpisodes.length - releasedEpisodes.length;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text('Download Season $season?'),
         content: Text(
-          '${currentEpisodes.length} episodes will be downloaded one at a time.',
+          '${releasedEpisodes.length} released episodes will be downloaded one at a time.'
+          '${unreleasedCount > 0 ? '\n\n$unreleasedCount unreleased episodes will be skipped.' : ''}',
         ),
         actions: [
           TextButton(
@@ -436,12 +439,12 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
     if (confirmed != true || !mounted) return;
     setState(() {
       _downloadingSeason = true;
-      _seasonDownloadTotal = currentEpisodes.length;
+      _seasonDownloadTotal = releasedEpisodes.length;
       _seasonDownloadCurrent = 0;
       _seasonDownloadStatus = 'Preparing...';
     });
     var completed = 0;
-    final episodes = List<Episode>.from(currentEpisodes);
+    final episodes = List<Episode>.from(releasedEpisodes);
     try {
       for (final episode in episodes) {
         if (!mounted) break;
@@ -630,6 +633,20 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
     try {
       final parsedDate = DateTime.parse(date);
       return '${parsedDate.day}/${parsedDate.month}/${parsedDate.year}';
+    } catch (e) {
+      return date;
+    }
+  }
+
+  String _formatAirDate(String date) {
+    if (date.isEmpty) return '';
+    try {
+      final parsed = DateTime.parse(date);
+      const months = [
+        'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      ];
+      return '${months[parsed.month - 1]} ${parsed.day}, ${parsed.year}';
     } catch (e) {
       return date;
     }
@@ -890,8 +907,12 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
                         SizedBox(
                           width: double.infinity,
                           child: ElevatedButton.icon(
-                            onPressed: currentEpisodes.isNotEmpty
-                                ? () => _playEpisode(currentEpisodes.first)
+                            onPressed: currentEpisodes.any((e) => e.isReleased)
+                                ? () {
+                                    final firstReleased = currentEpisodes
+                                        .firstWhere((e) => e.isReleased);
+                                    _playEpisode(firstReleased);
+                                  }
                                 : null,
                             icon: const Icon(
                               Icons.play_arrow,
@@ -1135,7 +1156,7 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
                 ),
               ),
               TextButton.icon(
-                onPressed: _downloadingSeason || currentEpisodes.isEmpty
+                onPressed: _downloadingSeason || !currentEpisodes.any((e) => e.isReleased)
                     ? null
                     : _downloadCurrentSeason,
                 icon: _downloadingSeason
@@ -1204,7 +1225,11 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
                 return Padding(
                   padding: const EdgeInsets.only(right: 12),
                   child: ChoiceChip(
-                    label: Text('Season ${season.seasonNumber}'),
+                    label: Text(
+                      season.isReleased
+                          ? 'Season ${season.seasonNumber}'
+                          : 'Season ${season.seasonNumber} · ${_formatAirDate(season.airDate)}',
+                    ),
                     selected: isSelected,
                     onSelected: (selected) {
                       if (selected) {
@@ -1214,7 +1239,7 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
                         _loadSeasonEpisodes(season.seasonNumber);
                       }
                     },
-                    selectedColor: Colors.red,
+                    selectedColor: season.isReleased ? Colors.red : Colors.grey[700],
                     backgroundColor: const Color(0xFF2A2A2A),
                     labelStyle: TextStyle(
                       color: isSelected ? Colors.white : Colors.grey,
@@ -1256,15 +1281,19 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
     final isDownloaded = _downloadedEpisodeKeys.contains(key);
     final activeTask = _downloadManager.taskFor(key);
     final isCurrentlyDownloading = activeTask != null;
+    final isReleased = episode.isReleased;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: InkWell(
-        onTap: () => _playEpisode(episode),
+        onTap: isReleased ? () => _playEpisode(episode) : null,
         child: Container(
           decoration: BoxDecoration(
             color: const Color(0xFF1E1E1E),
             borderRadius: BorderRadius.circular(8),
+            border: isReleased
+                ? null
+                : Border.all(color: Colors.grey[700]!, width: 1),
           ),
           child: Row(
             children: [
@@ -1287,11 +1316,17 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
                           fit: BoxFit.cover,
                         ),
                       )
-                    : const Icon(
-                        Icons.play_circle_outline,
-                        color: Colors.white54,
-                        size: 40,
-                      ),
+                    : isReleased
+                        ? const Icon(
+                            Icons.play_circle_outline,
+                            color: Colors.white54,
+                            size: 40,
+                          )
+                        : Icon(
+                            Icons.schedule,
+                            color: Colors.grey[600],
+                            size: 40,
+                          ),
               ),
               Expanded(
                 child: Padding(
@@ -1320,6 +1355,27 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
                           ),
                         ],
                       ),
+                      if (!isReleased && episode.airDate.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.amber.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            'Releases ${episode.formattedAirDate}',
+                            style: const TextStyle(
+                              color: Colors.amber,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
                       if (episode.overview.isNotEmpty) ...[
                         const SizedBox(height: 4),
                         Text(
@@ -1340,36 +1396,37 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
                   ),
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.only(right: 4),
-                child: IconButton(
-                  tooltip: isDownloaded
-                      ? 'Downloaded'
-                      : isCurrentlyDownloading
-                      ? 'Downloading'
-                      : 'Download episode',
-                  onPressed: isDownloading || isCurrentlyDownloading
-                      ? null
-                      : isDownloaded
-                      ? null
-                      : () => _showEpisodeQualitySheet(episode),
-                  icon: isDownloading || isCurrentlyDownloading
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
+              if (isReleased)
+                Padding(
+                  padding: const EdgeInsets.only(right: 4),
+                  child: IconButton(
+                    tooltip: isDownloaded
+                        ? 'Downloaded'
+                        : isCurrentlyDownloading
+                        ? 'Downloading'
+                        : 'Download episode',
+                    onPressed: isDownloading || isCurrentlyDownloading
+                        ? null
+                        : isDownloaded
+                        ? null
+                        : () => _showEpisodeQualitySheet(episode),
+                    icon: isDownloading || isCurrentlyDownloading
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : isDownloaded
+                        ? const Icon(Icons.check_circle, color: Colors.green)
+                        : const Icon(
+                            Icons.download_for_offline_outlined,
+                            color: Colors.red,
                           ),
-                        )
-                      : isDownloaded
-                      ? const Icon(Icons.check_circle, color: Colors.green)
-                      : const Icon(
-                          Icons.download_for_offline_outlined,
-                          color: Colors.red,
-                        ),
+                  ),
                 ),
-              ),
             ],
           ),
         ),

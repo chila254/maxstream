@@ -143,6 +143,39 @@ class _MiniplayerBarState extends State<MiniplayerBar> {
                 ],
               ),
             ),
+            // Subtitles overlay
+            if (service.activeSubtitleCues.isNotEmpty)
+              Positioned(
+                left: 4,
+                right: 4,
+                bottom: 36,
+                child: Builder(
+                  builder: (context) {
+                    final cues = service.activeSubtitleCues.where(
+                      (cue) =>
+                          position >= cue.start && position <= cue.end,
+                    );
+                    if (cues.isEmpty) return const SizedBox.shrink();
+                    return Text(
+                      cues.map((c) => c.text).join('\n'),
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: isTablet ? 10 : 8,
+                        fontWeight: FontWeight.w500,
+                        shadows: const [
+                          Shadow(
+                            blurRadius: 4,
+                            color: Colors.black,
+                          ),
+                        ],
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    );
+                  },
+                ),
+              ),
             // Play/pause
             Center(
               child: Container(

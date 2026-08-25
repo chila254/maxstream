@@ -1,6 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
+/// Active subtitle cue for rendering in the miniplayer.
+class MiniSubtitleCue {
+  const MiniSubtitleCue({
+    required this.start,
+    required this.end,
+    required this.text,
+  });
+
+  final Duration start;
+  final Duration end;
+  final String text;
+}
+
 class MiniplayerService extends ChangeNotifier {
   static final MiniplayerService instance = MiniplayerService._();
   MiniplayerService._();
@@ -14,6 +27,18 @@ class MiniplayerService extends ChangeNotifier {
   List<int> _genreIds = const [];
   bool _minimizing = false;
 
+  // Restored controls state
+  List<Map<String, dynamic>> _availableServers = const [];
+  List<Map<String, dynamic>> _subtitleTracksRaw = const [];
+  List<Map<String, dynamic>> _qualitiesRaw = const [];
+  String _selectedQuality = 'Auto';
+  String _selectedServerKey = '';
+  String _currentSource = '';
+  Map<String, String> _streamHeaders = const {};
+  String _selectedSubtitleValue = 'Off';
+  String _selectedSubtitleUrl = '';
+  List<MiniSubtitleCue> _activeSubtitleCues = const [];
+
   VideoPlayerController? get controller => _controller;
   String get title => _title;
   String get tmdbId => _tmdbId;
@@ -24,6 +49,17 @@ class MiniplayerService extends ChangeNotifier {
   bool get isActive => _controller != null;
   bool get isMinimizing => _minimizing;
 
+  List<Map<String, dynamic>> get availableServers => _availableServers;
+  List<Map<String, dynamic>> get subtitleTracksRaw => _subtitleTracksRaw;
+  List<Map<String, dynamic>> get qualitiesRaw => _qualitiesRaw;
+  String get selectedQuality => _selectedQuality;
+  String get selectedServerKey => _selectedServerKey;
+  String get currentSource => _currentSource;
+  Map<String, String> get streamHeaders => _streamHeaders;
+  String get selectedSubtitleValue => _selectedSubtitleValue;
+  String get selectedSubtitleUrl => _selectedSubtitleUrl;
+  List<MiniSubtitleCue> get activeSubtitleCues => _activeSubtitleCues;
+
   void minimize({
     required VideoPlayerController controller,
     required String title,
@@ -32,6 +68,15 @@ class MiniplayerService extends ChangeNotifier {
     required int season,
     required int episode,
     required List<int> genreIds,
+    required List<Map<String, dynamic>> availableServers,
+    required String selectedQuality,
+    required String selectedServerKey,
+    required String currentSource,
+    required Map<String, String> streamHeaders,
+    required String selectedSubtitleValue,
+    required String selectedSubtitleUrl,
+    required List<MiniSubtitleCue> activeSubtitleCues,
+    required List<Map<String, dynamic>> qualitiesRaw,
   }) {
     _controller = controller;
     _title = title;
@@ -40,6 +85,15 @@ class MiniplayerService extends ChangeNotifier {
     _season = season;
     _episode = episode;
     _genreIds = genreIds;
+    _availableServers = availableServers;
+    _selectedQuality = selectedQuality;
+    _selectedServerKey = selectedServerKey;
+    _currentSource = currentSource;
+    _streamHeaders = streamHeaders;
+    _selectedSubtitleValue = selectedSubtitleValue;
+    _selectedSubtitleUrl = selectedSubtitleUrl;
+    _activeSubtitleCues = activeSubtitleCues;
+    _qualitiesRaw = qualitiesRaw;
     _minimizing = true;
     notifyListeners();
     _minimizing = false;
@@ -54,6 +108,15 @@ class MiniplayerService extends ChangeNotifier {
     _season = 1;
     _episode = 1;
     _genreIds = const [];
+    _availableServers = const [];
+    _subtitleTracksRaw = const [];
+    _qualitiesRaw = const [];
+    _selectedQuality = 'Auto';
+    _selectedServerKey = '';
+    _currentSource = '';
+    _streamHeaders = const {};
+    _selectedSubtitleValue = 'Off';
+    _activeSubtitleCues = const [];
     notifyListeners();
     return c;
   }
@@ -67,6 +130,16 @@ class MiniplayerService extends ChangeNotifier {
     _season = 1;
     _episode = 1;
     _genreIds = const [];
+    _availableServers = const [];
+    _subtitleTracksRaw = const [];
+    _qualitiesRaw = const [];
+    _selectedQuality = 'Auto';
+    _selectedServerKey = '';
+    _currentSource = '';
+    _streamHeaders = const {};
+    _selectedSubtitleValue = 'Off';
+    _selectedSubtitleUrl = '';
+    _activeSubtitleCues = const [];
     notifyListeners();
   }
 }

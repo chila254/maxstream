@@ -29,6 +29,9 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
   List<Map<String, dynamic>> trendingMovies = [];
   List<Map<String, dynamic>> popularMovies = [];
   List<Map<String, dynamic>> topRatedMovies = [];
+  List<Map<String, dynamic>> nowPlayingMovies = [];
+  List<Map<String, dynamic>> upcomingMovies = [];
+  List<Map<String, dynamic>> airingTodaySeries = [];
   List<Map<String, dynamic>> continueWatching = [];
 
   @override
@@ -57,6 +60,9 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
         TmdbApiService.fetchTrendingMovies(),
         TmdbApiService.fetchPopularMovies(),
         TmdbApiService.fetchTopRatedMovies(),
+        TmdbApiService.fetchNowPlayingMovies(),
+        TmdbApiService.fetchUpcomingMovies(),
+        TmdbApiService.fetchAiringTodaySeries(),
         syncFuture.then((_) => WatchHistoryService.getContinueWatching()),
       ]);
 
@@ -65,7 +71,10 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
         trendingMovies = results[0];
         popularMovies = results[1];
         topRatedMovies = results[2];
-        continueWatching = results[3].take(10).toList();
+        nowPlayingMovies = results[3];
+        upcomingMovies = results[4];
+        airingTodaySeries = results[5];
+        continueWatching = results[6].take(10).toList();
       });
     } catch (e) {
       // Error loading content
@@ -95,8 +104,11 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
                   ),
                   SliverToBoxAdapter(child: _buildProvidersSection()),
                   _buildSection('Trending Movies', trendingMovies, 'movie'),
+                  _buildSection('Now Playing', nowPlayingMovies, 'movie'),
                   _buildSection('Popular Movies', popularMovies, 'movie'),
                   _buildSection('Top Rated Movies', topRatedMovies, 'movie'),
+                  _buildSection('Airing Today', airingTodaySeries, 'tv'),
+                  _buildSection('Upcoming', upcomingMovies, 'movie'),
                   const SliverToBoxAdapter(child: SizedBox(height: 100)),
                 ],
               ),

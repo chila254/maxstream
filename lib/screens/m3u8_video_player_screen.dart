@@ -573,6 +573,9 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   final ValueNotifier<List<Subtitle>> _activeSubtitles =
       ValueNotifier<List<Subtitle>>(const []);
   final ValueNotifier<String> _selectedSubtitle = ValueNotifier<String>('Off');
+  /// URL of the currently selected subtitle track, used as a stable key
+  /// to re-sync the display value when group names change after re-discovery.
+  String? _selectedSubtitleUrl;
   double _subtitleOffsetMs = 0; // Subtitle timing offset in milliseconds
   String _statusMessage = 'Initializing...';
   Timer? _progressTimer;
@@ -636,12 +639,36 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         _videoPlayerController!.addListener(_handlePlaybackChanged);
         _useNativePlayer = true;
         _videoInitialized = true;
+        // Restore controls state so buttons show immediately
+        _availableServers = miniplayer.availableServers;
+        _selectedQuality = miniplayer.selectedQuality;
+        _selectedServerKey = miniplayer.selectedServerKey.isNotEmpty
+            ? miniplayer.selectedServerKey
+            : null;
+        _currentSource = miniplayer.currentSource.isNotEmpty
+            ? miniplayer.currentSource
+            : null;
+        _streamHeaders = miniplayer.streamHeaders;
+        _selectedSubtitle.value = miniplayer.selectedSubtitleValue;
+        _selectedSubtitleUrl = miniplayer.selectedSubtitleUrl.isNotEmpty
+            ? miniplayer.selectedSubtitleUrl
+            : null;
+        _activeSubtitles.value = miniplayer.activeSubtitleCues
+            .map((c) => Subtitle(
+                  index: 0,
+                  start: c.start,
+                  end: c.end,
+                  text: c.text,
+                ))
+            .toList();
+        _subtitleTracks = _unionSubtitleTracks();
+        _qualities = _parseQualities(miniplayer.qualitiesRaw);
         SystemChrome.setPreferredOrientations([
           DeviceOrientation.landscapeLeft,
           DeviceOrientation.landscapeRight,
         ]);
         SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-        // Load supporting data (servers, metadata) so controls populate
+        // Re-discover servers in background for fresh URLs
         _loadMediaMetadata();
         _discoverAvailableServers(++_serverDiscoveryGeneration);
         return;
@@ -780,6 +807,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         _selectedSubtitle.value = initialSubtitle != null
             ? _subtitleTileValue(initialSubtitle)
             : 'Off';
+        _selectedSubtitleUrl = initialSubtitle?.url;
 
         _showStatus('Stream found from $source! Initializing player...');
         var discoveredServers = false;
@@ -1295,6 +1323,31 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     return '$group · ${track.label}';
   }
 
+  /// Re-sync the subtitle button label / radio group value after
+  /// `_subtitleTracks` is rebuilt.  Group names change when servers are
+  /// re-discovered, so the old tile value no longer matches any track.
+  /// Match by the stable URL to find the correct new value.
+  void _resyncSubtitleSelection() {
+    final current = _selectedSubtitle.value;
+    if (current == 'Off') return;
+    // Already valid?  Nothing to do.
+    if (_subtitleTracks.any((t) => _subtitleTileValue(t) == current)) return;
+    final url = _selectedSubtitleUrl;
+    if (url == null || url.isEmpty) {
+      _selectedSubtitle.value = 'Off';
+      return;
+    }
+    final match = _subtitleTracks.where((t) => t.url == url).firstOrNull;
+    if (match != null) {
+      _selectedSubtitle.value = _subtitleTileValue(match);
+    } else {
+      // Track no longer available (different server set).
+      _selectedSubtitle.value = 'Off';
+      _selectedSubtitleUrl = null;
+      _activeSubtitles.value = const [];
+    }
+  }
+
   Map<String, String> _parseStreamHeaders(Map<String, dynamic> stream) {
     final headers = <String, String>{};
     if (stream['referer'] != null) {
@@ -1353,6 +1406,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       // Rebuild the subtitle menu from every server's tracks so fallback
       // subtitles from other servers stay available after re-discovery.
       _subtitleTracks = _unionSubtitleTracks();
+      _resyncSubtitleSelection();
     });
   }
 
@@ -1673,6 +1727,13 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     final controller = _videoPlayerController;
     if (controller != null && controller.value.isInitialized) {
       _isMinimizing = true;
+      // Find the current server to get its qualities data
+      final currentServer = _selectedServerKey != null
+          ? _availableServers.firstWhere(
+              (s) => _serverIdentity(s) == _selectedServerKey,
+              orElse: () => {},
+            )
+          : null;
       MiniplayerService.instance.minimize(
         controller: controller,
         title: _currentTitle,
@@ -1681,6 +1742,25 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         season: _currentSeason,
         episode: _currentEpisode,
         genreIds: widget.genreIds,
+        availableServers: _availableServers,
+        selectedQuality: _selectedQuality,
+        selectedServerKey: _selectedServerKey ?? '',
+        currentSource: _currentSource ?? '',
+        streamHeaders: _streamHeaders,
+        selectedSubtitleValue: _selectedSubtitle.value,
+        selectedSubtitleUrl: _selectedSubtitleUrl ?? '',
+        activeSubtitleCues: _activeSubtitles.value
+            .map((s) => MiniSubtitleCue(
+                  start: s.start,
+                  end: s.end,
+                  text: s.text,
+                ))
+            .toList(),
+        qualitiesRaw: currentServer != null && currentServer.isNotEmpty
+            ? (currentServer['qualities'] as List<dynamic>? ?? const [])
+                .whereType<Map<String, dynamic>>()
+                .toList()
+            : const [],
       );
     }
     if (mounted) Navigator.of(context).pop(true);
@@ -1900,6 +1980,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
                   Navigator.of(sheetContext).pop();
                   setState(() {
                     _selectedSubtitle.value = 'Off';
+                    _selectedSubtitleUrl = null;
                     _activeSubtitles.value = const [];
                   });
                 },
@@ -2059,6 +2140,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       }
       setState(() {
         _selectedSubtitle.value = _subtitleTileValue(track);
+        _selectedSubtitleUrl = track.url;
         _activeSubtitles.value = subtitles;
       });
     } catch (error) {
