@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shimmer/shimmer.dart';
 import '../models/movie.dart';
@@ -22,7 +23,7 @@ class _MaxStreamSeriesListScreenState extends State<MaxStreamSeriesListScreen> {
   List<Map<String, dynamic>> popularSeries = [];
   List<Map<String, dynamic>> topRatedSeries = [];
   List<Map<String, dynamic>> onTheAirSeries = [];
-  List<Map<String, dynamic>> airingTodaySeries = [];
+  List<Map<String, dynamic>> upcomingSeries = [];
 
   @override
   void initState() {
@@ -39,7 +40,7 @@ class _MaxStreamSeriesListScreenState extends State<MaxStreamSeriesListScreen> {
         TmdbApiService.fetchPopularSeries(),
         TmdbApiService.fetchTopRatedSeries(),
         TmdbApiService.fetchOnTheAirSeries(),
-        TmdbApiService.fetchAiringTodaySeries(),
+        TmdbApiService.fetchUpcomingSeries(),
       ]);
 
       setState(() {
@@ -47,7 +48,7 @@ class _MaxStreamSeriesListScreenState extends State<MaxStreamSeriesListScreen> {
         popularSeries = results[1];
         topRatedSeries = results[2];
         onTheAirSeries = results[3];
-        airingTodaySeries = results[4];
+        upcomingSeries = results[4];
       });
     } catch (e) {
       // Error loading series content
@@ -72,8 +73,8 @@ class _MaxStreamSeriesListScreenState extends State<MaxStreamSeriesListScreen> {
               _buildSection('Trending TV Shows', trendingSeries, 'tv'),
               _buildSection('Popular TV Shows', popularSeries, 'tv'),
               _buildSection('Top Rated TV Shows', topRatedSeries, 'tv'),
-              _buildSection('On The Air', onTheAirSeries, 'tv'),
-              _buildSection('Airing Today', airingTodaySeries, 'tv'),
+              if (onTheAirSeries.isNotEmpty) _buildOnTheAirSection(),
+              if (upcomingSeries.isNotEmpty) _buildUpcomingSection(),
               const SliverToBoxAdapter(child: SizedBox(height: 100)),
             ],
           ],
@@ -123,7 +124,6 @@ class _MaxStreamSeriesListScreenState extends State<MaxStreamSeriesListScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Hero banner shimmer
           Container(
             height: 200,
             margin: const EdgeInsets.all(16),
@@ -132,14 +132,8 @@ class _MaxStreamSeriesListScreenState extends State<MaxStreamSeriesListScreen> {
               borderRadius: BorderRadius.circular(12),
             ),
           ),
-
-          // Section 1 shimmer
           _buildShimmerSection(),
-
-          // Section 2 shimmer
           _buildShimmerSection(),
-
-          // Section 3 shimmer
           _buildShimmerSection(),
         ],
       ),
@@ -150,15 +144,12 @@ class _MaxStreamSeriesListScreenState extends State<MaxStreamSeriesListScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Section title shimmer
         Container(
           margin: const EdgeInsets.fromLTRB(16, 24, 16, 8),
           height: 24,
           width: 150,
           color: Colors.grey[800],
         ),
-
-        // Horizontal list shimmer
         SizedBox(
           height: 280,
           child: ListView.builder(
@@ -172,7 +163,6 @@ class _MaxStreamSeriesListScreenState extends State<MaxStreamSeriesListScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Poster shimmer
                     Container(
                       width: 135,
                       height: 200,
@@ -182,10 +172,8 @@ class _MaxStreamSeriesListScreenState extends State<MaxStreamSeriesListScreen> {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    // Title shimmer
                     Container(height: 12, width: 100, color: Colors.grey[800]),
                     const SizedBox(height: 4),
-                    // Year shimmer
                     Container(height: 10, width: 40, color: Colors.grey[800]),
                   ],
                 ),
@@ -251,6 +239,295 @@ class _MaxStreamSeriesListScreenState extends State<MaxStreamSeriesListScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  // On The Air: wide horizontal cards with backdrop images, air schedule badge
+  Widget _buildOnTheAirSection() {
+    return SliverToBoxAdapter(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.teal,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: const Icon(
+                        Icons.live_tv,
+                        color: Colors.white,
+                        size: 14,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'On The Air',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+                TextButton(
+                  onPressed: () => _showFullList('On The Air', 'tv'),
+                  child: const Text(
+                    'See All',
+                    style: TextStyle(color: Colors.red, fontSize: 14),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          SizedBox(
+            height: 170,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              itemCount: onTheAirSeries.length,
+              itemBuilder: (context, index) {
+                final item = onTheAirSeries[index];
+                return _buildOnTheAirCard(item);
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOnTheAirCard(Map<String, dynamic> item) {
+    final name = item['name'] ?? item['title'] ?? 'Unknown';
+    final backdropPath = item['backdrop_path'];
+    final rating = (item['vote_average'] as num?)?.toDouble();
+    final firstAirDate = item['first_air_date']?.toString() ?? '';
+    final overview = item['overview']?.toString() ?? '';
+    final episodeCount = item['number_of_episodes'];
+    final seasonNumber = item['number_of_seasons'];
+
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) =>
+                MaxStreamSeriesScreen(seriesItem: Movie.fromJson(item)),
+          ),
+        );
+      },
+      child: Container(
+        width: 300,
+        margin: const EdgeInsets.only(right: 12),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              backdropPath != null
+                  ? AppNetworkImage(
+                      url: TmdbApiService.getBackdropUrl(backdropPath),
+                      fit: BoxFit.cover,
+                      errorWidget: Container(
+                        color: Colors.grey[850],
+                        child: const Icon(
+                          Icons.tv,
+                          color: Colors.grey,
+                          size: 40,
+                        ),
+                      ),
+                    )
+                  : Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            Colors.grey[850]!,
+                            Colors.grey[900]!,
+                          ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                      ),
+                      child: const Icon(
+                        Icons.tv,
+                        color: Colors.grey,
+                        size: 40,
+                      ),
+                    ),
+              // Gradient overlay
+              Positioned.fill(
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.black.withValues(alpha: 0.1),
+                        Colors.black.withValues(alpha: 0.85),
+                      ],
+                      stops: const [0.3, 1.0],
+                    ),
+                  ),
+                ),
+              ),
+              // "AIRING" badge
+              Positioned(
+                top: 10,
+                left: 10,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.teal,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: const Text(
+                    'AIRING',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+              // Rating
+              if (rating != null && rating > 0)
+                Positioned(
+                  top: 10,
+                  right: 10,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.7),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.star,
+                          color: Colors.amber,
+                          size: 12,
+                        ),
+                        const SizedBox(width: 3),
+                        Text(
+                          rating.toStringAsFixed(1),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              // Bottom info
+              Positioned(
+                left: 12,
+                right: 12,
+                bottom: 12,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        if (firstAirDate.length >= 4)
+                          Text(
+                            firstAirDate.substring(0, 4),
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 12,
+                            ),
+                          ),
+                        if (seasonNumber != null) ...[
+                          const Text(
+                            '  \u00B7  ',
+                            style: TextStyle(
+                              color: Colors.white54,
+                              fontSize: 12,
+                            ),
+                          ),
+                          Text(
+                            '$seasonNumber season${seasonNumber == 1 ? '' : 's'}',
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                        if (episodeCount != null) ...[
+                          const Text(
+                            '  \u00B7  ',
+                            style: TextStyle(
+                              color: Colors.white54,
+                              fontSize: 12,
+                            ),
+                          ),
+                          Text(
+                            '$episodeCount ep${episodeCount == 1 ? '' : 's'}',
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    if (overview.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        overview,
+                        style: const TextStyle(
+                          color: Colors.white54,
+                          fontSize: 11,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // Upcoming: large backdrop auto-scrolling carousel
+  Widget _buildUpcomingSection() {
+    return SliverToBoxAdapter(
+      child: _AutoScrollingCarousel(items: upcomingSeries),
     );
   }
 
@@ -421,6 +698,398 @@ class _MaxStreamSeriesListScreenState extends State<MaxStreamSeriesListScreen> {
   }
 }
 
+class _AutoScrollingCarousel extends StatefulWidget {
+  final List<Map<String, dynamic>> items;
+
+  const _AutoScrollingCarousel({required this.items});
+
+  @override
+  State<_AutoScrollingCarousel> createState() => _AutoScrollingCarouselState();
+}
+
+class _AutoScrollingCarouselState extends State<_AutoScrollingCarousel> {
+  late final PageController _pageController;
+  late final Timer _timer;
+  int _currentPage = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _pageController = PageController(viewportFraction: 0.88);
+    _timer = Timer.periodic(const Duration(seconds: 4), (_) {
+      if (!mounted || widget.items.isEmpty) return;
+      final nextPage = (_currentPage + 1) % widget.items.length;
+      _pageController.animateToPage(
+        nextPage,
+        duration: const Duration(milliseconds: 500),
+        curve: Curves.easeInOut,
+      );
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer.cancel();
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.items.isEmpty) return const SizedBox();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.amber.shade700,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Icon(
+                      Icons.schedule,
+                      color: Colors.white,
+                      size: 14,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'Coming Soon',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+              TextButton(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => _FullListScreen(
+                        title: 'Coming Soon',
+                        mediaType: 'tv',
+                      ),
+                    ),
+                  );
+                },
+                child: const Text(
+                  'See All',
+                  style: TextStyle(color: Colors.red, fontSize: 14),
+                ),
+              ),
+            ],
+          ),
+        ),
+        SizedBox(
+          height: 220,
+          child: PageView.builder(
+            controller: _pageController,
+            itemCount: widget.items.length,
+            onPageChanged: (index) => setState(() => _currentPage = index),
+            itemBuilder: (context, index) {
+              final item = widget.items[index];
+              return _buildUpcomingCard(item);
+            },
+          ),
+        ),
+        const SizedBox(height: 8),
+        // Dot indicators
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: List.generate(
+            widget.items.length.clamp(0, 8),
+            (index) => AnimatedContainer(
+              duration: const Duration(milliseconds: 300),
+              margin: const EdgeInsets.symmetric(horizontal: 3),
+              width: _currentPage == index ? 20 : 6,
+              height: 6,
+              decoration: BoxDecoration(
+                color: _currentPage == index
+                    ? Colors.amber
+                    : Colors.grey.shade700,
+                borderRadius: BorderRadius.circular(3),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildUpcomingCard(Map<String, dynamic> item) {
+    final name = item['name'] ?? item['title'] ?? 'Unknown';
+    final backdropPath = item['backdrop_path'];
+    final posterPath = item['poster_path'];
+    final rating = (item['vote_average'] as num?)?.toDouble();
+    final firstAirDate = item['first_air_date']?.toString() ?? '';
+    final overview = item['overview']?.toString() ?? '';
+    final seasonCount = item['number_of_seasons'];
+    final episodeCount = item['number_of_episodes'];
+
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) =>
+                MaxStreamSeriesScreen(seriesItem: Movie.fromJson(item)),
+          ),
+        );
+      },
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 4),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(14),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              // Backdrop image or poster fallback
+              if (backdropPath != null)
+                AppNetworkImage(
+                  url: TmdbApiService.getBackdropUrl(backdropPath),
+                  fit: BoxFit.cover,
+                  errorWidget: _buildPosterFallback(posterPath, name),
+                )
+              else
+                _buildPosterFallback(posterPath, name),
+              // Dark gradient
+              Positioned.fill(
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.transparent,
+                        Colors.black.withValues(alpha: 0.9),
+                      ],
+                      stops: const [0.25, 1.0],
+                    ),
+                  ),
+                ),
+              ),
+              // Left poster thumbnail
+              if (posterPath != null)
+                Positioned(
+                  left: 12,
+                  bottom: 12,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: AppNetworkImage(
+                      url: TmdbApiService.getPosterUrl(posterPath),
+                      width: 55,
+                      height: 80,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                ),
+              // "UPCOMING" badge
+              Positioned(
+                top: 12,
+                left: 12,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.shade700,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Text(
+                    'UPCOMING',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ),
+              ),
+              // Rating
+              if (rating != null && rating > 0)
+                Positioned(
+                  top: 12,
+                  right: 12,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.7),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.star,
+                          color: Colors.amber,
+                          size: 14,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          rating.toStringAsFixed(1),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              // Text info at bottom
+              Positioned(
+                left: posterPath != null ? 78 : 12,
+                right: 12,
+                bottom: 12,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      name,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    // Date + seasons/episodes info
+                    Row(
+                      children: [
+                        if (firstAirDate.isNotEmpty) ...[
+                          const Icon(
+                            Icons.calendar_today,
+                            color: Colors.amber,
+                            size: 12,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            _formatReleaseDate(firstAirDate),
+                            style: const TextStyle(
+                              color: Colors.amber,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    if (seasonCount != null || episodeCount != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 3),
+                        child: Row(
+                          children: [
+                            if (seasonCount != null)
+                              Text(
+                                '$seasonCount season${seasonCount == 1 ? '' : 's'}',
+                                style: const TextStyle(
+                                  color: Colors.white60,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            if (seasonCount != null && episodeCount != null)
+                              const Text(
+                                '  \u00B7  ',
+                                style: TextStyle(
+                                  color: Colors.white38,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            if (episodeCount != null)
+                              Text(
+                                '$episodeCount episode${episodeCount == 1 ? '' : 's'}',
+                                style: const TextStyle(
+                                  color: Colors.white60,
+                                  fontSize: 11,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    if (overview.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        overview,
+                        style: const TextStyle(
+                          color: Colors.white54,
+                          fontSize: 11,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPosterFallback(String? posterPath, String name) {
+    if (posterPath != null) {
+      return AppNetworkImage(
+        url: TmdbApiService.getPosterUrl(posterPath),
+        fit: BoxFit.cover,
+        errorWidget: _buildPlaceholder(),
+      );
+    }
+    return _buildPlaceholder();
+  }
+
+  Widget _buildPlaceholder() {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Colors.grey[850]!, Colors.grey[900]!],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
+      child: const Icon(Icons.tv, color: Colors.grey, size: 50),
+    );
+  }
+
+  String _formatReleaseDate(String date) {
+    if (date.isEmpty) return '';
+    try {
+      final parsed = DateTime.parse(date);
+      final months = [
+        'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      ];
+      return '${months[parsed.month - 1]} ${parsed.day}, ${parsed.year}';
+    } catch (_) {
+      return date;
+    }
+  }
+}
+
 class _FullListScreen extends StatefulWidget {
   final String title;
   final String mediaType;
@@ -453,7 +1122,6 @@ class _FullListScreenState extends State<_FullListScreen> {
     try {
       List<Map<String, dynamic>> initialItems = [];
 
-      // Determine which API method to call based on the title
       if (widget.title.contains('Trending') && widget.mediaType == 'tv') {
         initialItems = await TmdbApiService.fetchTrendingSeries(page: 1);
       } else if (widget.title.contains('Popular') && widget.mediaType == 'tv') {
@@ -464,9 +1132,9 @@ class _FullListScreenState extends State<_FullListScreen> {
       } else if (widget.title.contains('On The Air') &&
           widget.mediaType == 'tv') {
         initialItems = await TmdbApiService.fetchOnTheAirSeries(page: 1);
-      } else if (widget.title.contains('Airing Today') &&
+      } else if (widget.title.contains('Coming Soon') &&
           widget.mediaType == 'tv') {
-        initialItems = await TmdbApiService.fetchAiringTodaySeries(page: 1);
+        initialItems = await TmdbApiService.fetchUpcomingSeries(page: 1);
       }
 
       setState(() {
@@ -474,7 +1142,6 @@ class _FullListScreenState extends State<_FullListScreen> {
         _isLoading = false;
       });
     } catch (e) {
-      // Error loading initial items
       setState(() {
         _isLoading = false;
       });
@@ -507,7 +1174,6 @@ class _FullListScreenState extends State<_FullListScreen> {
       final nextPage = _currentPage + 1;
       List<Map<String, dynamic>> newItems = [];
 
-      // Determine which API method to call based on the title
       if (widget.title.contains('Trending') && widget.mediaType == 'tv') {
         newItems = await TmdbApiService.fetchTrendingSeries(page: nextPage);
       } else if (widget.title.contains('Popular') && widget.mediaType == 'tv') {
@@ -518,9 +1184,9 @@ class _FullListScreenState extends State<_FullListScreen> {
       } else if (widget.title.contains('On The Air') &&
           widget.mediaType == 'tv') {
         newItems = await TmdbApiService.fetchOnTheAirSeries(page: nextPage);
-      } else if (widget.title.contains('Airing Today') &&
+      } else if (widget.title.contains('Coming Soon') &&
           widget.mediaType == 'tv') {
-        newItems = await TmdbApiService.fetchAiringTodaySeries(page: nextPage);
+        newItems = await TmdbApiService.fetchUpcomingSeries(page: nextPage);
       }
 
       if (!mounted) return;
@@ -549,12 +1215,11 @@ class _FullListScreenState extends State<_FullListScreen> {
           mainAxisSpacing: 12,
           childAspectRatio: 0.6,
         ),
-        itemCount: 12, // Show 12 shimmer items
+        itemCount: 12,
         itemBuilder: (context, index) {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Poster shimmer
               Expanded(
                 child: Container(
                   width: double.infinity,
@@ -565,14 +1230,12 @@ class _FullListScreenState extends State<_FullListScreen> {
                 ),
               ),
               const SizedBox(height: 8),
-              // Title shimmer
               Container(
                 height: 12,
                 width: double.infinity,
                 color: Colors.grey[800],
               ),
               const SizedBox(height: 4),
-              // Year shimmer
               Container(height: 10, width: 40, color: Colors.grey[800]),
             ],
           );

@@ -100,6 +100,17 @@ class TmdbApiService {
   static Future<List<Map<String, dynamic>>> fetchAiringTodaySeries({
     int page = 1,
   }) => results('/tv/airing_today', {'page': page});
+  static Future<List<Map<String, dynamic>>> fetchUpcomingSeries({
+    int page = 1,
+  }) {
+    final now = DateTime.now().toIso8601String().split('T').first;
+    return results('/discover/tv', {
+      'page': page,
+      'sort_by': 'first_air_date.asc',
+      'first_air_date.gte': now,
+      'vote_count.gte': 10,
+    });
+  }
 
   static Future<List<Map<String, dynamic>>> searchMovies(
     String query, {
