@@ -12,6 +12,7 @@ import '../services/media_download_manager.dart';
 import '../services/native_stream_extractor.dart';
 import '../services/tmdb_api_service.dart';
 import '../services/watch_history_service.dart';
+import '../services/miniplayer_service.dart';
 import '../widgets/app_network_image.dart';
 
 class M3U8VideoPlayerScreen extends StatefulWidget {
@@ -566,6 +567,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   String _statusMessage = 'Initializing...';
   Timer? _progressTimer;
   bool _isLeaving = false;
+  bool _isMinimizing = false;
   late int _currentSeason;
   late int _currentEpisode;
   late String _currentTitle;
@@ -612,6 +614,28 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         MediaDownloadManager.instance.completionVersion;
     MediaDownloadManager.instance.addListener(_handleDownloadChanged);
     unawaited(_refreshDownloadStatus());
+
+    // Check if we're restoring from miniplayer
+    final miniplayer = MiniplayerService.instance;
+    if (miniplayer.isActive && miniplayer.tmdbId == widget.tmdbId &&
+        miniplayer.season == widget.season &&
+        miniplayer.episode == widget.episode) {
+      final restoredController = miniplayer.restore();
+      if (restoredController != null) {
+        _videoPlayerController = restoredController;
+        _videoPlayerController!.addListener(_handlePlaybackChanged);
+        _useNativePlayer = true;
+        _videoInitialized = true;
+        // Skip stream loading — controller is already playing
+        SystemChrome.setPreferredOrientations([
+          DeviceOrientation.landscapeLeft,
+          DeviceOrientation.landscapeRight,
+        ]);
+        SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+        return;
+      }
+    }
+
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
@@ -896,7 +920,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       file,
       videoPlayerOptions: VideoPlayerOptions(
         backBufferDurationMs: 60000,
-        allowBackgroundPlayback: false,
+        allowBackgroundPlayback: true,
       ),
     );
     try {
@@ -1347,7 +1371,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       formatHint: isHls ? VideoFormat.hls : null,
       videoPlayerOptions: VideoPlayerOptions(
         backBufferDurationMs: 60000,
-        allowBackgroundPlayback: false,
+        allowBackgroundPlayback: true,
       ),
     );
 
@@ -1626,6 +1650,20 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     if (_isLeaving) return;
     _isLeaving = true;
     await _saveProgress();
+    // Minimize to miniplayer instead of fully closing
+    final controller = _videoPlayerController;
+    if (controller != null && controller.value.isInitialized) {
+      _isMinimizing = true;
+      MiniplayerService.instance.minimize(
+        controller: controller,
+        title: _currentTitle,
+        tmdbId: widget.tmdbId,
+        isMovie: widget.isMovie,
+        season: _currentSeason,
+        episode: _currentEpisode,
+        genreIds: widget.genreIds,
+      );
+    }
     if (mounted) Navigator.of(context).pop(true);
   }
 
@@ -2603,7 +2641,10 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     _progressTimer?.cancel();
     unawaited(_saveProgress());
     _videoPlayerController?.removeListener(_handlePlaybackChanged);
-    _videoPlayerController?.dispose();
+    // Don't dispose controller if minimizing — it's now owned by MiniplayerService
+    if (!_isMinimizing) {
+      _videoPlayerController?.dispose();
+    }
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
       DeviceOrientation.portraitDown,

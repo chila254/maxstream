@@ -12,6 +12,9 @@ import '../services/update_service.dart';
 import '../services/notification_permission_service.dart';
 import '../services/content_notification_service.dart';
 import '../services/recommendation_notification_service.dart';
+import '../services/miniplayer_service.dart';
+import '../widgets/miniplayer_bar.dart';
+import '../widgets/video_player_screen.dart';
 
 class MaxStreamMainScreen extends StatefulWidget {
   const MaxStreamMainScreen({super.key});
@@ -26,6 +29,7 @@ class _MaxStreamMainScreenState extends State<MaxStreamMainScreen> {
   Timer? _contentCheckTimer;
   Timer? _recommendationTimer;
   bool _checkingForUpdate = false;
+  bool _miniplayerActive = false;
 
   void _onTabChange(int index) {
     setState(() {
@@ -33,9 +37,19 @@ class _MaxStreamMainScreenState extends State<MaxStreamMainScreen> {
     });
   }
 
+  void _miniplayerListener() {
+    final wasActive = _miniplayerActive;
+    final isNowActive = MiniplayerService.instance.isActive;
+    if (wasActive != isNowActive && mounted) {
+      setState(() => _miniplayerActive = isNowActive);
+    }
+  }
+
   @override
   void initState() {
     super.initState();
+    _miniplayerActive = MiniplayerService.instance.isActive;
+    MiniplayerService.instance.addListener(_miniplayerListener);
     if (!kIsWeb) {
       _initializeServices();
     }
@@ -43,6 +57,7 @@ class _MaxStreamMainScreenState extends State<MaxStreamMainScreen> {
 
   @override
   void dispose() {
+    MiniplayerService.instance.removeListener(_miniplayerListener);
     _updateTimer?.cancel();
     _contentCheckTimer?.cancel();
     _recommendationTimer?.cancel();
@@ -239,6 +254,37 @@ class _MaxStreamMainScreenState extends State<MaxStreamMainScreen> {
     );
   }
 
+  void _restoreMiniplayer() {
+    final service = MiniplayerService.instance;
+    final controller = service.controller;
+    if (controller == null) return;
+
+    final title = service.title;
+    final tmdbId = service.tmdbId;
+    final isMovie = service.isMovie;
+    final season = service.season;
+    final episode = service.episode;
+    final genreIds = service.genreIds;
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => buildVideoPlayerScreen(
+          title: title,
+          tmdbId: tmdbId,
+          isMovie: isMovie,
+          season: season,
+          episode: episode,
+          genreIds: genreIds,
+        ),
+      ),
+    );
+  }
+
+  void _closeMiniplayer() {
+    MiniplayerService.instance.close();
+  }
+
   @override
   Widget build(BuildContext context) {
     return PopScope(
@@ -261,6 +307,16 @@ class _MaxStreamMainScreenState extends State<MaxStreamMainScreen> {
               },
               child: _screens[_currentIndex],
             ),
+            if (_miniplayerActive)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: MiniplayerBar(
+                  onTap: _restoreMiniplayer,
+                  onClose: _closeMiniplayer,
+                ),
+              ),
             _buildNavBar(),
           ],
         ),
