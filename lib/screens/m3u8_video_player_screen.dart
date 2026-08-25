@@ -641,12 +641,14 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         _videoPlayerController!.addListener(_handlePlaybackChanged);
         _useNativePlayer = true;
         _videoInitialized = true;
-        // Skip stream loading — controller is already playing
         SystemChrome.setPreferredOrientations([
           DeviceOrientation.landscapeLeft,
           DeviceOrientation.landscapeRight,
         ]);
         SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+        // Load supporting data (servers, metadata) so controls populate
+        _loadMediaMetadata();
+        _discoverAvailableServers(++_serverDiscoveryGeneration);
         return;
       }
     }

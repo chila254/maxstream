@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:video_player/video_player.dart';
 
 import '../services/miniplayer_service.dart';
 
@@ -26,7 +27,9 @@ class _MiniplayerBarState extends State<MiniplayerBar> {
     super.initState();
     _progressTimer = Timer.periodic(
       const Duration(milliseconds: 500),
-      (_) => setState(() {}),
+      (_) {
+        if (mounted) setState(() {});
+      },
     );
   }
 
@@ -44,6 +47,11 @@ class _MiniplayerBarState extends State<MiniplayerBar> {
       return const SizedBox.shrink();
     }
 
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isTablet = screenWidth > 600;
+    final miniWidth = isTablet ? 280.0 : 180.0;
+    final miniHeight = isTablet ? 170.0 : 110.0;
+
     final value = controller.value;
     final position = value.position;
     final duration = value.duration;
@@ -58,12 +66,12 @@ class _MiniplayerBarState extends State<MiniplayerBar> {
     return GestureDetector(
       onTap: widget.onTap,
       child: Container(
-        width: 200,
-        height: 130,
+        width: miniWidth,
+        height: miniHeight,
         margin: const EdgeInsets.only(bottom: 8),
         decoration: BoxDecoration(
           color: const Color(0xFF1A1A2E),
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(10),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withOpacity(0.6),
@@ -76,18 +84,17 @@ class _MiniplayerBarState extends State<MiniplayerBar> {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            // Video area background
-            Container(
-              color: Colors.black,
-              child: const Center(
-                child: Icon(
-                  Icons.movie,
-                  color: Colors.white12,
-                  size: 36,
-                ),
+            // Actual video feed
+            FittedBox(
+              fit: BoxFit.cover,
+              clipBehavior: Clip.hardEdge,
+              child: SizedBox(
+                width: controller.value.size.width,
+                height: controller.value.size.height,
+                child: VideoPlayer(controller),
               ),
             ),
-            // Gradient overlay
+            // Gradient overlay for readability
             Positioned.fill(
               child: DecoratedBox(
                 decoration: BoxDecoration(
@@ -96,9 +103,9 @@ class _MiniplayerBarState extends State<MiniplayerBar> {
                     end: Alignment.bottomCenter,
                     colors: [
                       Colors.transparent,
-                      Colors.black.withOpacity(0.7),
+                      Colors.black.withOpacity(0.6),
                     ],
-                    stops: const [0.5, 1.0],
+                    stops: const [0.4, 1.0],
                   ),
                 ),
               ),
@@ -107,22 +114,22 @@ class _MiniplayerBarState extends State<MiniplayerBar> {
             Positioned(
               left: 8,
               right: 8,
-              bottom: 8,
+              bottom: 6,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
                     title,
-                    style: const TextStyle(
+                    style: TextStyle(
                       color: Colors.white,
-                      fontSize: 11,
+                      fontSize: isTablet ? 12 : 10,
                       fontWeight: FontWeight.w500,
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 3),
                   ClipRRect(
                     borderRadius: BorderRadius.circular(2),
                     child: LinearProgressIndicator(
@@ -136,12 +143,12 @@ class _MiniplayerBarState extends State<MiniplayerBar> {
                 ],
               ),
             ),
-            // Play/pause button
+            // Play/pause
             Center(
               child: Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
+                width: 32,
+                height: 32,
+                decoration: const BoxDecoration(
                   color: Colors.black45,
                   shape: BoxShape.circle,
                 ),
@@ -158,7 +165,7 @@ class _MiniplayerBarState extends State<MiniplayerBar> {
                   icon: Icon(
                     value.isPlaying ? Icons.pause : Icons.play_arrow,
                     color: Colors.white,
-                    size: 22,
+                    size: 20,
                   ),
                 ),
               ),
@@ -170,16 +177,16 @@ class _MiniplayerBarState extends State<MiniplayerBar> {
               child: GestureDetector(
                 onTap: widget.onClose,
                 child: Container(
-                  width: 22,
-                  height: 22,
-                  decoration: BoxDecoration(
+                  width: 20,
+                  height: 20,
+                  decoration: const BoxDecoration(
                     color: Colors.black54,
                     shape: BoxShape.circle,
                   ),
                   child: const Icon(
                     Icons.close,
                     color: Colors.white70,
-                    size: 14,
+                    size: 12,
                   ),
                 ),
               ),
