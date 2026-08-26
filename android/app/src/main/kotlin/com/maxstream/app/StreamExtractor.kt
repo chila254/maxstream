@@ -1730,24 +1730,46 @@ class StreamExtractor(private val context: Context) {
         override val name = "Vidsrc"
         override fun supports(server: StreamServer): Boolean {
             val domain = host(server.url)
-            return domain.endsWith("vidsrc-embed.ru") || domain.endsWith("vsembed.ru")
+            return domain.endsWith("vidsrc-embed.ru") || domain.endsWith("vsembed.ru") ||
+                domain.endsWith("cloudorchestranova.com")
         }
 
         override suspend fun extract(server: StreamServer): ExtractionResult {
             val embedPage = httpGet(server.url)
+
+            // Try data-api attribute first (newer format), then src
             val iframePath = Regex(
-                """<iframe[^>]+id=["']player_iframe["'][^>]+src=["']([^"']+)["']""",
+                """<iframe[^>]+id=["']player_iframe["'][^>]+data-api=["']([^"']+)["']""",
                 RegexOption.IGNORE_CASE,
             ).find(embedPage)?.groupValues?.get(1)
+                ?: Regex(
+                    """<iframe[^>]+data-api=["']([^"']+)["'][^>]+id=["']player_iframe["']""",
+                    RegexOption.IGNORE_CASE,
+                ).find(embedPage)?.groupValues?.get(1)
+                ?: Regex(
+                    """<iframe[^>]+id=["']player_iframe["'][^>]+src=["']([^"']+)["']""",
+                    RegexOption.IGNORE_CASE,
+                ).find(embedPage)?.groupValues?.get(1)
                 ?: Regex(
                     """<iframe[^>]+src=["']([^"']+)["'][^>]+id=["']player_iframe["']""",
                     RegexOption.IGNORE_CASE,
                 ).find(embedPage)?.groupValues?.get(1)
                 ?: throw IllegalStateException("Vidsrc player iframe not found")
-            val iframeUrl = when {
+
+            // data-api can be a JSON endpoint (returns {"src":"..."}) or a direct iframe path
+            var iframeUrl = when {
                 iframePath.startsWith("//") -> "https:$iframePath"
                 iframePath.startsWith("http") -> iframePath
                 else -> resolveUrl(server.url, iframePath)
+            }
+
+            // If the path looks like an API endpoint (e.g. /vs_src.php), fetch the JSON response
+            if (iframeUrl.contains("vs_src.php") || iframeUrl.contains("data-api")) {
+                val apiResp = httpGet(iframeUrl, refererHeaders(server.url))
+                val srcJson = Regex(""""src"\s*:\s*"([^"]+)"""").find(apiResp)?.groupValues?.get(1)
+                if (srcJson != null) {
+                    iframeUrl = if (srcJson.startsWith("http")) srcJson else resolveUrl(iframeUrl, srcJson)
+                }
             }
 
             val iframePage = httpGet(iframeUrl, refererHeaders(server.url))
@@ -2230,28 +2252,47 @@ class StreamExtractor(private val context: Context) {
 
         override suspend fun extract(server: StreamServer): ExtractionResult {
             val html = httpGet(server.url)
-            val iframeSrc = Regex("""<iframe[^>]+(?:data-src|src)=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+            // Prefer data-src (lazy-loaded actual embed) over plain src (self-referencing)
+            val iframeSrc = Regex("""<iframe[^>]+data-src=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
                 .find(html)?.groupValues?.get(1)
+                ?: Regex("""<iframe[^>]+src=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+                    .find(html)?.groupValues?.get(1)
                 ?: throw IllegalStateException("2Embed iframe not found")
             val iframeUrl = resolveUrl(server.url, iframeSrc)
 
-            // streamsrcs.2embed.cc/swish page embeds 2vcdn.skin via swish.js
+            // streamsrcs.2embed.cc pages embed 2vcdn.skin via swish.js or vnest.js
             if (iframeUrl.contains("streamsrcs.2embed.cc")) {
                 val swishHtml = httpGet(iframeUrl, refererHeaders(server.url))
-                val innerId = Regex("""src=["']([^"']+)["']""")
-                    .find(swishHtml)?.groupValues?.get(1)?.trim()
-                    ?: throw IllegalStateException("2Embed swish iframe not found")
-                val v2cdnUrl = "https://2vcdn.skin/e/$innerId"
-                val v2cdnHtml = httpGet(v2cdnUrl, mapOf("Referer" to "https://streamsrcs.2embed.cc/"))
-                val decoded = unpackObfuscatedJs(v2cdnHtml)
-                    ?: throw IllegalStateException("2Embed failed to decode packed JS")
-                val m3u8 = Regex("""(?:https?://[^\s"'<>]+|/[^\s"'<>]+)\.m3u8[^\s"'<>]*""")
-                    .find(decoded)?.value?.replace("\\/", "/")?.replace("&amp;", "&")
-                    ?: throw IllegalStateException("2Embed no m3u8 URL in decoded JS")
-                val absolute = if (m3u8.startsWith("http")) m3u8 else "https://2vcdn.skin$m3u8"
-                return ExtractionResult.Final(
-                    StreamResult(absolute, server.name, "application/vnd.apple.mpegurl", refererHeaders("https://2vcdn.skin/"))
-                )
+                // The swish/vnest page has <iframe id="framesrc" src="{videoId}">
+                // swish.js rewrites this to https://2vcdn.skin/e/{videoId}
+                // vnest.js rewrites this to https://cineby.hair/movie/{tmdbId} (dead)
+                val framesrcId = Regex(
+                    """<iframe[^>]*id=["']framesrc["'][^>]*src=["']([^"']+)["']""",
+                    RegexOption.IGNORE_CASE,
+                ).find(swishHtml)?.groupValues?.get(1)?.trim()
+                    ?: Regex(
+                        """<iframe[^>]*src=["']([^"']+)["'][^>]*id=["']framesrc["']""",
+                        RegexOption.IGNORE_CASE,
+                    ).find(swishHtml)?.groupValues?.get(1)?.trim()
+                    ?: throw IllegalStateException("2Embed framesrc iframe not found")
+
+                // If framesrc looks like a numeric/alphanumeric video ID (not a URL), use 2vcdn
+                if (framesrcId.matches(Regex("^[a-zA-Z0-9_-]+$"))) {
+                    val v2cdnUrl = "https://2vcdn.skin/e/$framesrcId"
+                    val v2cdnHtml = httpGet(v2cdnUrl, mapOf("Referer" to "https://streamsrcs.2embed.cc/"))
+                    val decoded = unpackObfuscatedJs(v2cdnHtml)
+                        ?: throw IllegalStateException("2Embed failed to decode packed JS")
+                    val m3u8 = Regex("""(?:https?://[^\s"'<>]+|/[^\s"'<>]+)\.m3u8[^\s"'<>]*""")
+                        .find(decoded)?.value?.replace("\\/", "/")?.replace("&amp;", "&")
+                        ?: throw IllegalStateException("2Embed no m3u8 URL in decoded JS")
+                    val absolute = if (m3u8.startsWith("http")) m3u8 else "https://2vcdn.skin$m3u8"
+                    return ExtractionResult.Final(
+                        StreamResult(absolute, server.name, "application/vnd.apple.mpegurl", refererHeaders("https://2vcdn.skin/"))
+                    )
+                }
+
+                // framesrc is a URL (movie path via cineby/vidnest) - try as redirect
+                return ExtractionResult.Redirect(StreamServer("2Embed host", framesrcId, refererHeaders(iframeUrl)))
             }
 
             return ExtractionResult.Redirect(StreamServer("2Embed host", iframeUrl, refererHeaders(server.url)))
