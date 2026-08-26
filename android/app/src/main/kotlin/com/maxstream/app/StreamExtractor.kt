@@ -2101,6 +2101,8 @@ class StreamExtractor(private val context: Context) {
                         val webView = WebView(context)
                         webView.settings.javaScriptEnabled = true
                         webView.settings.domStorageEnabled = true
+                        webView.settings.userAgentString =
+                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 
                         webView.webViewClient = object : WebViewClient() {
                             override fun shouldInterceptRequest(
@@ -2108,8 +2110,12 @@ class StreamExtractor(private val context: Context) {
                                 request: WebResourceRequest?,
                             ): WebResourceResponse? {
                                 val url = request?.url?.toString() ?: ""
-                                if (url.contains("/file2/") && url.endsWith(".m3u8")) {
+                                if (url.contains(".m3u8") && !url.contains("analytics") && !url.contains("cloudflare")) {
                                     if (continuation.isActive) {
+                                        webView.post {
+                                            webView.stopLoading()
+                                            webView.destroy()
+                                        }
                                         continuation.resume(
                                             ExtractionResult.Final(
                                                 StreamResult(url, name, "direct_m3u8", refererHeaders(server.url)),
