@@ -2220,11 +2220,31 @@ class StreamExtractor(private val context: Context) {
 
         override suspend fun extract(server: StreamServer): ExtractionResult {
             val html = httpGet(server.url)
-            val iframe = Regex("""<iframe[^>]+(?:data-src|src)=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+            val iframeSrc = Regex("""<iframe[^>]+(?:data-src|src)=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
                 .find(html)?.groupValues?.get(1)
                 ?: throw IllegalStateException("2Embed iframe not found")
-            val absolute = resolveUrl(server.url, iframe)
-            return ExtractionResult.Redirect(StreamServer("2Embed host", absolute, refererHeaders(server.url)))
+            val iframeUrl = resolveUrl(server.url, iframeSrc)
+
+            // streamsrcs.2embed.cc/swish page embeds 2vcdn.skin via swish.js
+            if (iframeUrl.contains("streamsrcs.2embed.cc")) {
+                val swishHtml = httpGet(iframeUrl, refererHeaders(server.url))
+                val innerId = Regex("""src=["']([^"']+)["']""")
+                    .find(swishHtml)?.groupValues?.get(1)?.trim()
+                    ?: throw IllegalStateException("2Embed swish iframe not found")
+                val v2cdnUrl = "https://2vcdn.skin/e/$innerId"
+                val v2cdnHtml = httpGet(v2cdnUrl, mapOf("Referer" to "https://streamsrcs.2embed.cc/"))
+                val decoded = unpackObfuscatedJs(v2cdnHtml)
+                    ?: throw IllegalStateException("2Embed failed to decode packed JS")
+                val m3u8 = Regex("""(?:https?://[^\s"'<>]+|/[^\s"'<>]+)\.m3u8[^\s"'<>]*""")
+                    .find(decoded)?.value?.replace("\\/", "/")?.replace("&amp;", "&")
+                    ?: throw IllegalStateException("2Embed no m3u8 URL in decoded JS")
+                val absolute = if (m3u8.startsWith("http")) m3u8 else "https://2vcdn.skin$m3u8"
+                return ExtractionResult.Final(
+                    StreamResult(absolute, server.name, "application/vnd.apple.mpegurl", refererHeaders("https://2vcdn.skin/"))
+                )
+            }
+
+            return ExtractionResult.Redirect(StreamServer("2Embed host", iframeUrl, refererHeaders(server.url)))
         }
     }
 
@@ -2256,12 +2276,55 @@ class StreamExtractor(private val context: Context) {
         override fun supports(server: StreamServer) = host(server.url).contains("vidnest.fun")
 
         override suspend fun extract(server: StreamServer): ExtractionResult {
-            val html = httpGet(server.url)
-            val iframe = Regex("""<iframe[^>]+src=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
-                .find(html)?.groupValues?.get(1)
-                ?: throw IllegalStateException("VidNest iframe not found")
-            val absolute = resolveUrl(server.url, iframe)
-            return ExtractionResult.Redirect(StreamServer("VidNest host", absolute, refererHeaders(server.url)))
+            val pathParts = server.url.removeSuffix("/").split("/")
+            val tmdbId = pathParts.getOrNull(pathParts.size - 3) ?: ""
+            val season = pathParts.getOrNull(pathParts.size - 2) ?: ""
+            val episode = pathParts.getOrNull(pathParts.size - 1) ?: ""
+            if (tmdbId.isBlank() || season.isBlank() || episode.isBlank()) {
+                throw IllegalStateException("VidNest: cannot parse tmdbId/season/episode from ${server.url}")
+            }
+
+            val isMovie = server.url.contains("/movie/")
+            val servers = listOf("alfa", "zeta", "filxer", "catflix", "lamda", "gama", "beta", "sigma")
+            val pathType = if (isMovie) "movie" else "tv"
+
+            for (s in servers) {
+                try {
+                    val apiUrl = "https://new.vidnest.fun/$s/$pathType/$tmdbId/$season/$episode"
+                    val resp = getJson(apiUrl)
+                    if (!resp.optBoolean("encrypted", false)) continue
+                    val encData = resp.optString("data", "")
+                    if (encData.isBlank()) continue
+
+                    val decrypted = decryptVidNestResponse(encData)
+                    val json = JSONObject(decrypted)
+                    val url = json.optString("url", "")
+                    if (url.isBlank()) continue
+
+                    val headers = mutableMapOf("Referer" to server.url)
+                    json.optJSONObject("headers")?.let { h ->
+                        val keys = h.keys()
+                        while (keys.hasNext()) {
+                            val key = keys.next()
+                            headers[key] = h.optString(key, "")
+                        }
+                    }
+
+                    val streams = mutableListOf(StreamResult(url, server.name, "application/vnd.apple.mpegurl", headers))
+                    if (json.has("all_urls")) {
+                        val allUrls = json.getJSONArray("all_urls")
+                        for (i in 0 until allUrls.length()) {
+                            val u = allUrls.optString(i, "")
+                            if (u.isNotBlank() && u != url) {
+                                streams.add(StreamResult(u, "${server.name} ${i + 1}", "application/vnd.apple.mpegurl", headers))
+                            }
+                        }
+                    }
+
+                    return ExtractionResult.Final(streams.first())
+                } catch (_: Exception) { }
+            }
+            throw IllegalStateException("VidNest: all servers failed for $tmdbId")
         }
     }
 
@@ -3167,6 +3230,101 @@ class StreamExtractor(private val context: Context) {
                 StreamResult(url, server.name, mediaType(url), server.headers + refererHeaders(server.url)),
             )
         }
+    }
+
+    private fun unpackObfuscatedJs(html: String): String? {
+        val marker = "eval(function(p,a,c,k,e,d){"
+        val start = html.indexOf(marker)
+        if (start < 0) return null
+
+        // Find closing } of function body
+        // Marker already consumed the opening {, so start braceCount at 1
+        var braceCount = 1
+        var i = start + marker.length
+        while (i < html.length) {
+            when (html[i]) {
+                '{' -> braceCount++
+                '}' -> {
+                    braceCount--
+                    if (braceCount == 0) break
+                }
+            }
+            i++
+        }
+        // i is now at closing }, skip to (
+        i++
+        while (i < html.length && html[i] != '(') i++
+        i++ // skip (
+
+        // Parse the four arguments: 'CODE',BASE,COUNT,'DICT'.split('|')
+        // Arg 1: quoted string (CODE)
+        if (i >= html.length || html[i] != '\'') return null
+        i++ // skip opening '
+        val codeStart = i
+        while (i < html.length && html[i] != '\'') i++
+        val code = html.substring(codeStart, i)
+        i++ // skip closing '
+
+        // Skip comma
+        while (i < html.length && html[i] != ',') i++
+        i++ // skip ,
+
+        // Arg 2: BASE number
+        val baseStart = i
+        while (i < html.length && html[i].isDigit()) i++
+        val base = html.substring(baseStart, i).toIntOrNull() ?: return null
+
+        // Skip comma
+        while (i < html.length && html[i] != ',') i++
+        i++ // skip ,
+
+        // Arg 3: COUNT number
+        val countStart = i
+        while (i < html.length && html[i].isDigit()) i++
+        val count = html.substring(countStart, i).toIntOrNull() ?: return null
+
+        // Skip comma
+        while (i < html.length && html[i] != ',') i++
+        i++ // skip ,
+
+        // Arg 4: 'DICT'.split('|')
+        if (i >= html.length || html[i] != '\'') return null
+        i++ // skip opening '
+        val dictStart = i
+        while (i < html.length && html[i] != '\'') i++
+        val dictStr = html.substring(dictStart, i)
+        val dict = dictStr.split('|')
+
+        // Unpack
+        var result = code
+        for (idx in count - 1 downTo 0) {
+            if (idx < dict.size && dict[idx].isNotEmpty()) {
+                val word = if (base <= 36) {
+                    if (idx == 0) "0" else buildString {
+                        var n = idx
+                        val digits = "0123456789abcdefghijklmnopqrstuvwxyz".take(base)
+                        while (n > 0) {
+                            append(digits[n % base])
+                            n /= base
+                        }
+                        reverse()
+                    }
+                } else idx.toString()
+                result = result.replace(Regex("\\b${java.util.regex.Pattern.quote(word)}\\b"), dict[idx])
+            }
+        }
+        return result
+    }
+
+    private fun decryptVidNestResponse(data: String): String {
+        val alphabet = "RB0fpH8ZEyVLkv7c2i6MAJ5u3IKFDxlS1NTsnGaqmXYdUrtzjwObCgQP94hoeW+/="
+        val std = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="
+        val translated = StringBuilder()
+        for (c in data) {
+            val idx = alphabet.indexOf(c)
+            translated.append(if (idx >= 0) std[idx] else c)
+        }
+        return String(Base64.decode(translated.toString(), Base64.DEFAULT))
     }
 
     private fun httpGet(url: String, headers: Map<String, String> = emptyMap()): String {
