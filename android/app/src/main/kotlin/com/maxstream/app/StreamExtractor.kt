@@ -249,6 +249,15 @@ class StreamExtractor(private val context: Context) {
             StreamrubyExtractor(),
             VidLoveExtractor(),
             VidNestExtractor(),
+            StreamUpExtractor(),
+            VidaraExtractor(),
+            VidHideExtractor(),
+            NekostreamExtractor(),
+            VidoraExtractor(),
+            VidsonicExtractor(),
+            VtubeExtractor(),
+            OkruExtractor(),
+            DailymotionExtractor(),
             WorkerExtractor(),
             GenericMediaExtractor(),
         )
@@ -2971,6 +2980,267 @@ class StreamExtractor(private val context: Context) {
         }
     }
 
+    private inner class StreamUpExtractor : HostExtractor {
+        override val name = "StreamUp"
+
+        override fun supports(server: StreamServer): Boolean {
+            val domain = host(server.url)
+            return domain.endsWith("strmup.to") || domain.endsWith("upstream.to")
+        }
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            val fileCode = URI(server.url).path.split("/").lastOrNull { it.isNotEmpty() }
+                ?: throw IllegalStateException("StreamUp file code not found in URL")
+            val baseUrl = URI(server.url).let { "${it.scheme}://${it.host}" }
+            val apiUrl = "$baseUrl/ajax/stream"
+            val referer = "$baseUrl/v/$fileCode"
+            val headers = refererHeaders(referer)
+            val request = okhttp3.FormBody.Builder()
+                .add("filecode", fileCode)
+                .build()
+            val body = postBody(apiUrl, request, headers)
+            val json = JSONObject(body)
+            val streamUrl = json.optString("streaming_url").ifBlank {
+                throw IllegalStateException("StreamUp returned no streaming_url")
+            }
+            val subtitles = json.optJSONArray("subtitles")?.let { arr ->
+                (0 until arr.length()).mapNotNull { i ->
+                    val sub = arr.optJSONObject(i) ?: return@mapNotNull null
+                    val label = sub.optString("language").ifBlank { return@mapNotNull null }
+                    val file = sub.optString("file_path").ifBlank { return@mapNotNull null }
+                    SubtitleOption(label, file, source = name)
+                }
+            }.orEmpty()
+            return ExtractionResult.Final(
+                StreamResult(streamUrl, name, mediaType(streamUrl), refererHeaders(baseUrl), subtitles = subtitles),
+            )
+        }
+    }
+
+    private inner class VidaraExtractor : HostExtractor {
+        override val name = "Vidara"
+
+        override fun supports(server: StreamServer): Boolean {
+            val domain = host(server.url)
+            return domain.endsWith("vidara.to") || domain.endsWith("vidara.so")
+        }
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            val fileCode = URI(server.url).path.split("/").lastOrNull { it.isNotEmpty() }
+                ?: throw IllegalStateException("Vidara file code not found")
+            val baseUrl = URI(server.url).let { "${it.scheme}://${it.host}" }
+            val payload = JSONObject().put("filecode", fileCode).put("device", "web").toString()
+            val body = postJson("$baseUrl/api/stream", payload)
+            val json = JSONObject(body)
+            val streamUrl = json.optString("streaming_url").ifBlank {
+                throw IllegalStateException("Vidara returned no streaming_url")
+            }
+            val subtitles = json.optJSONArray("subtitles")?.let { arr ->
+                (0 until arr.length()).mapNotNull { i ->
+                    val sub = arr.optJSONObject(i) ?: return@mapNotNull null
+                    val label = sub.optString("language").ifBlank { return@mapNotNull null }
+                    val file = sub.optString("file_path").ifBlank { return@mapNotNull null }
+                    SubtitleOption(label, file, source = name)
+                }
+            }.orEmpty()
+            return ExtractionResult.Final(
+                StreamResult(streamUrl, name, mediaType(streamUrl), refererHeaders(baseUrl), subtitles = subtitles),
+            )
+        }
+    }
+
+    private inner class VidHideExtractor : HostExtractor {
+        override val name = "VidHide"
+
+        override fun supports(server: StreamServer): Boolean {
+            val domain = host(server.url)
+            return domain.endsWith("dhtpre.com") || domain.endsWith("peytonepre.com") ||
+                domain.endsWith("vidhideplus.com") || domain.endsWith("filelions.to") ||
+                domain.endsWith("moflix-stream.click")
+        }
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            val base = URI(server.url).let { "${it.scheme}://${it.host}" }
+            val html = httpGet(server.url, refererHeaders(base))
+            val packedJS = Regex("(eval\\(function\\(p,a,c,k,e,d\\)(.|\\n)*?)</script>")
+                .find(html)?.groupValues?.get(1)
+                ?: throw IllegalStateException("VidHide packed script not found")
+            val unpacked = JsUnpacker(packedJS).unpack()
+                ?: throw IllegalStateException("VidHide script unpack failed")
+            val streamUrl = Regex("""(?:hls\d+|file)\s*[:=]\s*["']([^"']+\.m3u8[^"']*)["']""")
+                .find(unpacked)?.groupValues?.get(1)
+                ?.let { if (it.startsWith("/")) "$base$it" else it }
+                ?: throw IllegalStateException("VidHide returned no m3u8 source")
+            return ExtractionResult.Final(
+                StreamResult(streamUrl, name, mediaType(streamUrl), refererHeaders(base)),
+            )
+        }
+    }
+
+    private inner class NekostreamExtractor : HostExtractor {
+        override val name = "Nekostream"
+
+        override fun supports(server: StreamServer): Boolean {
+            val domain = host(server.url)
+            return domain.endsWith("vidtube.site") || domain.endsWith("megaplay.buzz") ||
+                domain.endsWith("vidwish.live")
+        }
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            val pageBody = httpGet(server.url, refererHeaders("https://anikototv.to/"))
+            val origin = URI(server.url).let { "${it.scheme}://${it.host}" }
+            val fileId = Regex("""id=["']megaplay-player["'][^>]*data-id=["']([^"']+)""")
+                .find(pageBody)?.groupValues?.get(1)
+                ?: Regex("""data-id=["']([^"']+)["'][^>]*id=["']megaplay-player["']""")
+                    .find(pageBody)?.groupValues?.get(1)
+                ?: throw IllegalStateException("Nekostream player file id not found")
+            val streamType = Regex("""type:\s*['"]([^'"]+)""")
+                .find(pageBody)?.groupValues?.get(1)
+            val sourcesUrl = if (pageBody.contains("getSourcesNew")) {
+                "$origin/stream/getSourcesNew?id=$fileId" + (streamType?.let { "&type=$it" } ?: "")
+            } else {
+                "$origin/stream/getSources?id=$fileId"
+            }
+            val sourcesHeaders = refererHeaders(server.url) + mapOf(
+                "Origin" to origin,
+                "X-Requested-With" to "XMLHttpRequest",
+            )
+            val sourcesJson = getJson(sourcesUrl, sourcesHeaders)
+            val streamUrl = sourcesJson.optJSONObject("sources")?.optString("file")
+                ?: sourcesJson.optString("file").ifBlank { null }
+                ?: throw IllegalStateException("Nekostream source not found")
+            val subtitles = sourcesJson.optJSONArray("tracks")?.let { arr ->
+                (0 until arr.length()).mapNotNull { i ->
+                    val track = arr.optJSONObject(i) ?: return@mapNotNull null
+                    val kind = track.optString("kind")
+                    if (kind.isNotBlank() && kind != "captions") return@mapNotNull null
+                    val label = track.optString("label").ifBlank { "Subtitle" }
+                    val file = track.optString("file").ifBlank { return@mapNotNull null }
+                    val isDefault = track.optBoolean("default", false)
+                    SubtitleOption(label, file, isDefault, source = name)
+                }
+            }.orEmpty()
+            return ExtractionResult.Final(
+                StreamResult(streamUrl, name, mediaType(streamUrl), refererHeaders(origin), subtitles = subtitles),
+            )
+        }
+    }
+
+    private inner class VidoraExtractor : HostExtractor {
+        override val name = "Vidora"
+
+        override fun supports(server: StreamServer): Boolean = host(server.url).endsWith("vidora.stream")
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            val html = httpGet(server.url, refererHeaders("https://vidora.stream"))
+            val packedJS = Regex("(eval\\(function\\(p,a,c,k,e,d\\)(.|\\n)*?)</script>")
+                .find(html)?.groupValues?.get(1)
+                ?: throw IllegalStateException("Vidora packed script not found")
+            val unpacked = JsUnpacker(packedJS).unpack()
+                ?: throw IllegalStateException("Vidora script unpack failed")
+            val streamUrl = Regex("""file\s*:\s*["']([^"']+)["']""")
+                .find(unpacked)?.groupValues?.get(1)
+                ?: throw IllegalStateException("Vidora returned no source")
+            return ExtractionResult.Final(
+                StreamResult(streamUrl, name, mediaType(streamUrl), refererHeaders("https://vidora.stream")),
+            )
+        }
+    }
+
+    private inner class VidsonicExtractor : HostExtractor {
+        override val name = "Vidsonic"
+
+        override fun supports(server: StreamServer): Boolean = host(server.url).endsWith("vidsonic.net")
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            val html = httpGet(server.url)
+            val encodedRegex = Regex("""const\s+\w+\s*=\s*'([a-fA-F0-9|]{50,})';""")
+            val encodedStr = encodedRegex.find(html)?.groupValues?.get(1)
+                ?: throw IllegalStateException("Vidsonic encoded string not found")
+            val cleaned = encodedStr.replace("|", "")
+            val asciiBuilder = StringBuilder()
+            for (i in cleaned.indices step 2) {
+                val hexPair = cleaned.substring(i, i + 2)
+                asciiBuilder.append(hexPair.toInt(16).toChar())
+            }
+            val streamUrl = asciiBuilder.toString().reversed()
+            return ExtractionResult.Final(
+                StreamResult(streamUrl, name, mediaType(streamUrl), refererHeaders("https://vidsonic.net")),
+            )
+        }
+    }
+
+    private inner class VtubeExtractor : HostExtractor {
+        override val name = "Vtube"
+
+        override fun supports(server: StreamServer): Boolean {
+            val domain = host(server.url)
+            return domain.endsWith("vtbe.to") || domain.endsWith("vtube.to")
+        }
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            val html = httpGet(server.url)
+            val streamUrl = Regex("""sources:\s*\[\s*\{file:"([^"]+\.m3u8[^"]*)"""")
+                .find(html)?.groupValues?.get(1)
+                ?: Regex("""file:"([^"]+\.m3u8[^"]*)"""")
+                    .find(html)?.groupValues?.get(1)
+                ?: throw IllegalStateException("Vtube source not found")
+            val origin = URI(server.url).let { "${it.scheme}://${it.host}" }
+            return ExtractionResult.Final(
+                StreamResult(streamUrl, name, mediaType(streamUrl), refererHeaders("$origin/")),
+            )
+        }
+    }
+
+    private inner class OkruExtractor : HostExtractor {
+        override val name = "Okru"
+
+        override fun supports(server: StreamServer): Boolean = host(server.url).endsWith("ok.ru")
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            val html = httpGet(server.url)
+            val dataOptions = Regex("""div[^>]+data-options=["']([^"']+)["']""")
+                .find(html)?.groupValues?.get(1)
+                ?: throw IllegalStateException("Okru data-options not found")
+            val videoUrls = Regex("""url\\*?\\*?:\\*?\\*?"(https://[^"]+)""")
+                .findAll(dataOptions).map { it.groupValues[1].replace("\\u0026", "&") }.toList()
+            if (videoUrls.isEmpty()) throw IllegalStateException("Okru found no video URLs")
+            val streamUrl = videoUrls.first()
+            return ExtractionResult.Final(
+                StreamResult(streamUrl, name, mediaType(streamUrl), refererHeaders("https://ok.ru")),
+            )
+        }
+    }
+
+    private inner class DailymotionExtractor : HostExtractor {
+        override val name = "Dailymotion"
+
+        override fun supports(server: StreamServer): Boolean {
+            val domain = host(server.url)
+            return domain.endsWith("dailymotion.com") || domain.endsWith("dai.ly")
+        }
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            val videoId = server.url.substringAfterLast("/").substringAfter("video=")
+            val ts = (System.currentTimeMillis() / 1000).toString()
+            val viewId = List(19) { (('a'..'z') + ('0'..'9')).random() }.joinToString("")
+            val apiUrl = "https://geo.dailymotion.com/video/$videoId.json" +
+                "?legacy=true&player-id=xtv3w&is_native_app=0&app=com.dailymotion.neon" +
+                "&client_type=website&section_type=player&component_style=_&parallelCalls=1" +
+                "&locale=en&dmV1st=${UUID.randomUUID()}&dmTs=$ts&dmViewId=$viewId"
+            val headers = refererHeaders("https://geo.dailymotion.com/")
+            val json = getJson(apiUrl, headers)
+            val streamUrl = json.optJSONObject("qualities")
+                ?.optJSONArray("auto")
+                ?.optJSONObject(0)
+                ?.optString("url")
+                ?: throw IllegalStateException("Dailymotion manifest URL not found")
+            return ExtractionResult.Final(
+                StreamResult(streamUrl, name, mediaType(streamUrl), refererHeaders("https://www.dailymotion.com")),
+            )
+        }
+    }
+
     private inner class GenericMediaExtractor : HostExtractor {
         override val name = "Generic media"
         override fun supports(server: StreamServer) = true
@@ -3119,6 +3389,22 @@ class StreamExtractor(private val context: Context) {
             val body = response.body?.string().orEmpty()
             if (!response.isSuccessful) throw IllegalStateException("HTTP ${response.code} from ${host(url)}")
             return body
+        }
+    }
+
+    private fun postBody(url: String, body: okhttp3.RequestBody, headers: Map<String, String> = emptyMap()): String {
+        requireSafeOutboundUrl(url)
+        val request = Request.Builder()
+            .url(url)
+            .header("User-Agent", userAgent)
+            .header("Accept", "*/*")
+            .apply { safeHeaders(headers).forEach { (name, value) -> header(name, value) } }
+            .post(body)
+            .build()
+        client.newCall(request).execute().use { response ->
+            val responseBody = response.body?.string().orEmpty()
+            if (!response.isSuccessful) throw IllegalStateException("HTTP ${response.code} from ${host(url)}")
+            return responseBody
         }
     }
 
