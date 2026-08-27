@@ -218,33 +218,19 @@ class StreamExtractor(private val context: Context) {
     private val serverProviders: List<ServerProvider> by lazy {
         listOf(
             StaticTmdbProvider(),
-            MoflixProvider(),
-            CommunityServerProvider(),
             VidrockServerProvider(),
-            VidzeeServerProvider(),
             PrimeSrcServerProvider(),
-            FrembedServerProvider(),
         )
     }
 
     private val extractorRegistry: List<HostExtractor> by lazy {
         listOf(
-            VidflixExtractor(),
-            MoflixExtractor(),
             VidLinkExtractor(),
-            MaxstreamVideoExtractor(),
             Mov2DayExtractor(),
             VixSrcExtractor(),
-            CommunityExtractor(),
-            VixcloudExtractor(),
             VidsrcNetExtractor(),
             VidsrcRuExtractor(),
-            VidsrcToExtractor(),
-            VidrockExtractor(),
-            VidzeeExtractor(),
-            VideasyExtractor(),
             PrimeSrcExtractor(),
-            FrembedExtractor(),
             VoeExtractor(),
             StreamtapeExtractor(),
             TwoEmbedExtractor(),
@@ -267,8 +253,6 @@ class StreamExtractor(private val context: Context) {
             GenericMediaExtractor(),
         )
     }
-
-    private val goodstreamExtractor = GoodstreamExtractor()
 
     /** Serialises WebView-based extractors so only one WebView is alive at a time. */
     private val webViewMutex = Mutex()
@@ -466,31 +450,12 @@ class StreamExtractor(private val context: Context) {
             val id = request.tmdbId
             val servers = mutableListOf<StreamServer>()
 
-            // This source currently provides a reliable direct host redirect.
-            servers += StreamServer(
-                "Vidflix",
-                if (request.isMovie) {
-                    "https://vidflix.club/api/movie/$id"
-                } else {
-                    "https://vidflix.club/api/tv/$id/${request.season}/${request.episode}"
-                },
-            )
-
             servers += StreamServer(
                 "VixSrc",
                 if (request.isMovie) {
                     "https://vixsrc.to/api/movie/$id?lang=en"
                 } else {
                     "https://vixsrc.to/api/tv/$id/${request.season}/${request.episode}?lang=en"
-                },
-            )
-
-            servers += StreamServer(
-                "Vidsrc",
-                if (request.isMovie) {
-                    "https://vidsrc-embed.ru/embed/movie?tmdb=$id"
-                } else {
-                    "https://vidsrc-embed.ru/embed/tv?tmdb=$id&season=${request.season}&episode=${request.episode}"
                 },
             )
 
@@ -520,72 +485,6 @@ class StreamExtractor(private val context: Context) {
                     "https://vidsrc.ru/tv/$id/${request.season}/${request.episode}"
                 },
             )
-
-            servers += StreamServer(
-                "VidsrcTo",
-                if (request.isMovie) {
-                    "https://vidsrc.to/embed/movie/$id"
-                } else {
-                    "https://vidsrc.to/embed/tv/$id/${request.season}/${request.episode}"
-                },
-            )
-
-            val encodedTitle = URLEncoder.encode(request.title, Charsets.UTF_8.name())
-            val videasyEndpoints = listOf("mb-flix", "cdn", "downloader2", "1movies", "m4uhd", "hdmovie")
-            for (endpoint in videasyEndpoints) {
-                val url = if (request.isMovie) {
-                    "https://api.videasy.net/$endpoint/sources-with-title?title=$encodedTitle&mediaType=movie&tmdbId=$id"
-                } else {
-                    "https://api.videasy.net/$endpoint/sources-with-title?title=$encodedTitle&mediaType=tv&tmdbId=$id&episodeId=${request.episode}&seasonId=${request.season}"
-                }
-                servers += StreamServer("Videasy $endpoint", url)
-            }
-
-            servers += StreamServer(
-                "VidLove",
-                if (request.isMovie) {
-                    "https://player.vidlove.cc/embed/movie/$id"
-                } else {
-                    "https://player.vidlove.cc/embed/tv/$id/${request.season}/${request.episode}"
-                },
-            )
-
-            servers += StreamServer(
-                "VidNest",
-                if (request.isMovie) {
-                    "https://vidnest.fun/movie/$id"
-                } else {
-                    "https://vidnest.fun/tv/$id/${request.season}/${request.episode}"
-                },
-            )
-
-            servers += StreamServer(
-                "MaxstreamVideo",
-                if (request.isMovie) {
-                    "https://maxstream.video/movie/$id"
-                } else {
-                    "https://maxstream.video/tv/$id/${request.season}/${request.episode}"
-                },
-            )
-
-            servers += StreamServer(
-                "Goodstream",
-                if (request.isMovie) {
-                    "https://goodstream.one/movie/$id"
-                } else {
-                    "https://goodstream.one/tv/$id/${request.season}/${request.episode}"
-                },
-            )
-
-            // Cloudflare Worker — extracts streams server-side, bypassing
-            // device-level Cloudflare blocks that affect direct extractors.
-            val workerBase = "https://maxstream-extractor.maxstream123.workers.dev/api/extract"
-            val workerUrl = "$workerBase?tmdb_id=$id" +
-                "&is_movie=${request.isMovie}" +
-                "&season=${request.season}" +
-                "&episode=${request.episode}" +
-                "&server=vidlink"
-            servers += StreamServer("Worker (VidLink)", workerUrl)
 
             return servers
         }
