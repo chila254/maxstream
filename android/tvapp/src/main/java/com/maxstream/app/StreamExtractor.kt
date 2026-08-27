@@ -12,6 +12,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -284,17 +285,22 @@ class StreamExtractor(private val context: Context) {
         // of walking them one at a time (a single dead server used to stall the
         // whole chain on its 12-45s timeouts). WebView extractors are skipped on
         // 1GB-class boxes so several never render at once and OOM the device.
-        val extractionSlots = Semaphore(4)
+        // HTTP and WebView extractors use separate semaphores so slow WebViews
+        // never block fast HTTP extractors from producing the first result.
+        val httpSlots = Semaphore(4)
+        val webViewSlots = Semaphore(1)
         val channel = Channel<StreamResult>(Channel.CONFLATED)
         val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
         val jobs = servers.map { server ->
             scope.launch {
-                extractionSlots.withPermit {
+                val slots = if (isWebViewServer(server)) webViewSlots else httpSlots
+                slots.withPermit {
                     try {
                         extractServer(server)
                             ?.takeIf { it.url.isNotBlank() }
                             ?.let { channel.trySend(it) }
                     } catch (error: Exception) {
+                        if (error is CancellationException) throw error
                         Log.e(tag, "Server ${server.name} failed", error)
                     }
                 }
@@ -322,15 +328,18 @@ class StreamExtractor(private val context: Context) {
         require(tmdbId.isNotBlank()) { "TMDB ID is required" }
         val media = MediaRequest(tmdbId, isMovie, season, episode, title)
         val servers = buildServerList(media)
-        val extractionSlots = Semaphore(4)
+        val httpSlots = Semaphore(4)
+        val webViewSlots = Semaphore(1)
         withTimeoutOrNull(45_000) {
             coroutineScope {
                 servers.map { server ->
                     async(Dispatchers.IO) {
-                        extractionSlots.withPermit {
+                        val slots = if (isWebViewServer(server)) webViewSlots else httpSlots
+                        slots.withPermit {
                             try {
                                 extractServer(server)
                             } catch (error: Exception) {
+                                if (error is CancellationException) throw error
                                 Log.w(tag, "Alternative server ${server.name} failed: ${error.message}")
                                 null
                             }
@@ -367,6 +376,7 @@ class StreamExtractor(private val context: Context) {
                         Log.d(tag, "${provider.name} supplied ${it.size} servers")
                     }
                 } catch (error: Exception) {
+                    if (error is CancellationException) throw error
                     Log.e(tag, "Server provider ${provider.name} failed", error)
                     emptyList()
                 }
@@ -409,11 +419,16 @@ class StreamExtractor(private val context: Context) {
                     null
                 }
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 Log.e(tag, "Goodstream extraction failed: ${e.message}")
                 null
             }
         }
     }
+
+    /** Quick check whether a server will route to a WebView-based extractor. */
+    private fun isWebViewServer(server: StreamServer): Boolean =
+        extractorRegistry.firstOrNull { it.supports(server) }?.usesWebView == true
 
     private suspend fun extractServer(initialServer: StreamServer): StreamResult? {
         var server = initialServer
@@ -446,6 +461,7 @@ class StreamExtractor(private val context: Context) {
                     try {
                         extractor.extract(server)
                     } catch (error: Exception) {
+                        if (error is CancellationException) throw error
                         Log.e(tag, "Extractor ${extractor.name} failed: ${error.message}")
                         return null
                     }
@@ -454,6 +470,7 @@ class StreamExtractor(private val context: Context) {
                 try {
                     extractor.extract(server)
                 } catch (error: Exception) {
+                    if (error is CancellationException) throw error
                     Log.e(tag, "Extractor ${extractor.name} failed: ${error.message}")
                     return null
                 }
@@ -461,7 +478,13 @@ class StreamExtractor(private val context: Context) {
 
             when (result) {
                 is ExtractionResult.Final -> {
-                    return validateStream(result.stream.copy(server = initialServer.name))
+                    return try {
+                        validateStream(result.stream.copy(server = initialServer.name))
+                    } catch (error: Exception) {
+                        if (error is CancellationException) throw error
+                        Log.w(tag, "Validation failed for ${extractor.name}: ${error.message}")
+                        null
+                    }
                 }
                 is ExtractionResult.Redirect -> server = result.server
             }
@@ -721,6 +744,7 @@ class StreamExtractor(private val context: Context) {
                     )
                 }
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 Log.w(tag, "Frembed provider failed: ${e.message}")
                 emptyList()
             }
@@ -1296,6 +1320,7 @@ class StreamExtractor(private val context: Context) {
             return try {
                 extractHttp(server)
             } catch (error: Exception) {
+                if (error is CancellationException) throw error
                 Log.w(tag, "Mov2Day HTTP route failed (${error.message}); retrying through WebView")
                 extractViaWebView(server)
             }
@@ -1368,6 +1393,7 @@ class StreamExtractor(private val context: Context) {
                 try {
                     return ExtractionResult.Final(validateStream(candidate))
                 } catch (error: Exception) {
+                    if (error is CancellationException) throw error
                     Log.w(tag, "Alternate Vidflix route failed: ${error.message}")
                 }
             }
@@ -1490,6 +1516,7 @@ class StreamExtractor(private val context: Context) {
             var html = try {
                 httpGet(embedUrl, refererHeaders("https://vixsrc.to"))
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 val isGone = e.message?.contains("410") == true || e.message?.contains("Gone") == true
                 if (isGone) {
                     Log.d(tag, "VixSrc embed returned 410, retrying API for fresh path")
@@ -1781,7 +1808,9 @@ class StreamExtractor(private val context: Context) {
                             try {
                                 val stream = resolveVidrockUrl(url, candidateName, headers)
                                 if (stream != null) return ExtractionResult.Final(stream)
-                            } catch (_: Exception) { }
+                            } catch (e: Exception) {
+                                if (e is CancellationException) throw e
+                            }
                             break
                         }
                     }
@@ -1789,7 +1818,9 @@ class StreamExtractor(private val context: Context) {
                     try {
                         val stream = resolveVidrockUrl(url, "$name $selectedName", headers)
                         if (stream != null) return ExtractionResult.Final(stream)
-                    } catch (_: Exception) { }
+                    } catch (e: Exception) {
+                        if (e is CancellationException) throw e
+                    }
                 }
             }
 
@@ -1833,6 +1864,7 @@ class StreamExtractor(private val context: Context) {
                     val stream = StreamResult(url, server.name, mediaType(url), headers)
                     return ExtractionResult.Final(validateStream(stream))
                 } catch (error: Exception) {
+                    if (error is CancellationException) throw error
                     Log.w(tag, "Vidzee route $index failed: ${error.message}")
                 }
             }
@@ -1895,6 +1927,7 @@ class StreamExtractor(private val context: Context) {
                     val stream = StreamResult(source, server.name, mediaType(source), headers)
                     return ExtractionResult.Final(validateStream(stream))
                 } catch (error: Exception) {
+                    if (error is CancellationException) throw error
                     Log.w(tag, "Videasy route $index failed: ${error.message}")
                 }
             }
@@ -2247,7 +2280,9 @@ class StreamExtractor(private val context: Context) {
                     }
 
                     return ExtractionResult.Final(streams.first())
-                } catch (_: Exception) { }
+                } catch (e: Exception) {
+                    if (e is CancellationException) throw e
+                }
             }
             throw IllegalStateException("VidNest: all servers failed for $tmdbId")
         }
@@ -2812,7 +2847,8 @@ class StreamExtractor(private val context: Context) {
         override suspend fun extract(server: StreamServer): ExtractionResult {
             val pageHtml = try {
                 httpGet(server.url)
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 httpGet(if (server.url.startsWith("http")) server.url else "https:${server.url}")
             }
             val scriptData = pageHtml
@@ -2981,7 +3017,8 @@ class StreamExtractor(private val context: Context) {
             for (f in items.asReversed()) {
                 val ch = try {
                     veevDecode(f)
-                } catch (_: Exception) {
+                } catch (e: Exception) {
+                    if (e is CancellationException) throw e
                     f
                 }
                 if (ch == f) continue
@@ -3624,7 +3661,8 @@ class StreamExtractor(private val context: Context) {
     ): Pair<String, List<SubtitleOption>> {
         val sources = try {
             JSONArray(sourcesValue)
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
             JSONArray(decryptRabbitSources(sourcesValue, secret))
         }
         require(sources.length() > 0) { "Rabbitstream returned no sources" }
@@ -3815,19 +3853,24 @@ class StreamExtractor(private val context: Context) {
         // A playlist can remain reachable after its signed media segments expire.
         // Validate one segment from every variant so dead RPM/CDN routes never
         // reach ExoPlayer as an apparently working server.
+        // Limit to 2 concurrent variant checks to prevent OOM on low-memory devices
+        val variantSlots = Semaphore(2)
         val playableVariants = coroutineScope {
             variants.map { variant ->
                 async(Dispatchers.IO) {
-                    try {
-                        val playlist = getValidationResponse(variant.url, headers)
-                        require(playlist.body.startsWith("#EXTM3U")) {
-                            "Variant ${variant.height}p is not a valid playlist"
+                    variantSlots.withPermit {
+                        try {
+                            val playlist = getValidationResponse(variant.url, headers)
+                            require(playlist.body.startsWith("#EXTM3U")) {
+                                "Variant ${variant.height}p is not a valid playlist"
+                            }
+                            validateMediaPlaylist(playlist.url, playlist.body, headers)
+                            variant.copy(url = playlist.url)
+                        } catch (error: Exception) {
+                            if (error is CancellationException) throw error
+                            Log.w(tag, "Discarding ${variant.height}p HLS variant: ${error.message}")
+                            null
                         }
-                        validateMediaPlaylist(playlist.url, playlist.body, headers)
-                        variant.copy(url = playlist.url)
-                    } catch (error: Exception) {
-                        Log.w(tag, "Discarding ${variant.height}p HLS variant: ${error.message}")
-                        null
                     }
                 }
             }.awaitAll().filterNotNull()
