@@ -77,7 +77,9 @@ class NativeStreamExtractor {
     }
   }
 
-  /// Resolve every server that currently produces a validated playable stream.
+  /// Resolve every server, including ones that failed extraction/validation.
+  /// Failed entries carry an empty `url` and `available: false` so the picker
+  /// can still list them and offer a per-server re-fetch.
   static Future<List<Map<String, dynamic>>> resolveStreams({
     required String tmdbId,
     required bool isMovie,
@@ -93,11 +95,7 @@ class NativeStreamExtractor {
         'episode': episode,
         'title': title,
       });
-      return result
-              ?.whereType<Map>()
-              .map(_normalizeStream)
-              .where((stream) => stream['url']?.toString().isNotEmpty == true)
-              .toList() ??
+      return result?.whereType<Map>().map(_normalizeStream).toList() ??
           const [];
     } on PlatformException catch (e) {
       debugPrint('NativeExtractor: Server discovery failed: ${e.message}');
@@ -105,6 +103,37 @@ class NativeStreamExtractor {
     } catch (e) {
       debugPrint('NativeExtractor: Server discovery error: $e');
       return const [];
+    }
+  }
+
+  /// Re-resolve a single named server on demand. Returns its stream map when
+  /// it now produces a playable URL, or null if it is still unavailable.
+  static Future<Map<String, dynamic>?> resolveServer({
+    required String serverName,
+    required String tmdbId,
+    required bool isMovie,
+    int season = 1,
+    int episode = 1,
+    String title = '',
+  }) async {
+    try {
+      debugPrint('NativeExtractor: Re-resolving server $serverName');
+      final result = await _channel.invokeMethod<Map>('resolveServer', {
+        'serverName': serverName,
+        'tmdbId': tmdbId,
+        'isMovie': isMovie,
+        'season': season,
+        'episode': episode,
+        'title': title,
+      });
+      if (result == null) return null;
+      return _normalizeStream(result);
+    } on PlatformException catch (e) {
+      debugPrint('NativeExtractor: resolveServer $serverName failed: ${e.message}');
+      return null;
+    } catch (e) {
+      debugPrint('NativeExtractor: resolveServer error: $e');
+      return null;
     }
   }
 }

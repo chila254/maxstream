@@ -213,6 +213,29 @@ class MainActivity : FlutterActivity() {
                             }
                         }
                     }
+                    "resolveServer" -> {
+                        val serverName = call.argument<String>("serverName") ?: ""
+                        val tmdbId = call.argument<String>("tmdbId") ?: ""
+                        val isMovie = call.argument<Boolean>("isMovie") ?: true
+                        val season = call.argument<Int>("season") ?: 1
+                        val episode = call.argument<Int>("episode") ?: 1
+                        val title = call.argument<String>("title") ?: ""
+
+                        scope.launch {
+                            try {
+                                val stream = withContext(Dispatchers.IO) {
+                                    extractor.resolveServer(
+                                        serverName, tmdbId, isMovie, season, episode, title,
+                                    )
+                                }
+                                try { result.success(stream) }
+                                catch (_: IllegalStateException) { }
+                            } catch (e: Exception) {
+                                try { result.error("EXTRACT_ERROR", e.message, null) }
+                                catch (_: IllegalStateException) { }
+                            }
+                        }
+                    }
                     else -> result.notImplemented()
                 }
             }

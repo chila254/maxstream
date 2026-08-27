@@ -330,28 +330,95 @@ class StreamExtractor(private val context: Context) {
         val servers = buildServerList(media)
         val httpSlots = Semaphore(4)
         val webViewSlots = Semaphore(1)
-        withTimeoutOrNull(45_000) {
+        val attempts = withTimeoutOrNull(45_000) {
             coroutineScope {
                 servers.map { server ->
                     async(Dispatchers.IO) {
                         val slots = if (isWebViewServer(server)) webViewSlots else httpSlots
                         slots.withPermit {
                             try {
-                                extractServer(server)
+                                val stream = extractServer(server)
+                                if (stream != null) {
+                                    stream.toMap() + mapOf("available" to true)
+                                } else {
+                                    failedServerMap(server, "No playable stream extracted")
+                                }
                             } catch (error: Exception) {
                                 if (error is CancellationException) throw error
                                 Log.w(tag, "Alternative server ${server.name} failed: ${error.message}")
-                                null
+                                failedServerMap(server, error.message ?: "Unknown error")
                             }
                         }
                     }
                 }.awaitAll()
-                    .filterNotNull()
-                    .distinctBy { it.url }
-                    .map(StreamResult::toMap)
             }
         } ?: emptyList()
+        // Keep one row per server identity: prefer a successful stream, else
+        // surface the latest failure so every source is listed in the picker
+        // (even dead ones, which the UI can re-fetch on demand).
+        val byName = LinkedHashMap<String, MutableList<Map<String, Any>>>()
+        attempts.forEach { attempt ->
+            val name = attempt["server"]?.toString() ?: return@forEach
+            byName.getOrPut(name) { mutableListOf() }.add(attempt)
+        }
+        val result = mutableListOf<Map<String, Any>>()
+        val seenUrls = mutableSetOf<String>()
+        for ((_, entries) in byName) {
+            val success = entries.firstOrNull { it["available"] == true }
+            if (success != null) {
+                val url = success["url"]?.toString().orEmpty()
+                // Multiple providers can surface the same resolved URL; keep
+                // only the first so the list stays free of duplicates.
+                if (url.isEmpty() || !seenUrls.add(url)) continue
+                result.add(success)
+            } else {
+                result.add(entries.last())
+            }
+        }
+        result
     }
+
+    /** Re-resolves a single named server, used when the user taps a source
+     *  that failed during discovery so they can re-fetch just that one. */
+    suspend fun resolveServer(
+        name: String,
+        tmdbId: String,
+        isMovie: Boolean,
+        season: Int,
+        episode: Int,
+        title: String,
+    ): Map<String, Any>? = withContext(Dispatchers.IO) {
+        require(tmdbId.isNotBlank()) { "TMDB ID is required" }
+        val media = MediaRequest(tmdbId, isMovie, season, episode, title)
+        val server = buildServerList(media).firstOrNull { it.name == name }
+            ?: return@withContext null
+        val slots = if (isWebViewServer(server)) Semaphore(1) else Semaphore(4)
+        slots.withPermit {
+            try {
+                extractServer(server)?.let {
+                    it.toMap() + mapOf("available" to true)
+                }
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                Log.w(tag, "Server $name retry failed: ${error.message}")
+                null
+            }
+        }
+    }
+
+    private fun failedServerMap(server: StreamServer, error: String): Map<String, Any> = mapOf(
+        "url" to "",
+        "source" to server.name,
+        "server" to server.name,
+        "type" to "",
+        "headers" to emptyMap<String, String>(),
+        "referer" to "",
+        "qualities" to emptyList<Map<String, Any>>(),
+        "subtitles" to emptyList<Map<String, Any>>(),
+        "separateAudio" to false,
+        "available" to false,
+        "error" to error,
+    )
 
     private suspend fun buildServerList(media: MediaRequest): List<StreamServer> = coroutineScope {
         serverProviders.map { provider ->

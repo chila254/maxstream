@@ -563,6 +563,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   bool _isBuffering = false;
   bool _isSwitchingQuality = false;
   bool _isSwitchingServer = false;
+  bool _isRetryingServer = false;
   String? _error;
   String? _currentSource;
   String _selectedQuality = 'Auto';
@@ -759,6 +760,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         _availableServers = [result];
         _serversLoading = true;
         _selectedServerKey = _serverIdentity(result);
+        result['available'] = true;
 
         // Auto-select subtitle: English CC > English > default > first available.
         _SubtitleTrack? initialSubtitle;
@@ -811,22 +813,22 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
 
         _showStatus('Stream found from $source! Initializing player...');
         var discoveredServers = false;
-        // Pre-flight the stream before ExoPlayer ever sees it: a dead or
-        // expired-token URL would otherwise surface as a source error.
-        var initialized = false;
-        if (await DirectM3u8Service.validateStream(url, headers: headers)) {
-          initialized = await _initializePlayer(
-            url,
-            headers: headers,
-            source: source,
-            qualities: qualities,
-            selectedQuality: selectedQuality,
-            position: resumePosition,
-            isHls:
-                result['type'] == 'direct_m3u8' ||
-                url.toLowerCase().contains('.m3u8'),
-          );
-        }
+        // The native extractor already validated this exact stream with
+        // OkHttp. Hand it straight to ExoPlayer instead of letting the
+        // dart:io pre-flight veto it (dart:io can reject a URL that OkHttp
+        // and ExoPlayer happily play). The pre-flight only orders the
+        // fallback candidates below.
+        var initialized = await _initializePlayer(
+          url,
+          headers: headers,
+          source: source,
+          qualities: qualities,
+          selectedQuality: selectedQuality,
+          position: resumePosition,
+          isHls:
+              result['type'] == 'direct_m3u8' ||
+              url.toLowerCase().contains('.m3u8'),
+        );
         if (!initialized) {
           _showStatus(
             'That stream is unavailable. Finding a working stream...',
@@ -1379,14 +1381,30 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     // would drop the currently playing server from the sheet or duplicate it,
     // and the selection highlight would never land.
     final seen = <String>{};
+    // Keep entries with empty urls too: they represent servers that failed
+    // extraction/validation but must still be listed so the user can select
+    // and re-fetch them. Dedupe by identity rather than URL so a failed
+    // server doesn't collapse into one row.
     final fresh = streams
-        .where((s) => (s['url']?.toString() ?? '').isNotEmpty)
-        .where((s) => seen.add(s['url'].toString()))
+        .where((s) {
+          final key = _serverIdentity(s);
+          if (key.isEmpty) return false;
+          return seen.add(key);
+        })
         .toList();
     setState(() {
       final byIdentity = <String, Map<String, dynamic>>{};
+      // Prefer the server row that has a playable URL; a failed row for the
+      // same identity must not shadow a working one.
       for (final stream in fresh) {
-        byIdentity[_serverIdentity(stream)] = stream;
+        final key = _serverIdentity(stream);
+        final existing = byIdentity[key];
+        final incomingHasUrl = (stream['url']?.toString() ?? '').isNotEmpty;
+        final existingHasUrl =
+            (existing?['url']?.toString() ?? '').isNotEmpty || existing == null;
+        if (existing == null || (incomingHasUrl && !existingHasUrl)) {
+          byIdentity[key] = stream;
+        }
       }
       // Keep the currently playing server in the sheet so it is always shown
       // and highlighted, even when this round of extraction dropped it. Match
@@ -1399,9 +1417,23 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
                 .where((s) => _serverIdentity(s) == playingKey)
                 .firstOrNull;
       if (playing != null) {
-        byIdentity.putIfAbsent(_serverIdentity(playing), () => playing);
+        final key = _serverIdentity(playing);
+        final existing = byIdentity[key];
+        final playingHasUrl = (playing['url']?.toString() ?? '').isNotEmpty;
+        final existingHasUrl =
+            (existing?['url']?.toString() ?? '').isNotEmpty;
+        if (existing == null || (playingHasUrl && !existingHasUrl)) {
+          byIdentity[key] = playing;
+        }
       }
-      _availableServers = byIdentity.values.toList();
+      // Available (playable) servers first, failed (re-fetchable) ones last.
+      final servers = byIdentity.values.toList()
+        ..sort((a, b) {
+          final aOk = (a['url']?.toString() ?? '').isNotEmpty ? 0 : 1;
+          final bOk = (b['url']?.toString() ?? '').isNotEmpty ? 0 : 1;
+          return aOk - bOk;
+        });
+      _availableServers = servers;
       _serversLoading = false;
       // Rebuild the subtitle menu from every server's tracks so fallback
       // subtitles from other servers stay available after re-discovery.
@@ -1803,7 +1835,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
               subtitle: Text(
                 _serversLoading
                     ? 'Checking other servers...'
-                    : '${_availableServers.length} working server${_availableServers.length == 1 ? '' : 's'}',
+                    : '${_availableServers.length} server${_availableServers.length == 1 ? '' : 's'}',
                 style: const TextStyle(color: Colors.white60),
               ),
               trailing: _serversLoading
@@ -1822,27 +1854,45 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
               final source = stream['source']?.toString() ?? 'Server';
               final server = stream['server']?.toString() ?? source;
               final selected = _serverIdentity(stream) == _selectedServerKey;
+              final url = stream['url']?.toString() ?? '';
+              final available = url.isNotEmpty;
               return ListTile(
                 leading: Icon(
-                  selected ? Icons.check_circle : Icons.play_circle_outline,
-                  color: selected ? Colors.red : Colors.white70,
+                  selected
+                      ? Icons.check_circle
+                      : available
+                          ? Icons.play_circle_outline
+                          : Icons.refresh,
+                  color: selected
+                      ? Colors.red
+                      : available
+                          ? Colors.white70
+                          : Colors.orangeAccent,
                 ),
                 title: Text(
                   source,
                   style: const TextStyle(color: Colors.white),
                 ),
                 subtitle: Text(
-                  server == source
-                      ? 'Server ${entry.key + 1}'
-                      : 'Via $server · Server ${entry.key + 1}',
-                  style: const TextStyle(color: Colors.white54),
+                  available
+                      ? (server == source
+                          ? 'Server ${entry.key + 1}'
+                          : 'Via $server · Server ${entry.key + 1}')
+                      : 'Unavailable · Tap to retry',
+                  style: TextStyle(
+                    color: available ? Colors.white54 : Colors.orangeAccent,
+                  ),
                 ),
-                enabled: !selected && !_isSwitchingServer,
+                enabled: !selected && !_isSwitchingServer && !_isRetryingServer,
                 onTap: selected
                     ? null
                     : () {
                         Navigator.of(sheetContext).pop();
-                        _switchServer(stream);
+                        if (available) {
+                          _switchServer(stream);
+                        } else {
+                          _retryServer(stream);
+                        }
                       },
               );
             }),
@@ -1908,6 +1958,73 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     } finally {
       _isSwitchingServer = false;
       if (mounted) setState(() {});
+    }
+  }
+
+  /// Re-fetches a server that previously failed to extract/validate and, if
+  /// it now yields a playable URL, switches to it.
+  Future<void> _retryServer(Map<String, dynamic> stream) async {
+    if (_isSwitchingServer || _isRetryingServer) return;
+    final identity = _serverIdentity(stream);
+    if (identity.isEmpty) return;
+    setState(() => _isRetryingServer = true);
+    _showStatus('Fetching $identity...');
+    try {
+      final resolved = await DirectM3u8Service.resolveServer(
+        serverName: identity,
+        title: _resolverTitle,
+        tmdbId: widget.tmdbId,
+        isMovie: widget.isMovie,
+        season: _currentSeason,
+        episode: _currentEpisode,
+      );
+      if (!mounted) return;
+      if (resolved == null || (resolved['url']?.toString() ?? '').isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('$identity is still unavailable')),
+        );
+        return;
+      }
+      resolved['available'] = true;
+      setState(() {
+        final idx = _availableServers.indexWhere(
+          (s) => _serverIdentity(s) == identity,
+        );
+        if (idx >= 0) {
+          _availableServers = [..._availableServers]..[idx] = resolved;
+        }
+        _subtitleTracks = _unionSubtitleTracks();
+      });
+      if (_videoPlayerController == null) {
+        // Error-view state: no live player to switch, initialize from scratch.
+        final resolvedUrl = resolved['url']!.toString();
+        final headers = _parseStreamHeaders(resolved);
+        final qualities = _parseQualities(resolved['qualities']);
+        var selectedQuality = 'Auto';
+        for (final quality in qualities) {
+          if (quality.url == resolvedUrl) {
+            selectedQuality = quality.label;
+            break;
+          }
+        }
+        await _initializePlayer(
+          resolvedUrl,
+          headers: headers,
+          source: resolved['source']?.toString() ?? identity,
+          qualities: qualities,
+          selectedQuality: selectedQuality,
+          isHls:
+              resolved['type'] == 'direct_m3u8' ||
+              resolvedUrl.toLowerCase().contains('.m3u8'),
+        );
+        if (mounted) {
+          setState(() => _selectedServerKey = _serverIdentity(resolved));
+        }
+      } else {
+        await _switchServer(resolved);
+      }
+    } finally {
+      if (mounted) setState(() => _isRetryingServer = false);
     }
   }
 
@@ -3142,21 +3259,35 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
                 final source =
                     stream['source']?.toString() ?? stream['server']?.toString() ?? 'Server';
                 final selected = _serverIdentity(stream) == _selectedServerKey;
+                final url = stream['url']?.toString() ?? '';
+                final available = url.isNotEmpty;
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 6),
                   child: SizedBox(
                     width: double.infinity,
                     child: OutlinedButton.icon(
-                      onPressed: selected || _isSwitchingServer
+                      onPressed: selected ||
+                              _isSwitchingServer ||
+                              _isRetryingServer
                           ? null
-                          : () => _switchServer(stream),
+                          : available
+                              ? () => _switchServer(stream)
+                              : () => _retryServer(stream),
                       icon: Icon(
-                        selected ? Icons.check_circle : Icons.play_circle_outline,
+                        selected
+                            ? Icons.check_circle
+                            : available
+                                ? Icons.play_circle_outline
+                                : Icons.refresh,
                         size: 18,
-                        color: selected ? Colors.red : Colors.white70,
+                        color: selected
+                            ? Colors.red
+                            : available
+                                ? Colors.white70
+                                : Colors.orangeAccent,
                       ),
                       label: Text(
-                        source,
+                        available ? source : '$source · retry',
                         style: TextStyle(
                           color: selected ? Colors.red : Colors.white,
                           fontSize: 13,

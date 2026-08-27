@@ -101,10 +101,42 @@ class DirectM3u8Service {
       episode: episode,
       title: title,
     );
-    return streams
-        .map(StreamSecurity.sanitizeResolverResult)
-        .whereType<Map<String, dynamic>>()
-        .toList();
+    // Keep every entry, including servers whose extraction failed (empty
+    // URL, available: false) so the picker can list them and offer re-fetch.
+    return streams.map((stream) {
+      final url = stream['url']?.toString() ?? '';
+      if (url.isEmpty) {
+        return {
+          ...stream,
+          'headers':
+              StreamSecurity.sanitizeHeaders(stream['headers'] is Map ? stream['headers'] as Map : null),
+        };
+      }
+      return StreamSecurity.sanitizeResolverResult(stream);
+    }).whereType<Map<String, dynamic>>().toList();
+  }
+
+  /// Re-resolves a single named server on demand (used when the user taps a
+  /// server that failed during discovery). Returns the sanitized stream map,
+  /// or null if the server is still unavailable.
+  static Future<Map<String, dynamic>?> resolveServer({
+    required String serverName,
+    required String title,
+    required String tmdbId,
+    required bool isMovie,
+    int season = 1,
+    int episode = 1,
+  }) async {
+    if (kIsWeb) return null;
+    final result = await NativeStreamExtractor.resolveServer(
+      serverName: serverName,
+      tmdbId: tmdbId,
+      isMovie: isMovie,
+      season: season,
+      episode: episode,
+      title: title,
+    );
+    return StreamSecurity.sanitizeResolverResult(result);
   }
 
   /// Pre-flight check that a resolved stream URL will actually play before we
