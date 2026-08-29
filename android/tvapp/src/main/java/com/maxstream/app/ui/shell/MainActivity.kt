@@ -96,6 +96,14 @@ private fun TvAppRoot() {
     val sidebarFocusRequesters = remember { List(6) { FocusRequester() } }
     val contentFocusRequester  = remember { FocusRequester() }
 
+    // ── Two NavHosts (mirrors Dart: IndexedStack shell + Navigator overlays) ─
+    // shellNavController holds Splash/Login/Shell. Once the Shell destination is
+    // reached it STAYS composed — tab scroll/focus state (heroItem, RowNavState,
+    // Genre section, …) survives every details/player excursion below.
+    val shellNavController = rememberNavController()
+    // deepNavController overlays the shell with Details/Player. DeepRoot is an
+    // invisible placeholder at the bottom of its stack so popBackStack never
+    // empties it; popping back to DeepRoot restores the shell's content focus.
     val deepNavController = rememberNavController()
 
     // Wire TvFocusManager singleton (used by individual screens)
@@ -115,15 +123,36 @@ private fun TvAppRoot() {
     // restore focus via this tick (passed down as `focusKey`).
     var contentFocusTick by remember { mutableIntStateOf(0) }
 
+    // Bumped when the deep-nav overlay (Details/Player) empties back to
+    // DeepRoot. Unlike contentFocusTick (which re-seeds the hero), this makes
+    // the active tab restore ITS last-focused element (the card/row/grid spot
+    // the user launched the player/details from).
+    var deepNavReturnTick by remember { mutableIntStateOf(0) }
+
+    // When the overlay pops back to DeepRoot, hand focus back into the shell's
+    // content area and nudge the active tab to restore its last focus.
+    LaunchedEffect(Unit) {
+        var prev: String? = Screen.DeepRoot.route
+        deepNavController.currentBackStackEntryFlow.collect { entry ->
+            val route = entry.destination.route
+            if (route == Screen.DeepRoot.route && prev != Screen.DeepRoot.route) {
+                deepNavReturnTick++
+                runCatching { contentFocusRequester.requestFocus() }
+            }
+            prev = route
+        }
+    }
+
     // ── Back state machine (Nuvio pattern) ──────────────────────────────
     // root=tab0, sidebar=expanded, content=collapsed.
+    // - Back with the deep-nav overlay on top → pop the overlay (exit back to
+    //   the shell; the entry-flow listener below hands focus back to content)
     // - Back on root + sidebar focused → exit app
     // - Back on root + content focused → open sidebar (expand it)
     // - Back on non-root tab → navigate to home + focus sidebar
-    // - Back on details/series (deep nav) → popBackStack
     fun handleBack() {
-        // 1. Deep nav screens: popBackStack first
-        if (deepNavController.previousBackStackEntry != null) {
+        // 1. Deep-nav overlay on top (anything but the DeepRoot placeholder).
+        if (deepNavController.currentBackStackEntry?.destination?.route != Screen.DeepRoot.route) {
             deepNavController.popBackStack()
             return
         }
@@ -170,8 +199,11 @@ private fun TvAppRoot() {
                 } else false
             }
     ) {
+        // ── Underlay NavHost: Splash / Login / Shell ──────────────────────
+        // The Shell destination stays composed once reached; tabs keep their
+        // scroll/focus state across details/player excursions on the overlay.
         NavHost(
-            navController = deepNavController,
+            navController = shellNavController,
             startDestination = Screen.Splash.route,
             enterTransition  = { fadeIn(tween(300)) },
             exitTransition   = { fadeOut(tween(180)) },
@@ -183,14 +215,14 @@ private fun TvAppRoot() {
                 SplashScreen(onComplete = {
                     val loggedIn = com.maxstream.app.data.local.SessionManager.isLoggedIn(context)
                     val destination = if (loggedIn) Screen.Shell.route else Screen.Login.route
-                    deepNavController.navigate(destination) {
+                    shellNavController.navigate(destination) {
                         popUpTo(Screen.Splash.route) { inclusive = true }
                     }
                 })
             }
             composable(Screen.Login.route) {
                 LoginScreen(onLoginSuccess = {
-                    deepNavController.navigate(Screen.Shell.route) {
+                    shellNavController.navigate(Screen.Shell.route) {
                         popUpTo(Screen.Login.route) { inclusive = true }
                     }
                 })
@@ -202,11 +234,31 @@ private fun TvAppRoot() {
                     contentFocusRequester   = contentFocusRequester,
                     deepNavController       = deepNavController,
                     contentFocusTick        = contentFocusTick,
+                    deepNavReturnTick       = deepNavReturnTick,
                     requestContentFocus     = {
                         contentFocusTick++
                         runCatching { contentFocusRequester.requestFocus() }
                     },
                 )
+            }
+        }
+
+        // ── Overlay NavHost: Details / Player, above the shell ─────────────
+        // DeepRoot is an invisible transparent placeholder that never leaves the
+        // bottom of the stack. Popping Details/Player back to it (see the entry
+        // flow listener) restores the shell's content focus at the last spot.
+        NavHost(
+            navController = deepNavController,
+            startDestination = Screen.DeepRoot.route,
+            enterTransition  = { fadeIn(tween(250)) },
+            exitTransition   = { fadeOut(tween(180)) },
+            popEnterTransition = { fadeIn(tween(220)) },
+            popExitTransition  = { fadeOut(tween(200)) },
+        ) {
+            composable(Screen.DeepRoot.route) {
+                // Transparent placeholder: no background, no focusables, panel
+                // laws keep the shell's own focusables reachable below it.
+                Box(Modifier.fillMaxSize())
             }
             composable(Screen.Details.route) { backStackEntry ->
                 val itemId = backStackEntry.arguments?.getString("itemId") ?: ""
@@ -251,6 +303,7 @@ private fun TvShell(
     contentFocusRequester: FocusRequester,
     deepNavController: androidx.navigation.NavController,
     contentFocusTick: Int,
+    deepNavReturnTick: Int,
     requestContentFocus: () -> Unit,
 ) {
     Row(modifier = Modifier.fillMaxSize()) {
@@ -291,55 +344,61 @@ private fun TvShell(
         ) {
             TabScreen(visible = appState.selectedTab == 0) {
                 HomeScreen(
-                    navController     = deepNavController,
-                    onReturnToSidebar = { appState.updateFocusOnSidebar(true) },
-                    isVisible         = appState.selectedTab == 0,
-                    focusKey          = contentFocusTick,
+                    navController      = deepNavController,
+                    onReturnToSidebar  = { appState.updateFocusOnSidebar(true) },
+                    isVisible          = appState.selectedTab == 0,
+                    focusKey           = contentFocusTick,
+                    restoreFocusKey    = deepNavReturnTick,
                 )
             }
             TabScreen(visible = appState.selectedTab == 1) {
                 SearchScreen(
-                    navController     = deepNavController,
-                    onReturnToSidebar = { appState.updateFocusOnSidebar(true) },
-                    isVisible         = appState.selectedTab == 1,
-                    focusKey          = contentFocusTick,
+                    navController      = deepNavController,
+                    onReturnToSidebar  = { appState.updateFocusOnSidebar(true) },
+                    isVisible          = appState.selectedTab == 1,
+                    focusKey           = contentFocusTick,
+                    restoreFocusKey    = deepNavReturnTick,
                 )
             }
             TabScreen(visible = appState.selectedTab == 2) {
                 GenreScreen(
-                    navController     = deepNavController,
-                    onReturnToSidebar = { appState.updateFocusOnSidebar(true) },
-                    isVisible         = appState.selectedTab == 2,
-                    focusKey          = contentFocusTick,
+                    navController      = deepNavController,
+                    onReturnToSidebar  = { appState.updateFocusOnSidebar(true) },
+                    isVisible          = appState.selectedTab == 2,
+                    focusKey           = contentFocusTick,
+                    restoreFocusKey    = deepNavReturnTick,
                 )
             }
             TabScreen(visible = appState.selectedTab == 3) {
                 SeriesListTab(
-                    navController     = deepNavController,
-                    onReturnToSidebar = { appState.updateFocusOnSidebar(true) },
-                    isVisible         = appState.selectedTab == 3,
-                    focusKey          = contentFocusTick,
+                    navController      = deepNavController,
+                    onReturnToSidebar  = { appState.updateFocusOnSidebar(true) },
+                    isVisible          = appState.selectedTab == 3,
+                    focusKey           = contentFocusTick,
+                    restoreFocusKey    = deepNavReturnTick,
                 )
             }
             TabScreen(visible = appState.selectedTab == 4) {
                 WatchlistScreen(
-                    navController     = deepNavController,
-                    onReturnToSidebar = { appState.updateFocusOnSidebar(true) },
-                    isVisible         = appState.selectedTab == 4,
-                    focusKey          = contentFocusTick,
+                    navController      = deepNavController,
+                    onReturnToSidebar  = { appState.updateFocusOnSidebar(true) },
+                    isVisible          = appState.selectedTab == 4,
+                    focusKey           = contentFocusTick,
+                    restoreFocusKey    = deepNavReturnTick,
                 )
             }
             TabScreen(visible = appState.selectedTab == 5) {
                 MoreScreen(
-                    navController     = deepNavController,
-                    onReturnToSidebar = { appState.updateFocusOnSidebar(true) },
+                    navController      = deepNavController,
+                    onReturnToSidebar  = { appState.updateFocusOnSidebar(true) },
                     onSignOut = {
                         deepNavController.navigate(Screen.Login.route) {
                             popUpTo(Screen.Shell.route) { inclusive = true }
                         }
                     },
-                    isVisible = appState.selectedTab == 5,
-                    focusKey  = contentFocusTick,
+                    isVisible       = appState.selectedTab == 5,
+                    focusKey        = contentFocusTick,
+                    restoreFocusKey = deepNavReturnTick,
                 )
             }
         }
@@ -383,12 +442,14 @@ private fun SeriesListTab(
     onReturnToSidebar: () -> Unit,
     isVisible: Boolean,
     focusKey: Int,
+    restoreFocusKey: Int,
 ) {
     SeriesListScreen(
-        navController     = navController,
-        onReturnToSidebar = onReturnToSidebar,
-        isVisible         = isVisible,
-        focusKey          = focusKey,
+        navController      = navController,
+        onReturnToSidebar  = onReturnToSidebar,
+        isVisible          = isVisible,
+        focusKey           = focusKey,
+        restoreFocusKey    = restoreFocusKey,
     )
 }
 

@@ -86,6 +86,7 @@ fun MoreScreen(
     onSignOut: () -> Unit = {},
     isVisible: Boolean = true,
     focusKey: Int = 0,
+    restoreFocusKey: Int = 0,
 ) {
     val context = LocalContext.current
     var userName  by remember { mutableStateOf("MaxStream User") }
@@ -119,6 +120,15 @@ fun MoreScreen(
             if (ok.isSuccess) return@LaunchedEffect
             attempt++
         }
+    }
+
+    // Deep-nav return: details/player overlay popped. Restore the previously
+    // focused menu item (the shell — and its FocusRequesters — never left
+    // composition, so the requesters are still valid).
+    LaunchedEffect(isVisible, restoreFocusKey, focusedIndex) {
+        if (!isVisible || restoreFocusKey <= 0) return@LaunchedEffect
+        val index = focusedIndex.coerceIn(0, MENU_ITEMS.lastIndex)
+        runCatching { focusRequesters[index].requestFocus() }
     }
 
     // Restore focus to the previously focused menu row after a dialog closes.

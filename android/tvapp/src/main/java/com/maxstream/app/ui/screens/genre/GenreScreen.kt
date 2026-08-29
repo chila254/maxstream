@@ -89,6 +89,7 @@ fun GenreScreen(
     isVisible: Boolean = true,
     initialMediaType: String = "all",
     focusKey: Int = 0,
+    restoreFocusKey: Int = 0,
 ) {
     val scope = rememberCoroutineScope()
     val gridState = rememberLazyGridState()
@@ -453,6 +454,14 @@ fun GenreScreen(
             delay(60)
             restoreFocus()
         }
+    }
+
+    // Deep-nav return: details/player overlay popped. Shell never left
+    // composition, so restoreFocus() puts focus back on the last section.
+    LaunchedEffect(isVisible, restoreFocusKey, sectionFocus) {
+        if (!isVisible || restoreFocusKey <= 0) return@LaunchedEffect
+        delay(60)
+        restoreFocus()
     }
 
     // ── UI ───────────────────────────────────────────────────────────────────

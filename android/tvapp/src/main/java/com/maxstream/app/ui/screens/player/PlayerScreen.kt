@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.ComponentCallbacks2
 import android.content.Context
 import android.content.ContextWrapper
+import android.os.SystemClock
 import android.view.KeyEvent
 import android.view.WindowManager
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -42,6 +43,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -94,6 +96,13 @@ import kotlin.math.abs
 /** Server/quality/subtitle/season selection panel currently open (null = closed). */
 private enum class PlayerMenu { Servers, Quality, Subtitles, Episodes }
 
+/** Window (ms) in which a repeated confirm key is treated as ONE OK press.
+ * TV remotes/gamepads often emit two events (DPAD_CENTER + ENTER, or a
+ * gamepad button + ENTER) for a single physical press. Without this, the
+ * duplicate would activate the play/pause button that the reveal just focused
+ * — pressing OK to show the controls would also pause the video. */
+private const val CONFIRM_KEY_DEBOUNCE_MS = 300L
+
 /** A season tab inside the episode picker. */
 private data class SeasonInfo(
     val number: Int,
@@ -126,6 +135,18 @@ private data class SubtitleOption(
     /** Extractor tag from the source (e.g. "HLS" for VixSrc subtitle renditions). */
     val source: String = "",
 )
+
+/** Prefers the English track (CC / SDH first, then plain English) so subtitles
+ * come up in English when the stream offers it. Callers fall back to the
+ * source's declared default / first entry when no English track exists. */
+private fun pickEnglishSubtitle(available: List<Subtitle>): Subtitle? {
+    val english = available.filter { it.label.contains("english", ignoreCase = true) }
+    if (english.isEmpty()) return null
+    return english.firstOrNull { sub ->
+        val label = sub.label.lowercase()
+        label.contains("cc") || label.contains("sdh") || label.contains("hearing")
+    } ?: english.first()
+}
 
 @Composable
 fun PlayerScreen(
@@ -165,6 +186,10 @@ fun PlayerScreen(
     // built-in controller is not focusable inside Compose.
     var focusedPlaybackControl by remember { mutableIntStateOf(-1) }
     val playbackControlRequesters = remember { List(4) { FocusRequester() } }
+    // Timestamp of the last OK/select key. Many remotes deliver one physical OK
+    // as two key events (see CONFIRM_KEY_DEBOUNCE_MS); the duplicate must not
+    // trigger a second action (e.g. pausing via the just-focused play button).
+    var lastConfirmKeyAt by remember { mutableLongStateOf(0L) }
     // Live playback metrics for the custom progress bar (mirrors Dart's
     // _position/_duration/_isPlaying listeners).
     var positionMs by remember { mutableStateOf(0L) }
@@ -645,11 +670,15 @@ fun PlayerScreen(
             allServers = listOf(primary)
             subtitleOptions = buildSubtitleOptions(primary, listOf(primary))
 
-            // Default subtitle from the primary server (isDefault, else first).
+            // Default subtitle from the primary server: English CC / English
+            // first (so subtitles come up in English when available), then the
+            // stream's declared default, else the first entry.
             var defaultSub: SubtitleOption? = null
             val primDefaults = primary.subtitles
             if (primDefaults.isNotEmpty()) {
-                val def = primDefaults.firstOrNull { it.isDefault } ?: primDefaults.first()
+                val def = pickEnglishSubtitle(primDefaults)
+                    ?: primDefaults.firstOrNull { it.isDefault }
+                    ?: primDefaults.first()
                 defaultSub = subtitleOptions.firstOrNull { it.url == def.url }
             }
 
@@ -1178,7 +1207,13 @@ fun PlayerScreen(
                 focusPlaybackControl(3)
                 return true
             }
-            Key.DirectionCenter, Key.Enter -> {
+            Key.DirectionCenter, Key.Enter, Key.ButtonA -> {
+                // Collapse duplicate confirm events from one physical OK press:
+                // revealing the controls focuses play/pause, and a second event
+                // from the same press would otherwise pause the video.
+                val now = SystemClock.uptimeMillis()
+                if (now - lastConfirmKeyAt < CONFIRM_KEY_DEBOUNCE_MS) return true
+                lastConfirmKeyAt = now
                 if (menuOpen) {
                     selectMenuOption(source)
                     return true

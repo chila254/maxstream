@@ -87,6 +87,7 @@ fun SeriesListScreen(
     onReturnToSidebar: () -> Unit = {},
     isVisible: Boolean = true,
     focusKey: Int = 0,
+    restoreFocusKey: Int = 0,
 ) {
     val viewModel: HomeViewModel = viewModel()
     val trendingSeries   by viewModel.trendingSeries.observeAsState(emptyList())
@@ -149,6 +150,19 @@ fun SeriesListScreen(
             runCatching { playFocusRequester.requestFocus() }
             if (heroItem != null) return@LaunchedEffect
             attempt++
+        }
+    }
+
+    // Deep-nav return: details/player overlay popped. Row/card FocusRequesters
+    // are still valid (the shell never left composition), so jump back to the
+    // exact row the user left; fall back to the hero if no row was active.
+    LaunchedEffect(isVisible, restoreFocusKey) {
+        if (!isVisible || restoreFocusKey <= 0) return@LaunchedEffect
+        val rowId = rowNav.activeRowId
+        if (rowId != null && rowNav.count(rowId) > 0) {
+            rowNav.moveTo(rowId, rowNav.focusedIndex(rowId), outerListState, coroutineScope)
+        } else {
+            runCatching { playFocusRequester.requestFocus() }
         }
     }
 

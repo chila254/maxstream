@@ -72,6 +72,7 @@ fun SearchScreen(
     onReturnToSidebar: () -> Unit = {},
     isVisible: Boolean = true,
     focusKey: Int = 0,
+    restoreFocusKey: Int = 0,
 ) {
     val scope = rememberCoroutineScope()
 
@@ -180,6 +181,19 @@ fun SearchScreen(
             val ok = runCatching { keyboardFocusRequester.requestFocus() }.isSuccess
             if (ok) return@LaunchedEffect
             attempt++
+        }
+    }
+
+    // Deep-nav return: details/player overlay popped. The shell (and keyboard /
+    // grid focus manager) never left composition, so put focus back on whatever
+    // the user was on — the grid cards if they were on results, else the keyboard.
+    LaunchedEffect(isVisible, restoreFocusKey) {
+        if (!isVisible || restoreFocusKey <= 0) return@LaunchedEffect
+        if (!keyboardFocusManager.isKeyboardActive) {
+            val first = gridNav.grids.firstOrNull { it.count > 0 }
+            if (first != null) gridNav.focusFirstCard(first.id, resultsListState, scope)
+        } else {
+            runCatching { keyboardFocusRequester.requestFocus() }
         }
     }
 

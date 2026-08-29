@@ -91,6 +91,7 @@ fun HomeScreen(
     onReturnToSidebar: () -> Unit,
     isVisible: Boolean = true,
     focusKey: Int = 0,
+    restoreFocusKey: Int = 0,
 ) {
     val viewModel: HomeViewModel = viewModel()
     val trendingMovies  by viewModel.trendingMovies.observeAsState(emptyList())
@@ -170,6 +171,20 @@ fun HomeScreen(
             runCatching { playFocusRequester.requestFocus() }
             if (heroItem != null) return@LaunchedEffect
             attempt++
+        }
+    }
+
+    // Deep-nav return: details/player overlay popped. The shell never leaves
+    // composition now, so every row/card FocusRequester is still valid — put
+    // focus back on the exact row the user left, not the hero. Falls back to
+    // the hero when no row was active (e.g. cold start).
+    LaunchedEffect(isVisible, restoreFocusKey) {
+        if (!isVisible || restoreFocusKey <= 0) return@LaunchedEffect
+        val rowId = rowNav.activeRowId
+        if (rowId != null && rowNav.count(rowId) > 0) {
+            rowNav.moveTo(rowId, rowNav.focusedIndex(rowId), outerListState, coroutineScope)
+        } else {
+            runCatching { playFocusRequester.requestFocus() }
         }
     }
 

@@ -79,6 +79,7 @@ fun WatchlistScreen(
     onReturnToSidebar: () -> Unit = {},
     isVisible: Boolean = true,
     focusKey: Int = 0,
+    restoreFocusKey: Int = 0,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -157,6 +158,17 @@ fun WatchlistScreen(
             val ok = runCatching { tabFocusRequesters[selectedTab].requestFocus() }.isSuccess
             if (ok) return@LaunchedEffect
             attempt++
+        }
+    }
+
+    // Deep-nav return: details/player overlay popped. The shell never left
+    // composition, so restore the last focused grid card (or the tab chip).
+    LaunchedEffect(isVisible, restoreFocusKey, selectedTab, filtered.size) {
+        if (!isVisible || restoreFocusKey <= 0) return@LaunchedEffect
+        if (filtered.isNotEmpty()) {
+            gridNav.focusFirstCard(GRID_ID, null, scope)
+        } else {
+            runCatching { tabFocusRequesters[selectedTab].requestFocus() }
         }
     }
 

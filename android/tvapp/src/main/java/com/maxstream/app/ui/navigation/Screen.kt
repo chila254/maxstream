@@ -9,6 +9,12 @@ sealed class Screen(val route: String) {
     data object Shell   : Screen("shell")
 
     // ── Deep-nav overlays (push on top of shell) ───────────────────────────
+    /** Invisible placeholder that stays at the bottom of the deep-nav stack so
+     * popping Details/Player never empties it. The shell below is only ever
+     * composed inside its own (underlay) NavHost, so tab focus/scroll state
+     * survives every details/player excursion. */
+    data object DeepRoot : Screen("deep_root")
+
     data object Details : Screen("details/{itemId}/{mediaType}") {
         fun createRoute(itemId: String, mediaType: String = "movie") = "details/$itemId/$mediaType"
     }
