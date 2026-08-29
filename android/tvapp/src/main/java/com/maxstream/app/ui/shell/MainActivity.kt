@@ -235,6 +235,7 @@ private fun TvAppRoot() {
                     appState                = appState,
                     sidebarFocusRequesters  = sidebarFocusRequesters,
                     contentFocusRequester   = contentFocusRequester,
+                    shellNavController      = shellNavController,
                     deepNavController       = deepNavController,
                     contentFocusTick        = contentFocusTick,
                     deepNavReturnTick       = deepNavReturnTick,
@@ -312,6 +313,7 @@ private fun TvShell(
     appState: TvAppState,
     sidebarFocusRequesters: List<FocusRequester>,
     contentFocusRequester: FocusRequester,
+    shellNavController: androidx.navigation.NavController,
     deepNavController: androidx.navigation.NavController,
     contentFocusTick: Int,
     deepNavReturnTick: Int,
@@ -399,7 +401,12 @@ private fun TvShell(
                     navController      = deepNavController,
                     onReturnToSidebar  = { appState.updateFocusOnSidebar(true) },
                     onSignOut = {
-                        deepNavController.navigate(Screen.Login.route) {
+                        // Navigate on the UNDERLAY nav graph (Login/Shell live
+                        // there), not the overlay deepNavController — the latter
+                        // only knows DeepRoot/Details/Player, so pointing it at
+                        // Screen.Login threw IllegalArgumentException and closed
+                        // the app.
+                        shellNavController.navigate(Screen.Login.route) {
                             popUpTo(Screen.Shell.route) { inclusive = true }
                         }
                     },

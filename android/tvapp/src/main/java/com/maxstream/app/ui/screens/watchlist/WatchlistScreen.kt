@@ -228,24 +228,14 @@ fun WatchlistScreen(
                     .padding(horizontal = 48.dp),
             )
 
-            // Counts of saved movies / series beside the title (mirrors Dart's
-            // TvWatchlistScreen header).
-            val movieCount = watchlist.count { it.mediaType == "movie" }
-            val tvCount = watchlist.count { it.mediaType == "tv" }
-            if (watchlist.isNotEmpty()) {
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    text = "${watchlist.size} titles  •  $movieCount Movies  •  $tvCount Series",
-                    color = Color.White.copy(alpha = 0.6f),
-                    fontSize = 14.sp,
-                    modifier = Modifier
-                        .padding(horizontal = 48.dp),
-                )
-            }
-
             Spacer(Modifier.height(20.dp))
 
-            // ── Tab chips ─────────────────────────────────────────────
+            // ── Tab chips (counts mirrored from Dart's TvWatchlistScreen) ──
+            val counts = listOf(
+                watchlist.size,
+                watchlist.count { it.mediaType == "movie" },
+                watchlist.count { it.mediaType == "tv" },
+            )
             Row(
                 modifier = Modifier.padding(horizontal = 48.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -253,6 +243,7 @@ fun WatchlistScreen(
                 TABS.forEachIndexed { index, label ->
                     WatchlistTabChip(
                         label = label,
+                        count = counts[index],
                         isSelected = index == selectedTab,
                         focusRequester = tabFocusRequesters[index],
                         onSelect = { selectedTab = index },
@@ -357,6 +348,7 @@ private fun WatchlistTabChip(
     focusRequester: FocusRequester,
     onSelect: () -> Unit,
     onKeyEvent: (KeyEvent) -> Boolean,
+    count: Int,
 ) {
     var isFocused by remember { mutableStateOf(false) }
 
@@ -383,7 +375,7 @@ private fun WatchlistTabChip(
         contentAlignment = Alignment.Center,
     ) {
         Text(
-            text = label,
+            text = "$label ($count)",
             color = if (isSelected || isFocused) Color.White else Color.White.copy(alpha = 0.65f),
             fontSize = 15.sp,
             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,

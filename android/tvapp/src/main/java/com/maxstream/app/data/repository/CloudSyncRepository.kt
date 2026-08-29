@@ -64,6 +64,12 @@ object CloudSyncRepository {
             val url = rtdbUrl(path, context)
             val request = Request.Builder().url(url).get().build()
             client.newCall(request).execute().use { response ->
+                // A non-2xx (expired token, offline, permission) must be treated
+                // as "no data" — otherwise the error body is parsed as a (valid
+                // but empty) collection and the downstream reconcile deletes
+                // every local watchlist / history entry the cloud "no longer
+                // has". Returning null keeps local data intact on failure.
+                if (!response.isSuccessful) return@use null
                 val text = response.body?.string() ?: return@use null
                 if (text == "null" || text.isBlank()) return@use null
                 runCatching { JSONObject(text) }.getOrNull()

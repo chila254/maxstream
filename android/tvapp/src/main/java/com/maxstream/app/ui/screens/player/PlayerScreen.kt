@@ -848,6 +848,24 @@ fun PlayerScreen(
                 if (servers.isNotEmpty()) {
                     allServers = servers
                     subtitleOptions = buildSubtitleOptions(primary, servers)
+                    // The primary server may have reported no subtitles at load
+                    // time, so once the full (cross-server) list is known, auto-
+                    // select a default track and fetch its cues — mirrors Dart,
+                    // which picks a default caption track on load. Only when the
+                    // user hasn't already chosen one (or none was selected yet).
+                    if (activeSubtitle == null && subtitleOptions.isNotEmpty()) {
+                        val def = subtitleOptions.firstOrNull {
+                            it.label.contains("english", ignoreCase = true)
+                        } ?: subtitleOptions.first()
+                        val baseUrl = primary.url.takeIf { it.startsWith("http") }
+                        val resolved = resolveSubtitleUrl(def.url, baseUrl)
+                        val cueSet = fetchSubtitleContent(resolved, def.headers)
+                            ?.let { parseSubtitleCues(it) }.orEmpty()
+                        activeSubtitle = def
+                        subtitleCues = cueSet
+                        activeSubtitleText = ""
+                        selectedSubtitleLabel = def.label
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -1398,10 +1416,12 @@ fun PlayerScreen(
                     activatePlaybackControl()
                     return true
                 }
-                // Nothing focused: show controls and focus play/pause.
+                // Nothing focused: reveal the controls only. Do NOT focus the
+                // play/pause control, so a single OK press never pauses playback
+                // (mirrors Dart: OK toggles the controls; pausing is a separate
+                // explicit action on the play/pause control).
                 if (!controlsVisible) {
                     controlsVisible = true
-                    focusPlaybackControl(1)
                 }
                 return true
             }
