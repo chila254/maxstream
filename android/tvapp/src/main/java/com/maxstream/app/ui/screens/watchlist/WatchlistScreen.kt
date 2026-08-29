@@ -228,6 +228,21 @@ fun WatchlistScreen(
                     .padding(horizontal = 48.dp),
             )
 
+            // Counts of saved movies / series beside the title (mirrors Dart's
+            // TvWatchlistScreen header).
+            val movieCount = watchlist.count { it.mediaType == "movie" }
+            val tvCount = watchlist.count { it.mediaType == "tv" }
+            if (watchlist.isNotEmpty()) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = "${watchlist.size} titles  •  $movieCount Movies  •  $tvCount Series",
+                    color = Color.White.copy(alpha = 0.6f),
+                    fontSize = 14.sp,
+                    modifier = Modifier
+                        .padding(horizontal = 48.dp),
+                )
+            }
+
             Spacer(Modifier.height(20.dp))
 
             // ── Tab chips ─────────────────────────────────────────────

@@ -74,6 +74,7 @@ import com.maxstream.app.data.local.WatchlistRepository
 import com.maxstream.app.data.model.MediaItem
 import com.maxstream.app.data.remote.EpisodeRef
 import com.maxstream.app.data.remote.formatReleaseDate
+import com.maxstream.app.data.remote.isAirDateReleased
 import com.maxstream.app.data.remote.isReleased
 import com.maxstream.app.di.Modules
 import com.maxstream.app.ui.navigation.Screen
@@ -361,6 +362,40 @@ private fun TvCinematicDetailsView(
         addAll(genresFromDetails)
     }.joinToString("  •  ")
 
+    // Production / air status (mirrors mobile's buildInfoRow('Status', ...)):
+    //  • TV series: "Returning Series" / "Ended" / "Canceled"
+    //  • Movies: "Released" vs "To be released on <date>" vs "Post Production"
+    val statusText: String?
+    val statusColor: Color
+    if (isTv) {
+        val raw = details?.optString("status").orEmpty().ifBlank { null }
+        statusText = when (raw) {
+            "Canceled" -> "Cancelled"
+            else -> raw
+        }
+        statusColor = when (raw) {
+            "Returning Series" -> Color(0xFF3FB950)
+            "Ended" -> Color(0xFF9AA0A6)
+            "Canceled" -> Color(0xFFE5534B)
+            else -> Color(0xFF9AA0A6)
+        }
+    } else {
+        val raw = details?.optString("status").orEmpty().ifBlank { null }
+        val rd = details?.optString("release_date").orEmpty()
+        statusText = when {
+            raw == "Post Production" -> "Post Production"
+            rd.isNotBlank() && !isAirDateReleased(rd) -> "To be released on ${formatReleaseDate(rd)}"
+            raw == "Released" -> "Released"
+            rd.isNotBlank() -> "Released"
+            else -> raw
+        }
+        statusColor = when {
+            raw == "Post Production" -> Color(0xFFD29922)
+            rd.isNotBlank() && !isAirDateReleased(rd) -> Color(0xFFD29922)
+            else -> Color(0xFF3FB950)
+        }
+    }
+
     // Play button label — matches Dart: "Watch S1E1" for series
     val playLabel = if (isTv) {
         if (loadingEpisodes) "Loading…"
@@ -554,6 +589,23 @@ private fun TvCinematicDetailsView(
                         )
                         Spacer(Modifier.height(12.dp))
                         Text(text = metadata, color = Color.White.copy(alpha = 0.7f), fontSize = 15.sp)
+                        if (statusText != null) {
+                            Spacer(Modifier.height(8.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(9.dp)
+                                        .background(statusColor, CircleShape),
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    text = statusText,
+                                    color = statusColor,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.W600,
+                                )
+                            }
+                        }
                         Spacer(Modifier.height(14.dp))
                         val overview = details?.optString("overview").orEmpty().ifBlank { item.overview }
                         if (overview.isNotBlank()) {

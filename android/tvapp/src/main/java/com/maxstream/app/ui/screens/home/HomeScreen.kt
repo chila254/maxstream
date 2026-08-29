@@ -863,13 +863,19 @@ private fun ContinueWatchingCard(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.fillMaxWidth(),
             )
-            // Episode name (series only)
-            if (isSeries && episodeName.isNotEmpty()) {
+            // Series caption: Season • Episode • Episode name (always shown,
+            // emphasized in red when the card is focused — mirrors Dart's
+            // focused resume card which surfaces S/E + episode title).
+            if (isSeries) {
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    text = episodeName,
-                    color = Color.White.copy(alpha = 0.7f),
-                    fontSize = 11.sp,
+                    text = buildString {
+                        append("S${item.season}  E${item.episode}")
+                        if (episodeName.isNotEmpty()) append("  ·  $episodeName")
+                    },
+                    color = if (isFocused) Color(0xFFE50914) else Color.White.copy(alpha = 0.7f),
+                    fontSize = if (isFocused) 12.sp else 11.sp,
+                    fontWeight = if (isFocused) FontWeight.Bold else FontWeight.Normal,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.fillMaxWidth(),

@@ -128,7 +128,7 @@ data class EpisodeRef(
  * (mirrors mobile's Episode.isReleased). */
 fun EpisodeRef.isReleased(): Boolean = isAirDateReleased(this.airDate)
 
-private fun isAirDateReleased(airDate: String): Boolean {
+fun isAirDateReleased(airDate: String): Boolean {
     if (airDate.isBlank()) return true
     val p = airDate.trim().removeSuffix("T00:00:00").split("-")
     if (p.size < 3) return true
