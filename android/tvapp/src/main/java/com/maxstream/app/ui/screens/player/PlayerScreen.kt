@@ -81,6 +81,8 @@ import com.maxstream.app.data.model.Quality
 import com.maxstream.app.data.model.Source
 import com.maxstream.app.data.model.Subtitle
 import com.maxstream.app.data.remote.EpisodeRef
+import com.maxstream.app.data.remote.formatReleaseDate
+import com.maxstream.app.data.remote.isReleased
 import com.maxstream.app.di.Modules
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -420,6 +422,16 @@ fun PlayerScreen(
                 nextSeason = currentSeason
                 nextEpisode = currentEpisode + 1
             }
+            // Unreleased episodes have no stream yet — never auto-play them;
+            // surface the release date instead so autoplay stops cleanly
+            // (mirrors mobile: isReleased gates _playEpisode).
+            val next = (if (nextSeason == currentSeason) seasonEpisodes
+                        else menuEpisodesCache[nextSeason]?.orEmpty())
+                ?.firstOrNull { it.number == nextEpisode }
+            if (next != null && !next.isReleased()) {
+                status = "To be released on ${formatReleaseDate(next.airDate)}"
+                return
+            }
             status = "Auto-playing S${nextSeason}E$nextEpisode..."
             currentSeason = nextSeason
             currentEpisode = nextEpisode
@@ -735,6 +747,18 @@ fun PlayerScreen(
                 }
             }
 
+            // Unreleased episodes have no stream yet: show "To be released on
+            // <date>" instead of resolving/playing anything (mirrors mobile's
+            // isReleased gate on the episode list).
+            val unreleased = seasonEpisodes.firstOrNull {
+                it.number == currentEpisode && !it.isReleased()
+            }
+            if (unreleased != null) {
+                status = "To be released on ${formatReleaseDate(unreleased.airDate)}"
+                loading = false
+                return
+            }
+
             // Resume position from watch history.
             resumePositionMs = WatchProgressRepository.loadPosition(
                 context, itemId, isMovie, currentSeason, currentEpisode,
@@ -1001,6 +1025,14 @@ fun PlayerScreen(
             if (!menuEpisodesCache.containsKey(menuSeason)) {
                 loadMenuSeasonEpisodes(menuSeason)
             }
+            // If the picker opened on an unreleased episode (e.g. a season whose
+            // first entries haven't aired yet), snap focus onto the first
+            // playable episode so the user can actually select something.
+            val eps = menuEpisodesCache[menuSeason].orEmpty()
+            if (eps.getOrNull(menuIndex)?.isReleased() == false) {
+                val firstReleased = eps.indexOfFirst { it.isReleased() }
+                if (firstReleased >= 0) menuIndex = firstReleased
+            }
         } finally {
             episodeMenuLoading = false
         }
@@ -1200,6 +1232,12 @@ fun PlayerScreen(
                 val episodes = menuEpisodesCache[menuSeason] ?: emptyList()
                 if (episodes.isEmpty() || menuIndex >= episodes.size) return
                 val target = episodes[menuIndex]
+                // Unreleased episodes have no stream yet — never play them; show
+                // the release date instead (mirrors mobile's isReleased gate).
+                if (!target.isReleased()) {
+                    status = "To be released on ${formatReleaseDate(target.airDate)}"
+                    return
+                }
                 if (target.number == currentEpisode && menuSeason == currentSeason) {
                     menuOpen = false
                     activeMenu = null
@@ -1266,7 +1304,15 @@ fun PlayerScreen(
         when (key) {
             Key.DirectionUp -> {
                 if (menuOpen) {
-                    menuIndex = if (menuIndex > 0) menuIndex - 1 else menuIndex
+                    if (activeMenu == PlayerMenu.Episodes) {
+                        // Skip over unreleased episodes (no stream yet).
+                        val eps = menuEpisodesCache[menuSeason] ?: emptyList()
+                        var i = menuIndex - 1
+                        while (i >= 0 && (eps.getOrNull(i)?.isReleased() == false)) i--
+                        if (i >= 0) menuIndex = i
+                    } else {
+                        menuIndex = if (menuIndex > 0) menuIndex - 1 else menuIndex
+                    }
                     return true
                 }
                 // Up from a playback control (0..2) goes to the top-right menu row.
@@ -1300,7 +1346,15 @@ fun PlayerScreen(
                         PlayerMenu.Episodes -> (menuEpisodesCache[menuSeason] ?: emptyList()).size
                         null -> 0
                     }
-                    if (menuIndex + 1 < count) menuIndex++
+                    if (activeMenu == PlayerMenu.Episodes) {
+                        // Skip over unreleased episodes (no stream yet).
+                        val eps = menuEpisodesCache[menuSeason] ?: emptyList()
+                        var i = menuIndex + 1
+                        while (i < count && (eps.getOrNull(i)?.isReleased() == false)) i++
+                        if (i < count) menuIndex = i
+                    } else if (menuIndex + 1 < count) {
+                        menuIndex++
+                    }
                     return true
                 }
                 // Down from a playback control (0..2) moves to the slider.
@@ -2128,6 +2182,7 @@ private fun EpisodePanel(
                 ) {
                     items(episodes.size) { index ->
                         val ep = episodes[index]
+                        val released = ep.isReleased()
                         val isPlaying =
                             menuSeason == currentSeason && ep.number == currentEpisode
                         val isFocused = index == focusedEpisode
@@ -2145,10 +2200,10 @@ private fun EpisodePanel(
                                 )
                                 .border(
                                     if (isFocused) 2.dp else 0.dp,
-                                    Color(0xFFE50914),
+                                    if (released) Color(0xFFE50914) else Color(0x40FFFFFF),
                                     RoundedCornerShape(8.dp),
                                 )
-                                .clickable {
+                                .clickable(enabled = released) {
                                     onEpisodeSelect(menuSeason, ep.number)
                                 }
                                 .padding(8.dp),
@@ -2186,14 +2241,23 @@ private fun EpisodePanel(
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
                                     text = ep.title,
-                                    color = Color.White,
+                                    color = if (released) Color.White else Color(0x61FFFFFF),
                                     fontSize = 16.sp,
                                     maxLines = 1,
                                 )
+                                if (!released && ep.airDate.isNotBlank()) {
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "To be released on ${formatReleaseDate(ep.airDate)}",
+                                        color = Color(0xFFF5B81B),
+                                        fontSize = 12.sp,
+                                        maxLines = 1,
+                                    )
+                                }
                             }
                             if (isPlaying) {
                                 Text(text = "▶", color = Color.White, fontSize = 28.sp)
-                            } else if (isFocused) {
+                            } else if (isFocused && released) {
                                 Text(text = "▶", color = Color(0xB3FFFFFF), fontSize = 28.sp)
                             }
                         }

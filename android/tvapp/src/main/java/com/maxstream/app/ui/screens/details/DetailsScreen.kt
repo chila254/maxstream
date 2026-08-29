@@ -73,6 +73,8 @@ import com.maxstream.app.data.local.WatchEntryCompat
 import com.maxstream.app.data.local.WatchlistRepository
 import com.maxstream.app.data.model.MediaItem
 import com.maxstream.app.data.remote.EpisodeRef
+import com.maxstream.app.data.remote.formatReleaseDate
+import com.maxstream.app.data.remote.isReleased
 import com.maxstream.app.di.Modules
 import com.maxstream.app.ui.navigation.Screen
 import com.maxstream.app.ui.theme.Background
@@ -685,7 +687,7 @@ private fun TvCinematicDetailsView(
                                         onFocused = { focusedEp = i },
                                         focusRequester = requester(rowId, i),
                                         onKeyEvent = { onTileKey(rowId, sectionIndexOf(rowId), episodes.size, i, it) },
-                                        onPress = { onPlay(ep) },
+                                        onPress = { if (ep.isReleased()) onPlay(ep) },
                                     ) {
                                         EpisodeTileContent(ep)
                                     }
@@ -917,6 +919,7 @@ private fun CinematicSection(title: String, height: Dp, content: @Composable () 
 
 @Composable
 private fun EpisodeTileContent(episode: EpisodeRef) {
+    val released = episode.isReleased()
     val stillUrl = episode.stillPath?.let { "${Constants.TMDB_IMAGE_BASE}/w500$it" }.orEmpty()
     Column(modifier = Modifier.width(286.dp).fillMaxHeight()) {
         Box(
@@ -945,13 +948,20 @@ private fun EpisodeTileContent(episode: EpisodeRef) {
         Spacer(Modifier.height(8.dp))
         Text(
             text = "E${episode.number}  ${episode.title}",
-            color = Color.White,
+            color = if (released) Color.White else Color.White.copy(alpha = 0.45f),
             fontWeight = FontWeight.W600,
             fontSize = 13.sp,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        if (episode.overview.isNotBlank()) {
+        if (!released && episode.airDate.isNotBlank()) {
+            Text(
+                text = "To be released on ${formatReleaseDate(episode.airDate)}",
+                color = Color(0xFFF5B81B),
+                fontSize = 12.sp,
+                maxLines = 1,
+            )
+        } else if (episode.overview.isNotBlank()) {
             Text(
                 text = episode.overview,
                 color = Color.White.copy(alpha = 0.54f),

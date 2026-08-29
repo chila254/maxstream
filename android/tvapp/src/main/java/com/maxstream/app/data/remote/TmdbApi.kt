@@ -121,3 +121,42 @@ data class EpisodeRef(
     val stillPath: String?,
     val airDate: String,
 )
+
+/** True when an episode has aired (explicit date <= today), so unreleased
+ * episodes — which have no stream yet — can be shown as "To be released" instead
+ * of being played/queued. Missing/malformed dates are treated as playable
+ * (mirrors mobile's Episode.isReleased). */
+fun EpisodeRef.isReleased(): Boolean = isAirDateReleased(this.airDate)
+
+private fun isAirDateReleased(airDate: String): Boolean {
+    if (airDate.isBlank()) return true
+    val p = airDate.trim().removeSuffix("T00:00:00").split("-")
+    if (p.size < 3) return true
+    val y = p[0].toIntOrNull() ?: return true
+    val m = p[1].toIntOrNull() ?: return true
+    val d = p[2].substring(0, minOf(2, p[2].length)).toIntOrNull() ?: return true
+    val now = java.util.Calendar.getInstance()
+    val by = now.get(java.util.Calendar.YEAR)
+    val bm = now.get(java.util.Calendar.MONTH) + 1
+    val bd = now.get(java.util.Calendar.DAY_OF_MONTH)
+    if (y != by) return y < by
+    if (m != bm) return m < bm
+    return d <= bd
+}
+
+/** Formats a YYYY-MM-DD air date as "Mar 3, 2025" (mirrors mobile's
+ * Episode.formattedAirDate). Returns the raw string when unparseable. */
+fun formatReleaseDate(airDate: String): String {
+    if (airDate.isBlank()) return airDate
+    val p = airDate.trim().removeSuffix("T00:00:00").split("-")
+    if (p.size < 3) return airDate.trim()
+    val y = p[0].trim()
+    val m = p[1].toIntOrNull()
+    val d = p[2].substring(0, minOf(2, p[2].length)).toIntOrNull()
+    if (y.isBlank() || m == null || d == null || m !in 1..12) return airDate.trim()
+    val months = arrayOf(
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    )
+    return "${months[m - 1]} $d, $y"
+}
