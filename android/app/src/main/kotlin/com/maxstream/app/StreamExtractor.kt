@@ -54,6 +54,7 @@ import java.security.spec.ECGenParameterSpec
 import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
 import java.util.regex.Pattern
 import javax.crypto.Cipher
@@ -67,6 +68,17 @@ import kotlin.experimental.xor
 /** Resolves TMDB metadata through server providers and host-specific extractors. */
 class StreamExtractor(private val context: Context) {
     private val tag = "StreamExtractor"
+
+    companion object {
+        // Each alternative server is bounded by its own budget so one slow
+        // source can never wipe out the rest of the server list. WebView
+        // extractors run one-at-a-time and get a shorter cap to keep the
+        // overall resolve time sane.
+        private const val HTTP_SERVER_TIMEOUT_MS = 18_000L
+        private const val WEBVIEW_SERVER_TIMEOUT_MS = 12_000L
+        private const val ALL_SERVERS_TOTAL_TIMEOUT_MS = 75_000L
+        private const val PRIMARY_TIMEOUT_MS = 45_000L
+    }
 
     /** True on 1GB-class devices (most cheap TV boxes). */
     private fun isLowRamDevice(): Boolean {
@@ -306,7 +318,7 @@ class StreamExtractor(private val context: Context) {
                 }
             }
         }
-        val first = withTimeoutOrNull(45_000) { channel.receive() }
+        val first = withTimeoutOrNull(PRIMARY_TIMEOUT_MS) { channel.receive() }
         jobs.forEach { it.cancel() }
         scope.cancel()
         if (first != null) {
@@ -330,29 +342,43 @@ class StreamExtractor(private val context: Context) {
         val servers = buildServerList(media)
         val httpSlots = Semaphore(4)
         val webViewSlots = Semaphore(1)
-        val attempts = withTimeoutOrNull(45_000) {
-            coroutineScope {
-                servers.map { server ->
-                    async(Dispatchers.IO) {
-                        val slots = if (isWebViewServer(server)) webViewSlots else httpSlots
-                        slots.withPermit {
-                            try {
-                                val stream = extractServer(server)
-                                if (stream != null) {
-                                    stream.toMap() + mapOf("available" to true)
-                                } else {
-                                    failedServerMap(server, "No playable stream extracted")
-                                }
-                            } catch (error: Exception) {
-                                if (error is CancellationException) throw error
-                                Log.w(tag, "Alternative server ${server.name} failed: ${error.message}")
-                                failedServerMap(server, error.message ?: "Unknown error")
-                            }
-                        }
+        // Each server is bounded on its own budget so a single slow/hung
+        // source can't drop every other result. Results accumulate as each
+        // server finishes; if the overall cap is hit we still return the
+        // partial list instead of wiping everything.
+        val collected = CopyOnWriteArrayList<Map<String, Any>>()
+        val jobs = servers.map { server ->
+            async(Dispatchers.IO) {
+                val webView = isWebViewServer(server)
+                val slots = if (webView) webViewSlots else httpSlots
+                slots.withPermit {
+                    val perServerTimeout = if (webView) {
+                        WEBVIEW_SERVER_TIMEOUT_MS
+                    } else {
+                        HTTP_SERVER_TIMEOUT_MS
                     }
-                }.awaitAll()
+                    val attempt = withTimeoutOrNull(perServerTimeout) {
+                        try {
+                            val stream = extractServer(server)
+                            if (stream != null) {
+                                stream.toMap() + mapOf("available" to true)
+                            } else {
+                                failedServerMap(server, "No playable stream extracted")
+                            }
+                        } catch (error: Exception) {
+                            if (error is CancellationException) throw error
+                            Log.w(tag, "Alternative server ${server.name} failed: ${error.message}")
+                            failedServerMap(server, error.message ?: "Unknown error")
+                        }
+                    } ?: failedServerMap(server, "Timed out")
+                    collected.add(attempt)
+                }
             }
-        } ?: emptyList()
+        }
+        withTimeoutOrNull(ALL_SERVERS_TOTAL_TIMEOUT_MS) {
+            coroutineScope { jobs.forEach { it.join() } }
+        }
+        val attempts = collected.toList()
         // Keep one row per server identity: prefer a successful stream, else
         // surface the latest failure so every source is listed in the picker
         // (even dead ones, which the UI can re-fetch on demand).

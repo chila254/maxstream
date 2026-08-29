@@ -431,6 +431,7 @@ class MediaDownloadManager extends ChangeNotifier {
     String? resolverTitle,
     int seasonNumber = 1,
     int episodeNumber = 1,
+    int? maxVariantHeightPixels,
   }) async {
     final lookupTitle = resolverTitle ?? title;
     final stream = isMovie
@@ -471,6 +472,7 @@ class MediaDownloadManager extends ChangeNotifier {
       seriesId: isMovie ? null : mediaId,
       seasonNumber: isMovie ? null : seasonNumber,
       episodeNumber: isMovie ? null : episodeNumber,
+      maxVariantHeightPixels: maxVariantHeightPixels,
       subtitles: (stream['subtitles'] as List? ?? const [])
           .whereType<Map>()
           .map(
@@ -480,6 +482,231 @@ class MediaDownloadManager extends ChangeNotifier {
           .toList(),
     );
     return true;
+  }
+
+  // --- Season batch download ---
+  bool _seasonDownloading = false;
+  String? _seasonDownloadKey;
+  int _seasonTotal = 0;
+  int _seasonCurrent = 0;
+  int _seasonCompleted = 0;
+  String _seasonStatus = '';
+
+  bool get seasonDownloading => _seasonDownloading;
+  String? get seasonDownloadKey => _seasonDownloadKey;
+  int get seasonDownloadTotal => _seasonTotal;
+  int get seasonDownloadCurrent => _seasonCurrent;
+  int get seasonDownloadCompleted => _seasonCompleted;
+  String get seasonDownloadStatus => _seasonStatus;
+
+  bool isSeasonDownloadActive(String seasonKey) =>
+      _seasonDownloading && _seasonDownloadKey == seasonKey;
+
+  /// Downloads a whole season one episode at a time. Lives on the manager
+  /// (not a screen) so it keeps going while the UI navigates away and the
+  /// progress bar can be rendered from any screen.
+  Future<void> downloadSeason({
+    required String seasonKey,
+    required String seriesId,
+    required String tmdbId,
+    required String title,
+    required String thumbnail,
+    required int seasonNumber,
+    required List<Map<String, dynamic>> episodes,
+    String? preferredServer,
+    bool lowestQuality = true,
+  }) async {
+    if (_seasonDownloading) return;
+    final alreadyDownloaded = <String>{};
+    try {
+      for (final download in await DBHelper.getMediaDownloads()) {
+        final key = download['downloadKey']?.toString() ?? '';
+        if (key.isNotEmpty) alreadyDownloaded.add(key);
+      }
+    } catch (_) {}
+
+    _seasonDownloading = true;
+    _seasonDownloadKey = seasonKey;
+    _seasonTotal = episodes.length;
+    _seasonCurrent = 0;
+    _seasonCompleted = 0;
+    _seasonStatus = 'Preparing...';
+    notifyListeners();
+
+    var completed = 0;
+    try {
+      for (final episode in episodes) {
+        if (!_seasonDownloading) break;
+        final episodeNumber =
+            (episode['episodeNumber'] as num?)?.toInt() ??
+            (episode['number'] as num?)?.toInt() ??
+            1;
+        final episodeName = episode['name']?.toString() ?? '';
+        final stillPath = episode['stillPath']?.toString() ?? '';
+        final downloadKey =
+            'series_${seriesId}_s${seasonNumber}_e$episodeNumber';
+        _seasonCurrent++;
+        if (alreadyDownloaded.contains(downloadKey) ||
+            _active.containsKey(downloadKey)) {
+          completed++;
+          _seasonCompleted = completed;
+          _seasonStatus =
+              'S${seasonNumber}E$episodeNumber already downloaded';
+          notifyListeners();
+          continue;
+        }
+        final label =
+            '$title - S${seasonNumber}E$episodeNumber'
+            '${episodeName.isEmpty ? '' : ': $episodeName'}';
+        _seasonStatus =
+            'Resolving S${seasonNumber}E$episodeNumber'
+            '${episodeName.isEmpty ? '' : ': $episodeName'}';
+        notifyListeners();
+        final ok = await _downloadSeasonEpisode(
+          downloadKey: downloadKey,
+          seriesId: seriesId,
+          tmdbId: tmdbId,
+          title: title,
+          label: label,
+          thumbnail: stillPath.isNotEmpty
+              ? 'https://image.tmdb.org/t/p/w500$stillPath'
+              : thumbnail,
+          seasonNumber: seasonNumber,
+          episodeNumber: episodeNumber,
+          preferredServer: preferredServer,
+          lowestQuality: lowestQuality,
+        );
+        if (!_seasonDownloading) break;
+        if (ok) completed++;
+        _seasonCompleted = completed;
+        _seasonStatus = ok
+            ? 'S${seasonNumber}E$episodeNumber complete'
+            : 'S${seasonNumber}E$episodeNumber failed, continuing...';
+        notifyListeners();
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+      }
+    } finally {
+      _seasonDownloading = false;
+      _seasonDownloadKey = null;
+      _seasonTotal = 0;
+      _seasonCurrent = 0;
+      _seasonCompleted = 0;
+      _seasonStatus = '';
+      notifyListeners();
+    }
+  }
+
+  Future<bool> _downloadSeasonEpisode({
+    required String downloadKey,
+    required String seriesId,
+    required String tmdbId,
+    required String title,
+    required String label,
+    required String thumbnail,
+    required int seasonNumber,
+    required int episodeNumber,
+    String? preferredServer,
+    bool lowestQuality = true,
+  }) async {
+    try {
+      final streams = await DirectM3u8Service.fetchAvailableStreams(
+        title: title,
+        tmdbId: tmdbId,
+        isMovie: false,
+        season: seasonNumber,
+        episode: episodeNumber,
+      );
+      final selected = _selectSeasonServer(
+        streams,
+        preferredServer: preferredServer,
+      );
+      final masterUrl = selected?['url']?.toString() ?? '';
+      if (masterUrl.isNotEmpty) {
+        final headers = <String, String>{};
+        if (selected!['referer'] != null) {
+          headers['Referer'] = selected['referer'].toString();
+        }
+        if (selected['headers'] is Map) {
+          (selected['headers'] as Map).forEach((key, value) {
+            headers[key.toString()] = value.toString();
+          });
+        }
+        final maxHeight = lowestQuality
+            ? _lowestVariantHeight(selected['qualities'])
+            : null;
+        await start(
+          downloadKey: downloadKey,
+          url: masterUrl,
+          headers: headers,
+          isHls:
+              selected['type'] == 'direct_m3u8' ||
+              masterUrl.toLowerCase().contains('.m3u8'),
+          mediaId: tmdbId,
+          isMovie: false,
+          title: label,
+          resolverTitle: title,
+          thumbnail: thumbnail,
+          seriesId: seriesId,
+          seasonNumber: seasonNumber,
+          episodeNumber: episodeNumber,
+          maxVariantHeightPixels: maxHeight,
+          subtitles: (selected['subtitles'] as List? ?? const [])
+              .whereType<Map>()
+              .map(
+                (track) =>
+                    track.map((key, value) => MapEntry(key.toString(), value)),
+              )
+              .toList(),
+        );
+        return true;
+      }
+      return await resolveAndStart(
+        downloadKey: downloadKey,
+        mediaId: tmdbId,
+        isMovie: false,
+        resolverTitle: title,
+        title: label,
+        thumbnail: thumbnail,
+        seasonNumber: seasonNumber,
+        episodeNumber: episodeNumber,
+      );
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Picks the server for a whole-season batch: the requested one if it is
+  /// available, otherwise the first working server (never a failed one).
+  Map<String, dynamic>? _selectSeasonServer(
+    List<Map<String, dynamic>> streams, {
+    String? preferredServer,
+  }) {
+    final available = streams
+        .where((stream) => (stream['url']?.toString() ?? '').isNotEmpty)
+        .toList();
+    if (available.isEmpty) return null;
+    if (preferredServer != null && preferredServer.isNotEmpty) {
+      for (final stream in available) {
+        final identity = stream['server']?.toString() ??
+            stream['source']?.toString() ??
+            '';
+        if (identity == preferredServer) return stream;
+      }
+    }
+    return available.first;
+  }
+
+  int? _lowestVariantHeight(dynamic qualities) {
+    if (qualities is! List) return null;
+    int? lowest;
+    for (final raw in qualities) {
+      if (raw is! Map) continue;
+      final height = int.tryParse(raw['height']?.toString() ?? '') ?? 0;
+      if (height > 0 && (lowest == null || height < lowest)) {
+        lowest = height;
+      }
+    }
+    return lowest;
   }
 
   Future<void> _ensureForegroundService() async {
@@ -519,6 +746,7 @@ class MediaDownloadManager extends ChangeNotifier {
     int? seasonNumber,
     int? episodeNumber,
     List<Map<String, dynamic>> subtitles = const [],
+    int? maxVariantHeightPixels,
   }) async {
     if (_active.containsKey(downloadKey)) return;
     if (!StreamSecurity.isSafeNetworkUrl(url)) {
@@ -571,6 +799,7 @@ class MediaDownloadManager extends ChangeNotifier {
         headers: headers,
         downloadId: downloadKey,
         hls: isHls,
+        maxVariantHeightPixels: maxVariantHeightPixels,
         onProgress: (progress) {
           _active[downloadKey] = _active[downloadKey]!.copyWith(
             progress: progress,
@@ -684,8 +913,21 @@ class MediaDownloadManager extends ChangeNotifier {
                 response.contentLength! > maxSubtitleBytes)) {
           continue;
         }
+
+        final text = utf8.decode(response.bodyBytes, allowMalformed: true);
         var extension = p.extension(uri.path).toLowerCase();
-        if (!{
+        List<int> bytes = response.bodyBytes;
+
+        if (text.trimLeft().startsWith('#EXTM3U')) {
+          // HLS subtitle playlist (e.g. VixSrc vixsrc.to/playlist/...type=subtitle).
+          // Resolve every referenced segment and merge them into a single
+          // valid WEBVTT file, otherwise the local file would be an .m3u8 and
+          // fail to parse with "no valid timed cues".
+          final merged = await _mergeHlsSubtitlePlaylist(uri, headers);
+          if (merged.isEmpty) continue;
+          extension = '.vtt';
+          bytes = utf8.encode(merged);
+        } else if (!{
           '.vtt',
           '.srt',
           '.ass',
@@ -694,10 +936,10 @@ class MediaDownloadManager extends ChangeNotifier {
           '.xml',
           '.json',
         }.contains(extension)) {
-          extension = '.vtt';
+          extension = _sniffSubtitleExtension(text);
         }
         final file = File(p.join(directory.path, 'subtitle_$index$extension'));
-        await file.writeAsBytes(response.bodyBytes, flush: true);
+        await file.writeAsBytes(bytes, flush: true);
         downloaded.add({
           'label': track['label']?.toString() ?? 'Subtitle ${index + 1}',
           'url': file.path,
@@ -709,5 +951,65 @@ class MediaDownloadManager extends ChangeNotifier {
       }
     }
     return downloaded;
+  }
+
+  /// Downloads every segment referenced in an HLS subtitle playlist and
+  /// merges them into one WEBVTT document. Returns '' if nothing usable.
+  Future<String> _mergeHlsSubtitlePlaylist(
+    Uri playlistUri,
+    Map<String, String> requestHeaders,
+  ) async {
+    final headers = <String, String>{
+      ...requestHeaders,
+      'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
+      'Accept': '*/*',
+    };
+    final playlistResponse = await http
+        .get(playlistUri, headers: headers)
+        .timeout(const Duration(seconds: 15));
+    if (playlistResponse.statusCode < 200 ||
+        playlistResponse.statusCode >= 300) {
+      return '';
+    }
+    final parts = <String>[];
+    for (final line in const LineSplitter()
+        .convert(utf8.decode(playlistResponse.bodyBytes, allowMalformed: true))) {
+      final trimmed = line.trim();
+      if (trimmed.isEmpty || trimmed.startsWith('#')) continue;
+      final segmentUri = playlistUri.resolve(trimmed);
+      final segmentResponse = await http
+          .get(segmentUri, headers: headers)
+          .timeout(const Duration(seconds: 30));
+      if (segmentResponse.statusCode < 200 ||
+          segmentResponse.statusCode >= 300) {
+        continue;
+      }
+      final cueText = utf8
+          .decode(segmentResponse.bodyBytes, allowMalformed: true)
+          .trim();
+      if (cueText.isEmpty) continue;
+      if (cueText.startsWith('WEBVTT')) {
+        parts.add(
+          cueText.replaceFirst(RegExp('^WEBVTT.*\$', multiLine: true), ''),
+        );
+      } else {
+        parts.add(cueText);
+      }
+    }
+    if (parts.isEmpty) return '';
+    return 'WEBVTT\n\n${parts.join('\n\n')}\n';
+  }
+
+  String _sniffSubtitleExtension(String text) {
+    final trimmed = text.trimLeft();
+    if (trimmed.startsWith('{' ) || trimmed.startsWith('[')) return '.json';
+    if (trimmed.contains('[Script Info]') ||
+        trimmed.contains('[V4')
+    ) {
+      return '.ass';
+    }
+    if (trimmed.startsWith('<')) return '.ttml';
+    return '.vtt';
   }
 }

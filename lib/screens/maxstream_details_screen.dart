@@ -304,6 +304,8 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
             title: widget.item.title,
             resolverTitle: widget.item.title,
             thumbnail: widget.item.thumbnail,
+            maxVariantHeightPixels:
+                int.tryParse(selectedStream['maxVariantHeight']?.toString() ?? ''),
             subtitles: (selectedStream['subtitles'] as List? ?? const [])
                 .whereType<Map>()
                 .map(
@@ -1236,11 +1238,14 @@ class _QualitySelectionSheetState extends State<_QualitySelectionSheet> {
         tmdbId: widget.tmdbId,
         isMovie: true,
       );
+      final available = streams
+          .where((stream) => (stream['url']?.toString() ?? '').isNotEmpty)
+          .toList();
       if (mounted) {
         setState(() {
-          _availableStreams = streams;
+          _availableStreams = available;
           _loadingStreams = false;
-          if (streams.isNotEmpty) _selectedServerIndex = 0;
+          if (available.isNotEmpty) _selectedServerIndex = 0;
         });
       }
     } catch (e) {
@@ -1257,6 +1262,10 @@ class _QualitySelectionSheetState extends State<_QualitySelectionSheet> {
     if (_selectedServerIndex == null) return null;
     if (_selectedServerIndex! >= _availableStreams.length) return null;
     final server = _availableStreams[_selectedServerIndex!];
+    final serverUrl = server['url']?.toString() ?? '';
+    final isM3u8 =
+        server['type'] == 'direct_m3u8' ||
+        serverUrl.toLowerCase().contains('.m3u8');
     final qualities = server['qualities'];
     if (qualities is List && qualities.isNotEmpty) {
       final idx = _selectedQualityIndex ?? 0;
@@ -1265,8 +1274,24 @@ class _QualitySelectionSheetState extends State<_QualitySelectionSheet> {
         final q = raw is Map
             ? raw.map((k, v) => MapEntry(k.toString(), v))
             : <String, dynamic>{};
+        final qUrl = q['url']?.toString() ?? '';
+        final height = int.tryParse(q['height']?.toString() ?? '') ?? 0;
+        // Download from the server master with a height ceiling so the audio
+        // and subtitle renditions (EXT-X-MEDIA) are included in the file.
+        if (isM3u8 && height > 0) {
+          return {
+            'url': serverUrl,
+            'source': server['source']?.toString() ?? 'Server',
+            'headers': server['headers'],
+            'referer': server['referer']?.toString(),
+            'type': server['type']?.toString() ?? '',
+            'subtitles': server['subtitles'],
+            'label': q['label']?.toString() ?? 'Auto',
+            'maxVariantHeight': height,
+          };
+        }
         return {
-          'url': q['url']?.toString() ?? server['url']?.toString() ?? '',
+          'url': qUrl.isNotEmpty ? qUrl : serverUrl,
           'source': server['source']?.toString() ?? 'Server',
           'headers': server['headers'],
           'referer': server['referer']?.toString(),
@@ -1277,7 +1302,7 @@ class _QualitySelectionSheetState extends State<_QualitySelectionSheet> {
       }
     }
     return {
-      'url': server['url']?.toString() ?? '',
+      'url': serverUrl,
       'source': server['source']?.toString() ?? 'Server',
       'headers': server['headers'],
       'referer': server['referer']?.toString(),

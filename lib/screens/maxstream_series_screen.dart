@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:youtube_player_flutter/youtube_player_flutter.dart';
 import 'package:shimmer/shimmer.dart';
+import 'dart:async' show unawaited;
 import '../models/movie.dart';
 import '../models/series.dart';
 import '../services/media_download_manager.dart';
@@ -34,10 +35,6 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
   List<Map<String, dynamic>> cast = [];
   List<Map<String, dynamic>> recommendations = [];
   final Set<String> _downloadingEpisodes = {};
-  bool _downloadingSeason = false;
-  int _seasonDownloadCurrent = 0;
-  int _seasonDownloadTotal = 0;
-  String _seasonDownloadStatus = '';
   late final MediaDownloadManager _downloadManager;
   final Set<String> _downloadedEpisodeKeys = {};
   Map<String, dynamic>? _watchProgress;
@@ -361,6 +358,8 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
             seriesId: widget.seriesItem.id,
             seasonNumber: season,
             episodeNumber: episode.episodeNumber,
+            maxVariantHeightPixels:
+                int.tryParse(selectedStream['maxVariantHeight']?.toString() ?? ''),
             subtitles: (selectedStream['subtitles'] as List? ?? const [])
                 .whereType<Map>()
                 .map(
@@ -413,7 +412,7 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
 
   Future<void> _downloadCurrentSeason() async {
     final releasedEpisodes = currentEpisodes.where((e) => e.isReleased).toList();
-    if (_downloadingSeason || releasedEpisodes.isEmpty) return;
+    if (_downloadManager.seasonDownloading || releasedEpisodes.isEmpty) return;
     final season = seasons[selectedSeasonIndex].seasonNumber;
     final unreleasedCount = currentEpisodes.length - releasedEpisodes.length;
     final confirmed = await showDialog<bool>(
@@ -422,7 +421,8 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
         title: Text('Download Season $season?'),
         content: Text(
           '${releasedEpisodes.length} released episodes will be downloaded one at a time.'
-          '${unreleasedCount > 0 ? '\n\n$unreleasedCount unreleased episodes will be skipped.' : ''}',
+          '${unreleasedCount > 0 ? '\n\n$unreleasedCount unreleased episodes will be skipped.' : ''}'
+          '\n\nQuality: the lowest available on the chosen server, and every episode continues using that same server.',
         ),
         actions: [
           TextButton(
@@ -431,61 +431,52 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Download'),
+            child: const Text('Continue'),
           ),
         ],
       ),
     );
     if (confirmed != true || !mounted) return;
-    setState(() {
-      _downloadingSeason = true;
-      _seasonDownloadTotal = releasedEpisodes.length;
-      _seasonDownloadCurrent = 0;
-      _seasonDownloadStatus = 'Preparing...';
-    });
-    var completed = 0;
-    final episodes = List<Episode>.from(releasedEpisodes);
-    try {
-      for (final episode in episodes) {
-        if (!mounted) break;
-        setState(() {
-          _seasonDownloadCurrent = episodes.indexOf(episode) + 1;
-          _seasonDownloadStatus =
-              'Resolving S${season}E${episode.episodeNumber}: ${episode.name}';
-        });
-        final ok = await _downloadEpisode(
-          episode,
-          showResult: false,
-          seasonNumber: season,
-        );
-        if (ok) completed++;
-        if (!mounted) break;
-        setState(() {
-          _seasonDownloadStatus = ok
-              ? 'S${season}E${episode.episodeNumber} complete'
-              : 'S${season}E${episode.episodeNumber} failed, continuing...';
-        });
-        await Future<void>.delayed(const Duration(milliseconds: 300));
-      }
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              completed == episodes.length
-                  ? 'All $completed episodes from Season $season downloaded'
-                  : 'Downloaded $completed of ${episodes.length} episodes from Season $season',
-            ),
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _downloadingSeason = false;
-          _seasonDownloadStatus = '';
-        });
-      }
-    }
+
+    final selection = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      backgroundColor: const Color(0xFF1E1E1E),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) => _SeasonQualitySheet(
+        title: widget.seriesItem.title,
+        tmdbId: widget.seriesItem.id,
+        season: season,
+        episode: releasedEpisodes.first.episodeNumber,
+        serverCountHint: releasedEpisodes.length,
+      ),
+    );
+    if (selection == null || !mounted) return;
+    final preferredServer = selection['server']?.toString();
+
+    final episodes = releasedEpisodes
+        .map(
+          (episode) => {
+            'episodeNumber': episode.episodeNumber,
+            'name': episode.name,
+            'stillPath': episode.stillPath,
+          },
+        )
+        .toList();
+    unawaited(
+      _downloadManager.downloadSeason(
+        seasonKey: 'season_${widget.seriesItem.id}_s$season',
+        seriesId: widget.seriesItem.id,
+        tmdbId: widget.seriesItem.id,
+        title: widget.seriesItem.title,
+        thumbnail: widget.seriesItem.thumbnail,
+        seasonNumber: season,
+        episodes: episodes,
+        preferredServer: preferredServer,
+        lowestQuality: true,
+      ),
+    );
   }
 
   Future<void> _loadWatchProgress() async {
@@ -1138,6 +1129,10 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
   }
 
   Widget buildSeasonsSection() {
+    final seasonActive = _downloadManager.isSeasonDownloadActive(
+      'season_${widget.seriesItem.id}'
+      '_s${seasons[selectedSeasonIndex].seasonNumber}',
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1156,10 +1151,11 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
                 ),
               ),
               TextButton.icon(
-                onPressed: _downloadingSeason || !currentEpisodes.any((e) => e.isReleased)
+                onPressed: seasonActive ||
+                        !currentEpisodes.any((e) => e.isReleased)
                     ? null
                     : _downloadCurrentSeason,
-                icon: _downloadingSeason
+                icon: seasonActive
                     ? const SizedBox(
                         width: 16,
                         height: 16,
@@ -1167,8 +1163,8 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
                       )
                     : const Icon(Icons.download_for_offline_outlined),
                 label: Text(
-                  _downloadingSeason
-                      ? '$_seasonDownloadCurrent/$_seasonDownloadTotal'
+                  seasonActive
+                      ? '${_downloadManager.seasonDownloadCurrent}/${_downloadManager.seasonDownloadTotal}'
                       : 'Download Season',
                 ),
                 style: TextButton.styleFrom(foregroundColor: Colors.white),
@@ -1176,7 +1172,8 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
             ],
           ),
         ),
-        if (_downloadingSeason && _seasonDownloadStatus.isNotEmpty)
+        if (seasonActive &&
+            _downloadManager.seasonDownloadStatus.isNotEmpty)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Container(
@@ -1198,7 +1195,7 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      _seasonDownloadStatus,
+                      _downloadManager.seasonDownloadStatus,
                       style: const TextStyle(
                         color: Colors.white70,
                         fontSize: 12,
@@ -1611,11 +1608,14 @@ class _EpisodeQualitySheetState extends State<_EpisodeQualitySheet> {
         season: widget.season,
         episode: widget.episode,
       );
+      final available = streams
+          .where((stream) => (stream['url']?.toString() ?? '').isNotEmpty)
+          .toList();
       if (mounted) {
         setState(() {
-          _availableStreams = streams;
+          _availableStreams = available;
           _loadingStreams = false;
-          if (streams.isNotEmpty) _selectedServerIndex = 0;
+          if (available.isNotEmpty) _selectedServerIndex = 0;
         });
       }
     } catch (e) {
@@ -1632,6 +1632,10 @@ class _EpisodeQualitySheetState extends State<_EpisodeQualitySheet> {
     if (_selectedServerIndex == null) return null;
     if (_selectedServerIndex! >= _availableStreams.length) return null;
     final server = _availableStreams[_selectedServerIndex!];
+    final serverUrl = server['url']?.toString() ?? '';
+    final isM3u8 =
+        server['type'] == 'direct_m3u8' ||
+        serverUrl.toLowerCase().contains('.m3u8');
     final qualities = server['qualities'];
     if (qualities is List && qualities.isNotEmpty) {
       final idx = _selectedQualityIndex ?? 0;
@@ -1640,8 +1644,24 @@ class _EpisodeQualitySheetState extends State<_EpisodeQualitySheet> {
         final q = raw is Map
             ? raw.map((k, v) => MapEntry(k.toString(), v))
             : <String, dynamic>{};
+        final qUrl = q['url']?.toString() ?? '';
+        final height = int.tryParse(q['height']?.toString() ?? '') ?? 0;
+        // Download from the server master with a height ceiling so the audio
+        // and subtitle renditions (EXT-X-MEDIA) are included in the file.
+        if (isM3u8 && height > 0) {
+          return {
+            'url': serverUrl,
+            'source': server['source']?.toString() ?? 'Server',
+            'headers': server['headers'],
+            'referer': server['referer']?.toString(),
+            'type': server['type']?.toString() ?? '',
+            'subtitles': server['subtitles'],
+            'label': q['label']?.toString() ?? 'Auto',
+            'maxVariantHeight': height,
+          };
+        }
         return {
-          'url': q['url']?.toString() ?? server['url']?.toString() ?? '',
+          'url': qUrl.isNotEmpty ? qUrl : serverUrl,
           'source': server['source']?.toString() ?? 'Server',
           'headers': server['headers'],
           'referer': server['referer']?.toString(),
@@ -1652,7 +1672,7 @@ class _EpisodeQualitySheetState extends State<_EpisodeQualitySheet> {
       }
     }
     return {
-      'url': server['url']?.toString() ?? '',
+      'url': serverUrl,
       'source': server['source']?.toString() ?? 'Server',
       'headers': server['headers'],
       'referer': server['referer']?.toString(),
@@ -2036,6 +2056,304 @@ class _EpisodeQualitySheetState extends State<_EpisodeQualitySheet> {
               ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Bottom sheet that picks the server used for a whole-season download. Every
+/// episode downloads at the lowest quality from this server (Auto lets the app
+/// pick the first working server).
+class _SeasonQualitySheet extends StatefulWidget {
+  final String title;
+  final String tmdbId;
+  final int season;
+  final int episode;
+  final int serverCountHint;
+
+  const _SeasonQualitySheet({
+    required this.title,
+    required this.tmdbId,
+    required this.season,
+    required this.episode,
+    required this.serverCountHint,
+  });
+
+  @override
+  State<_SeasonQualitySheet> createState() => _SeasonQualitySheetState();
+}
+
+class _SeasonQualitySheetState extends State<_SeasonQualitySheet> {
+  bool _loadingStreams = true;
+  List<Map<String, dynamic>> _availableStreams = [];
+  String? _error;
+  int? _selectedServerIndex;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchAvailableStreams();
+  }
+
+  Future<void> _fetchAvailableStreams() async {
+    try {
+      final streams = await DirectM3u8Service.fetchAvailableStreams(
+        title: widget.title,
+        tmdbId: widget.tmdbId,
+        isMovie: false,
+        season: widget.season,
+        episode: widget.episode,
+      );
+      final available = streams
+          .where((stream) => (stream['url']?.toString() ?? '').isNotEmpty)
+          .toList();
+      if (mounted) {
+        setState(() {
+          _availableStreams = available;
+          _loadingStreams = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = e.toString();
+          _loadingStreams = false;
+        });
+      }
+    }
+  }
+
+  void _start() {
+    if (_selectedServerIndex != null &&
+        _selectedServerIndex! < _availableStreams.length) {
+      final source =
+          _availableStreams[_selectedServerIndex!]['source']?.toString();
+      Navigator.pop(context, {'server': source});
+    } else {
+      Navigator.pop(context, null);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.7,
+      ),
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey[600],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            'Download Season',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '${widget.title} · ${widget.serverCountHint} episodes at the lowest'
+            ' quality from one server',
+            style: const TextStyle(color: Colors.grey, fontSize: 13),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 16),
+          if (_loadingStreams)
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.all(20),
+                child: CircularProgressIndicator(color: Colors.red),
+              ),
+            )
+          else if (_error != null)
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Text(
+                  'Could not fetch servers. Auto will still work.',
+                  style: TextStyle(color: Colors.grey[400], fontSize: 13),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            )
+          else ...[
+            GestureDetector(
+              onTap: () => setState(() => _selectedServerIndex = null),
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: _selectedServerIndex == null
+                      ? Colors.red.withValues(alpha: 0.15)
+                      : const Color(0xFF2A2A2A),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: _selectedServerIndex == null
+                        ? Colors.red
+                        : Colors.transparent,
+                    width: 1.5,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.auto_awesome,
+                      color: Colors.red,
+                      size: 24,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Auto',
+                            style: TextStyle(
+                              color: _selectedServerIndex == null
+                                  ? Colors.white
+                                  : Colors.white70,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            _availableStreams.isNotEmpty
+                                ? 'App picks the first working server'
+                                : 'Let the app choose the best server',
+                            style: TextStyle(
+                              color: _selectedServerIndex == null
+                                  ? Colors.white60
+                                  : Colors.grey,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Icon(
+                      _selectedServerIndex == null
+                          ? Icons.radio_button_checked
+                          : Icons.radio_button_off,
+                      color: Colors.red,
+                      size: 20,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            if (_availableStreams.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              const Text(
+                'Server',
+                style: TextStyle(
+                  color: Colors.grey,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Flexible(
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: _availableStreams.length,
+                  itemBuilder: (context, index) {
+                    final source =
+                        _availableStreams[index]['source']?.toString() ??
+                        'Server';
+                    final isSelected = _selectedServerIndex == index;
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: GestureDetector(
+                        onTap: () =>
+                            setState(() => _selectedServerIndex = index),
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? Colors.red.withValues(alpha: 0.15)
+                                : const Color(0xFF2A2A2A),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: isSelected
+                                  ? Colors.red
+                                  : Colors.transparent,
+                              width: 1.5,
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.dns,
+                                color:
+                                    isSelected ? Colors.red : Colors.grey,
+                                size: 20,
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  source,
+                                  style: TextStyle(
+                                    color: isSelected
+                                        ? Colors.white
+                                        : Colors.white70,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                              Icon(
+                                isSelected
+                                    ? Icons.radio_button_checked
+                                    : Icons.radio_button_off,
+                                color: Colors.red,
+                                size: 18,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ],
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: ElevatedButton(
+              onPressed: _start,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              child: const Text(
+                'Start Season Download',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
       ),
     );
   }

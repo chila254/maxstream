@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
+import 'package:path/path.dart' as p;
 import 'package:video_player/video_player.dart';
 import '../database/db_helper.dart';
 import '../services/direct_m3u8_service.dart';
@@ -2280,6 +2281,13 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     final localFile = File(track.url);
     if (await localFile.exists()) {
       final input = await localFile.readAsString();
+      // Legacy local subtitle downloads may have saved an HLS subtitle playlist
+      // (M3U8) instead of cues. Best effort: merge any segments that exist
+      // locally next to the file so the file still plays.
+      if (input.trimLeft().startsWith('#EXTM3U')) {
+        final merged = await _mergeLocalSubtitleHls(input, localFile);
+        if (merged.isNotEmpty) return merged;
+      }
       final subtitles = _parseSubtitleFile(input);
       if (subtitles.isEmpty) {
         throw const FormatException(
@@ -2362,6 +2370,39 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       }
     }
     throw lastError ?? Exception('Failed to load subtitles');
+  }
+
+  /// Best-effort merge of a locally saved HLS subtitle playlist (M3U8) where
+  /// the referenced segment files were downloaded alongside it. Returns '' if
+  /// the segments aren't present so the caller can fall back to normal
+  /// parsing (and surface the missing-cues error).
+  Future<List<Subtitle>> _mergeLocalSubtitleHls(
+    String input,
+    File playlistFile,
+  ) async {
+    final directory = playlistFile.parent.existsSync()
+        ? playlistFile.parent
+        : Directory.current;
+    final parts = <String>[];
+    for (final line in const LineSplitter().convert(input)) {
+      final trimmed = line.trim();
+      if (trimmed.isEmpty || trimmed.startsWith('#')) continue;
+      final segment = File(p.join(directory.path, p.basename(trimmed)));
+      if (!await segment.exists()) continue;
+      final text = await segment.readAsString();
+      final cueText = text.trim();
+      if (cueText.isEmpty) continue;
+      parts.add(
+        cueText.startsWith('WEBVTT')
+            ? cueText.replaceFirst(
+                  RegExp('^WEBVTT.*\$', multiLine: true),
+                  '',
+                )
+            : cueText,
+      );
+    }
+    if (parts.isEmpty) return const [];
+    return _parseSubtitleFile('WEBVTT\n\n${parts.join('\n\n')}\n');
   }
 
   /// Resolves an HLS subtitle playlist (M3U8) into a single WEBVTT string.

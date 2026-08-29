@@ -88,6 +88,7 @@ class MediaDownloadService {
     Map<String, String> headers = const {},
     String? downloadId,
     bool? hls,
+    int? maxVariantHeightPixels,
     DownloadProgress? onProgress,
     DownloadBytesProgress? onBytesProgress,
   }) async {
@@ -131,6 +132,7 @@ class MediaDownloadService {
           headers,
           onProgress,
           onBytesProgress,
+          maxVariantHeightPixels: maxVariantHeightPixels,
         );
       } else {
         outputName = await _downloadDirect(
@@ -276,30 +278,26 @@ class MediaDownloadService {
     Directory directory,
     Map<String, String> headers,
     DownloadProgress? onProgress,
-    DownloadBytesProgress? onBytesProgress,
-  ) async {
+    DownloadBytesProgress? onBytesProgress, {
+    int? maxVariantHeightPixels,
+  }) async {
     var playlistUri = initialUri;
     var playlist = await _getText(playlistUri, headers);
     _validateEncryption(playlist);
-    for (var depth = 0; _isMaster(playlist) && depth < 5; depth++) {
-      playlistUri = playlistUri.resolve(_highestVariant(playlist));
-      _requireSafeUri(playlistUri);
-      playlist = await _getText(playlistUri, headers);
-      _validateEncryption(playlist);
-    }
-    if (_isMaster(playlist)) {
-      throw const FormatException('Too many nested HLS master playlists');
-    }
-    if (!playlist.contains('#EXT-X-ENDLIST')) {
-      throw const FormatException(
-        'This HLS stream is not a complete video and cannot be downloaded yet',
-      );
-    }
-    final hasMediaSegment = const LineSplitter()
-        .convert(playlist)
-        .any((line) => line.trim().isNotEmpty && !line.trim().startsWith('#'));
-    if (!hasMediaSegment) {
-      throw const FormatException('HLS playlist contains no media segments');
+
+    // Every referenced URI maps to a local filename. Playlist texts (the
+    // selected video variant plus any EXT-X-MEDIA audio/subtitle playlists)
+    // are rewritten and re-saved from their fetched text; every other resource
+    // (segments, keys, maps) is downloaded as bytes.
+    final names = <Uri, String>{};
+    var resourceIndex = 0;
+    final byteResources = <Uri>{};
+    String localFileName(Uri uri) {
+      _requireSafeUri(uri);
+      return names.putIfAbsent(uri, () {
+        final extension = p.extension(uri.path);
+        return 'resource_${resourceIndex++}${extension.isEmpty ? '.bin' : extension}';
+      });
     }
 
     final sourceFile = File(p.join(directory.path, '.playlist_source'));
@@ -307,26 +305,183 @@ class MediaDownloadService {
     if (await sourceFile.exists() &&
         await sourceFile.readAsString() != source) {
       await for (final entity in directory.list()) {
-        if (entity is File && p.basename(entity.path).startsWith('resource_')) {
+        if (entity is File &&
+            (p.basename(entity.path).startsWith('resource_') ||
+                p.basename(entity.path).startsWith('playlist'))) {
           await entity.delete();
         }
       }
     }
     await sourceFile.writeAsString(source, flush: true);
 
-    final lines = const LineSplitter().convert(playlist);
-    final resources = <Uri, String>{};
-    var resourceIndex = 0;
-    String localName(Uri uri) {
-      _requireSafeUri(uri);
-      return resources.putIfAbsent(uri, () {
-        final extension = p.extension(uri.path);
-        return 'resource_${resourceIndex++}${extension.isEmpty ? '.bin' : extension}';
-      });
+    // filename -> rewritten playlist text to write at the end.
+    final rewrittenPlaylists = <String, String>{};
+
+    if (_isMaster(playlist)) {
+      final variants = _parseVariants(playlist, playlistUri);
+      if (variants.isEmpty) {
+        throw const FormatException('HLS master has no variants');
+      }
+      final chosen = _chooseVariant(
+        variants,
+        maxVariantHeightPixels: maxVariantHeightPixels,
+      );
+      // Audio + subtitle renditions declared via EXT-X-MEDIA. Without these a
+      // downloaded video-only variant would play back with no sound, and the
+      // subtitles would be missing entirely.
+      final mediaGroups = _parseMediaGroups(playlist, playlistUri);
+      final audioGroup = _audioGroupId(playlist);
+
+      // Fetch + rewrite every media playlist (chosen variant, audio, subtitles).
+      final playlistUris = <Uri>[Uri.parse(chosen.uri), ...mediaGroups];
+      final seenPlaylists = <Uri>{};
+      for (final mediaUri in playlistUris) {
+        if (!seenPlaylists.add(mediaUri)) continue;
+        final mediaText = await _getText(mediaUri, headers);
+        _validateEncryption(mediaText);
+        if (_isMaster(mediaText)) {
+          throw const FormatException(
+            'Unexpected nested HLS master playlist',
+          );
+        }
+        if (!mediaText.contains('#EXT-X-ENDLIST')) {
+          throw const FormatException(
+            'This HLS stream is not a complete video and cannot be downloaded yet',
+          );
+        }
+        final hasMediaSegment = const LineSplitter()
+            .convert(mediaText)
+            .any(
+              (line) =>
+                  line.trim().isNotEmpty && !line.trim().startsWith('#'),
+            );
+        if (!hasMediaSegment) {
+          throw const FormatException(
+            'HLS playlist contains no media segments',
+          );
+        }
+        final localName = localFileName(mediaUri);
+        rewrittenPlaylists[localName] =
+            _rewriteMediaPlaylist(mediaText, mediaUri, localFileName, byteResources);
+      }
+
+      // Build the local master: only the chosen video variant plus the
+      // audio/subtitle renditions we downloaded, all pointing at local files.
+      final masterLines = <String>[];
+      for (final line in const LineSplitter().convert(playlist)) {
+        final trimmed = line.trim();
+        if (!trimmed.startsWith('#')) continue;
+        if (trimmed.startsWith('#EXT-X-STREAM-INF:')) {
+          continue; // re-emitted once, for the chosen variant
+        }
+        if (trimmed.startsWith('#EXT-X-MEDIA:')) {
+          final uri = _attribute(trimmed, 'URI');
+          if (uri == null || !seenPlaylists.contains(playlistUri.resolve(_unquote(uri)))) {
+            continue;
+          }
+          masterLines.add(_rewriteAttributeUri(trimmed, playlistUri, localFileName));
+          continue;
+        }
+        masterLines.add(line);
+      }
+      masterLines.add(
+        '#EXT-X-STREAM-INF:BANDWIDTH=${chosen.bandwidth},'
+        'RESOLUTION=${chosen.width}x${chosen.height}'
+        '${audioGroup == null || audioGroup.isEmpty ? '' : ',AUDIO="$audioGroup"'}',
+      );
+      masterLines.add(
+        localFileName(Uri.parse(chosen.uri)),
+      );
+      rewrittenPlaylists['playlist.m3u8'] = '${masterLines.join('\n')}\n';
+    } else {
+      // Single media playlist (muxed audio, no master).
+      if (!playlist.contains('#EXT-X-ENDLIST')) {
+        throw const FormatException(
+          'This HLS stream is not a complete video and cannot be downloaded yet',
+        );
+      }
+      final hasMediaSegment = const LineSplitter()
+          .convert(playlist)
+          .any(
+            (line) =>
+                line.trim().isNotEmpty && !line.trim().startsWith('#'),
+          );
+      if (!hasMediaSegment) {
+        throw const FormatException('HLS playlist contains no media segments');
+      }
+      rewrittenPlaylists['playlist.m3u8'] =
+          _rewriteMediaPlaylist(playlist, playlistUri, localFileName, byteResources);
     }
 
+    if (byteResources.length > maxHlsResources) {
+      throw StateError('HLS resource limit exceeded');
+    }
+
+    var done = 0;
+    var downloadedBytes = 0;
+    final resourceCount = byteResources.length;
+    for (final uri in byteResources) {
+      if (_cancelled) throw StateError('Download cancelled');
+      await _waitForResume();
+      final file = File(p.join(directory.path, names[uri]));
+      final marker = File('${file.path}.complete');
+
+      // Skip already-downloaded segments.
+      if (await file.exists() && await file.length() > 0) {
+        final expectedLength = await _contentLength(uri, headers);
+        final existingLength = await file.length();
+        if (await marker.exists() ||
+            (expectedLength != null && existingLength == expectedLength)) {
+          downloadedBytes += existingLength;
+          _checkTotalBytes(downloadedBytes);
+          onBytesProgress?.call(downloadedBytes, null);
+          done++;
+          onProgress?.call(resourceCount == 0 ? 1 : done / resourceCount);
+          continue;
+        }
+        await file.delete();
+        if (await marker.exists()) await marker.delete();
+      }
+
+      var currentResourceBytes = 0;
+      await _retryWithResume(
+        description: 'HLS resource ${names[uri]}',
+        onProgress: null,
+        execute: (_) async {
+          currentResourceBytes = 0;
+          await _downloadResource(uri, file, headers, (bytes) {
+            currentResourceBytes += bytes;
+            _checkTotalBytes(downloadedBytes + currentResourceBytes);
+            onBytesProgress?.call(downloadedBytes + currentResourceBytes, null);
+          });
+        },
+      );
+      await marker.writeAsString('ok', flush: true);
+      downloadedBytes += currentResourceBytes;
+      done++;
+      onProgress?.call(resourceCount == 0 ? 1 : done / resourceCount);
+    }
+
+    // Write the rewritten playlists last so a resume always has complete files.
+    for (final entry in rewrittenPlaylists.entries) {
+      await File(
+        p.join(directory.path, entry.key),
+      ).writeAsString(entry.value, flush: true);
+    }
+
+    return 'playlist.m3u8';
+  }
+
+  /// Re-writes a media playlist so every segment, key and map URI points at a
+  /// local file, registering anything downloadable as a byte resource.
+  String _rewriteMediaPlaylist(
+    String playlist,
+    Uri base,
+    String Function(Uri) localFileName,
+    Set<Uri> byteResources,
+  ) {
     final rewritten = <String>[];
-    for (final line in lines) {
+    for (final line in const LineSplitter().convert(playlist)) {
       final trimmed = line.trim();
       if (trimmed.startsWith('#EXT-X-KEY:')) {
         final method = _attribute(trimmed, 'METHOD')?.toUpperCase();
@@ -337,69 +492,129 @@ class MediaDownloadService {
             !trimmed.toUpperCase().contains('KEYFORMAT="IDENTITY"')) {
           throw UnsupportedError('DRM HLS key formats are not supported');
         }
-        rewritten.add(_rewriteAttributeUri(trimmed, playlistUri, localName));
+        rewritten.add(_rewriteUriAttributeToLocal(trimmed, base, localFileName, byteResources));
       } else if (trimmed.startsWith('#EXT-X-MAP:')) {
-        rewritten.add(_rewriteAttributeUri(trimmed, playlistUri, localName));
+        rewritten.add(_rewriteUriAttributeToLocal(trimmed, base, localFileName, byteResources));
       } else if (trimmed.isNotEmpty && !trimmed.startsWith('#')) {
-        final uri = playlistUri.resolve(trimmed);
-        rewritten.add(localName(uri));
+        final uri = base.resolve(trimmed);
+        rewritten.add(localFileName(uri));
+        byteResources.add(uri);
       } else {
         rewritten.add(line);
       }
     }
-    if (resources.length > maxHlsResources) {
-      throw StateError('HLS resource limit exceeded');
-    }
+    return '${rewritten.join('\n')}\n';
+  }
 
-    var done = 0;
-    var downloadedBytes = 0;
-    for (final entry in resources.entries) {
-      if (_cancelled) throw StateError('Download cancelled');
-      await _waitForResume();
-      final file = File(p.join(directory.path, entry.value));
-      final marker = File('${file.path}.complete');
+  String _rewriteUriAttributeToLocal(
+    String line,
+    Uri base,
+    String Function(Uri) localFileName,
+    Set<Uri> byteResources,
+  ) {
+    final match = RegExp(
+      r'URI=("([^"]+)"|([^,]+))',
+      caseSensitive: false,
+    ).firstMatch(line);
+    if (match == null) return line;
+    final source = match.group(2) ?? match.group(3)!;
+    final uri = base.resolve(_unquote(source));
+    byteResources.add(uri);
+    final replacement = 'URI="${localFileName(uri)}"';
+    return line.replaceRange(match.start, match.end, replacement);
+  }
 
-      // Skip already-downloaded segments.
-      if (await file.exists() && await file.length() > 0) {
-        final expectedLength = await _contentLength(entry.key, headers);
-        final existingLength = await file.length();
-        if (await marker.exists() ||
-            (expectedLength != null && existingLength == expectedLength)) {
-          downloadedBytes += existingLength;
-          _checkTotalBytes(downloadedBytes);
-          onBytesProgress?.call(downloadedBytes, null);
-          done++;
-          onProgress?.call(done / (resources.length + 1));
-          continue;
-        }
-        await file.delete();
-        if (await marker.exists()) await marker.delete();
+  List<({String uri, int width, int height, int bandwidth})> _parseVariants(
+    String playlist,
+    Uri base,
+  ) {
+    final variants = <({String uri, int width, int height, int bandwidth})>[];
+    final lines = const LineSplitter().convert(playlist);
+    for (var index = 0; index < lines.length; index++) {
+      final line = lines[index].trim();
+      if (!line.startsWith('#EXT-X-STREAM-INF:')) continue;
+      var next = index + 1;
+      while (next < lines.length &&
+          (lines[next].trim().isEmpty || lines[next].trim().startsWith('#'))) {
+        next++;
       }
-
-      var currentResourceBytes = 0;
-      await _retryWithResume(
-        description: 'HLS segment ${entry.value}',
-        onProgress: null,
-        execute: (_) async {
-          currentResourceBytes = 0;
-          await _downloadResource(entry.key, file, headers, (bytes) {
-            currentResourceBytes += bytes;
-            _checkTotalBytes(downloadedBytes + currentResourceBytes);
-            onBytesProgress?.call(downloadedBytes + currentResourceBytes, null);
-          });
-        },
-      );
-      await marker.writeAsString('ok', flush: true);
-      downloadedBytes += currentResourceBytes;
-      done++;
-      onProgress?.call(done / (resources.length + 1));
+      if (next >= lines.length) continue;
+      final resolution = _attribute(line, 'RESOLUTION')?.split('x');
+      variants.add((
+        uri: lines[next].trim(),
+        width: resolution != null && resolution.length == 2
+            ? int.tryParse(resolution[0]) ?? 0
+            : 0,
+        height: resolution != null && resolution.length == 2
+            ? int.tryParse(resolution[1]) ?? 0
+            : 0,
+        bandwidth: int.tryParse(_attribute(line, 'BANDWIDTH') ?? '') ?? 0,
+      ));
     }
+    return variants;
+  }
 
-    const playlistName = 'playlist.m3u8';
-    await File(
-      p.join(directory.path, playlistName),
-    ).writeAsString('${rewritten.join('\n')}\n', flush: true);
-    return playlistName;
+  ({String uri, int width, int height, int bandwidth}) _chooseVariant(
+    List<({String uri, int width, int height, int bandwidth})> variants, {
+    int? maxVariantHeightPixels,
+  }) {
+    final withResolution =
+        variants.where((v) => v.height > 0).toList();
+    final pool = withResolution.isNotEmpty ? withResolution : variants;
+    if (maxVariantHeightPixels != null) {
+      final fitting = pool
+          .where((v) => v.height > 0 && v.height <= maxVariantHeightPixels)
+          .toList();
+      if (fitting.isNotEmpty) {
+        // Highest variant that still fits under the requested ceiling.
+        return fitting.reduce(
+          (a, b) => a.height >= b.height ? a : b,
+        );
+      }
+      // Nothing fits: lowest available is the best match for a ceiling.
+      return pool.reduce((a, b) => a.height <= b.height ? a : b);
+    }
+    return pool.reduce((a, b) => a.height >= b.height ? a : b);
+  }
+
+  /// Extracts the EXT-X-MEDIA audio/subtitle playlist URIs.
+  List<Uri> _parseMediaGroups(String playlist, Uri base) {
+    final uris = <Uri>[];
+    for (final line in const LineSplitter().convert(playlist)) {
+      final trimmed = line.trim();
+      if (!trimmed.startsWith('#EXT-X-MEDIA:')) continue;
+      final type = _attribute(trimmed, 'TYPE')?.toLowerCase();
+      final raw = _attribute(trimmed, 'URI');
+      if (type != null &&
+          type != 'audio' &&
+          type != 'subtitles') {
+        continue;
+      }
+      if (raw != null && raw.isNotEmpty) {
+        final uri = base.resolve(_unquote(raw));
+        if (!uris.contains(uri)) uris.add(uri);
+      }
+    }
+    return uris;
+  }
+
+  String? _audioGroupId(String playlist) {
+    for (final line in const LineSplitter().convert(playlist)) {
+      final trimmed = line.trim();
+      if (!trimmed.startsWith('#EXT-X-STREAM-INF:')) continue;
+      final audio = _attribute(trimmed, 'AUDIO');
+      if (audio != null && audio.isNotEmpty) return audio;
+    }
+    return null;
+  }
+
+  String _unquote(String value) {
+    if (value.length >= 2 &&
+        value.startsWith('"') &&
+        value.endsWith('"')) {
+      return value.substring(1, value.length - 1);
+    }
+    return value;
   }
 
   Future<void> _downloadResource(
@@ -648,37 +863,6 @@ class MediaDownloadService {
         throw UnsupportedError('DRM HLS key formats are not supported');
       }
     }
-  }
-
-  String _highestVariant(String playlist) {
-    final lines = const LineSplitter().convert(playlist);
-    String? best;
-    var bestPixels = -1;
-    var bestBandwidth = -1;
-    for (var index = 0; index < lines.length; index++) {
-      final line = lines[index].trim();
-      if (!line.startsWith('#EXT-X-STREAM-INF:')) continue;
-      var next = index + 1;
-      while (next < lines.length &&
-          (lines[next].trim().isEmpty || lines[next].trim().startsWith('#'))) {
-        next++;
-      }
-      if (next >= lines.length) continue;
-      final resolution = _attribute(line, 'RESOLUTION')?.split('x');
-      final pixels = resolution != null && resolution.length == 2
-          ? (int.tryParse(resolution[0]) ?? 0) *
-                (int.tryParse(resolution[1]) ?? 0)
-          : 0;
-      final bandwidth = int.tryParse(_attribute(line, 'BANDWIDTH') ?? '') ?? 0;
-      if (pixels > bestPixels ||
-          (pixels == bestPixels && bandwidth > bestBandwidth)) {
-        best = lines[next].trim();
-        bestPixels = pixels;
-        bestBandwidth = bandwidth;
-      }
-    }
-    if (best == null) throw const FormatException('HLS master has no variants');
-    return best;
   }
 
   String _rewriteAttributeUri(
