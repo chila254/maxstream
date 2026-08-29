@@ -1416,12 +1416,16 @@ fun PlayerScreen(
                     activatePlaybackControl()
                     return true
                 }
-                // Nothing focused: reveal the controls only. Do NOT focus the
-                // play/pause control, so a single OK press never pauses playback
-                // (mirrors Dart: OK toggles the controls; pausing is a separate
-                // explicit action on the play/pause control).
+                // Nothing focused: reveal the controls AND move focus onto the
+                // play/pause (OK) button — but do NOT pause. The next OK press
+                // (now that play/pause is focused) is what toggles playback
+                // (mirrors Dart: first OK shows controls + focuses play/pause,
+                // second OK pauses). Activation is handled solely by the root key
+                // handler below, never by the button's own clickable, so a single
+                // press can never double-toggle (pause then instantly resume).
                 if (!controlsVisible) {
                     controlsVisible = true
+                    focusPlaybackControl(1)
                 }
                 return true
             }
@@ -1775,7 +1779,7 @@ private fun PlaybackControlButton(
                 shape = RoundedCornerShape(50),
             )
             .focusRequester(requester)
-            .clickable(onClick = onClick)
+            .focusable()
             .padding(horizontal = 18.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
