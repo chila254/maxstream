@@ -89,9 +89,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import java.io.File
 import java.util.concurrent.TimeUnit
-import kotlin.math.abs
 
 /** Server/quality/subtitle/season selection panel currently open (null = closed). */
 private enum class PlayerMenu { Servers, Quality, Subtitles, Episodes }
@@ -135,6 +133,58 @@ private data class SubtitleOption(
     /** Extractor tag from the source (e.g. "HLS" for VixSrc subtitle renditions). */
     val source: String = "",
 )
+
+/** A single timed caption parsed from a VTT/SRT file, rendered as an overlay
+ * on top of the player (mirrors Dart's _SubtitleCue/_findSubtitleText). */
+private data class SubtitleCue(
+    val startMs: Long,
+    val endMs: Long,
+    val text: String,
+)
+
+/** Parses WEBVTT or SRT caption text into timed cues. Times are of the form
+ * HH:MM:SS.mmm (VTT) or HH:MM:SS,mmm (SRT). Empty/dialogue-only entries are
+ * dropped, mirroring Dart's _parseSubtitleFile. */
+private fun parseSubtitleCues(content: String): List<SubtitleCue> {
+    if (content.isBlank()) return emptyList()
+    val cues = mutableListOf<SubtitleCue>()
+    val lines = content.split("\n")
+    // Normalise comma decimal separators (SRT) to dots (VTT) for a single parser.
+    val timeRe = Regex(
+        """(\d{1,2}):(\d{1,2}):(\d{1,2})[.,](\d{1,3})\s*-->\s*(\d{1,2}):(\d{1,2}):(\d{1,2})[.,](\d{1,3})""",
+    )
+    var i = 0
+    while (i < lines.size) {
+        val m = timeRe.find(lines[i]) ?: run { i++; continue }
+        val start = m.groupValues[1].toInt() * 3600_000L +
+            m.groupValues[2].toInt() * 60_000L +
+            m.groupValues[3].toInt() * 1000L +
+            m.groupValues[4].padEnd(3, '0').toInt()
+        val end = m.groupValues[5].toInt() * 3600_000L +
+            m.groupValues[6].toInt() * 60_000L +
+            m.groupValues[7].toInt() * 1000L +
+            m.groupValues[8].padEnd(3, '0').toInt()
+        // Collect caption text until the next blank line or cue.
+        val text = StringBuilder()
+        var j = i + 1
+        while (j < lines.size && lines[j].isNotBlank()) {
+            val line = lines[j]
+            if (timeRe.containsMatchIn(line)) break
+            if (text.isNotEmpty()) text.append(' ')
+            text.append(line)
+            j++
+        }
+        i = j
+        val cleaned = text.toString()
+            .replace(Regex("""<[^>]+>"""), "")
+            .replace(Regex("""\{\w[^}]*\}"""), "")
+            .trim()
+        if (cleaned.isNotEmpty() && end > start) {
+            cues.add(SubtitleCue(start, end, cleaned))
+        }
+    }
+    return cues
+}
 
 /** Prefers the English track (CC / SDH first, then plain English) so subtitles
  * come up in English when the stream offers it. Callers fall back to the
@@ -246,6 +296,11 @@ fun PlayerScreen(
     var subtitleOptions by remember { mutableStateOf<List<SubtitleOption>>(emptyList()) }
     // The active subtitle config attached to the playing item (null = off).
     var activeSubtitle by remember { mutableStateOf<SubtitleOption?>(null) }
+    // Parsed timed cues for the active subtitle (mirrors Dart's _activeSubtitles).
+    var subtitleCues by remember { mutableStateOf<List<SubtitleCue>>(emptyList()) }
+    // The caption text active at the current playback position, rendered as an
+    // overlay at the bottom of the video (mirrors Dart's _subtitleText ValueNotifier).
+    var activeSubtitleText by remember { mutableStateOf("") }
 
     // Generation guard so stale async rebuilds never touch a disposed player.
     val rebuildGeneration = remember { mutableStateOf(0) }
@@ -339,7 +394,10 @@ fun PlayerScreen(
 
     fun qualityOptions(s: Source?): List<Quality> {
         val q = s?.qualities ?: return emptyList()
-        return listOf(Quality(label = "Auto", url = "", height = 0)) + q
+        // Dedupe by label so a repeated rendition label (e.g. two "1080p"
+        // entries) only appears once — otherwise selecting that label would
+        // highlight every matching row (mirrors Dart's seen.add(q.label)).
+        return listOf(Quality(label = "Auto", url = "", height = 0)) + q.distinctBy { it.label }
     }
 
     /**
@@ -384,7 +442,6 @@ fun PlayerScreen(
         url: String,
         headers: Map<String, String>,
         isHls: Boolean,
-        subtitle: SubtitleOption?,
         startMs: Long,
     ): ExoPlayer {
         val httpClient = OkHttpClient.Builder()
@@ -395,9 +452,11 @@ fun PlayerScreen(
             .build()
         val okHttpDataSourceFactory = OkHttpDataSource.Factory(httpClient)
             .setDefaultRequestProperties(headers)
-        // Wrap the OkHttp factory so file:// URIs (the local VTT files produced
-        // by resolveHlsSubtitlePlaylist) open via FileDataSource while http(s)
-        // still routes through OkHttp with the server headers.
+        // Wrap the OkHttp factory so non-http(s) schemes (e.g. file://) fall
+        // through to DefaultDataSource while http(s) still routes through OkHttp
+        // with the server headers. (Subtitles are NOT streamed through this — we
+        // fetch and render them ourselves like Dart — but the wrapper keeps any
+        // other local URIs working.)
         val dataSourceFactory = androidx.media3.datasource.DefaultDataSource.Factory(
             context,
             okHttpDataSourceFactory,
@@ -412,16 +471,6 @@ fun PlayerScreen(
             // VixSrc's /playlist/...) as progressive media and fails with a
             // source error.
             itemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
-        }
-        if (subtitle != null) {
-            itemBuilder.setSubtitleConfigurations(
-                listOf(
-                    MediaItem.SubtitleConfiguration.Builder(android.net.Uri.parse(subtitle.url))
-                        .setMimeType(subtitle.mimeType)
-                        .setLabel(subtitle.label)
-                        .build(),
-                ),
-            )
         }
 
         val renderersFactory = DefaultRenderersFactory(context)
@@ -467,15 +516,17 @@ fun PlayerScreen(
     }
 
     /** Fetches a subtitle (direct VTT/SRT, or an HLS rendition of .vtt
-     * segments) using the server's HTTP headers and writes it to a local file,
-     * returning the absolute local path. This is the heart of making VixSrc
-     * subtitles appear: the sub URL is fetched WITH the referer/UA headers the
-     * server demands (ExoPlayer's setSubtitleConfigurations never sends them,
-     * so direct .vtt tracks silently 403 and nothing renders), and HLS
-     * renditions are resolved+concatenated like Dart. Returns null on failure. */
+     * segments) using the server's HTTP headers and returns the raw caption
+     * text. This is the heart of making VixSrc subtitles appear: the sub URL is
+     * fetched WITH the referer/UA headers the server demands (ExoPlayer's
+     * subtitle loader never sends them, so tracks silently 403 and nothing
+     * renders), and HLS renditions are resolved+concatenated like Dart. The
+     * caller parses the returned text into timed cues and renders them itself
+     * (also like Dart) instead of relying on media3's subtitle rendering.
+     * Returns null on failure. */
     fun repeatedIsHlsUrl(url: String): Boolean = url.contains(".m3u8", true)
 
-    suspend fun resolveSubtitleLocally(
+    suspend fun fetchSubtitleContent(
         subtitleUrl: String,
         headers: Map<String, String>,
     ): String? = withContext(Dispatchers.IO) {
@@ -500,7 +551,7 @@ fun PlayerScreen(
                 val trimmed = body.trimStart()
                 val isHls = repeatedIsHlsUrl(subtitleUrl) ||
                     trimmed.uppercase().startsWith("#EXTM3U")
-                val vtt = if (isHls && !trimmed.startsWith("WEBVTT")) {
+                if (isHls && !trimmed.startsWith("WEBVTT")) {
                     val baseUri = java.net.URI(subtitleUrl)
                     val segments = body.lineSequence()
                         .map(String::trim)
@@ -535,24 +586,14 @@ fun PlayerScreen(
                         }
                     }
                 } else {
-                    // Direct subtitle body (VTT/SRT): write as-is.
+                    // Direct subtitle body (VTT/SRT): use as-is.
                     body.ifBlank { return@withContext null }
                 }
-                val file = File(
-                    context.cacheDir,
-                    "subtitle_${abs(subtitleUrl.hashCode())}.vtt",
-                )
-                file.writeText(vtt)
-                file.absolutePath
             }
         } catch (e: Exception) {
             null
         }
     }
-
-    /** True when a subtitle URL is an HLS rendition (m3u8 / source==HLS). */
-    fun isHlsSubtitle(sub: SubtitleOption): Boolean =
-        sub.source.equals("HLS", true) || repeatedIsHlsUrl(sub.url)
 
     /** Resolves a possibly-relative subtitle URL to an absolute one using the
      * server's base stream URL. Relative paths (e.g. "/subtitles/en.vtt" or
@@ -572,6 +613,7 @@ fun PlayerScreen(
     fun buildSubtitleOptions(current: Source, servers: List<Source>): List<SubtitleOption> {
         val ordered = listOf(current) + servers.filter { it.url != current.url }
         val seen = mutableSetOf<String>()
+        val seenLabels = mutableSetOf<String>()
         val result = mutableListOf<SubtitleOption>()
         for (server in ordered) {
             // Resolve relative subtitle URLs against the server's stream URL so
@@ -582,9 +624,14 @@ fun PlayerScreen(
                 if (sub.url.isBlank()) continue
                 val url = resolveSubtitleUrl(sub.url, baseUrl)
                 if (url.isBlank() || !seen.add(url)) continue
+                val label = "${server.displayName} · ${sub.label}"
+                // Dedupe by display label too, so two servers that expose the
+                // same language under the same name don't show two highlights
+                // when that language is selected (mirrors Dart's seen-by-label).
+                if (!seenLabels.add(label)) continue
                 result.add(
                     SubtitleOption(
-                        label = "${server.displayName} · ${sub.label}",
+                        label = label,
                         url = url,
                         mimeType = subtitleMimeType(url, sub.source),
                         owner = server.displayName,
@@ -615,21 +662,20 @@ fun PlayerScreen(
         loading = true
         status = "Switching..."
         coroutineScope.launch {
-            var sub: SubtitleOption? = newSubtitle
-            // Subtitles are fetched with the server's headers and written to a
-            // local file BEFORE the player builds, because media3's
-            // setSubtitleConfigurations loads the URI with the default (header-
-            // less) source — VixSrc's referer-protected subtitle URLs 403 there,
-            // so no cues ever render. Local files need no headers.
-            if (sub != null) {
-                val resolvedUrl = resolveSubtitleUrl(sub.url, newUrl.takeIf { it.startsWith("http") })
-                val local = resolveSubtitleLocally(resolvedUrl, sub.headers)
-                if (local != null) {
-                    sub = sub.copy(url = "file://$local", mimeType = MimeTypes.TEXT_VTT)
-                }
+            // Subtitles are fetched with the server's headers and parsed into
+            // timed cues that WE render as an overlay — media3's own subtitle
+            // loader sends no headers, so VixSrc's referer-protected sub URLs 403
+            // and nothing renders (mirrors Dart's _selectSubtitle/_fetchSubtitles).
+            val cueSet = if (newSubtitle == null) {
+                emptyList()
+            } else {
+                val resolvedUrl = resolveSubtitleUrl(newSubtitle.url, newUrl.takeIf { it.startsWith("http") })
+                fetchSubtitleContent(resolvedUrl, newSubtitle.headers)
+                    ?.let { parseSubtitleCues(it) }
+                    .orEmpty()
             }
             if (gen != rebuildGeneration.value) return@launch
-            val player = buildPlayer(newUrl, newHeaders, newIsHls, sub, positionMs)
+            val player = buildPlayer(newUrl, newHeaders, newIsHls, positionMs)
             if (gen != rebuildGeneration.value) {
                 player.release()
                 return@launch
@@ -638,7 +684,11 @@ fun PlayerScreen(
             exoPlayer = player
             loading = false
             status = ""
-            selectedSubtitleLabel = sub?.label ?: "Off"
+            // Only commit cue settings if the rebuild we just did is still current.
+            activeSubtitle = newSubtitle
+            subtitleCues = cueSet
+            activeSubtitleText = ""
+            selectedSubtitleLabel = newSubtitle?.label ?: "Off"
         }
     }
 
@@ -728,23 +778,24 @@ fun PlayerScreen(
             }
 
             selectedQualityLabel = qualityLabelFor(primary)
-            // Subtitles are fetched with the server's headers and written to a
-            // local file before the player builds — media3's subtitle loader
-            // sends no headers, so VixSrc's referer-protected sub URLs 403 and
-            // nothing renders. Same path as switchMedia.
-            var initialSub = defaultSub
-            if (initialSub != null) {
+            // Subtitles are fetched with the server's headers and parsed into
+            // timed cues that WE render as an overlay — media3's own subtitle
+            // loader sends no headers, so VixSrc's referer-protected sub URLs 403
+            // and nothing renders (mirrors Dart's _selectSubtitle). Same path as
+            // switchMedia.
+            val initialSub = defaultSub
+            val initialCues = if (initialSub == null) {
+                emptyList()
+            } else {
                 val resolvedUrl = resolveSubtitleUrl(initialSub.url, primary.url.takeIf { it.startsWith("http") })
-                initialSub = resolveSubtitleLocally(resolvedUrl, initialSub.headers)
-                    ?.let { local ->
-                        initialSub.copy(url = "file://$local", mimeType = MimeTypes.TEXT_VTT)
-                    }
+                fetchSubtitleContent(resolvedUrl, initialSub.headers)
+                    ?.let { parseSubtitleCues(it) }
+                    .orEmpty()
             }
             val player = buildPlayer(
                 url = primary.url,
                 headers = primary.headers,
                 isHls = primary.isHls,
-                subtitle = initialSub,
                 startMs = resumePositionMs,
             )
             exoPlayer?.release()
@@ -755,6 +806,8 @@ fun PlayerScreen(
             activeSeason = currentSeason
             activeEpisode = currentEpisode
             activeSubtitle = initialSub
+            subtitleCues = initialCues
+            activeSubtitleText = ""
             selectedSubtitleLabel = initialSub?.label ?: "Off"
             loading = false
 
@@ -867,14 +920,25 @@ fun PlayerScreen(
 
     // Poll the live playback metrics so the custom progress bar / play button
     // stay in sync (mirrors Dart's controller position listener). Keyed on the
-    // player instance so it restarts after every rebuild.
-    LaunchedEffect(exoPlayer) {
+    // player instance so it restarts after every rebuild. Also drives the
+    // manually-rendered subtitle overlay: on each tick the cue active at the
+    // current position is looked up (mirrors Dart's _onPositionTick ->
+    // _findSubtitleText).
+    LaunchedEffect(exoPlayer, subtitleCues) {
         val player = exoPlayer ?: return@LaunchedEffect
         while (true) {
             positionMs = player.currentPosition
             durationMs = player.duration
             isPlaying = player.isPlaying
-            kotlinx.coroutines.delay(500)
+            val pos = player.currentPosition
+            val cues = subtitleCues
+            activeSubtitleText = if (cues.isEmpty()) {
+                ""
+            } else {
+                val current = pos.coerceAtLeast(0L)
+                cues.firstOrNull { current >= it.startMs && current < it.endMs }?.text ?: ""
+            }
+            kotlinx.coroutines.delay(200)
         }
     }
 
@@ -1078,6 +1142,8 @@ fun PlayerScreen(
                 subtitleOptions = buildSubtitleOptions(target, allServers)
                 activeSubtitle = null
                 selectedSubtitleLabel = "Off"
+                subtitleCues = emptyList()
+                activeSubtitleText = ""
                 selectedQualityLabel = qualityLabelFor(target)
                 source = target
                 switchMedia(target.url, target.headers, target.isHls, null)
@@ -1113,6 +1179,8 @@ fun PlayerScreen(
                 if (menuIndex == 0) {
                     activeSubtitle = null
                     selectedSubtitleLabel = "Off"
+                    subtitleCues = emptyList()
+                    activeSubtitleText = ""
                     menuOpen = false
                     activeMenu = null
                     s?.let { switchMedia(it.url, it.headers, it.isHls, null) }
@@ -1390,6 +1458,34 @@ fun PlayerScreen(
                 },
                 modifier = Modifier.fillMaxSize(),
             )
+        }
+
+        // Manually-rendered subtitle overlay (mirrors Dart's _subtitleText
+        // ValueNotifier + Text widget): our own timed cues, drawn at the bottom
+        // of the video. media3's subtitle renderer is not used because it issues
+        // header-less requests that VixSrc's referer-protected sub URLs reject.
+        if (activeSubtitleText.isNotBlank() && !loading && error == null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .align(Alignment.BottomCenter)
+                    .padding(horizontal = 48.dp, vertical = 40.dp),
+                contentAlignment = Alignment.BottomCenter,
+            ) {
+                Text(
+                    text = activeSubtitleText,
+                    color = Color.White,
+                    fontSize = 22.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Normal,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    modifier = Modifier
+                        .background(
+                            Color(0x8C000000),
+                            androidx.compose.foundation.shape.RoundedCornerShape(6.dp),
+                        )
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                )
+            }
         }
 
         if (loading) {
