@@ -154,22 +154,27 @@ fun HomeScreen(
     // Entry animation + initial focus seed.
     // Re-runs whenever this tab becomes visible OR focus returns from the
     // sidebar (focusKey bump), so focus is restored on tab return.
-    // First attempt is IMMEDIATE (no pre-delay); retries only while the node
-    // is unattached. The old delay(50..300ms)-before-first-attempt pattern made
-    // tab entry feel laggy and let a pending request steal focus back if the
-    // user pressed DOWN during the window.
+    // First attempt is IMMEDIATE (no pre-delay); retries until the hero Play
+    // button actually takes focus. Because the tab enters via AnimatedVisibility
+    // (a fade-in), the hero may not be composed on the very first frame even
+    // when heroItem is already set — so a single requestFocus would be a silent
+    // no-op and the user would see no focus on the Play button when coming from
+    // the sidebar. We keep retrying across frames until the repeated requests
+    // catch the Play button once it exists (mirrors Dart's _restoreInitialFocus,
+    // which runs on double post-frame callbacks). The user pressed DOWN during
+    // the window could still be handled, but requesting the hero repeatedly for
+    // a short window is what makes OK-from-sidebar land on Play reliably.
     LaunchedEffect(isVisible, focusKey) {
         if (!isVisible) return@LaunchedEffect
         isEntryVisible = true
         var attempt = 0
-        while (attempt < 12) {
-            if (attempt > 0) delay(80L * attempt)
-            // requestFocus() is a silent no-op (returns Unit) while the node is
-            // unattached — the Play button is only composed once the hero item
-            // exists (HeroSection renders a placeholder while item == null), so
-            // retry until it does.
+        while (attempt < 18) {
+            if (attempt > 0) delay(50L * attempt)
             runCatching { playFocusRequester.requestFocus() }
-            if (heroItem != null) return@LaunchedEffect
+            // Keep at least a few attempts even when heroItem exists, so the
+            // request survives the tab's fade-in frame where the button is not
+            // yet composed; stop once we've had enough chances.
+            if (attempt >= 4 && heroItem != null) return@LaunchedEffect
             attempt++
         }
     }

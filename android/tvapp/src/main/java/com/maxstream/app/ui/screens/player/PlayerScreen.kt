@@ -466,62 +466,81 @@ fun PlayerScreen(
         return player
     }
 
-    /** Resolves an HLS subtitle playlist (m3u8 of .vtt segments) to a local VTT file. */
-    suspend fun resolveHlsSubtitlePlaylist(
-        playlistUrl: String,
+    /** Fetches a subtitle (direct VTT/SRT, or an HLS rendition of .vtt
+     * segments) using the server's HTTP headers and writes it to a local file,
+     * returning the absolute local path. This is the heart of making VixSrc
+     * subtitles appear: the sub URL is fetched WITH the referer/UA headers the
+     * server demands (ExoPlayer's setSubtitleConfigurations never sends them,
+     * so direct .vtt tracks silently 403 and nothing renders), and HLS
+     * renditions are resolved+concatenated like Dart. Returns null on failure. */
+    fun repeatedIsHlsUrl(url: String): Boolean = url.contains(".m3u8", true)
+
+    suspend fun resolveSubtitleLocally(
+        subtitleUrl: String,
         headers: Map<String, String>,
     ): String? = withContext(Dispatchers.IO) {
         try {
             val client = OkHttpClient.Builder()
                 .connectTimeout(8, TimeUnit.SECONDS)
-                .readTimeout(10, TimeUnit.SECONDS)
+                .readTimeout(12, TimeUnit.SECONDS)
                 .build()
             val request = Request.Builder()
-                .url(playlistUrl)
+                .url(subtitleUrl)
                 .apply {
                     headers.forEach { (k, v) -> addHeader(k, v) }
+                    addHeader("User-Agent",
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+                        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                    addHeader("Accept", "text/vtt, application/x-subrip, text/plain, */*")
                 }
                 .build()
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return@withContext null
                 val body = response.body?.string() ?: return@withContext null
-                val baseUri = java.net.URI(playlistUrl)
-                val segments = body.lineSequence()
-                    .map(String::trim)
-                    .filter { it.isNotEmpty() && !it.startsWith('#') }
-                    .toList()
-                if (segments.isEmpty()) return@withContext null
-                val parts = mutableListOf<String>()
-                for (segment in segments) {
-                    val segUrl = baseUri.resolve(segment).toString()
-                    val segReq = Request.Builder().url(segUrl).apply {
-                        headers.forEach { (k, v) -> addHeader(k, v) }
-                    }.build()
-                    client.newCall(segReq).execute().use { seg ->
-                        if (seg.isSuccessful) {
-                            parts.add(seg.body?.string().orEmpty())
+                val trimmed = body.trimStart()
+                val isHls = repeatedIsHlsUrl(subtitleUrl) ||
+                    trimmed.uppercase().startsWith("#EXTM3U")
+                val vtt = if (isHls && !trimmed.startsWith("WEBVTT")) {
+                    val baseUri = java.net.URI(subtitleUrl)
+                    val segments = body.lineSequence()
+                        .map(String::trim)
+                        .filter { it.isNotEmpty() && !it.startsWith('#') }
+                        .toList()
+                    if (segments.isEmpty()) return@withContext null
+                    val parts = mutableListOf<String>()
+                    for (segment in segments) {
+                        val segUrl = baseUri.resolve(segment).toString()
+                        val segReq = Request.Builder().url(segUrl).apply {
+                            headers.forEach { (k, v) -> addHeader(k, v) }
+                            addHeader("User-Agent",
+                                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+                                "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                        }.build()
+                        client.newCall(segReq).execute().use { seg ->
+                            if (seg.isSuccessful) parts.add(seg.body?.string().orEmpty())
                         }
                     }
-                }
-                if (parts.isEmpty()) return@withContext null
-                // Concatenate into a single WEBVTT document, stripping per-segment
-                // WEBVTT headers and NOTE lines (mirrors the mobile player).
-                val vtt = buildString {
-                    append("WEBVTT\n\n")
-                    for (part in parts) {
-                        val cleaned = part
-                            .replace(Regex("""WEBVTT[\s\S]*?\n\n"""), "")
-                            .replace(Regex("""^NOTE.*$""", RegexOption.MULTILINE), "")
-                            .trim()
-                        if (cleaned.isNotEmpty()) {
-                            append(cleaned)
-                            append("\n\n")
+                    if (parts.isEmpty()) return@withContext null
+                    buildString {
+                        append("WEBVTT\n\n")
+                        for (part in parts) {
+                            val cleaned = part
+                                .replace(Regex("""WEBVTT[\s\S]*?\n\n"""), "")
+                                .replace(Regex("""^NOTE.*$""", RegexOption.MULTILINE), "")
+                                .trim()
+                            if (cleaned.isNotEmpty()) {
+                                append(cleaned)
+                                append("\n\n")
+                            }
                         }
                     }
+                } else {
+                    // Direct subtitle body (VTT/SRT): write as-is.
+                    body.ifBlank { return@withContext null }
                 }
                 val file = File(
                     context.cacheDir,
-                    "subtitle_${abs(playlistUrl.hashCode())}.vtt",
+                    "subtitle_${abs(subtitleUrl.hashCode())}.vtt",
                 )
                 file.writeText(vtt)
                 file.absolutePath
@@ -531,19 +550,43 @@ fun PlayerScreen(
         }
     }
 
+    /** True when a subtitle URL is an HLS rendition (m3u8 / source==HLS). */
+    fun isHlsSubtitle(sub: SubtitleOption): Boolean =
+        sub.source.equals("HLS", true) || repeatedIsHlsUrl(sub.url)
+
+    /** Resolves a possibly-relative subtitle URL to an absolute one using the
+     * server's base stream URL. Relative paths (e.g. "/subtitles/en.vtt" or
+     * "subs/en.vtt") come back from VixSrc/VidLink without a host, so they must
+     * be joined onto the stream origin (mirrors Dart's baseUri.resolveUri). */
+    fun resolveSubtitleUrl(url: String, baseUrl: String?): String {
+        if (url.startsWith("http://") || url.startsWith("https://")) return url
+        if (baseUrl.isNullOrBlank()) return url
+        return try {
+            java.net.URI(baseUrl).resolve(url).toString()
+        } catch (e: Exception) {
+            url
+        }
+    }
+
     /** Builds the per-server subtitle option list (current server first). */
     fun buildSubtitleOptions(current: Source, servers: List<Source>): List<SubtitleOption> {
         val ordered = listOf(current) + servers.filter { it.url != current.url }
         val seen = mutableSetOf<String>()
         val result = mutableListOf<SubtitleOption>()
         for (server in ordered) {
+            // Resolve relative subtitle URLs against the server's stream URL so
+            // VixSrc-style relative /sub/... paths produce an absolute http(s)
+            // URL (mirrors Dart's baseUri.resolveUri in _fetchSubtitles).
+            val baseUrl = server.url.takeIf { it.startsWith("http") }
             for (sub in server.subtitles) {
-                if (sub.url.isBlank() || !seen.add(sub.url)) continue
+                if (sub.url.isBlank()) continue
+                val url = resolveSubtitleUrl(sub.url, baseUrl)
+                if (url.isBlank() || !seen.add(url)) continue
                 result.add(
                     SubtitleOption(
                         label = "${server.displayName} · ${sub.label}",
-                        url = sub.url,
-                        mimeType = subtitleMimeType(sub.url, sub.source),
+                        url = url,
+                        mimeType = subtitleMimeType(url, sub.source),
                         owner = server.displayName,
                         headers = server.headers,
                         source = sub.source,
@@ -553,12 +596,6 @@ fun PlayerScreen(
         }
         return result
     }
-
-    /** True when a subtitle option is an HLS subtitle rendition (m3u8 of .vtt
-     * segments). VixSrc subtitle URLs carry no `.m3u8` extension, so the
-     * extractor's source tag is the authoritative signal (mirrors Dart). */
-    fun isHlsSubtitle(sub: SubtitleOption): Boolean =
-        sub.source.equals("HLS", true) || sub.url.contains(".m3u8", true)
 
     /** Rebuilds the player with a new MediaItem while preserving the position. */
     fun switchMedia(
@@ -579,10 +616,14 @@ fun PlayerScreen(
         status = "Switching..."
         coroutineScope.launch {
             var sub: SubtitleOption? = newSubtitle
-            // HLS subtitle playlists must be resolved to a local VTT before the
-            // player can consume them.
-            if (sub != null && isHlsSubtitle(sub)) {
-                val local = resolveHlsSubtitlePlaylist(sub.url, sub.headers)
+            // Subtitles are fetched with the server's headers and written to a
+            // local file BEFORE the player builds, because media3's
+            // setSubtitleConfigurations loads the URI with the default (header-
+            // less) source — VixSrc's referer-protected subtitle URLs 403 there,
+            // so no cues ever render. Local files need no headers.
+            if (sub != null) {
+                val resolvedUrl = resolveSubtitleUrl(sub.url, newUrl.takeIf { it.startsWith("http") })
+                val local = resolveSubtitleLocally(resolvedUrl, sub.headers)
                 if (local != null) {
                     sub = sub.copy(url = "file://$local", mimeType = MimeTypes.TEXT_VTT)
                 }
@@ -679,15 +720,22 @@ fun PlayerScreen(
                 val def = pickEnglishSubtitle(primDefaults)
                     ?: primDefaults.firstOrNull { it.isDefault }
                     ?: primDefaults.first()
-                defaultSub = subtitleOptions.firstOrNull { it.url == def.url }
+                // Match against the resolved URL (buildSubtitleOptions resolves
+                // relative sub paths against the stream URL).
+                val baseUrl = primary.url.takeIf { it.startsWith("http") }
+                val resolved = resolveSubtitleUrl(def.url, baseUrl)
+                defaultSub = subtitleOptions.firstOrNull { it.url == resolved }
             }
 
             selectedQualityLabel = qualityLabelFor(primary)
-            // HLS subtitle playlists must be resolved to a local VTT first
-            // (same path as switchMedia) so the player can consume them.
+            // Subtitles are fetched with the server's headers and written to a
+            // local file before the player builds — media3's subtitle loader
+            // sends no headers, so VixSrc's referer-protected sub URLs 403 and
+            // nothing renders. Same path as switchMedia.
             var initialSub = defaultSub
-            if (initialSub != null && isHlsSubtitle(initialSub)) {
-                initialSub = resolveHlsSubtitlePlaylist(initialSub.url, initialSub.headers)
+            if (initialSub != null) {
+                val resolvedUrl = resolveSubtitleUrl(initialSub.url, primary.url.takeIf { it.startsWith("http") })
+                initialSub = resolveSubtitleLocally(resolvedUrl, initialSub.headers)
                     ?.let { local ->
                         initialSub.copy(url = "file://$local", mimeType = MimeTypes.TEXT_VTT)
                     }

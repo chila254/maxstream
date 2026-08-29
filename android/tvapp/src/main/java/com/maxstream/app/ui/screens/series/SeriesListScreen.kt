@@ -134,21 +134,21 @@ fun SeriesListScreen(
     }
 
     // Focus seed on tab visible — first attempt is IMMEDIATE (no pre-delay);
-    // retries only while the node is unattached. The old delay(50..300ms)
-    // before the first attempt made tab entry laggy and let a pending request
-    // steal focus back if the user pressed DOWN during the window.
+    // then keeps retrying across frames so the hero Play button actually gets
+    // focus. The tab enters via AnimatedVisibility (fade-in), so the Play
+    // button may not be composed on the first frame even when heroItem is set —
+    // a single requestFocus would be a silent no-op and the user would see no
+    // focus when coming from the sidebar. Retrying mirrors Dart's
+    // _restoreInitialFocus (double post-frame callback).
     // Also re-runs when focus returns from the sidebar (focusKey bump).
     LaunchedEffect(isVisible, focusKey) {
         if (!isVisible) return@LaunchedEffect
         isEntryVisible = true
         var attempt = 0
-        while (attempt < 6) {
+        while (attempt < 18) {
             if (attempt > 0) delay(50L * attempt)
-            // requestFocus() is a silent no-op (returns Unit) while the node is
-            // unattached — the hero Play button is only composed once the hero
-            // item exists, so retry until it does.
             runCatching { playFocusRequester.requestFocus() }
-            if (heroItem != null) return@LaunchedEffect
+            if (attempt >= 4 && heroItem != null) return@LaunchedEffect
             attempt++
         }
     }

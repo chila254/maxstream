@@ -9,7 +9,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -90,9 +89,11 @@ private fun TvAppRoot() {
 
     // ── Focus architecture (mirrors Dart FocusScopeNode pattern) ─────────
     // sidebarFocusRequesters[i] is attached to each sidebar pill item.
-    // contentFocusRequester is attached to the content Box AND made focusable,
-    // so requestFocus() on it actually lands — the Box then passes focus to
-    // its first focusable child via normal Compose focus traversal.
+    // contentFocusRequester is attached to the content Box. The Box itself is
+    // NOT focusable: Compose 1.7 has no FocusScope/focusGroup to forward focus
+    // into the active screen, so parking focus on the Box only fought the
+    // screen's own reseed. Instead each screen re-seeds its content focus from
+    // the contentFocusTick (focusKey) kept in MainActivity.
     val sidebarFocusRequesters = remember { List(6) { FocusRequester() } }
     val contentFocusRequester  = remember { FocusRequester() }
 
@@ -129,15 +130,17 @@ private fun TvAppRoot() {
     // the user launched the player/details from).
     var deepNavReturnTick by remember { mutableIntStateOf(0) }
 
-    // When the overlay pops back to DeepRoot, hand focus back into the shell's
-    // content area and nudge the active tab to restore its last focus.
+    // When the overlay pops back to DeepRoot, nudge the active tab to restore
+    // its last focus. Each screen re-seeds on (isVisible, restoreFocusKey), so
+    // we only need to bump the tick here — the content Box is not focusable
+    // (Compose 1.7 has no focus group to forward into the screen), so requesting
+    // contentFocusRequester would just park focus on an invisible container.
     LaunchedEffect(Unit) {
         var prev: String? = Screen.DeepRoot.route
         deepNavController.currentBackStackEntryFlow.collect { entry ->
             val route = entry.destination.route
             if (route == Screen.DeepRoot.route && prev != Screen.DeepRoot.route) {
                 deepNavReturnTick++
-                runCatching { contentFocusRequester.requestFocus() }
             }
             prev = route
         }
@@ -237,7 +240,15 @@ private fun TvAppRoot() {
                     deepNavReturnTick       = deepNavReturnTick,
                     requestContentFocus     = {
                         contentFocusTick++
-                        runCatching { contentFocusRequester.requestFocus() }
+                        // NOTE: deliberately do NOT request contentFocusRequester
+                        // here. The content Box is a plain focusable (Compose 1.7
+                        // has no FocusScope/focusGroup to forward focus into the
+                        // screen), so requesting the Box parks focus on an
+                        // invisible container and fights the screen's own
+                        // reseed (which requests the hero). Bumping the tick is
+                        // enough: each screen reseeds its content focus on
+                        // (isVisible, focusKey), stealing focus off the sidebar
+                        // pill so the sidebar collapses.
                     },
                 )
             }
@@ -325,9 +336,6 @@ private fun TvShell(
         )
 
         // ── Content area ───────────────────────────────────────────────────
-        // The contentFocusRequester is attached here AND the box is .focusable()
-        // so requestFocus() actually lands on this node.
-        //
         // NOTE: We intentionally do NOT use onKeyEvent here. Content screens
         // (Home, Search, etc.) handle LEFT→sidebar themselves via their own
         // onKeyEvent on the play button / first card. Adding a parent key
@@ -337,7 +345,6 @@ private fun TvShell(
                 .weight(1f)
                 .fillMaxSize()
                 .focusRequester(contentFocusRequester)
-                .focusable()
                 .onFocusChanged { state ->
                     if (state.hasFocus) appState.updateFocusOnSidebar(false)
                 }
