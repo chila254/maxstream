@@ -54,10 +54,30 @@ class CloudSyncService {
 
   /// Subscribes to the signed-in user's cloud nodes and mirrors
   /// changes into local storage. No-op if already listening or signed out.
+  /// Uploads the device's entire local watchlist to the cloud. This backfills
+  /// items that were added before cloud sync existed (or while the other device
+  /// was offline) so they appear on every signed-in device, not just items
+  /// added after the sync feature was enabled. Idempotent (upsert by key).
+  static Future<void> pushEntireWatchlist() async {
+    final uid = _uid;
+    if (uid == null) return;
+    try {
+      final items = await DBHelper.getWatchlist();
+      for (final movie in items) {
+        await pushWatchlist(movie);
+      }
+    } catch (e) {
+      debugPrint('CloudSync: backfill watchlist failed: $e');
+    }
+  }
+
   static void startListening() {
     final uid = _uid;
     if (uid == null || _listening) return;
     _listening = true;
+    // Backfill any pre-existing local watchlist entries to the cloud as soon
+    // as we're signed in, so other devices can pull them.
+    unawaited(pushEntireWatchlist());
     _historySub = _watchHistoryRef(uid).onValue.listen(
       _onHistoryEvent,
       onError: (Object e) =>
@@ -195,6 +215,9 @@ class CloudSyncService {
     if (uid == null || _pullInProgress) return;
     _pullInProgress = true;
     try {
+      // Make sure local items (including old ones) are reflected in the cloud
+      // before we mirror cloud changes back down.
+      await pushEntireWatchlist();
       final historySnap = await _watchHistoryRef(uid).get();
       if (historySnap.value != null) {
         final data = Map<String, dynamic>.from(historySnap.value as Map);

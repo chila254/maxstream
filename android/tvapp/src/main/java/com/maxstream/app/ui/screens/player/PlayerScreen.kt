@@ -303,6 +303,9 @@ fun PlayerScreen(
     // The caption text active at the current playback position, rendered as an
     // overlay at the bottom of the video (mirrors Dart's _subtitleText ValueNotifier).
     var activeSubtitleText by remember { mutableStateOf("") }
+    // Transient popup describing the current subtitle selection (auto or manual
+    // pick) so the user can see what got applied.
+    var subtitleToast by remember { mutableStateOf<String?>(null) }
 
     // Generation guard so stale async rebuilds never touch a disposed player.
     val rebuildGeneration = remember { mutableStateOf(0) }
@@ -833,6 +836,11 @@ fun PlayerScreen(
             subtitleCues = initialCues
             activeSubtitleText = ""
             selectedSubtitleLabel = initialSub?.label ?: "Off"
+            subtitleToast = if (initialSub != null) {
+                "Subtitles (auto): ${initialSub.label}"
+            } else {
+                "Subtitles off"
+            }
             loading = false
 
             // Populate the server picker + cross-server subtitle fallback in the
@@ -865,6 +873,7 @@ fun PlayerScreen(
                         subtitleCues = cueSet
                         activeSubtitleText = ""
                         selectedSubtitleLabel = def.label
+                        subtitleToast = "Subtitles (auto): ${def.label}"
                     }
                 }
             }
@@ -1192,6 +1201,7 @@ fun PlayerScreen(
                 subtitleOptions = buildSubtitleOptions(target, allServers)
                 activeSubtitle = null
                 selectedSubtitleLabel = "Off"
+                subtitleToast = "Subtitles off"
                 subtitleCues = emptyList()
                 activeSubtitleText = ""
                 selectedQualityLabel = qualityLabelFor(target)
@@ -1231,6 +1241,7 @@ fun PlayerScreen(
                     selectedSubtitleLabel = "Off"
                     subtitleCues = emptyList()
                     activeSubtitleText = ""
+                    subtitleToast = "Subtitles off"
                     menuOpen = false
                     activeMenu = null
                     s?.let { switchMedia(it.url, it.headers, it.isHls, null) }
@@ -1240,6 +1251,7 @@ fun PlayerScreen(
                 if (opts.isEmpty() || menuIndex - 1 >= opts.size) return
                 val target = opts[menuIndex - 1]
                 activeSubtitle = target
+                subtitleToast = "Subtitles: ${target.label}"
                 menuOpen = false
                 activeMenu = null
                 s?.let { switchMedia(it.url, it.headers, it.isHls, target) }
@@ -1502,6 +1514,14 @@ fun PlayerScreen(
     // UI
     // ------------------------------------------------------------------
 
+    // Auto-dismiss the subtitle selection popup after a short delay.
+    LaunchedEffect(subtitleToast) {
+        if (subtitleToast != null) {
+            delay(2600)
+            subtitleToast = null
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -1562,6 +1582,32 @@ fun PlayerScreen(
                             androidx.compose.foundation.shape.RoundedCornerShape(6.dp),
                         )
                         .padding(horizontal = 12.dp, vertical = 6.dp),
+                )
+            }
+        }
+
+        // Subtitle selection popup (auto or manual pick) — lets the user see
+        // what got applied without hunting through the Subtitles menu.
+        if (subtitleToast != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .align(Alignment.TopCenter)
+                    .padding(top = 120.dp, start = 48.dp, end = 48.dp),
+                contentAlignment = Alignment.TopCenter,
+            ) {
+                Text(
+                    text = subtitleToast ?: "",
+                    color = Color.White,
+                    fontSize = 16.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    modifier = Modifier
+                        .background(
+                            Color(0xB3000000),
+                            androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
+                        )
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
                 )
             }
         }
