@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:shimmer/shimmer.dart';
+import '../widgets/app_shimmer.dart';
 import '../models/movie.dart';
 import '../services/tmdb_api_service.dart';
 import '../utils/tmdb_list_utils.dart';
@@ -118,7 +118,7 @@ class _MaxStreamSeriesListScreenState extends State<MaxStreamSeriesListScreen> {
   }
 
   Widget _buildLoadingIndicator() {
-    return Shimmer.fromColors(
+    return AppShimmer(
       baseColor: Colors.grey[800]!,
       highlightColor: Colors.grey[600]!,
       child: Column(
@@ -1204,7 +1204,7 @@ class _FullListScreenState extends State<_FullListScreen> {
   }
 
   Widget _buildShimmerGrid() {
-    return Shimmer.fromColors(
+    return AppShimmer(
       baseColor: Colors.grey[800]!,
       highlightColor: Colors.grey[600]!,
       child: GridView.builder(

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:youtube_player_flutter/youtube_player_flutter.dart';
-import 'package:shimmer/shimmer.dart';
+import '../widgets/app_shimmer.dart';
 import '../database/db_helper.dart';
 import '../models/movie.dart';
 import '../services/cloud_sync_service.dart';
@@ -383,7 +383,7 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
   }
 
   Widget buildLoadingShimmer() {
-    return Shimmer.fromColors(
+    return AppShimmer(
       baseColor: Colors.grey[800]!,
       highlightColor: Colors.grey[600]!,
       child: CustomScrollView(

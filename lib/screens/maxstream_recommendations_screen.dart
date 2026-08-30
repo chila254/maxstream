@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:shimmer/shimmer.dart';
+import '../widgets/app_shimmer.dart';
 
 import '../models/movie.dart';
 import '../services/recommendation_service.dart';
@@ -479,7 +479,7 @@ class _MaxStreamRecommendationsScreenState
   }
 
   Widget _buildLoadingShimmer() {
-    return Shimmer.fromColors(
+    return AppShimmer(
       baseColor: Colors.grey[900]!,
       highlightColor: Colors.grey[800]!,
       child: ListView(

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:shimmer/shimmer.dart';
+import '../widgets/app_shimmer.dart';
 import '../models/movie.dart';
 import '../services/cloud_sync_service.dart';
 import '../services/tmdb_api_service.dart';
@@ -130,7 +130,7 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
   }
 
   Widget _buildLoadingShimmer() {
-    return Shimmer.fromColors(
+    return AppShimmer(
       baseColor: Colors.grey[800]!,
       highlightColor: Colors.grey[600]!,
       child: CustomScrollView(
