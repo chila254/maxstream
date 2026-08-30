@@ -9,6 +9,7 @@ import android.util.Log
 import android.view.KeyEvent
 import android.view.WindowManager
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -1622,12 +1623,19 @@ fun PlayerScreen(
         // ValueNotifier + Text widget): our own timed cues, drawn at the bottom
         // of the video. media3's subtitle renderer is not used because it issues
         // header-less requests that VixSrc's referer-protected sub URLs reject.
+        // While the on-screen controls are visible, lift the caption above the
+        // control bar; when the controls hide it eases back to the bottom.
+        val subtitleBottomPadding by animateDpAsState(
+            targetValue = if (controlsVisible) 150.dp else 40.dp,
+            animationSpec = tween(durationMillis = 200),
+            label = "subtitleBottomPadding",
+        )
         if (activeSubtitleText.isNotBlank() && !loading && error == null) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .align(Alignment.BottomCenter)
-                    .padding(horizontal = 48.dp, vertical = 40.dp),
+                    .padding(horizontal = 48.dp, vertical = subtitleBottomPadding),
                 contentAlignment = Alignment.BottomCenter,
             ) {
                 Text(
