@@ -5,6 +5,7 @@ import android.content.ComponentCallbacks2
 import android.content.Context
 import android.content.ContextWrapper
 import android.os.SystemClock
+import android.util.Log
 import android.view.KeyEvent
 import android.view.WindowManager
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -144,48 +145,67 @@ private data class SubtitleCue(
     val text: String,
 )
 
-/** Parses WEBVTT or SRT caption text into timed cues. Times are of the form
- * HH:MM:SS.mmm (VTT) or HH:MM:SS,mmm (SRT). Empty/dialogue-only entries are
- * dropped, mirroring Dart's _parseSubtitleFile. */
+/** Parses WEBVTT or SRT caption text into timed cues (mirrors Dart's
+ * _parseVtt/_parseSrt). Accepts both HH:MM:SS.mmm (3-part) and MM:SS.mmm
+ * (2-part) timestamps, comma or dot decimals, and handles cues with no blank
+ * line between them. Empty/dialogue-only entries are dropped. */
 private fun parseSubtitleCues(content: String): List<SubtitleCue> {
     if (content.isBlank()) return emptyList()
-    val cues = mutableListOf<SubtitleCue>()
     val lines = content.split("\n")
-    // Normalise comma decimal separators (SRT) to dots (VTT) for a single parser.
-    val timeRe = Regex(
-        """(\d{1,2}):(\d{1,2}):(\d{1,2})[.,](\d{1,3})\s*-->\s*(\d{1,2}):(\d{1,2}):(\d{1,2})[.,](\d{1,3})""",
-    )
+    val cues = mutableListOf<SubtitleCue>()
     var i = 0
+    // Skip the WEBVTT header line.
+    if (lines.isNotEmpty() && lines[0].trim().uppercase().startsWith("WEBVTT")) i = 1
     while (i < lines.size) {
-        val m = timeRe.find(lines[i]) ?: run { i++; continue }
-        val start = m.groupValues[1].toInt() * 3600_000L +
-            m.groupValues[2].toInt() * 60_000L +
-            m.groupValues[3].toInt() * 1000L +
-            m.groupValues[4].padEnd(3, '0').toInt()
-        val end = m.groupValues[5].toInt() * 3600_000L +
-            m.groupValues[6].toInt() * 60_000L +
-            m.groupValues[7].toInt() * 1000L +
-            m.groupValues[8].padEnd(3, '0').toInt()
-        // Collect caption text until the next blank line or cue.
-        val text = StringBuilder()
-        var j = i + 1
-        while (j < lines.size && lines[j].isNotBlank()) {
-            val line = lines[j]
-            if (timeRe.containsMatchIn(line)) break
-            if (text.isNotEmpty()) text.append(' ')
-            text.append(line)
-            j++
+        val line = lines[i].trim()
+        // Skip blank lines and NOTE blocks.
+        if (line.isEmpty() || line.uppercase().startsWith("NOTE")) {
+            if (line.uppercase().startsWith("NOTE")) {
+                while (i < lines.size && lines[i].trim().isNotEmpty()) i++
+            }
+            i++
+            continue
         }
-        i = j
-        val cleaned = text.toString()
+        // Skip cue identifiers (lines without a timing arrow).
+        if (!line.contains("-->")) { i++; continue }
+        val timing = line.split("-->")
+        if (timing.size != 2) { i++; continue }
+        val start = parseSubtitleTimeMs(timing[0]) ?: run { i++; continue }
+        val endValue = timing[1].trim().split(Regex("""\s+""")).first()
+        val end = parseSubtitleTimeMs(endValue) ?: run { i++; continue }
+        i++
+        // Collect caption text until a blank line or the next cue timing.
+        val textLines = mutableListOf<String>()
+        while (i < lines.size && lines[i].trim().isNotEmpty()) {
+            if (lines[i].trim().contains("-->")) break
+            textLines.add(lines[i].trim())
+            i++
+        }
+        val cleaned = textLines.joinToString("\n")
             .replace(Regex("""<[^>]+>"""), "")
-            .replace(Regex("""\{\w[^}]*\}"""), "")
+            .replace("&amp;", "&")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace(Regex("""\{[^}]+\}"""), "")
             .trim()
         if (cleaned.isNotEmpty() && end > start) {
             cues.add(SubtitleCue(start, end, cleaned))
         }
     }
     return cues
+}
+
+/** Parses a VTT/SRT timestamp (MM:SS.mmm or HH:MM:SS.mmm, comma or dot) into
+ * milliseconds (mirrors Dart's _parseSubtitleTime). */
+private fun parseSubtitleTimeMs(value: String): Long? {
+    val cleaned = value.trim().replace(',', '.')
+    val parts = cleaned.split(':')
+    if (parts.size < 2 || parts.size > 3) return null
+    val seconds = parts.last().toDoubleOrNull() ?: return null
+    val minutes = parts[parts.size - 2].toIntOrNull() ?: return null
+    val hours = if (parts.size == 3) (parts.first().toIntOrNull() ?: 0) else 0
+    val totalMs = ((hours * 3600L + minutes * 60L) * 1000L) + (seconds * 1000.0).toLong()
+    return if (totalMs < 0) null else totalMs
 }
 
 /** Prefers the English track (CC / SDH first, then plain English) so subtitles
@@ -541,71 +561,105 @@ fun PlayerScreen(
      * Returns null on failure. */
     fun repeatedIsHlsUrl(url: String): Boolean = url.contains(".m3u8", true)
 
+    /** True when a fetched body looks like a real subtitle document (not a
+     * 403/HTML error page). */
+    fun looksLikeSubtitle(s: String): Boolean {
+        val t = s.trimStart()
+        return t.contains("-->") || t.uppercase().startsWith("WEBVTT")
+    }
+
+    /** Performs one subtitle HTTP fetch (HLS playlists are resolved to a single
+     * WEBVTT document). Returns null on failure. */
+    fun tryFetchSubtitle(subtitleUrl: String, headers: Map<String, String>): String? {
+        val client = OkHttpClient.Builder()
+            .connectTimeout(8, TimeUnit.SECONDS)
+            .readTimeout(12, TimeUnit.SECONDS)
+            .build()
+        val request = Request.Builder()
+            .url(subtitleUrl)
+            .apply {
+                headers.forEach { (k, v) -> addHeader(k, v) }
+                addHeader(
+                    "User-Agent",
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+                        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                )
+                addHeader("Accept", "text/vtt, application/x-subrip, text/plain, */*")
+            }
+            .build()
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) return null
+            val body = response.body?.string() ?: return null
+            val trimmed = body.trimStart()
+            val isHls = repeatedIsHlsUrl(subtitleUrl) ||
+                trimmed.uppercase().startsWith("#EXTM3U")
+            if (isHls && !trimmed.startsWith("WEBVTT")) {
+                val baseUri = java.net.URI(subtitleUrl)
+                val segments = body.lineSequence()
+                    .map(String::trim)
+                    .filter { it.isNotEmpty() && !it.startsWith('#') }
+                    .toList()
+                if (segments.isEmpty()) return null
+                val parts = mutableListOf<String>()
+                for (segment in segments) {
+                    val segUrl = baseUri.resolve(segment).toString()
+                    val segReq = Request.Builder().url(segUrl).apply {
+                        headers.forEach { (k, v) -> addHeader(k, v) }
+                        addHeader(
+                            "User-Agent",
+                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+                                "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                        )
+                    }.build()
+                    client.newCall(segReq).execute().use { seg ->
+                        if (seg.isSuccessful) parts.add(seg.body?.string().orEmpty())
+                    }
+                }
+                if (parts.isEmpty()) return null
+                return buildString {
+                    append("WEBVTT\n\n")
+                    for (part in parts) {
+                        val cleaned = part
+                            .replace(Regex("""WEBVTT[\s\S]*?\n\n"""), "")
+                            .replace(Regex("""^NOTE.*$""", RegexOption.MULTILINE), "")
+                            .trim()
+                        if (cleaned.isNotEmpty()) {
+                            append(cleaned)
+                            append("\n\n")
+                        }
+                    }
+                }
+            } else {
+                // Direct subtitle body (VTT/SRT): use as-is.
+                return body.ifBlank { null }
+            }
+        }
+    }
+
+    /** Fetches a subtitle document, falling back to the stream headers when the
+     * track carries none (mirrors Dart's `track.headers ?? _streamHeaders`) and
+     * retrying without custom headers when a referer triggers a 403. Returns
+     * null on failure. */
     suspend fun fetchSubtitleContent(
         subtitleUrl: String,
         headers: Map<String, String>,
+        fallbackHeaders: Map<String, String> = emptyMap(),
     ): String? = withContext(Dispatchers.IO) {
         try {
-            val client = OkHttpClient.Builder()
-                .connectTimeout(8, TimeUnit.SECONDS)
-                .readTimeout(12, TimeUnit.SECONDS)
-                .build()
-            val request = Request.Builder()
-                .url(subtitleUrl)
-                .apply {
-                    headers.forEach { (k, v) -> addHeader(k, v) }
-                    addHeader("User-Agent",
-                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-                        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
-                    addHeader("Accept", "text/vtt, application/x-subrip, text/plain, */*")
-                }
-                .build()
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@withContext null
-                val body = response.body?.string() ?: return@withContext null
-                val trimmed = body.trimStart()
-                val isHls = repeatedIsHlsUrl(subtitleUrl) ||
-                    trimmed.uppercase().startsWith("#EXTM3U")
-                if (isHls && !trimmed.startsWith("WEBVTT")) {
-                    val baseUri = java.net.URI(subtitleUrl)
-                    val segments = body.lineSequence()
-                        .map(String::trim)
-                        .filter { it.isNotEmpty() && !it.startsWith('#') }
-                        .toList()
-                    if (segments.isEmpty()) return@withContext null
-                    val parts = mutableListOf<String>()
-                    for (segment in segments) {
-                        val segUrl = baseUri.resolve(segment).toString()
-                        val segReq = Request.Builder().url(segUrl).apply {
-                            headers.forEach { (k, v) -> addHeader(k, v) }
-                            addHeader("User-Agent",
-                                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-                                "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
-                        }.build()
-                        client.newCall(segReq).execute().use { seg ->
-                            if (seg.isSuccessful) parts.add(seg.body?.string().orEmpty())
-                        }
-                    }
-                    if (parts.isEmpty()) return@withContext null
-                    buildString {
-                        append("WEBVTT\n\n")
-                        for (part in parts) {
-                            val cleaned = part
-                                .replace(Regex("""WEBVTT[\s\S]*?\n\n"""), "")
-                                .replace(Regex("""^NOTE.*$""", RegexOption.MULTILINE), "")
-                                .trim()
-                            if (cleaned.isNotEmpty()) {
-                                append(cleaned)
-                                append("\n\n")
-                            }
-                        }
-                    }
-                } else {
-                    // Direct subtitle body (VTT/SRT): use as-is.
-                    body.ifBlank { return@withContext null }
-                }
+            val effective = if (headers.isEmpty()) fallbackHeaders else headers
+            val withHdrs = tryFetchSubtitle(subtitleUrl, effective)
+            // Some subtitle CDNs reject the video stream's Referer; retry without
+            // custom headers as a last resort.
+            val result = if (withHdrs == null || !looksLikeSubtitle(withHdrs)) {
+                val without = tryFetchSubtitle(subtitleUrl, emptyMap())
+                if (without != null && looksLikeSubtitle(without)) without else withHdrs
+            } else {
+                withHdrs
             }
+            if (result == null) Log.w("Subtitle", "fetch failed: $subtitleUrl")
+            result
         } catch (e: Exception) {
+            Log.e("Subtitle", "fetch error: ${e.message}")
             null
         }
     }
@@ -685,7 +739,7 @@ fun PlayerScreen(
                 emptyList()
             } else {
                 val resolvedUrl = resolveSubtitleUrl(newSubtitle.url, newUrl.takeIf { it.startsWith("http") })
-                fetchSubtitleContent(resolvedUrl, newSubtitle.headers)
+                fetchSubtitleContent(resolvedUrl, newSubtitle.headers, newHeaders)
                     ?.let { parseSubtitleCues(it) }
                     .orEmpty()
             }
@@ -700,10 +754,22 @@ fun PlayerScreen(
             loading = false
             status = ""
             // Only commit cue settings if the rebuild we just did is still current.
+            val subtitleChanged = newSubtitle != activeSubtitle
             activeSubtitle = newSubtitle
             subtitleCues = cueSet
             activeSubtitleText = ""
             selectedSubtitleLabel = newSubtitle?.label ?: "Off"
+            // Surface the outcome so the user can tell whether cues actually
+            // loaded — a label alone doesn't prove the text rendered.
+            if (subtitleChanged || newSubtitle == null) {
+                subtitleToast = if (newSubtitle == null) {
+                    "Subtitles off"
+                } else if (cueSet.isEmpty()) {
+                    "Subtitles: ${newSubtitle.label} (failed to load)"
+                } else {
+                    "Subtitles: ${newSubtitle.label} (${cueSet.size} cues)"
+                }
+            }
         }
     }
 
@@ -815,7 +881,7 @@ fun PlayerScreen(
                 emptyList()
             } else {
                 val resolvedUrl = resolveSubtitleUrl(initialSub.url, primary.url.takeIf { it.startsWith("http") })
-                fetchSubtitleContent(resolvedUrl, initialSub.headers)
+                fetchSubtitleContent(resolvedUrl, initialSub.headers, primary.headers)
                     ?.let { parseSubtitleCues(it) }
                     .orEmpty()
             }
@@ -837,7 +903,7 @@ fun PlayerScreen(
             activeSubtitleText = ""
             selectedSubtitleLabel = initialSub?.label ?: "Off"
             subtitleToast = if (initialSub != null) {
-                "Subtitles (auto): ${initialSub.label}"
+                "Subtitles (auto): ${initialSub.label} (${initialCues.size})"
             } else {
                 "Subtitles off"
             }
@@ -867,13 +933,13 @@ fun PlayerScreen(
                         } ?: subtitleOptions.first()
                         val baseUrl = primary.url.takeIf { it.startsWith("http") }
                         val resolved = resolveSubtitleUrl(def.url, baseUrl)
-                        val cueSet = fetchSubtitleContent(resolved, def.headers)
+                        val cueSet = fetchSubtitleContent(resolved, def.headers, primary.headers)
                             ?.let { parseSubtitleCues(it) }.orEmpty()
                         activeSubtitle = def
                         subtitleCues = cueSet
                         activeSubtitleText = ""
                         selectedSubtitleLabel = def.label
-                        subtitleToast = "Subtitles (auto): ${def.label}"
+                        subtitleToast = "Subtitles (auto): ${def.label} (${cueSet.size})"
                     }
                 }
             }
@@ -1199,9 +1265,7 @@ fun PlayerScreen(
                 // Switching servers: rebuild with the target's own headers/URL,
                 // reset subtitle selection, keep the position.
                 subtitleOptions = buildSubtitleOptions(target, allServers)
-                activeSubtitle = null
                 selectedSubtitleLabel = "Off"
-                subtitleToast = "Subtitles off"
                 subtitleCues = emptyList()
                 activeSubtitleText = ""
                 selectedQualityLabel = qualityLabelFor(target)
@@ -1237,11 +1301,9 @@ fun PlayerScreen(
             PlayerMenu.Subtitles -> {
                 // Index 0 = Off.
                 if (menuIndex == 0) {
-                    activeSubtitle = null
                     selectedSubtitleLabel = "Off"
                     subtitleCues = emptyList()
                     activeSubtitleText = ""
-                    subtitleToast = "Subtitles off"
                     menuOpen = false
                     activeMenu = null
                     s?.let { switchMedia(it.url, it.headers, it.isHls, null) }
@@ -1250,8 +1312,6 @@ fun PlayerScreen(
                 val opts = subtitleOptions
                 if (opts.isEmpty() || menuIndex - 1 >= opts.size) return
                 val target = opts[menuIndex - 1]
-                activeSubtitle = target
-                subtitleToast = "Subtitles: ${target.label}"
                 menuOpen = false
                 activeMenu = null
                 s?.let { switchMedia(it.url, it.headers, it.isHls, target) }

@@ -215,9 +215,6 @@ class CloudSyncService {
     if (uid == null || _pullInProgress) return;
     _pullInProgress = true;
     try {
-      // Make sure local items (including old ones) are reflected in the cloud
-      // before we mirror cloud changes back down.
-      await pushEntireWatchlist();
       final historySnap = await _watchHistoryRef(uid).get();
       if (historySnap.value != null) {
         final data = Map<String, dynamic>.from(historySnap.value as Map);
