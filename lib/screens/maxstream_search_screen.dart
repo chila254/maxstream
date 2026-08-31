@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:speech_to_text/speech_to_text.dart';
 import '../models/movie.dart';
 import '../services/tmdb_api_service.dart';
 import '../widgets/custom_loading_widget.dart';
@@ -33,6 +35,11 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
   List<Map<String, dynamic>> mostWatched = [];
   bool isLoadingRecommendations = true;
 
+  // Voice search
+  final SpeechToText _speechToText = SpeechToText();
+  bool _speechEnabled = false;
+  bool _isListening = false;
+
   @override
   void initState() {
     super.initState();
@@ -48,6 +55,70 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
       }
     });
     _loadSearchRecommendations();
+    _initSpeech();
+  }
+
+  Future<void> _initSpeech() async {
+    try {
+      _speechEnabled = await _speechToText.initialize(
+        onError: (e) => debugPrint('Speech init error: $e'),
+        onStatus: (s) {
+          if (s == 'done' || s == 'notListening') {
+            if (mounted) setState(() => _isListening = false);
+          }
+        },
+      );
+    } catch (_) {
+      _speechEnabled = false;
+    }
+  }
+
+  Future<void> _toggleListening() async {
+    if (_isListening) {
+      await _speechToText.stop();
+      if (mounted) setState(() => _isListening = false);
+      return;
+    }
+    final status = await Permission.microphone.request();
+    if (status.isDenied || status.isPermanentlyDenied) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Microphone permission needed for voice search')),
+        );
+      }
+      return;
+    }
+    if (!_speechEnabled) {
+      await _initSpeech();
+      if (!_speechEnabled) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Voice search not available on this device')),
+          );
+        }
+        return;
+      }
+    }
+    if (mounted) setState(() => _isListening = true);
+    await _speechToText.listen(
+      onResult: _onSpeechResult,
+      listenFor: const Duration(seconds: 8),
+      pauseFor: const Duration(seconds: 2),
+      localeId: 'en_US',
+      listenOptions: SpeechListenOptions(cancelOnError: true, partialResults: true),
+    );
+  }
+
+  void _onSpeechResult(result) {
+    final words = result.recognizedWords.trim();
+    if (words.isEmpty) return;
+    _searchController.text = words;
+    _searchController.selection = TextSelection.fromPosition(TextPosition(offset: words.length));
+    setState(() {});
+    if (result.finalResult) {
+      _performSearch(words);
+      if (mounted) setState(() => _isListening = false);
+    }
   }
 
   Future<void> _loadSearchRecommendations() async {
@@ -74,6 +145,8 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
 
   @override
   void dispose() {
+    _speechToText.stop();
+    _speechToText.cancel();
     _tabController.dispose();
     _searchController.dispose();
     super.dispose();
@@ -324,31 +397,23 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
             end: Alignment.bottomRight,
           ),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.09)),
+          border: Border.all(color: _isListening ? Colors.red.withValues(alpha: 0.4) : Colors.white.withValues(alpha: 0.09)),
           boxShadow: [
             BoxShadow(color: Colors.black.withValues(alpha: 0.35), blurRadius: 16, offset: const Offset(0, 6)),
-            BoxShadow(color: Colors.red.withValues(alpha: 0.06), blurRadius: 20, offset: const Offset(0, 2)),
+            BoxShadow(color: Colors.red.withValues(alpha: _isListening ? 0.15 : 0.06), blurRadius: 20, offset: const Offset(0, 2)),
           ],
         ),
         child: Row(
           children: [
-            Container(
-              margin: const EdgeInsets.only(left: 6),
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(color: Colors.red.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(10)),
-              child: const Icon(Icons.search_rounded, color: Colors.red, size: 18),
-            ),
-            const SizedBox(width: 8),
             Expanded(
               child: TextField(
                 controller: _searchController,
                 style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w500),
-                decoration: const InputDecoration(
-                  hintText: 'Search movies, TV shows, actors…',
-                  hintStyle: TextStyle(color: Color(0xFF6B7280), fontSize: 14, fontWeight: FontWeight.w400),
+                decoration: InputDecoration(
+                  hintText: _isListening ? 'Listening… speak now' : 'Search movies, TV shows, actors…',
+                  hintStyle: TextStyle(color: _isListening ? Colors.red[300] : const Color(0xFF6B7280), fontSize: 14, fontWeight: FontWeight.w400),
                   border: InputBorder.none,
-                  contentPadding: EdgeInsets.symmetric(vertical: 16),
+                  contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
                 ),
                 onChanged: (value) {
                   setState(() {});
@@ -384,20 +449,23 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
                 ),
                 splashRadius: 18,
               ),
-            Container(width: 1, height: 22, color: Colors.white.withValues(alpha: 0.08)),
-            const SizedBox(width: 4),
-            Container(
+            // Mic integrated as part of the same pill — no divider, no separate container
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
               margin: const EdgeInsets.only(right: 6),
-              decoration: BoxDecoration(color: Colors.red, borderRadius: BorderRadius.circular(10)),
+              decoration: BoxDecoration(
+                color: _isListening ? Colors.red : Colors.white.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(10),
+              ),
               child: IconButton(
-                onPressed: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Voice search coming soon — tap to speak')),
-                  );
-                },
-                icon: const Icon(Icons.mic_rounded, color: Colors.white, size: 18),
+                onPressed: _toggleListening,
+                icon: Icon(
+                  _isListening ? Icons.mic_rounded : Icons.mic_none_rounded,
+                  color: _isListening ? Colors.white : Colors.grey[300],
+                  size: 18,
+                ),
                 splashRadius: 18,
-                tooltip: 'Voice search',
+                tooltip: _isListening ? 'Stop listening' : 'Voice search',
                 padding: const EdgeInsets.all(8),
                 constraints: const BoxConstraints(),
               ),
