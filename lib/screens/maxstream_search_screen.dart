@@ -144,40 +144,37 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF1A1A1A),
-        title: const Text(
-          'Search',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        backgroundColor: const Color(0xFF0F0F0F),
+        elevation: 0,
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(7),
+              decoration: BoxDecoration(color: Colors.red, borderRadius: BorderRadius.circular(8)),
+              child: const Icon(Icons.search_rounded, color: Colors.white, size: 18),
+            ),
+            const SizedBox(width: 10),
+            const Text('Search', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 20, letterSpacing: -0.5)),
+          ],
         ),
         actions: const [
-          Padding(
-            padding: EdgeInsets.only(right: 12),
-            child: ProfileMenuButton(),
-          ),
+          Padding(padding: EdgeInsets.only(right: 12), child: ProfileMenuButton()),
         ],
-        bottom: _searchController.text.trim().isEmpty
-            ? null
-            : TabBar(
-                controller: _tabController,
-                indicatorColor: Colors.red,
-                labelColor: Colors.white,
-                unselectedLabelColor: Colors.grey,
-                tabs: _searchTabs.map((tab) => Tab(text: tab)).toList(),
-              ),
       ),
       body: Column(
         children: [
           _buildSearchBar(),
+          if (_searchController.text.trim().isNotEmpty) _buildModernTabs(),
           Expanded(
             child: _searchController.text.trim().isEmpty
                 ? _buildSearchRecommendations()
                 : TabBarView(
                     controller: _tabController,
                     children: [
-                      _buildAllResults(), // All
-                      _buildMovieResults(), // Movies
-                      _buildTVResults(), // TV Shows
-                      _buildActorResults(), // Actors
+                      _buildAllResults(),
+                      _buildMovieResults(),
+                      _buildTVResults(),
+                      _buildActorResults(),
                     ],
                   ),
           ),
@@ -275,36 +272,83 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
     );
   }
 
-  Widget _buildSearchBar() {
+  Widget _buildModernTabs() {
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      height: 46,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: _searchTabs.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (context, i) {
+          final selected = _currentTabIndex == i;
+          return GestureDetector(
+            onTap: () {
+              _tabController.animateTo(i);
+              setState(() => _currentTabIndex = i);
+              if (_searchController.text.isNotEmpty) _performSearch(_searchController.text);
+            },
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+              decoration: BoxDecoration(
+                color: selected ? Colors.red : const Color(0xFF1E1E1E),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: selected ? Colors.red : Colors.white.withValues(alpha: 0.08)),
+              ),
+              child: Center(
+                child: Text(
+                  _searchTabs[i],
+                  style: TextStyle(
+                    color: selected ? Colors.white : Colors.grey[400],
+                    fontSize: 13,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildSearchBar() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
       child: Container(
         decoration: BoxDecoration(
-          color: const Color(0xFF1E1E1E),
+          gradient: LinearGradient(
+            colors: [const Color(0xFF1E1E1E), const Color(0xFF232323)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.09)),
           boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.3),
-              blurRadius: 12,
-              offset: const Offset(0, 4),
-            ),
+            BoxShadow(color: Colors.black.withValues(alpha: 0.35), blurRadius: 16, offset: const Offset(0, 6)),
+            BoxShadow(color: Colors.red.withValues(alpha: 0.06), blurRadius: 20, offset: const Offset(0, 2)),
           ],
         ),
         child: Row(
           children: [
-            const SizedBox(width: 4),
-            const Icon(Icons.search_rounded, color: Colors.grey, size: 22),
-            const SizedBox(width: 4),
+            Container(
+              margin: const EdgeInsets.only(left: 6),
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(color: Colors.red.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(10)),
+              child: const Icon(Icons.search_rounded, color: Colors.red, size: 18),
+            ),
+            const SizedBox(width: 8),
             Expanded(
               child: TextField(
                 controller: _searchController,
-                style: const TextStyle(color: Colors.white, fontSize: 15),
+                style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w500),
                 decoration: const InputDecoration(
-                  hintText: 'Search movies, TV shows, actors...',
-                  hintStyle: TextStyle(color: Colors.grey, fontSize: 14),
+                  hintText: 'Search movies, TV shows, actors…',
+                  hintStyle: TextStyle(color: Color(0xFF6B7280), fontSize: 14, fontWeight: FontWeight.w400),
                   border: InputBorder.none,
-                  contentPadding: EdgeInsets.symmetric(vertical: 14),
+                  contentPadding: EdgeInsets.symmetric(vertical: 16),
                 ),
                 onChanged: (value) {
                   setState(() {});
@@ -333,21 +377,31 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
                     actorResults = [];
                   });
                 },
-                icon: const Icon(Icons.close_rounded, color: Colors.grey, size: 20),
+                icon: Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.08), shape: BoxShape.circle),
+                  child: const Icon(Icons.close_rounded, color: Colors.grey, size: 14),
+                ),
                 splashRadius: 18,
               ),
-            Container(width: 1, height: 24, color: Colors.white.withValues(alpha: 0.1)),
-            IconButton(
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Voice search coming soon — tap to speak')),
-                );
-              },
-              icon: const Icon(Icons.mic_rounded, color: Colors.red, size: 22),
-              splashRadius: 18,
-              tooltip: 'Voice search',
-            ),
+            Container(width: 1, height: 22, color: Colors.white.withValues(alpha: 0.08)),
             const SizedBox(width: 4),
+            Container(
+              margin: const EdgeInsets.only(right: 6),
+              decoration: BoxDecoration(color: Colors.red, borderRadius: BorderRadius.circular(10)),
+              child: IconButton(
+                onPressed: () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Voice search coming soon — tap to speak')),
+                  );
+                },
+                icon: const Icon(Icons.mic_rounded, color: Colors.white, size: 18),
+                splashRadius: 18,
+                tooltip: 'Voice search',
+                padding: const EdgeInsets.all(8),
+                constraints: const BoxConstraints(),
+              ),
+            ),
           ],
         ),
       ),
@@ -485,13 +539,138 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
 
   Widget _buildRecommendationCarousel(List<Map<String, dynamic>> items) {
     return SizedBox(
-      height: 268,
+      height: 220,
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 16),
         itemCount: items.length,
-        itemBuilder: (context, index) => _buildMovieCard(items[index], isRecommendation: true),
+        itemBuilder: (context, index) => _buildRecommendationComingSoonCard(items[index]),
       ),
+    );
+  }
+
+  Widget _buildRecommendationComingSoonCard(Map<String, dynamic> item) {
+    final name = item['title'] ?? item['name'] ?? 'Unknown';
+    final backdropPath = item['backdrop_path'];
+    final posterPath = item['poster_path'];
+    final rating = (item['vote_average'] as num?)?.toDouble();
+    final date = (item['release_date'] ?? item['first_air_date'])?.toString() ?? '';
+    final overview = item['overview']?.toString() ?? '';
+    final isTv = item['media_type'] == 'tv' || item.containsKey('first_air_date');
+    return GestureDetector(
+      onTap: () {
+        if (!mounted) return;
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => isTv
+                ? MaxStreamSeriesScreen(seriesItem: Movie.fromJson(item))
+                : MaxStreamDetailsScreen(item: Movie.fromJson(item), mediaType: isTv ? 'tv' : 'movie'),
+          ),
+        );
+      },
+      child: Container(
+        width: 300,
+        margin: const EdgeInsets.only(right: 12),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(14),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              if (backdropPath != null)
+                AppNetworkImage(url: TmdbApiService.getBackdropUrl(backdropPath), fit: BoxFit.cover, errorWidget: _posterFallback(posterPath))
+              else
+                _posterFallback(posterPath),
+              Positioned.fill(
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [Colors.transparent, Colors.black.withValues(alpha: 0.88)],
+                      stops: const [0.3, 1.0],
+                    ),
+                  ),
+                ),
+              ),
+              if (posterPath != null)
+                Positioned(
+                  left: 12,
+                  bottom: 12,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: AppNetworkImage(url: TmdbApiService.getPosterUrl(posterPath), width: 56, height: 82, fit: BoxFit.cover),
+                  ),
+                ),
+              Positioned(
+                top: 10,
+                left: 10,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                  decoration: BoxDecoration(color: isTv ? Colors.teal : Colors.red, borderRadius: BorderRadius.circular(6)),
+                  child: Text(isTv ? 'TV' : 'MOVIE', style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w800)),
+                ),
+              ),
+              if (rating != null && rating > 0)
+                Positioned(
+                  top: 10,
+                  right: 10,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                    decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.65), borderRadius: BorderRadius.circular(20), border: Border.all(color: Colors.white.withValues(alpha: 0.12))),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      const Icon(Icons.star_rounded, color: Colors.amber, size: 11),
+                      const SizedBox(width: 3),
+                      Text(rating.toStringAsFixed(1), style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700)),
+                    ]),
+                  ),
+                ),
+              Positioned(
+                left: posterPath != null ? 80 : 12,
+                right: 12,
+                bottom: 12,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(name, style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w700), maxLines: 1, overflow: TextOverflow.ellipsis),
+                    if (date.isNotEmpty) ...[
+                      const SizedBox(height: 3),
+                      Row(children: [
+                        const Icon(Icons.calendar_today_rounded, color: Colors.white70, size: 11),
+                        const SizedBox(width: 4),
+                        Text(date.length >= 4 ? date.substring(0, 4) : date, style: const TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w500)),
+                        if (rating != null && rating > 0) ...[
+                          const Text('  ·  ', style: TextStyle(color: Colors.white38, fontSize: 11)),
+                          Text('${rating.toStringAsFixed(1)}', style: const TextStyle(color: Colors.white70, fontSize: 11)),
+                        ],
+                      ]),
+                    ],
+                    if (overview.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(overview, style: const TextStyle(color: Colors.white54, fontSize: 11, height: 1.3), maxLines: 2, overflow: TextOverflow.ellipsis),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _posterFallback(String? posterPath) {
+    if (posterPath != null) {
+      return AppNetworkImage(url: TmdbApiService.getPosterUrl(posterPath), fit: BoxFit.cover, errorWidget: _placeholderBox());
+    }
+    return _placeholderBox();
+  }
+
+  Widget _placeholderBox() {
+    return Container(
+      decoration: BoxDecoration(gradient: LinearGradient(colors: [Colors.grey[850]!, Colors.grey[900]!], begin: Alignment.topLeft, end: Alignment.bottomRight)),
+      child: const Icon(Icons.movie_rounded, color: Colors.grey, size: 42),
     );
   }
 
