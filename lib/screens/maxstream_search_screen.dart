@@ -217,11 +217,11 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
           children: [
             if (topSearched.isNotEmpty) ...[
               _buildSectionHeader('Top Searched'),
-              _buildMovieGrid(topSearched),
+              _buildRecommendationCarousel(topSearched),
             ],
             if (mostWatched.isNotEmpty) ...[
               _buildSectionHeader('Most Watched'),
-              _buildMovieGrid(mostWatched),
+              _buildRecommendationCarousel(mostWatched),
             ],
             const SizedBox(height: 100),
           ],
@@ -240,15 +240,15 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
             child: Container(width: 140, height: 18, color: Colors.grey[800]),
           ),
           SizedBox(
-            height: 180,
+            height: 234,
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 16),
               itemCount: 5,
               itemBuilder: (_, __) => Container(
-                width: 110,
-                margin: const EdgeInsets.only(right: 8),
-                decoration: BoxDecoration(color: Colors.grey[800], borderRadius: BorderRadius.circular(8)),
+                width: 152,
+                margin: const EdgeInsets.only(right: 10),
+                decoration: BoxDecoration(color: Colors.grey[800], borderRadius: BorderRadius.circular(12)),
               ),
             ),
           ),
@@ -258,15 +258,15 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
             child: Container(width: 140, height: 18, color: Colors.grey[800]),
           ),
           SizedBox(
-            height: 180,
+            height: 234,
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 16),
               itemCount: 5,
               itemBuilder: (_, __) => Container(
-                width: 110,
-                margin: const EdgeInsets.only(right: 8),
-                decoration: BoxDecoration(color: Colors.grey[800], borderRadius: BorderRadius.circular(8)),
+                width: 152,
+                margin: const EdgeInsets.only(right: 10),
+                decoration: BoxDecoration(color: Colors.grey[800], borderRadius: BorderRadius.circular(12)),
               ),
             ),
           ),
@@ -434,15 +434,32 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
   }
 
   Widget _buildSectionHeader(String title) {
+    final icon = title == 'Top Searched'
+        ? Icons.trending_up_rounded
+        : title == 'Most Watched'
+            ? Icons.local_fire_department_rounded
+            : title == 'Movies'
+                ? Icons.movie_rounded
+                : title == 'TV Shows'
+                    ? Icons.tv_rounded
+                    : Icons.people_rounded;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-      child: Text(
-        title,
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 18,
-          fontWeight: FontWeight.bold,
-        ),
+      padding: const EdgeInsets.fromLTRB(16, 20, 16, 10),
+      child: Row(
+        children: [
+          Container(
+            width: 3,
+            height: 16,
+            decoration: BoxDecoration(color: Colors.red, borderRadius: BorderRadius.circular(2)),
+          ),
+          const SizedBox(width: 8),
+          Icon(icon, color: Colors.red, size: 16),
+          const SizedBox(width: 6),
+          Text(
+            title,
+            style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w700, letterSpacing: 0.2),
+          ),
+        ],
       ),
     );
   }
@@ -454,15 +471,27 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
       padding: const EdgeInsets.symmetric(horizontal: 16),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 3,
-        childAspectRatio: 0.7,
-        crossAxisSpacing: 8,
-        mainAxisSpacing: 8,
+        childAspectRatio: 0.62,
+        crossAxisSpacing: 10,
+        mainAxisSpacing: 10,
       ),
       itemCount: items.length,
       itemBuilder: (context, index) {
         final item = items[index];
-        return _buildMovieCard(item);
+        return _buildMovieCard(item, isRecommendation: false);
       },
+    );
+  }
+
+  Widget _buildRecommendationCarousel(List<Map<String, dynamic>> items) {
+    return SizedBox(
+      height: 268,
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        itemCount: items.length,
+        itemBuilder: (context, index) => _buildMovieCard(items[index], isRecommendation: true),
+      ),
     );
   }
 
@@ -485,8 +514,8 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
     );
   }
 
-  Widget _buildMovieCard(Map<String, dynamic> item) {
-    return GestureDetector(
+  Widget _buildMovieCard(Map<String, dynamic> item, {bool isRecommendation = false}) {
+    final card = GestureDetector(
       onTap: () {
         if (!mounted) return;
         final mediaType =
@@ -526,58 +555,71 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: Stack(
-                children: [
-                  item['poster_path'] != null
-                      ? AppNetworkImage(
-                          url: TmdbApiService.getPosterUrl(item['poster_path']),
-                          width: double.infinity,
-                          height: double.infinity,
-                          fit: BoxFit.cover,
-                        )
-                      : Container(
-                          width: double.infinity,
-                          height: double.infinity,
-                          color: Colors.grey[800],
-                          child: const Icon(Icons.movie, color: Colors.grey),
-                        ),
-                  if (item['vote_average'] != null)
+            child: Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(color: Colors.black.withValues(alpha: 0.25), blurRadius: 8, offset: const Offset(0, 4)),
+                ],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Stack(
+                  children: [
+                    item['poster_path'] != null
+                        ? AppNetworkImage(
+                            url: TmdbApiService.getPosterUrl(item['poster_path']),
+                            width: double.infinity,
+                            height: double.infinity,
+                            fit: BoxFit.cover,
+                          )
+                        : Container(
+                            width: double.infinity,
+                            height: double.infinity,
+                            color: Colors.grey[800],
+                            child: const Icon(Icons.movie, color: Colors.grey, size: 32),
+                          ),
                     Positioned(
-                      top: 4,
-                      right: 4,
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      height: 56,
                       child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 4,
-                          vertical: 2,
-                        ),
                         decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.7),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(
-                              Icons.star,
-                              color: Colors.amber,
-                              size: 10,
-                            ),
-                            const SizedBox(width: 2),
-                            Text(
-                              item['vote_average'].toStringAsFixed(1),
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 8,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [Colors.transparent, Colors.black.withValues(alpha: 0.75)],
+                          ),
                         ),
                       ),
                     ),
-                ],
+                    if (item['vote_average'] != null && (item['vote_average'] as num) > 0)
+                      Positioned(
+                        top: 6,
+                        right: 6,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.75),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.star_rounded, color: Colors.amber, size: 11),
+                              const SizedBox(width: 3),
+                              Text(
+                                (item['vote_average'] as num).toStringAsFixed(1),
+                                style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -586,8 +628,9 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
             item['title'] ?? item['name'] ?? 'Unknown',
             style: const TextStyle(
               color: Colors.white,
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              height: 1.2,
             ),
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
@@ -595,6 +638,14 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
         ],
       ),
     );
+    if (isRecommendation) {
+      return Container(
+        width: 152,
+        margin: const EdgeInsets.only(right: 10),
+        child: card,
+      );
+    }
+    return card;
   }
 
   Widget _buildActorCard(Map<String, dynamic> actor) {
