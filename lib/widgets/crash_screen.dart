@@ -222,12 +222,19 @@ bool isBenignImageNetworkError(Object error) {
       message.contains('Network is unreachable');
 }
 
+bool isRenderFlexOverflowError(Object error) {
+  final msg = error.toString();
+  return msg.contains('RenderFlex overflowed') ||
+      msg.contains('overflowed by');
+}
+
 /// Single decision point for whether an error should be ignored by every
 /// crash funnel (zone, FlutterError, PlatformDispatcher). A benign error never
 /// shows the crash screen and is never recorded as fatal.
 bool isBenignError(Object error) {
   return isBenignVideoPlayerChannelError(error) ||
-      isBenignImageNetworkError(error);
+      isBenignImageNetworkError(error) ||
+      isRenderFlexOverflowError(error);
 }
 
 Future<void> recordCrash(String tag, Object error, StackTrace stack) async {

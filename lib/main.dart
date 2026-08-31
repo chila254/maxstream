@@ -143,6 +143,21 @@ class MaxStreamApp extends StatelessWidget {
       theme: ThemeService.darkTheme,
       themeMode: ThemeMode.dark,
       debugShowCheckedModeBanner: false,
+      // Clamp system font scaling (e.g. Honor MagicOS / Android 16) to avoid
+      // RenderFlex overflows on small viewports when users set 150-200% text
+      // zoom. The 1.3 max is recommended by Gemini analysis for this crash.
+      builder: (context, child) {
+        final mq = MediaQuery.of(context);
+        final clamped = mq.textScaler.clamp(
+          minScaleFactor: 0.8,
+          maxScaleFactor: 1.3,
+        );
+        if (clamped == mq.textScaler) return child!;
+        return MediaQuery(
+          data: mq.copyWith(textScaler: clamped),
+          child: child!,
+        );
+      },
       home: const CloudSyncBootstrap(child: AuthGate()),
     );
   }
