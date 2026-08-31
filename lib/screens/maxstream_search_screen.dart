@@ -155,13 +155,15 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
             child: ProfileMenuButton(),
           ),
         ],
-        bottom: TabBar(
-          controller: _tabController,
-          indicatorColor: Colors.red,
-          labelColor: Colors.white,
-          unselectedLabelColor: Colors.grey,
-          tabs: _searchTabs.map((tab) => Tab(text: tab)).toList(),
-        ),
+        bottom: _searchController.text.trim().isEmpty
+            ? null
+            : TabBar(
+                controller: _tabController,
+                indicatorColor: Colors.red,
+                labelColor: Colors.white,
+                unselectedLabelColor: Colors.grey,
+                tabs: _searchTabs.map((tab) => Tab(text: tab)).toList(),
+              ),
       ),
       body: Column(
         children: [
