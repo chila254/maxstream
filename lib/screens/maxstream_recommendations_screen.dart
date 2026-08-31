@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import '../widgets/app_shimmer.dart';
 
 import '../models/movie.dart';
+import '../services/cloud_sync_service.dart';
 import '../services/recommendation_service.dart';
 import '../services/tmdb_api_service.dart';
+import '../services/watch_history_service.dart';
 import '../widgets/profile_menu_button.dart';
 import 'maxstream_details_screen.dart';
 import 'maxstream_series_screen.dart';
@@ -33,7 +35,33 @@ class _MaxStreamRecommendationsScreenState
   @override
   void initState() {
     super.initState();
+    CloudSyncService.historyRevision.addListener(_onHistoryChanged);
+    WatchHistoryService.localHistoryRevision.addListener(_onHistoryChanged);
     _loadRecommendations();
+  }
+
+  @override
+  void dispose() {
+    CloudSyncService.historyRevision.removeListener(_onHistoryChanged);
+    WatchHistoryService.localHistoryRevision.removeListener(_onHistoryChanged);
+    super.dispose();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+  }
+
+  void _onHistoryChanged() {
+    if (!mounted) return;
+    // New watch (movie / episode / season / series) changes topGenres and the
+    // most-recent item for "Because You Watched". Bust the 30-min cache so
+    // For You / By Genre rows recompute immediately instead of staying stale.
+    RecommendationService.clearCache();
+    // Debounce slightly – rapid episode saves (binge) can fire several times.
+    Future.delayed(const Duration(milliseconds: 400), () {
+      if (mounted) _loadRecommendations(showLoading: false);
+    });
   }
 
   Future<List<Map<String, dynamic>>> _safeRec(
@@ -46,8 +74,8 @@ class _MaxStreamRecommendationsScreenState
     }
   }
 
-  Future<void> _loadRecommendations() async {
-    setState(() => _loading = true);
+  Future<void> _loadRecommendations({bool showLoading = true}) async {
+    if (showLoading) setState(() => _loading = true);
     try {
       final topGenres = await RecommendationService.getTopGenres(limit: 4)
           .catchError((_) => <int>[]);

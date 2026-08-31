@@ -107,18 +107,21 @@ class RecommendationService {
     });
   }
 
-  /// "Because You Watched {title}" — uses TMDB recommendations for a
-  /// recently-watched item.
+  /// "Because You Watched {title}" — uses TMDB recommendations for the most
+  /// recently-watched item (movie or episode). Previously this preferred any
+  /// old `isWatched==true` entry, so a series watched last week could stay
+  /// pinned even after bingeing new content. Now it always reflects the
+  /// latest history entry so the row updates after every watch (movie,
+  /// single episode, whole season or series).
   static Future<List<Map<String, dynamic>>> getBecauseYouWatched({
     int limit = 20,
   }) async {
     final history = await WatchHistoryService.getWatchHistory();
     if (history.isEmpty) return [];
 
-    final recent = history.firstWhere(
-      (item) => item['isWatched'] == true,
-      orElse: () => history.first,
-    );
+    // Most recent entry (list is stored newest-first via insert(0) in
+    // WatchHistoryService). This guarantees the row follows the latest watch.
+    final recent = history.first;
     final tmdbId = int.tryParse(recent['tmdbId']?.toString() ?? '') ?? 0;
     if (tmdbId == 0) return [];
 

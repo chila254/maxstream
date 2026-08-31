@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'cloud_sync_service.dart';
@@ -8,6 +9,11 @@ import 'user_scope.dart';
 
 class WatchHistoryService {
   static const int _maxHistoryItems = 50;
+
+  /// Bumped whenever local watch history changes (movie/series/episode watched).
+  /// Recommendations screen listens to this for immediate refresh (faster than
+  /// waiting for the CloudSync RTDB round-trip).
+  static final ValueNotifier<int> localHistoryRevision = ValueNotifier<int>(0);
 
   static String get _historyListKey =>
       'watch_history_list_${UserScope.currentOwner}';
@@ -181,6 +187,9 @@ class WatchHistoryService {
       list.removeRange(_maxHistoryItems, list.length);
     }
     await prefs.setString(_historyListKey, jsonEncode(list));
+    // Notify listeners (e.g. Recommendations) immediately – faster than waiting
+    // for the CloudSync RTDB echo which may take seconds or fail offline.
+    localHistoryRevision.value++;
   }
 
   static Future<List<Map<String, dynamic>>> getWatchHistory() async {
