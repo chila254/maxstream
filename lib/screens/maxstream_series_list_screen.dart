@@ -31,18 +31,29 @@ class _MaxStreamSeriesListScreenState extends State<MaxStreamSeriesListScreen> {
     _loadContent();
   }
 
+  Future<List<Map<String, dynamic>>> _safe(
+    Future<List<Map<String, dynamic>>> Function() f,
+  ) async {
+    try {
+      return await f();
+    } catch (_) {
+      return [];
+    }
+  }
+
   Future<void> _loadContent() async {
     setState(() => isLoading = true);
 
     try {
       final results = await Future.wait([
-        TmdbApiService.fetchTrendingSeries(),
-        TmdbApiService.fetchPopularSeries(),
-        TmdbApiService.fetchTopRatedSeries(),
-        TmdbApiService.fetchOnTheAirSeries(),
-        TmdbApiService.fetchUpcomingSeries(),
+        _safe(() => TmdbApiService.fetchTrendingSeries()),
+        _safe(() => TmdbApiService.fetchPopularSeries()),
+        _safe(() => TmdbApiService.fetchTopRatedSeries()),
+        _safe(() => TmdbApiService.fetchOnTheAirSeries()),
+        _safe(() => TmdbApiService.fetchUpcomingSeries()),
       ]);
 
+      if (!mounted) return;
       setState(() {
         trendingSeries = results[0];
         popularSeries = results[1];
@@ -51,9 +62,9 @@ class _MaxStreamSeriesListScreenState extends State<MaxStreamSeriesListScreen> {
         upcomingSeries = results[4];
       });
     } catch (e) {
-      // Error loading series content
+      debugPrint('Series list load error: $e');
     } finally {
-      setState(() => isLoading = false);
+      if (mounted) setState(() => isLoading = false);
     }
   }
 

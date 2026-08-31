@@ -9,6 +9,8 @@ import com.maxstream.app.data.local.WatchProgressRepository
 import com.maxstream.app.data.model.MediaItem
 import com.maxstream.app.data.repository.CloudSyncRepository
 import com.maxstream.app.di.Modules
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
 
 class HomeViewModel(application: Application) : AndroidViewModel(application) {
@@ -44,21 +46,43 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             // Pull the phone's watch progress/watchlist into local storage so
             // Continue Watching reflects what was watched on the phone.
+            // Never let sync failure block catalogue loading.
             runCatching { CloudSyncRepository.pullToDevice(getApplication()) }
-            _trendingMovies.value = repo.trendingMovies() ?: emptyList()
-            _trendingSeries.value = repo.trendingSeries() ?: emptyList()
-            _popularMovies.value = repo.popularMovies() ?: emptyList()
-            _popularSeries.value = repo.popularSeries() ?: emptyList()
-            _topRatedMovies.value = repo.topRatedMovies() ?: emptyList()
-            _topRatedSeries.value = repo.topRatedSeries() ?: emptyList()
+            // Fetch all catalogue rows in parallel; a single TMDB failure must
+            // not blank the whole home screen (previously sequential without
+            // per-row catch left every list empty on the first exception).
+            val trendingMoviesDef = async { runCatching { repo.trendingMovies() }.getOrNull() ?: emptyList() }
+            val trendingSeriesDef = async { runCatching { repo.trendingSeries() }.getOrNull() ?: emptyList() }
+            val popularMoviesDef = async { runCatching { repo.popularMovies() }.getOrNull() ?: emptyList() }
+            val popularSeriesDef = async { runCatching { repo.popularSeries() }.getOrNull() ?: emptyList() }
+            val topRatedMoviesDef = async { runCatching { repo.topRatedMovies() }.getOrNull() ?: emptyList() }
+            val topRatedSeriesDef = async { runCatching { repo.topRatedSeries() }.getOrNull() ?: emptyList() }
+            try {
+                _trendingMovies.value = trendingMoviesDef.await()
+                _trendingSeries.value = trendingSeriesDef.await()
+                _popularMovies.value = popularMoviesDef.await()
+                _popularSeries.value = popularSeriesDef.await()
+                _topRatedMovies.value = topRatedMoviesDef.await()
+                _topRatedSeries.value = topRatedSeriesDef.await()
+            } catch (e: Exception) {
+                _error.value = e.message
+            }
             // Continue Watching row: locally persisted watch progress, newest
             // first, filtered like the phone (drop barely-started, watched and
             // >= 90% items — mirrors WatchHistoryService.getContinueWatching).
-            _continueWatching.value = WatchProgressRepository
-                .recent(getApplication(), limit = 20)
-                .filter { entry -> entry.isVisibleInContinueWatching() }
-                .map { it.toMediaItem() }
+            _continueWatching.value = runCatching {
+                WatchProgressRepository
+                    .recent(getApplication(), limit = 20)
+                    .filter { entry -> entry.isVisibleInContinueWatching() }
+                    .map { it.toMediaItem() }
+            }.getOrDefault(emptyList())
             _loading.value = false
+            // Surface empty catalogue as error so UI can show retry instead of black.
+            if (_trendingMovies.value.isNullOrEmpty() && _trendingSeries.value.isNullOrEmpty() &&
+                _popularMovies.value.isNullOrEmpty() && _topRatedMovies.value.isNullOrEmpty()
+            ) {
+                _error.value = _error.value ?: "No content available. Pull to refresh or check connection."
+            }
         }
     }
 

@@ -49,25 +49,36 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
     super.dispose();
   }
 
+  Future<List<Map<String, dynamic>>> _safeList(
+    Future<List<Map<String, dynamic>>> Function() f,
+  ) async {
+    try {
+      return await f();
+    } catch (_) {
+      return [];
+    }
+  }
+
   Future<void> _loadContent() async {
     if (mounted) setState(() => isLoading = true);
 
     try {
-      final syncFuture = CloudSyncService.pullToDevice();
+      final syncFuture = CloudSyncService.pullToDevice().catchError((_) {});
       final results = await Future.wait([
-        TmdbApiService.fetchTrendingMovies(),
-        TmdbApiService.fetchPopularMovies(),
-        TmdbApiService.fetchTopRatedMovies(),
-        TmdbApiService.fetchUpcomingMovies(),
-        TmdbApiService.fetchUpcomingSeries(),
-        syncFuture.then((_) => WatchHistoryService.getContinueWatching()),
+        _safeList(() => TmdbApiService.fetchTrendingMovies()),
+        _safeList(() => TmdbApiService.fetchPopularMovies()),
+        _safeList(() => TmdbApiService.fetchTopRatedMovies()),
+        _safeList(() => TmdbApiService.fetchUpcomingMovies()),
+        _safeList(() => TmdbApiService.fetchUpcomingSeries()),
+        syncFuture.then((_) => WatchHistoryService.getContinueWatching())
+            .catchError((_) => <Map<String, dynamic>>[]),
       ]);
 
       if (!mounted) return;
       final upcomingMv =
-          TmdbApiService.filterUnreleased(results[3]);
+          TmdbApiService.filterUnreleased(results[3] as List<Map<String, dynamic>>);
       final upcomingTv = TmdbApiService.filterUnreleased(
-        results[4],
+        results[4] as List<Map<String, dynamic>>,
         dateField: 'first_air_date',
       );
       // Merge and shuffle movies + series into one "Coming Soon" section
@@ -79,14 +90,14 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
       }
       final mergedUpcoming = [...upcomingMv, ...upcomingTv]..shuffle();
       setState(() {
-        trendingMovies = results[0];
-        popularMovies = results[1];
-        topRatedMovies = results[2];
+        trendingMovies = results[0] as List<Map<String, dynamic>>;
+        popularMovies = results[1] as List<Map<String, dynamic>>;
+        topRatedMovies = results[2] as List<Map<String, dynamic>>;
         upcomingContent = mergedUpcoming;
-        continueWatching = results[5].take(10).toList();
+        continueWatching = (results[5] as List<Map<String, dynamic>>).take(10).toList();
       });
     } catch (e) {
-      // Error loading content
+      debugPrint('Home load error: $e');
     } finally {
       if (mounted) setState(() => isLoading = false);
     }

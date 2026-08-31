@@ -36,32 +36,45 @@ class _MaxStreamRecommendationsScreenState
     _loadRecommendations();
   }
 
+  Future<List<Map<String, dynamic>>> _safeRec(
+    Future<List<Map<String, dynamic>>> Function() f,
+  ) async {
+    try {
+      return await f();
+    } catch (_) {
+      return [];
+    }
+  }
+
   Future<void> _loadRecommendations() async {
     setState(() => _loading = true);
     try {
-      final topGenres = await RecommendationService.getTopGenres(limit: 4);
+      final topGenres = await RecommendationService.getTopGenres(limit: 4)
+          .catchError((_) => <int>[]);
       _hasHistory = topGenres.isNotEmpty;
 
       final results = await Future.wait([
-        RecommendationService.getForYou(),
-        RecommendationService.getBecauseYouWatched(),
+        _safeRec(() => RecommendationService.getForYou()),
+        _safeRec(() => RecommendationService.getBecauseYouWatched()),
         if (_hasHistory)
-          ...topGenres.map((g) => RecommendationService.getByGenre(g)),
+          ...topGenres.map((g) => _safeRec(() => RecommendationService.getByGenre(g))),
       ]);
 
       _forYou = results[0];
       _becauseYouWatched = results[1];
 
       if (_hasHistory) {
-        final genreNames = await TmdbApiService.fetchGenres('movie');
-        final genreNamesTv = await TmdbApiService.fetchGenres('tv');
-        final allGenres = {...genreNames, ...genreNamesTv};
-
+        Map<int, String> allGenres = {};
+        try {
+          final genreNames = await TmdbApiService.fetchGenres('movie');
+          final genreNamesTv = await TmdbApiService.fetchGenres('tv');
+          allGenres = {...genreNames, ...genreNamesTv};
+        } catch (_) {}
         _byGenre = {};
         _genreIdByName = {};
         for (int i = 0; i < topGenres.length; i++) {
           final name = allGenres[topGenres[i]] ?? 'Genre ${topGenres[i]}';
-          _byGenre[name] = results[2 + i];
+          _byGenre[name] = (2 + i < results.length) ? results[2 + i] : [];
           _genreIdByName[topGenres[i]] = name;
           _genrePage[name] = 1;
         }
