@@ -277,46 +277,79 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
 
   Widget _buildSearchBar() {
     return Container(
-      padding: const EdgeInsets.all(16),
-      child: TextField(
-        controller: _searchController,
-        style: const TextStyle(color: Colors.white),
-        decoration: InputDecoration(
-          hintText: 'Search movies, TV shows, actors...',
-          hintStyle: const TextStyle(color: Colors.grey),
-          prefixIcon: const Icon(Icons.search, color: Colors.grey),
-          suffixIcon: _searchController.text.isNotEmpty
-              ? IconButton(
-                  onPressed: () {
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      child: Container(
+        decoration: BoxDecoration(
+          color: const Color(0xFF1E1E1E),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.3),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            const SizedBox(width: 4),
+            const Icon(Icons.search_rounded, color: Colors.grey, size: 22),
+            const SizedBox(width: 4),
+            Expanded(
+              child: TextField(
+                controller: _searchController,
+                style: const TextStyle(color: Colors.white, fontSize: 15),
+                decoration: const InputDecoration(
+                  hintText: 'Search movies, TV shows, actors...',
+                  hintStyle: TextStyle(color: Colors.grey, fontSize: 14),
+                  border: InputBorder.none,
+                  contentPadding: EdgeInsets.symmetric(vertical: 14),
+                ),
+                onChanged: (value) {
+                  setState(() {});
+                  if (value.length >= 2) {
+                    _performSearch(value);
+                  } else {
                     _searchGeneration++;
-                    _searchController.clear();
                     setState(() {
                       searchResults = [];
                       actorResults = [];
                     });
-                  },
-                  icon: const Icon(Icons.clear, color: Colors.grey),
-                )
-              : null,
-          filled: true,
-          fillColor: const Color(0xFF2A2A2A),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide.none,
-          ),
+                  }
+                },
+                onSubmitted: (v) {
+                  if (v.trim().length >= 2) _performSearch(v);
+                },
+              ),
+            ),
+            if (_searchController.text.isNotEmpty)
+              IconButton(
+                onPressed: () {
+                  _searchGeneration++;
+                  _searchController.clear();
+                  setState(() {
+                    searchResults = [];
+                    actorResults = [];
+                  });
+                },
+                icon: const Icon(Icons.close_rounded, color: Colors.grey, size: 20),
+                splashRadius: 18,
+              ),
+            Container(width: 1, height: 24, color: Colors.white.withValues(alpha: 0.1)),
+            IconButton(
+              onPressed: () {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Voice search coming soon — tap to speak')),
+                );
+              },
+              icon: const Icon(Icons.mic_rounded, color: Colors.red, size: 22),
+              splashRadius: 18,
+              tooltip: 'Voice search',
+            ),
+            const SizedBox(width: 4),
+          ],
         ),
-        onChanged: (value) {
-          setState(() {});
-          if (value.length >= 2) {
-            _performSearch(value);
-          } else {
-            _searchGeneration++;
-            setState(() {
-              searchResults = [];
-              actorResults = [];
-            });
-          }
-        },
       ),
     );
   }
