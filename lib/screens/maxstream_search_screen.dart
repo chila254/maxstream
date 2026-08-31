@@ -28,6 +28,11 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
   int _currentTabIndex = 0;
   int _searchGeneration = 0;
 
+  // Top Searched / Most Watched (idle state when no query)
+  List<Map<String, dynamic>> topSearched = [];
+  List<Map<String, dynamic>> mostWatched = [];
+  bool isLoadingRecommendations = true;
+
   @override
   void initState() {
     super.initState();
@@ -42,6 +47,29 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
         }
       }
     });
+    _loadSearchRecommendations();
+  }
+
+  Future<void> _loadSearchRecommendations() async {
+    setState(() => isLoadingRecommendations = true);
+    try {
+      final results = await Future.wait([
+        TmdbApiService.fetchTrendingMovies().catchError((_) => <Map<String, dynamic>>[]),
+        TmdbApiService.fetchTrendingSeries().catchError((_) => <Map<String, dynamic>>[]),
+        TmdbApiService.fetchPopularMovies().catchError((_) => <Map<String, dynamic>>[]),
+        TmdbApiService.fetchPopularSeries().catchError((_) => <Map<String, dynamic>>[]),
+      ]);
+      if (!mounted) return;
+      final trending = [...results[0], ...results[1]]..shuffle();
+      final popular = [...results[2], ...results[3]]..shuffle();
+      setState(() {
+        topSearched = trending.take(10).toList();
+        mostWatched = popular.take(10).toList();
+      });
+    } catch (_) {
+    } finally {
+      if (mounted) setState(() => isLoadingRecommendations = false);
+    }
   }
 
   @override
@@ -139,14 +167,105 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
         children: [
           _buildSearchBar(),
           Expanded(
-            child: TabBarView(
-              controller: _tabController,
-              children: [
-                _buildAllResults(), // All
-                _buildMovieResults(), // Movies
-                _buildTVResults(), // TV Shows
-                _buildActorResults(), // Actors
-              ],
+            child: _searchController.text.trim().isEmpty
+                ? _buildSearchRecommendations()
+                : TabBarView(
+                    controller: _tabController,
+                    children: [
+                      _buildAllResults(), // All
+                      _buildMovieResults(), // Movies
+                      _buildTVResults(), // TV Shows
+                      _buildActorResults(), // Actors
+                    ],
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSearchRecommendations() {
+    if (isLoadingRecommendations) return _buildRecommendationsShimmer();
+    if (topSearched.isEmpty && mostWatched.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.search, size: 48, color: Colors.grey[700]),
+              const SizedBox(height: 12),
+              Text('No recommendations yet', style: TextStyle(color: Colors.grey[500])),
+              const SizedBox(height: 8),
+              ElevatedButton(
+                onPressed: _loadSearchRecommendations,
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                child: const Text('Retry', style: TextStyle(color: Colors.white)),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    return RefreshIndicator(
+      onRefresh: _loadSearchRecommendations,
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (topSearched.isNotEmpty) ...[
+              _buildSectionHeader('Top Searched'),
+              _buildMovieGrid(topSearched),
+            ],
+            if (mostWatched.isNotEmpty) ...[
+              _buildSectionHeader('Most Watched'),
+              _buildMovieGrid(mostWatched),
+            ],
+            const SizedBox(height: 100),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRecommendationsShimmer() {
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            child: Container(width: 140, height: 18, color: Colors.grey[800]),
+          ),
+          SizedBox(
+            height: 180,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              itemCount: 5,
+              itemBuilder: (_, __) => Container(
+                width: 110,
+                margin: const EdgeInsets.only(right: 8),
+                decoration: BoxDecoration(color: Colors.grey[800], borderRadius: BorderRadius.circular(8)),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            child: Container(width: 140, height: 18, color: Colors.grey[800]),
+          ),
+          SizedBox(
+            height: 180,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              itemCount: 5,
+              itemBuilder: (_, __) => Container(
+                width: 110,
+                margin: const EdgeInsets.only(right: 8),
+                decoration: BoxDecoration(color: Colors.grey[800], borderRadius: BorderRadius.circular(8)),
+              ),
             ),
           ),
         ],
