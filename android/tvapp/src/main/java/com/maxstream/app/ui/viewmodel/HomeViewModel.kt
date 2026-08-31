@@ -5,12 +5,12 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.viewModelScope
+import android.annotation.SuppressLint
 import com.maxstream.app.data.local.WatchProgressRepository
 import com.maxstream.app.data.model.MediaItem
 import com.maxstream.app.data.repository.CloudSyncRepository
 import com.maxstream.app.di.Modules
 import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
 
 class HomeViewModel(application: Application) : AndroidViewModel(application) {
@@ -40,6 +40,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         loadAll()
     }
 
+    @SuppressLint("NullSafeMutableLiveData")
     fun loadAll() {
         _loading.value = true
         _error.value = null
@@ -92,6 +93,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
      * [loadAll]); this only re-reads local storage so it is cheap and safe to
      * call on tab visibility + every revision bump.
      */
+    @SuppressLint("NullSafeMutableLiveData")
     fun refreshSynced() {
         _continueWatching.value = WatchProgressRepository
             .recent(getApplication(), limit = 20)
