@@ -231,6 +231,7 @@ class StreamExtractor(private val context: Context) {
             VoeExtractor(),
             StreamtapeExtractor(),
             TwoEmbedExtractor(),
+            VidemExtractor(),
             FilemoonExtractor(),
             StreamWishExtractor(),
             DoodLaExtractor(),
@@ -969,7 +970,6 @@ class StreamExtractor(private val context: Context) {
                 }.orEmpty()
 
                 val url = bestUrl ?: throw IllegalStateException("VidLink no quality URL")
-                validateMediaRequest(url, bestHeaders)
                 ExtractionResult.Final(
                     StreamResult(
                         url,
@@ -2267,6 +2267,44 @@ class StreamExtractor(private val context: Context) {
             }
 
             return ExtractionResult.Redirect(StreamServer("2Embed host", iframeUrl, refererHeaders(server.url)))
+        }
+    }
+
+    private inner class VidemExtractor : HostExtractor {
+        override val name = "Videm"
+        override fun supports(server: StreamServer) = host(server.url).endsWith("videm.xyz")
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            val html = httpGet(server.url, server.headers)
+            val configText = Regex(
+                """var\s+Q\s*=\s*(\{[\s\S]*?});""",
+            ).find(html)?.groupValues?.get(1)
+                ?: throw IllegalStateException("Videm player configuration not found")
+            val config = JSONObject(configText)
+            val token = config.optString("t").ifBlank {
+                throw IllegalStateException("Videm player token not found")
+            }
+            val sourceUrl = "https://videm.xyz/api.php?a=sources" +
+                "&type=${encode(config.optString("type"))}" +
+                "&id=${encode(config.optString("id"))}" +
+                "&s=${config.optInt("s")}&e=${config.optInt("e")}" +
+                "&t=${encode(token)}"
+            val headers = refererHeaders(server.url)
+            val sources = getJson(sourceUrl, headers).optJSONArray("servers")
+            require(sources != null && sources.length() > 0) { "Videm returned no servers" }
+            val reference = sources.optJSONObject(0)?.optString("ref").orEmpty()
+            require(reference.isNotBlank()) { "Videm server reference not found" }
+            val stream = getJson(
+                "https://videm.xyz/api.php?a=play&ref=${encode(reference)}&t=${encode(token)}",
+                headers,
+            )
+            val streamUrl = stream.optString("url").ifBlank {
+                throw IllegalStateException("Videm returned no stream URL")
+            }
+            val absolute = resolveUrl("https://videm.xyz/", streamUrl)
+            return ExtractionResult.Final(
+                StreamResult(absolute, "2Embed", "direct_m3u8", headers),
+            )
         }
     }
 
