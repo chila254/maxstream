@@ -1,5 +1,48 @@
 # Changelog
 
+## 1.6.0+8
+
+> [!NOTE]
+> This release modernizes mobile Search with Top Searched / Most Watched and voice search, makes Recommendations live after any watch (including TV), adds official Website/GitHub links, and polishes the native TV player (subtitles, focus, watchlist) while hardening stability on both platforms.
+
+### What's New
+- **Mobile Search redesign** — idle state shows **Top Searched** (trending) and **Most Watched** (popular) carousels (`Top Searched`/`Most Watched` fetched in parallel with safe fallbacks); unified results screen for **All / Movies / TV Shows / Actors** with `All` aggregating all media types and separate grids for each tab
+- **Voice search** — integrated `speech_to_text 6.6.0` with `RECORD_AUDIO` permission, single-pill search bar (no left icon, mic integrated), 30s listen / 5s pause, `ListenMode.search`, filler stripping (`search for`/`find`/`show me`) and 650 ms partial-result debounce that auto-searches while speaking
+- **Mobile Recommendations live** — `Because You Watched` now tracks `history.first` (latest movie/episode/season/series) instead of old `isWatched`, clears 30-min cache and refreshes on `CloudSync.historyRevision` + `WatchHistory.localHistoryRevision` + app resume, pulls TV watches before computing so TV binges appear on mobile
+- **Actor filmography correctly grouped** — `movie_credits` / `tv_credits` are authoritative; tv credits now open `MaxStreamSeriesScreen` and enforce `media_type`, fixing movies reading as series and vice versa
+- **About screen — Website & GitHub** — new `Website` section (`https://maxstreamweb.vercel.app`) with `Icons.language` and `GitHub Repository` section (`https://github.com/chila254/maxstream`) with `Icons.code` in `maxstream_about_screen.dart`
+- **TV subtitles upgraded** — manual overlay for VixSrc (header-signed fetch), English auto-select, selection popups with cue count / `failed to load`, and 200 ms lift above playback controls when visible (`PlayerScreen.kt`)
+- **TV Home & Details polish** — series/movie release status badges (`Returning/Ended/Cancelled` / `Released/Post Production/To be released`), watchlist counts, and focused Continue Watching caption `S{season} E{episode} · {name}`
+
+### Features
+- **Mobile**
+  - Modern pill search bar — `1E1E1E`→`232323` gradient, `0.09` border, dual shadows, integrated mic (red when listening, `Listening…` hint) and clear affordance; tabs hidden until searching and replaced by modern pill `ChoiceChips` (`All/Movies/TV Shows/Actors` with animated red pill)
+  - `Top Searched` / `Most Watched` use Coming-Soon style cards (`300×220` backdrop + `56×82` poster, gradient, `TV/MOVIE` badge, pill rating, year + 2-line overview) in `152px` horizontal carousels with `12dp` radius/shadow; grid cards enlarged to `0.62` aspect, `10px` spacing, star pill
+  - Reusable `AppShimmer` (`lib/widgets/app_shimmer.dart`) — narrow bright glint band (`0.42/0.5/0.58` stops lerped toward white) sweeping at `800 ms` replaces soft `1500 ms` `Shimmer.fromColors` on all 8 loading screens
+  - Recommendation rows and series list now show instant cached content while refreshing in background (no full-screen shimmer on every tab return)
+  - `WatchHistoryService.localHistoryRevision` (`ValueNotifier`) bumped on every `save` for immediate offline refresh
+- **TV (native Kotlin/Compose)**
+  - Player OK flow: first OK reveals controls and focuses Play/Pause (no pause), second OK pauses; single activator via `onPreviewKeyEvent` + `focusable()` eliminates pause/resume flicker (`PlayerScreen.kt:1419,1788`)
+  - Content rows use `RowDesc` + `RowNavState` with `focusFirstRow`/`onCardKey`, hero debounced at 400 ms, and 18-attempt focus seeding for sidebar→content
+  - Continue Watching card emphasizes `S/E · episodeName` in red/bold when focused, and syncs every 30 s + on `historyRevision`
+  - Unreleased episodes show `To be released on {date}` badge, are skipped by D-pad, and block `playNext`/`selectMenuOption`
+  - `CloudSyncRepository.getJson` returns `null` on non-2xx to avoid wiping local watchlist/history on error; `TvShell` logout now uses `shellNavController`
+
+### Bug Fixes
+- **Mobile**
+  - Fix `RenderFlex overflowed by 2.0px` fatal on Honor/MagicOS & Android 16 edge-to-edge by clamping `MediaQuery.textScaler` to `0.8–1.3x` in `MaxStreamApp.builder` and demoting `RenderFlex overflowed` to benign in `isBenignError` (`lib/main.dart:140`, `lib/widgets/crash_screen.dart:228`)
+  - Fix black homescreen / recommendations / series list caused by sequential `Future.wait` where one TMDB failure blanked all rows — now parallel per-row `runCatching`/`_safe` fallbacks with `WatchProgressRepository`/`RecommendationService` guards (`HomeViewModel.kt:54`, `maxstream_home_screen.dart:52`, `maxstream_recommendations_screen.dart:77`, `maxstream_series_list_screen.dart:34`)
+  - Fix `NullSafeMutableLiveData` lint on `HomeViewModel` parallel assignments (`@SuppressLint`)
+  - Fix `speech_to_text` `js` version conflict by pinning `6.5.1` (resolves to `6.6.0`) and committing `pubspec.lock`
+  - Fix mic dismissing in 2 s — extended to `30s/5s`, `cancelOnError:false`, `ListenMode.search`, filler stripping and partial debounce
+  - Fix actor grouping mix-up via enforced `media_type` (`actor_details_screen.dart:337`)
+- **TV**
+  - Fix subtitle `MM:SS.mmm` 2-part timestamps dropped by old `HH:MM:SS` regex — new `parseSubtitleCues` mirrors Dart `_parseVtt` and decodes entities (`PlayerScreen.kt:148`)
+  - Fix VixSrc HLS subtitle fetch requiring stream headers — fallback to stream headers and retry without custom headers, validate `looksLikeSubtitle` (`PlayerScreen.kt:544`)
+  - Fix watchlist not syncing old phone items — phone now backfills full local watchlist on `startListening` (`cloud_sync_service.dart:53`)
+  - Fix subtitles not appearing at bottom — now auto-select default and surface `failed to load` diagnostics
+  - Fix TV app icon/banner, sidebar lag, VidLink header fallback, Firebase idToken expiry, setState-after-dispose, subtitle/menu dedupe, episode focus, shell focus on player return, batch season downloads, HLS audio/subtitles, server picker, `CancellationException`/`HLS OOM` crashes (commits `cb736c1`..`a0e16be`)
+
 ## 1.5.0+7
 
 > [!NOTE]
