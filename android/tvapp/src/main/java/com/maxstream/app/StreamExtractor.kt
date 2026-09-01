@@ -299,7 +299,7 @@ class StreamExtractor(private val context: Context) {
                         extractServer(server)
                             ?.takeIf { it.url.isNotBlank() }
                             ?.let { channel.trySend(it) }
-                    } catch (error: Exception) {
+                    } catch (error: Throwable) {
                         if (error is CancellationException) throw error
                         Log.e(tag, "Server ${server.name} failed", error)
                     }
@@ -338,7 +338,7 @@ class StreamExtractor(private val context: Context) {
                         slots.withPermit {
                             try {
                                 extractServer(server)
-                            } catch (error: Exception) {
+                            } catch (error: Throwable) {
                                 if (error is CancellationException) throw error
                                 Log.w(tag, "Alternative server ${server.name} failed: ${error.message}")
                                 null
@@ -375,7 +375,7 @@ class StreamExtractor(private val context: Context) {
                     provider.getServers(media).also {
                         Log.d(tag, "${provider.name} supplied ${it.size} servers")
                     }
-                } catch (error: Exception) {
+                } catch (error: Throwable) {
                     if (error is CancellationException) throw error
                     Log.e(tag, "Server provider ${provider.name} failed", error)
                     emptyList()
@@ -460,7 +460,7 @@ class StreamExtractor(private val context: Context) {
                 webViewMutex.withLock {
                     try {
                         extractor.extract(server)
-                    } catch (error: Exception) {
+                    } catch (error: Throwable) {
                         if (error is CancellationException) throw error
                         Log.e(tag, "Extractor ${extractor.name} failed: ${error.message}")
                         return null
@@ -469,7 +469,7 @@ class StreamExtractor(private val context: Context) {
             } else {
                 try {
                     extractor.extract(server)
-                } catch (error: Exception) {
+                } catch (error: Throwable) {
                     if (error is CancellationException) throw error
                     Log.e(tag, "Extractor ${extractor.name} failed: ${error.message}")
                     return null
@@ -480,7 +480,7 @@ class StreamExtractor(private val context: Context) {
                 is ExtractionResult.Final -> {
                     return try {
                         validateStream(result.stream.copy(server = initialServer.name))
-                    } catch (error: Exception) {
+                    } catch (error: Throwable) {
                         if (error is CancellationException) throw error
                         Log.w(tag, "Validation failed for ${extractor.name}: ${error.message}")
                         null
@@ -826,12 +826,17 @@ class StreamExtractor(private val context: Context) {
             runCatching { extractViaWorker(server) }
                 .getOrNull()
                 ?.let { return it }
-            Log.i(tag, "VidLink HTTP extraction failed; falling back to WebView hook")
-            return extractViaWebView(server)
+            Log.i(tag, "VidLink HTTP/Worker failed; falling back to hardened WebView hook")
+            return runCatching { extractViaWebView(server) }
+                .getOrElse { e ->
+                    if (e is CancellationException) throw e
+                    throw IllegalStateException("VidLink WebView failed: ${e.message}", e)
+                }
         }
 
         private suspend fun extractViaWorker(server: StreamServer): ExtractionResult = withContext(Dispatchers.IO) {
-            // Worker fallback – mirrors website web_stream_service.dart:42
+            // Worker fallback – mirrors website web_stream_service.dart:42.
+            // Only accept Worker-signed HLS (/api/media?token&sig); embed URLs are not playable natively.
             val path = URI(server.url).path.orEmpty()
             val segments = path.split('/').filter { it.isNotBlank() }
             val isMovie = segments.firstOrNull().equals("movie", true)
@@ -845,7 +850,13 @@ class StreamExtractor(private val context: Context) {
                 require(response.isSuccessful) { "Worker HTTP ${response.code}" }
                 val body = response.body?.string() ?: throw IllegalStateException("Worker empty")
                 val json = JSONObject(body)
+                val type = json.optString("type")
                 val streamUrl = json.optString("url").ifBlank { throw IllegalStateException("Worker no url") }
+                // Worker returns type:hls + /api/media?token&sig for playable streams.
+                // type:embed (vidlink.pro/tv/… or 2embed.cc/embed…) is not directly playable in ExoPlayer.
+                if (type != "hls" && !streamUrl.contains("/api/media")) {
+                    throw IllegalStateException("Worker returned embed, not HLS")
+                }
                 return@withContext ExtractionResult.Final(StreamResult(streamUrl, name, "direct_m3u8", emptyMap()))
             }
         }
@@ -978,6 +989,9 @@ class StreamExtractor(private val context: Context) {
                     suspendCancellableCoroutine { continuation ->
                         val webView = WebView(context)
                         webView.settings.javaScriptEnabled = true
+                        webView.settings.loadsImagesAutomatically = false
+                        webView.settings.blockNetworkImage = true
+                        webView.settings.cacheMode = android.webkit.WebSettings.LOAD_NO_CACHE
                         webView.settings.domStorageEnabled = true
                         webView.settings.mediaPlaybackRequiresUserGesture = false
 
@@ -1209,6 +1223,9 @@ class StreamExtractor(private val context: Context) {
                     suspendCancellableCoroutine { continuation ->
                         val webView = WebView(context)
                         webView.settings.javaScriptEnabled = true
+                        webView.settings.loadsImagesAutomatically = false
+                        webView.settings.blockNetworkImage = true
+                        webView.settings.cacheMode = android.webkit.WebSettings.LOAD_NO_CACHE
                         webView.settings.domStorageEnabled = true
                         webView.settings.mediaPlaybackRequiresUserGesture = false
 
@@ -1342,7 +1359,7 @@ class StreamExtractor(private val context: Context) {
         override suspend fun extract(server: StreamServer): ExtractionResult {
             return try {
                 extractHttp(server)
-            } catch (error: Exception) {
+            } catch (error: Throwable) {
                 if (error is CancellationException) throw error
                 Log.w(tag, "Mov2Day HTTP route failed (${error.message}); retrying through WebView")
                 extractViaWebView(server)
@@ -1415,7 +1432,7 @@ class StreamExtractor(private val context: Context) {
                 )
                 try {
                     return ExtractionResult.Final(validateStream(candidate))
-                } catch (error: Exception) {
+                } catch (error: Throwable) {
                     if (error is CancellationException) throw error
                     Log.w(tag, "Alternate Vidflix route failed: ${error.message}")
                 }
@@ -1429,6 +1446,9 @@ class StreamExtractor(private val context: Context) {
                     suspendCancellableCoroutine { continuation ->
                         val webView = WebView(context)
                         webView.settings.javaScriptEnabled = true
+                        webView.settings.loadsImagesAutomatically = false
+                        webView.settings.blockNetworkImage = true
+                        webView.settings.cacheMode = android.webkit.WebSettings.LOAD_NO_CACHE
                         webView.settings.domStorageEnabled = true
                         webView.settings.mediaPlaybackRequiresUserGesture = false
 
@@ -1886,7 +1906,7 @@ class StreamExtractor(private val context: Context) {
                     val url = decryptVidzeeLink(encrypted, masterKey)
                     val stream = StreamResult(url, server.name, mediaType(url), headers)
                     return ExtractionResult.Final(validateStream(stream))
-                } catch (error: Exception) {
+                } catch (error: Throwable) {
                     if (error is CancellationException) throw error
                     Log.w(tag, "Vidzee route $index failed: ${error.message}")
                 }
@@ -1949,7 +1969,7 @@ class StreamExtractor(private val context: Context) {
                 try {
                     val stream = StreamResult(source, server.name, mediaType(source), headers)
                     return ExtractionResult.Final(validateStream(stream))
-                } catch (error: Exception) {
+                } catch (error: Throwable) {
                     if (error is CancellationException) throw error
                     Log.w(tag, "Videasy route $index failed: ${error.message}")
                 }
@@ -2024,6 +2044,9 @@ class StreamExtractor(private val context: Context) {
                     suspendCancellableCoroutine { continuation ->
                         val webView = WebView(context)
                         webView.settings.javaScriptEnabled = true
+                        webView.settings.loadsImagesAutomatically = false
+                        webView.settings.blockNetworkImage = true
+                        webView.settings.cacheMode = android.webkit.WebSettings.LOAD_NO_CACHE
                         webView.settings.domStorageEnabled = true
                         webView.settings.userAgentString =
                             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
@@ -2322,6 +2345,9 @@ class StreamExtractor(private val context: Context) {
                     suspendCancellableCoroutine { continuation ->
                         val webView = WebView(context)
                         webView.settings.javaScriptEnabled = true
+                        webView.settings.loadsImagesAutomatically = false
+                        webView.settings.blockNetworkImage = true
+                        webView.settings.cacheMode = android.webkit.WebSettings.LOAD_NO_CACHE
                         webView.settings.domStorageEnabled = true
 
                         webView.webViewClient = object : WebViewClient() {
@@ -2701,6 +2727,9 @@ class StreamExtractor(private val context: Context) {
                     suspendCancellableCoroutine { continuation ->
                         val webView = WebView(context)
                         webView.settings.javaScriptEnabled = true
+                        webView.settings.loadsImagesAutomatically = false
+                        webView.settings.blockNetworkImage = true
+                        webView.settings.cacheMode = android.webkit.WebSettings.LOAD_NO_CACHE
                         webView.settings.domStorageEnabled = true
                         webView.webViewClient = object : WebViewClient() {
                             override fun shouldOverrideUrlLoading(
@@ -3889,7 +3918,7 @@ class StreamExtractor(private val context: Context) {
                             }
                             validateMediaPlaylist(playlist.url, playlist.body, headers)
                             variant.copy(url = playlist.url)
-                        } catch (error: Exception) {
+                        } catch (error: Throwable) {
                             if (error is CancellationException) throw error
                             Log.w(tag, "Discarding ${variant.height}p HLS variant: ${error.message}")
                             null
