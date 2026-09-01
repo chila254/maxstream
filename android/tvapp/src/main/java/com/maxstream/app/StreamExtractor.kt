@@ -823,8 +823,31 @@ class StreamExtractor(private val context: Context) {
             runCatching { extractViaHttp(server) }
                 .getOrNull()
                 ?.let { return it }
+            runCatching { extractViaWorker(server) }
+                .getOrNull()
+                ?.let { return it }
             Log.i(tag, "VidLink HTTP extraction failed; falling back to WebView hook")
             return extractViaWebView(server)
+        }
+
+        private suspend fun extractViaWorker(server: StreamServer): ExtractionResult = withContext(Dispatchers.IO) {
+            // Worker fallback – mirrors website web_stream_service.dart:42
+            val path = URI(server.url).path.orEmpty()
+            val segments = path.split('/').filter { it.isNotBlank() }
+            val isMovie = segments.firstOrNull().equals("movie", true)
+            val mediaId = segments.getOrNull(1) ?: throw IllegalStateException("VidLink URL missing media id")
+            val season = if (segments.firstOrNull().equals("tv", true)) segments.getOrNull(2) ?: "1" else "1"
+            val episode = if (segments.firstOrNull().equals("tv", true)) segments.getOrNull(3) ?: "1" else "1"
+            val workerUrl = "https://maxstream-extractor.maxstream123.workers.dev/api/extract?tmdb_id=$mediaId&is_movie=$isMovie&season=$season&episode=$episode&server=vidlink"
+            requireSafeOutboundUrl(workerUrl)
+            val request = Request.Builder().url(workerUrl).header("Accept", "application/json").build()
+            client.newCall(request).execute().use { response ->
+                require(response.isSuccessful) { "Worker HTTP ${response.code}" }
+                val body = response.body?.string() ?: throw IllegalStateException("Worker empty")
+                val json = JSONObject(body)
+                val streamUrl = json.optString("url").ifBlank { throw IllegalStateException("Worker no url") }
+                return@withContext ExtractionResult.Final(StreamResult(streamUrl, name, "direct_m3u8", emptyMap()))
+            }
         }
 
         /** Native VidLink bypass: XSalsa20 token -> /api/b/ -> plaintext JSON MP4 playlist. */
