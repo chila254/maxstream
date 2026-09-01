@@ -1,8 +1,29 @@
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-class MaxStreamAboutScreen extends StatelessWidget {
+class MaxStreamAboutScreen extends StatefulWidget {
   const MaxStreamAboutScreen({super.key});
+
+  @override
+  State<MaxStreamAboutScreen> createState() => _MaxStreamAboutScreenState();
+}
+
+class _MaxStreamAboutScreenState extends State<MaxStreamAboutScreen> {
+  String _version = 'v1.6.0';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadVersion();
+  }
+
+  Future<void> _loadVersion() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      if (mounted) setState(() => _version = 'v${info.version}');
+    } catch (_) {}
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -44,7 +65,7 @@ class MaxStreamAboutScreen extends StatelessWidget {
                   _buildInfoCard(
                     icon: Icons.code,
                     title: 'Version',
-                    content: 'v1.5.0',
+                    content: _version,
                   ),
                   const SizedBox(height: 32),
                   _buildSectionTitle('Get Help'),
@@ -152,7 +173,7 @@ class MaxStreamAboutScreen extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            'v1.5.0',
+            _version,
             style: TextStyle(
               color: Colors.grey[500],
               fontSize: 14,
