@@ -1162,6 +1162,24 @@ class StreamExtractor(private val context: Context) {
                         }, "NativeBridge")
 
                         webView.webViewClient = object : WebViewClient() {
+                            override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
+                                val reqUrl = request.url.toString()
+                                // Real JS injection capture: intercept HLS/mp4 directly – mirrors vidlink-extension
+                                if ((reqUrl.contains(".m3u8") || reqUrl.contains(".mp4")) && !reqUrl.contains("noir.suubmon.store")) {
+                                    val isHls = reqUrl.contains(".m3u8")
+                                    val result = runCatching {
+                                        StreamResult(reqUrl, name, if (isHls) "hls" else "mp4", refererHeaders(if (reqUrl.contains("hakunaymatata.com")) "https://filmboom.top/" else "https://vidlink.pro/"))
+                                    }
+                                    if (result.isSuccess) {
+                                        view.post { finish(result) }
+                                    }
+                                }
+                                val blocked = listOf("googletagmanager", "google-analytics", "yandex", "clarity", "bing", "adscore", "pemsrv", "usrpubtrk", "adexchangerapid", "intellipopup", "cloudflareinsights")
+                                if (blocked.any { reqUrl.contains(it, true) }) {
+                                    return WebResourceResponse("text/plain", "utf-8", java.io.ByteArrayInputStream(ByteArray(0)))
+                                }
+                                return super.shouldInterceptRequest(view, request)
+                            }
                             override fun onPageFinished(view: WebView, url: String) {
                                 val script = """
                                     (() => {
