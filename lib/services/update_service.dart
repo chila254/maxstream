@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'notification_service.dart';
 
 class UpdateInfo {
@@ -45,17 +46,113 @@ class _DownloadProgressDialogState extends State<DownloadProgressDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final isDone = _progress >= 0.999;
     return AlertDialog(
       content: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Text('Downloading update...'),
+          Text(isDone ? 'Download complete' : 'Downloading update...'),
           const SizedBox(height: 16),
-          LinearProgressIndicator(value: _progress),
+          LinearProgressIndicator(value: _progress >= 0 ? _progress : null),
           const SizedBox(height: 8),
-          Text('${(_progress * 100).toStringAsFixed(0)}%'),
+          Text('${(_progress * 100).clamp(0, 100).toStringAsFixed(0)}%'),
+          if (isDone) ...[
+            const SizedBox(height: 12),
+            const Text(
+              'If the installer doesn’t open, download directly from our website.',
+              style: TextStyle(fontSize: 12, color: Colors.white70),
+              textAlign: TextAlign.center,
+            ),
+            TextButton(
+              onPressed: () async {
+                final uri = Uri.parse('https://maxstreamweb.vercel.app/');
+                if (await canLaunchUrl(uri)) {
+                  await launchUrl(uri, mode: LaunchMode.externalApplication);
+                }
+              },
+              child: const Text('Open Website'),
+            ),
+          ],
         ],
       ),
+    );
+  }
+}
+
+class DownloadCompleteDialog extends StatelessWidget {
+  final String filePath;
+  final String packageName;
+
+  const DownloadCompleteDialog({
+    super.key,
+    required this.filePath,
+    required this.packageName,
+  });
+
+  Future<void> _launchWebsite() async {
+    final uri = Uri.parse('https://maxstreamweb.vercel.app/');
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
+  }
+
+  Future<void> _tryInstall(BuildContext context) async {
+    try {
+      final result = await const MethodChannel('com.maxstream.app/install')
+          .invokeMethod<String>('installApk', {
+        'filePath': filePath,
+        'packageName': packageName,
+      });
+      if (result != 'ok' && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Failed to launch installer. Try downloading from website.'),
+            action: SnackBarAction(label: 'Website', onPressed: _launchWebsite),
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Install failed: $e'),
+            action: SnackBarAction(label: 'Website', onPressed: _launchWebsite),
+          ),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Download Complete'),
+      content: const Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('The update has been downloaded.'),
+          SizedBox(height: 8),
+          Text(
+            'Tap Install to launch the system installer. If nothing happens, use the website fallback.',
+            style: TextStyle(fontSize: 12, color: Colors.white70),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Later'),
+        ),
+        TextButton(
+          onPressed: _launchWebsite,
+          child: const Text('Website'),
+        ),
+        FilledButton(
+          onPressed: () => _tryInstall(context),
+          child: const Text('Install'),
+        ),
+      ],
     );
   }
 }
@@ -152,15 +249,21 @@ class UpdateService {
       _shownDialogVersions.add(version);
 
   /// Download and install the APK from the given GitHub URL.
+  /// At 100% the progress dialog now shows a website fallback, and after
+  /// download a completion dialog with Install + Website is shown so a stalled
+  /// installer never leaves the user stuck.
   static Future<void> downloadAndInstallUpdate(
     BuildContext context,
     String downloadUrl,
   ) async {
+    String? filePath;
+    bool progressShown = false;
     try {
       final directory = await getTemporaryDirectory();
-      final filePath = '${directory.path}/MaxStream.apk';
+      filePath = '${directory.path}/MaxStream.apk';
 
       if (context.mounted) {
+        progressShown = true;
         showDialog(
           context: context,
           barrierDismissible: false,
@@ -175,12 +278,13 @@ class UpdateService {
         downloadUrl,
         filePath,
         onReceiveProgress: (received, total) {
-          if (total != -1) {
-            final progress = received / total;
-            _progressDialogState?.updateProgress(progress);
-          }
+          final progress = total > 0 ? received / total : -1.0;
+          _progressDialogState?.updateProgress(progress > 0 ? progress : 0);
         },
       );
+      // Ensure the bar visibly hits 100% even when total was unknown.
+      _progressDialogState?.updateProgress(1.0);
+      await Future<void>.delayed(const Duration(milliseconds: 250));
 
       final downloadedFile = File(filePath);
       final fileSize = await downloadedFile.length();
@@ -188,32 +292,43 @@ class UpdateService {
         throw StateError('Downloaded file is too small — likely an error page');
       }
 
-      if (context.mounted) {
+      if (context.mounted && progressShown) {
         Navigator.of(context).pop();
+        progressShown = false;
+      }
 
+      if (context.mounted) {
         final packageInfo = await PackageInfo.fromPlatform();
-        final result = await const MethodChannel(
-          'com.maxstream.app/install',
-        ).invokeMethod<String>('installApk', {
-          'filePath': filePath,
-          'packageName': packageInfo.packageName,
-        });
-
-        if (result != 'ok' && context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Failed to launch installer. Check your downloads folder.',
-              ),
-            ),
-          );
-        }
+        // Show completion dialog with fallback to website — user can Install
+        // or open https://maxstreamweb.vercel.app if the system installer
+        // doesn't launch (the reported stall at 100%).
+        await showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (dialogContext) => DownloadCompleteDialog(
+            filePath: filePath!,
+            packageName: packageInfo.packageName,
+          ),
+        );
       }
     } catch (e) {
-      if (context.mounted) {
+      if (context.mounted && progressShown) {
         Navigator.of(context).pop();
+      }
+      if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error downloading update: $e')),
+          SnackBar(
+            content: Text('Error downloading update: $e'),
+            action: SnackBarAction(
+              label: 'Website',
+              onPressed: () async {
+                final uri = Uri.parse('https://maxstreamweb.vercel.app/');
+                if (await canLaunchUrl(uri)) {
+                  await launchUrl(uri, mode: LaunchMode.externalApplication);
+                }
+              },
+            ),
+          ),
         );
       }
     }
