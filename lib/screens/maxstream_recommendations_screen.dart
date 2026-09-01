@@ -20,7 +20,7 @@ class MaxStreamRecommendationsScreen extends StatefulWidget {
 }
 
 class _MaxStreamRecommendationsScreenState
-    extends State<MaxStreamRecommendationsScreen> {
+    extends State<MaxStreamRecommendationsScreen> with WidgetsBindingObserver {
   List<Map<String, dynamic>> _forYou = [];
   List<Map<String, dynamic>> _becauseYouWatched = [];
   Map<String, List<Map<String, dynamic>>> _byGenre = {};
@@ -35,6 +35,7 @@ class _MaxStreamRecommendationsScreenState
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     CloudSyncService.historyRevision.addListener(_onHistoryChanged);
     WatchHistoryService.localHistoryRevision.addListener(_onHistoryChanged);
     _loadRecommendations();
@@ -42,9 +43,18 @@ class _MaxStreamRecommendationsScreenState
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     CloudSyncService.historyRevision.removeListener(_onHistoryChanged);
     WatchHistoryService.localHistoryRevision.removeListener(_onHistoryChanged);
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // User may have watched on TV while phone was backgrounded — pull and refresh.
+      _onHistoryChanged();
+    }
   }
 
   @override
@@ -75,7 +85,14 @@ class _MaxStreamRecommendationsScreenState
   }
 
   Future<void> _loadRecommendations({bool showLoading = true}) async {
-    if (showLoading) setState(() => _loading = true);
+    // Ensure TV watches are pulled before computing recommendations, so
+    // "Because You Watched" reflects a series/movie just finished on TV.
+    try {
+      await CloudSyncService.pullToDevice();
+    } catch (_) {}
+    if (showLoading) {
+      if (mounted) setState(() => _loading = true);
+    }
     try {
       final topGenres = await RecommendationService.getTopGenres(limit: 4)
           .catchError((_) => <int>[]);
