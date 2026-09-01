@@ -256,6 +256,11 @@ fun MoreScreen(
         )
     }
 
+    val tvVersion = remember {
+        runCatching {
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.6.0"
+        }.getOrDefault("1.6.0")
+    }
     if (showAboutDialog) {
         AlertDialog(
             onDismissRequest = { showAboutDialog = false },
@@ -271,7 +276,7 @@ fun MoreScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
-                        text = "MaxStream Tv v1.4.0",
+                        text = "MaxStream Tv v$tvVersion",
                         color = Color.White,
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
