@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:speech_to_text/speech_to_text.dart';
@@ -39,6 +41,7 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
   final SpeechToText _speechToText = SpeechToText();
   bool _speechEnabled = false;
   bool _isListening = false;
+  Timer? _voiceDebounce;
 
   @override
   void initState() {
@@ -118,15 +121,36 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
     }
   }
 
+  String _cleanVoiceQuery(String raw) {
+    var q = raw.trim().toLowerCase();
+    // Strip common fillers: "search for", "find", "show me", "play", "open"
+    q = q.replaceFirst(RegExp(r'^(search\s+(for\s+)?|find\s+(for\s+)?|show me\s+|play\s+|open\s+)'), '');
+    // Title-case for display but keep lower for search – search is case-insensitive
+    final cleaned = q.trim();
+    if (cleaned.isEmpty) return raw.trim();
+    // Capitalize first letter for UI nicety
+    return cleaned[0].toUpperCase() + cleaned.substring(1);
+  }
+
   void _onSpeechResult(result) {
-    final words = result.recognizedWords.trim();
-    if (words.isEmpty) return;
+    final raw = result.recognizedWords.trim();
+    if (raw.isEmpty) return;
+    final words = _cleanVoiceQuery(raw);
     _searchController.text = words;
     _searchController.selection = TextSelection.fromPosition(TextPosition(offset: words.length));
     setState(() {});
+    // Fire on partial after short debounce so results appear instantly while speaking;
+    // finalResult always fires immediately for reliability.
     if (result.finalResult) {
+      _voiceDebounce?.cancel();
       _performSearch(words);
       if (mounted) setState(() => _isListening = false);
+    } else {
+      _voiceDebounce?.cancel();
+      _voiceDebounce = Timer(const Duration(milliseconds: 650), () {
+        if (!mounted || words.length < 2) return;
+        _performSearch(words);
+      });
     }
   }
 
@@ -154,6 +178,7 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
 
   @override
   void dispose() {
+    _voiceDebounce?.cancel();
     _speechToText.stop();
     _speechToText.cancel();
     _tabController.dispose();

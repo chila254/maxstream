@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../widgets/app_shimmer.dart';
 
@@ -85,13 +87,18 @@ class _MaxStreamRecommendationsScreenState
   }
 
   Future<void> _loadRecommendations({bool showLoading = true}) async {
-    // Ensure TV watches are pulled before computing recommendations, so
-    // "Because You Watched" reflects a series/movie just finished on TV.
-    try {
-      await CloudSyncService.pullToDevice();
-    } catch (_) {}
+    // Pull TV watches in background without blocking first paint; the
+    // historyRevision listener will auto-reload when new data lands.
+    // Awaiting here previously added 1–2s to every load.
+    unawaited(CloudSyncService.pullToDevice().catchError((_) {}));
+    final bool hasCached = _forYou.isNotEmpty || _becauseYouWatched.isNotEmpty || _byGenre.isNotEmpty;
     if (showLoading) {
-      if (mounted) setState(() => _loading = true);
+      if (!hasCached) {
+        if (mounted) setState(() => _loading = true);
+      } else {
+        // Keep existing content visible while refreshing — feels instant.
+        if (mounted) setState(() => _loading = false);
+      }
     }
     try {
       final topGenres = await RecommendationService.getTopGenres(limit: 4)

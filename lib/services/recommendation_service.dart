@@ -28,24 +28,10 @@ class RecommendationService {
         item['genreIds'] ?? item['genre_ids'] ?? const [],
       );
 
-      // Fetch from TMDB if no genre IDs stored.
-      if (genreIds.isEmpty) {
-        final tmdbId = int.tryParse(item['tmdbId']?.toString() ?? '') ?? 0;
-        if (tmdbId > 0) {
-          try {
-            final isMovie = item['isMovie'] == true;
-            final details = isMovie
-                ? await TmdbApiService.getMovieDetails(tmdbId)
-                : await TmdbApiService.getSeriesDetails(tmdbId);
-            final genres = details?['genres'] as List<dynamic>? ?? [];
-            genreIds = genres
-                .map((g) => g['id'] as int)
-                .toList();
-          } catch (_) {
-            // Skip — genre enrichment is best-effort.
-          }
-        }
-      }
+      // Skip TMDB enrichment for old history without genreIds — fetching
+      // per-item blocks recommendations for seconds (network). New watches
+      // store genreIds, so future loads are instant.
+      if (genreIds.isEmpty) continue;
 
       final isWatched = item['isWatched'] == true;
       final watchPct = (item['watchPercentage'] as num?)?.toDouble() ?? 0.0;
