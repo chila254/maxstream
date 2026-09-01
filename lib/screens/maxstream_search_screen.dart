@@ -100,13 +100,22 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
       }
     }
     if (mounted) setState(() => _isListening = true);
+    // Keep listening longer so it doesn't cut off before you speak:
+    // 30s total, 5s of silence allowed, system locale, partial results.
     await _speechToText.listen(
       onResult: _onSpeechResult,
-      listenFor: const Duration(seconds: 8),
-      pauseFor: const Duration(seconds: 2),
-      localeId: 'en_US',
-      listenOptions: SpeechListenOptions(cancelOnError: true, partialResults: true),
+      listenFor: const Duration(seconds: 30),
+      pauseFor: const Duration(seconds: 5),
+      listenOptions: SpeechListenOptions(
+        cancelOnError: false,
+        partialResults: true,
+        listenMode: ListenMode.search,
+      ),
     );
+    // If listen() returns false (no speech service), reset UI.
+    if (!_speechToText.isListening && mounted) {
+      setState(() => _isListening = false);
+    }
   }
 
   void _onSpeechResult(result) {
