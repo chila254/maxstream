@@ -3,6 +3,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../models/movie.dart';
 import '../services/tmdb_api_service.dart';
 import 'maxstream_details_screen.dart';
+import 'maxstream_series_screen.dart';
 import '../widgets/app_network_image.dart';
 
 class ActorDetailsScreen extends StatefulWidget {
@@ -337,13 +338,21 @@ class _ActorDetailsScreenState extends State<ActorDetailsScreen>
   Widget _buildCreditCard(Map<String, dynamic> credit, String mediaType) {
     return GestureDetector(
       onTap: () {
+        // Enforce the tab's mediaType — TMDB actor credits don't include
+        // seasons/episodes, so inferring tv vs movie from missing fields
+        // mixes them up. The movie_credits / tv_credits split is authoritative.
+        final normalized = Map<String, dynamic>.from(credit)
+          ..['media_type'] = mediaType;
+        final isTv = mediaType == 'tv';
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => MaxStreamDetailsScreen(
-              item: Movie.fromJson(credit),
-              mediaType: mediaType,
-            ),
+            builder: (context) => isTv
+                ? MaxStreamSeriesScreen(seriesItem: Movie.fromJson(normalized))
+                : MaxStreamDetailsScreen(
+                    item: Movie.fromJson(normalized),
+                    mediaType: mediaType,
+                  ),
           ),
         );
       },
