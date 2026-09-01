@@ -1067,7 +1067,7 @@ class StreamExtractor(private val context: Context) {
                 // Last resort: no special headers at all.
                 add(emptyMap())
             }
-            var lastError: Exception? = null
+            var lastError: Throwable? = null
             for (headers in probeSets) {
                 try {
                     validateMediaRequest(url, headers)
