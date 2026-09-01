@@ -73,6 +73,13 @@ class MaxStreamAboutScreen extends StatelessWidget {
                     subtitle: 'https://maxstreamweb.vercel.app',
                     onTap: () => _launchUrl('https://maxstreamweb.vercel.app/'),
                   ),
+                  const SizedBox(height: 12),
+                  _buildActionCard(
+                    icon: Icons.code,
+                    title: 'GitHub Repository',
+                    subtitle: 'https://github.com/chila254/maxstream',
+                    onTap: () => _launchUrl('https://github.com/chila254/maxstream'),
+                  ),
                   const SizedBox(height: 32),
                   _buildSectionTitle('Legal'),
                   const SizedBox(height: 12),
