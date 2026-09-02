@@ -793,7 +793,10 @@ class MediaDownloadService {
 
   void _requireSafeUri(Uri uri) {
     if (!StreamSecurity.isSafeNetworkUrl(uri)) {
-      throw const FormatException('Unsafe media resource URL');
+      // Log the actual URL so the Videasy episode can be diagnosed without laptop
+      // ignore: avoid_print
+      print('Blocked unsafe URL: $uri  host=${uri.host} scheme=${uri.scheme}');
+      throw FormatException('Unsafe media resource URL: $uri');
     }
   }
 
