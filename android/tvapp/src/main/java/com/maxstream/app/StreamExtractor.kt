@@ -53,6 +53,7 @@ import java.security.spec.ECGenParameterSpec
 import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
 import java.util.regex.Pattern
 import javax.crypto.Cipher
@@ -66,6 +67,12 @@ import kotlin.experimental.xor
 /** Resolves TMDB metadata through server providers and host-specific extractors. */
 class StreamExtractor(private val context: Context) {
     private val tag = "StreamExtractor"
+
+    companion object {
+        private const val HTTP_SERVER_TIMEOUT_MS = 18_000L
+        private const val WEBVIEW_SERVER_TIMEOUT_MS = 12_000L
+        private const val ALL_SERVERS_TOTAL_TIMEOUT_MS = 75_000L
+    }
 
     /** True on 1GB-class devices (most cheap TV boxes). */
     private fun isLowRamDevice(): Boolean {
@@ -332,27 +339,29 @@ class StreamExtractor(private val context: Context) {
         val servers = buildServerList(media)
         val httpSlots = Semaphore(4)
         val webViewSlots = Semaphore(1)
-        withTimeoutOrNull(45_000) {
-            coroutineScope {
-                servers.map { server ->
-                    async(Dispatchers.IO) {
-                        val slots = if (isWebViewServer(server)) webViewSlots else httpSlots
-                        slots.withPermit {
-                            try {
-                                extractServer(server)
-                            } catch (error: Throwable) {
-                                if (error is CancellationException) throw error
-                                Log.w(tag, "Alternative server ${server.name} failed: ${error.message}")
-                                null
-                            }
+        val collected = CopyOnWriteArrayList<StreamResult>()
+        val jobs = servers.map { server ->
+            async(Dispatchers.IO) {
+                val webView = isWebViewServer(server)
+                val slots = if (webView) webViewSlots else httpSlots
+                slots.withPermit {
+                    val timeout = if (webView) WEBVIEW_SERVER_TIMEOUT_MS else HTTP_SERVER_TIMEOUT_MS
+                    withTimeoutOrNull(timeout) {
+                        try {
+                            extractServer(server)?.let(collected::add)
+                        } catch (error: Throwable) {
+                            if (error is CancellationException) throw error
+                            Log.w(tag, "Alternative server ${server.name} failed: ${error.message}")
                         }
                     }
-                }.awaitAll()
-                    .filterNotNull()
-                    .distinctBy { it.url }
-                    .map(StreamResult::toMap)
+                }
             }
-        } ?: emptyList()
+        }
+        withTimeoutOrNull(ALL_SERVERS_TOTAL_TIMEOUT_MS) {
+            jobs.forEach { it.join() }
+        }
+        jobs.forEach { it.cancel() }
+        collected.distinctBy { it.url }.map(StreamResult::toMap)
     }
 
     private var cachedServerListKey: String? = null
@@ -936,6 +945,9 @@ class StreamExtractor(private val context: Context) {
                 var bestUrl: String? = null
                 var bestHeight = -1
                 var bestHeaders: Map<String, String> = refererHeaders("https://vidlink.pro/")
+                var fallbackUrl: String? = null
+                var fallbackHeight = -1
+                var fallbackHeaders: Map<String, String> = bestHeaders
                 val qualityOptions = mutableListOf<QualityOption>()
                 val iterator = qualities.keys()
                 while (iterator.hasNext()) {
@@ -961,7 +973,12 @@ class StreamExtractor(private val context: Context) {
                         refererHeaders("https://vidlink.pro/")
                     }
                     qualityOptions += QualityOption("${label}p", url, height)
-                    if (height > bestHeight) {
+                    if (height > fallbackHeight) {
+                        fallbackHeight = height
+                        fallbackUrl = url
+                        fallbackHeaders = mediaHeaders
+                    }
+                    if (height <= 720 && height > bestHeight) {
                         bestHeight = height
                         bestUrl = url
                         bestHeaders = mediaHeaders
@@ -983,7 +1000,9 @@ class StreamExtractor(private val context: Context) {
                     }
                 }.orEmpty()
 
-                val url = bestUrl ?: throw IllegalStateException("VidLink no quality URL")
+                val url = bestUrl ?: fallbackUrl
+                    ?: throw IllegalStateException("VidLink no quality URL")
+                if (bestUrl == null) bestHeaders = fallbackHeaders
                 ExtractionResult.Final(
                     StreamResult(
                         url,

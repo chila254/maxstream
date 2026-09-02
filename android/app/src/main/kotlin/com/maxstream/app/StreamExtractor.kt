@@ -1008,6 +1008,9 @@ class StreamExtractor(private val context: Context) {
                 var bestUrl: String? = null
                 var bestHeight = -1
                 var bestHeaders: Map<String, String> = refererHeaders("https://vidlink.pro/")
+                var fallbackUrl: String? = null
+                var fallbackHeight = -1
+                var fallbackHeaders: Map<String, String> = bestHeaders
                 val qualityOptions = mutableListOf<QualityOption>()
                 val iterator = qualities.keys()
                 while (iterator.hasNext()) {
@@ -1033,7 +1036,12 @@ class StreamExtractor(private val context: Context) {
                         refererHeaders("https://vidlink.pro/")
                     }
                     qualityOptions += QualityOption("${label}p", url, height)
-                    if (height > bestHeight) {
+                    if (height > fallbackHeight) {
+                        fallbackHeight = height
+                        fallbackUrl = url
+                        fallbackHeaders = mediaHeaders
+                    }
+                    if (height <= 720 && height > bestHeight) {
                         bestHeight = height
                         bestUrl = url
                         bestHeaders = mediaHeaders
@@ -1055,7 +1063,9 @@ class StreamExtractor(private val context: Context) {
                     }
                 }.orEmpty()
 
-                val url = bestUrl ?: throw IllegalStateException("VidLink no quality URL")
+                val url = bestUrl ?: fallbackUrl
+                    ?: throw IllegalStateException("VidLink no quality URL")
+                if (bestUrl == null) bestHeaders = fallbackHeaders
                 // Skip validateMediaWithFallback: the /api/b/ endpoint already
                 // confirmed these URLs are valid.  The CDN frequently 428s/429s
                 // fresh token-derived URLs during the Range probe, causing the

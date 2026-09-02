@@ -221,6 +221,14 @@ private fun pickEnglishSubtitle(available: List<Subtitle>): Subtitle? {
     } ?: english.first()
 }
 
+private fun pickEnglishSubtitleOption(available: List<SubtitleOption>): SubtitleOption? {
+    val english = available.filter { it.label.contains("english", ignoreCase = true) }
+    return english.firstOrNull { option ->
+        val label = option.label.lowercase()
+        label.contains("cc") || label.contains("sdh") || label.contains("hearing")
+    } ?: english.firstOrNull()
+}
+
 @Composable
 fun PlayerScreen(
     navController: NavController,
@@ -921,17 +929,15 @@ fun PlayerScreen(
                     title = title,
                 )
                 if (servers.isNotEmpty()) {
-                    allServers = servers
-                    subtitleOptions = buildSubtitleOptions(primary, servers)
+                    allServers = (listOf(primary) + servers).distinctBy { it.url }
+                    subtitleOptions = buildSubtitleOptions(primary, allServers)
                     // The primary server may have reported no subtitles at load
                     // time, so once the full (cross-server) list is known, auto-
                     // select a default track and fetch its cues — mirrors Dart,
                     // which picks a default caption track on load. Only when the
                     // user hasn't already chosen one (or none was selected yet).
                     if (activeSubtitle == null && subtitleOptions.isNotEmpty()) {
-                        val def = subtitleOptions.firstOrNull {
-                            it.label.contains("english", ignoreCase = true)
-                        } ?: subtitleOptions.first()
+                        val def = pickEnglishSubtitleOption(subtitleOptions) ?: subtitleOptions.first()
                         val baseUrl = primary.url.takeIf { it.startsWith("http") }
                         val resolved = resolveSubtitleUrl(def.url, baseUrl)
                         val cueSet = fetchSubtitleContent(resolved, def.headers, primary.headers)
@@ -1264,14 +1270,13 @@ fun PlayerScreen(
                     return
                 }
                 // Switching servers: rebuild with the target's own headers/URL,
-                // reset subtitle selection, keep the position.
+                // keep the position, and use subtitles from any resolved server
+                // when the target itself has none.
                 subtitleOptions = buildSubtitleOptions(target, allServers)
-                selectedSubtitleLabel = "Off"
-                subtitleCues = emptyList()
-                activeSubtitleText = ""
+                val fallbackSubtitle = pickEnglishSubtitleOption(subtitleOptions)
                 selectedQualityLabel = qualityLabelFor(target)
                 source = target
-                switchMedia(target.url, target.headers, target.isHls, null)
+                switchMedia(target.url, target.headers, target.isHls, fallbackSubtitle)
                 menuOpen = false
                 activeMenu = null
             }
