@@ -7,6 +7,7 @@ import android.content.ContextWrapper
 import android.os.SystemClock
 import android.util.Log
 import android.view.KeyEvent
+import android.view.LayoutInflater
 import android.view.WindowManager
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
@@ -244,10 +245,15 @@ fun PlayerScreen(
     var source by remember { mutableStateOf<Source?>(null) }
     var allServers by remember { mutableStateOf<List<Source>>(emptyList()) }
     var exoPlayer by remember { mutableStateOf<ExoPlayer?>(null) }
-    // Live handle to the rendered PlayerView so D-pad / OK can show its
-    // controller. The AndroidView is never focusable in Compose, so ExoPlayer's
-    // default "press to reveal controls" never fires — the keys below drive it.
+    // Live handle to the texture-backed PlayerView. Keeping it lets disposal
+    // detach the current player before releasing its decoder and surface.
     var playerView by remember { mutableStateOf<PlayerView?>(null) }
+
+    fun releasePlayer(player: ExoPlayer?) {
+        if (player == null) return
+        if (playerView?.player === player) playerView?.player = null
+        player.release()
+    }
     // Mirrors the controller's visible state (media3 has no public getter; the
     // view auto-hides after its timeout, so this may drift from the view).
     var controlsVisible by remember { mutableStateOf(false) }
@@ -735,7 +741,7 @@ fun PlayerScreen(
         } else {
             resumePositionMs
         }
-        old?.release()
+        releasePlayer(old)
         val gen = ++rebuildGeneration.value
         loading = true
         status = "Switching..."
@@ -755,10 +761,10 @@ fun PlayerScreen(
             if (gen != rebuildGeneration.value) return@launch
             val player = buildPlayer(newUrl, newHeaders, newIsHls, positionMs)
             if (gen != rebuildGeneration.value) {
-                player.release()
+                releasePlayer(player)
                 return@launch
             }
-            exoPlayer?.release()
+            releasePlayer(exoPlayer)
             exoPlayer = player
             loading = false
             status = ""
@@ -900,7 +906,7 @@ fun PlayerScreen(
                 isHls = primary.isHls,
                 startMs = resumePositionMs,
             )
-            exoPlayer?.release()
+            releasePlayer(exoPlayer)
             exoPlayer = player
             // The player for the load target is now live — from here on, saves
             // are attributed to this episode (and not the previous one whose
@@ -978,7 +984,7 @@ fun PlayerScreen(
         onDispose {
             saveProgress()
             captureResumePosition()
-            exoPlayer?.release()
+            releasePlayer(exoPlayer)
             exoPlayer = null
         }
     }
@@ -992,7 +998,7 @@ fun PlayerScreen(
                 if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL) {
                     saveProgress()
                     captureResumePosition()
-                    exoPlayer?.release()
+                    releasePlayer(exoPlayer)
                     exoPlayer = null
                     memoryReleased = true
                     loading = true
@@ -1003,7 +1009,7 @@ fun PlayerScreen(
             override fun onLowMemory() {
                 saveProgress()
                 captureResumePosition()
-                exoPlayer?.release()
+                releasePlayer(exoPlayer)
                 exoPlayer = null
                 memoryReleased = true
                 loading = true
@@ -1605,9 +1611,12 @@ fun PlayerScreen(
         if (exoPlayer != null) {
             AndroidView(
                 factory = { ctx ->
-                    PlayerView(ctx).also { view ->
+                    (LayoutInflater.from(ctx).inflate(
+                        R.layout.tv_texture_player,
+                        null,
+                        false,
+                    ) as PlayerView).also { view ->
                         view.player = exoPlayer
-                        view.useController = false
                         // Prevent the Android View from intercepting D-pad keys —
                         // Compose handles all navigation via onPreviewKeyEvent.
                         view.isFocusable = false
@@ -1619,6 +1628,9 @@ fun PlayerScreen(
                 update = { view ->
                     view.player = exoPlayer
                     playerView = view
+                },
+                onRelease = { view ->
+                    view.player = null
                 },
                 modifier = Modifier.fillMaxSize(),
             )

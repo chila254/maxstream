@@ -18,7 +18,7 @@ import kotlinx.coroutines.launch
  * `CloudSyncService.startListening()` real-time listener.
  *
  * While the user is signed in, a background loop re-pulls the phone's watch
- * progress + watchlist from Firestore every [SYNC_INTERVAL_MS]. Any change
+ * progress + watchlist from Realtime Database every [SYNC_INTERVAL_MS]. Any change
  * bumps the matching revision [StateFlow] — the Home/Details/Watchlist screens
  * collect these and refresh, so a title watched (or un-watched) on the phone
  * appears on the TV within a few seconds, just like the Dart listener did.
@@ -51,7 +51,7 @@ object CloudSyncCoordinator {
             while (isActive) {
                 if (SessionManager.isLoggedIn(context)) {
                     // The stored Firebase idToken expires after ~1h; refresh it
-                    // first so Firestore REST calls don't silently 401/403.
+                    // first so Realtime Database REST calls don't silently 401/403.
                     runCatching { AuthRepository.ensureFreshIdToken(context) }
                     val change = runCatching {
                         CloudSyncRepository.pullToDevice(context)

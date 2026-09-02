@@ -490,7 +490,7 @@ class StreamExtractor(private val context: Context) {
             when (result) {
                 is ExtractionResult.Final -> {
                     val stream = result.stream.copy(server = initialServer.name)
-                    if (stream.source == "VidLink" || stream.source == "2Embed") {
+                    if (stream.source == "2Embed") {
                         return stream
                     }
                     return try {

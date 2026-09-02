@@ -13,6 +13,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
+import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 /**
@@ -60,20 +61,25 @@ object CloudSyncRepository {
 
     private suspend fun getJson(path: String, context: Context): JSONObject? =
         withContext(Dispatchers.IO) {
-            ensureFreshToken(context)
-            val url = rtdbUrl(path, context)
-            val request = Request.Builder().url(url).get().build()
-            client.newCall(request).execute().use { response ->
-                // A non-2xx (expired token, offline, permission) must be treated
-                // as "no data" — otherwise the error body is parsed as a (valid
-                // but empty) collection and the downstream reconcile deletes
-                // every local watchlist / history entry the cloud "no longer
-                // has". Returning null keeps local data intact on failure.
-                if (!response.isSuccessful) return@use null
-                val text = response.body?.string() ?: return@use null
-                if (text == "null" || text.isBlank()) return@use null
-                runCatching { JSONObject(text) }.getOrNull()
+            repeat(2) { attempt ->
+                if (attempt == 0) {
+                    ensureFreshToken(context)
+                } else {
+                    AuthRepository.refreshIdToken(context)
+                }
+                val request = Request.Builder().url(rtdbUrl(path, context)).get().build()
+                client.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        val text = response.body?.string()
+                        if (text.isNullOrBlank() || text == "null") return@withContext null
+                        return@withContext JSONObject(text)
+                    }
+                    if (response.code != 401 && response.code != 403) {
+                        throw IOException("Realtime Database read failed: HTTP ${response.code}")
+                    }
+                }
             }
+            throw IOException("Realtime Database authentication failed after token refresh")
         }
 
     private suspend fun putJson(path: String, body: JSONObject, context: Context) {

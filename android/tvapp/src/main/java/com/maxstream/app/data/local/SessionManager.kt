@@ -9,7 +9,7 @@ import android.content.SharedPreferences
  * Dart [TvAuthGate] routing: a non-empty session means we skip login.
  *
  * Also stores the Firebase Auth [uid] and [idToken] captured at sign-in so the
- * cloud-sync layer can call the Firestore REST API as the authenticated user.
+ * cloud-sync layer can call the Realtime Database REST API as the authenticated user.
  * The [refreshToken] is kept so the idToken can be renewed when it expires
  * (~1 hour) via the Auth REST securetoken endpoint, otherwise cloud sync would
  * silently die with 401/403s after an hour.
