@@ -1463,7 +1463,18 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     required Duration position,
     required bool shouldPlay,
   }) async {
+    // Fix PlatformException(VideoError, ExoPlaybackException: Source error) on Android 10
+    // physical devices when switching VidLink servers: dispose the old ExoPlayer before
+    // creating the new one — keeping two ExoPlayers alive briefly exhausts codec + heap.
     final previousVideo = _videoPlayerController;
+    if (previousVideo != null) {
+      previousVideo.removeListener(_handlePlaybackChanged);
+      await previousVideo.dispose();
+      if (!mounted) return;
+      // Clear the reference so a concurrent switch doesn't double-dispose.
+      _videoPlayerController = null;
+    }
+
     final controller = VideoPlayerController.networkUrl(
       Uri.parse(url),
       httpHeaders: headers,
@@ -1504,8 +1515,6 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         _currentStreamIsHls = isHls;
       });
 
-      previousVideo?.removeListener(_handlePlaybackChanged);
-      await previousVideo?.dispose();
       _startProgressSaving();
     } catch (_) {
       await controller.dispose();
