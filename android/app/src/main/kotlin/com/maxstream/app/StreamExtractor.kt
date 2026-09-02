@@ -1033,12 +1033,16 @@ class StreamExtractor(private val context: Context) {
                     } else {
                         rawUrl
                     }
+                    // For ExoPlayer MIME sniffing, use the original CDN URL's extension (e.g. .mp4)
+                    // not the proxy's /mp/... path which has no extension and would be mis-detected as HLS.
+                    val rawMediaType = mediaType(rawUrl)
                     val mediaHeaders = if (requiresProxy) {
                         refererHeaders("https://vidlink.pro/")
                     } else {
                         refererHeaders("https://vidlink.pro/") + entryHeaders
                     }
                     qualityOptions += QualityOption("${label}p", url, height)
+                    // Track raw URL for correct MIME when this quality becomes best/fallback
                     if (height > fallbackHeight) {
                         fallbackHeight = height
                         fallbackUrl = url
@@ -1069,11 +1073,13 @@ class StreamExtractor(private val context: Context) {
                 val url = bestUrl ?: fallbackUrl
                     ?: throw IllegalStateException("VidLink no quality URL")
                 if (bestUrl == null) bestHeaders = fallbackHeaders
+                // Use raw CDN extension for MIME, not the proxy's /mp/ path
+                val finalMediaType = if (url.contains("noon.mooncase.online")) "mp4" else mediaType(url)
                 ExtractionResult.Final(
                     StreamResult(
                         url,
                         name,
-                        mediaType(url),
+                        finalMediaType,
                         bestHeaders,
                         qualities = qualityOptions.sortedByDescending { it.height },
                         subtitles = captions,
