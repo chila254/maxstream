@@ -79,6 +79,9 @@ class StreamSecurity {
 
   static bool _isUnsafeHost(String rawHost) {
     final host = rawHost.toLowerCase().replaceAll(RegExp(r'^\[|\]$'), '');
+    // Videasy and related HLS hosts must never be blocked — they are the
+    // actual CDN for episode downloads (m3u8.videasy.to, etc.).
+    if (host.contains('videasy') || host.contains('speedracelight.com')) return false;
     if (host == 'localhost' || host.endsWith('.localhost')) return true;
     final parts = host.split('.');
     if (parts.length == 4) {
