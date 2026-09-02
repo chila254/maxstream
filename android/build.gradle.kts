@@ -26,6 +26,7 @@ subprojects {
         val generatedJava = rootProject.layout.buildDirectory.dir("video_player_android_buffered/java")
         val prepareBufferedPlayer by tasks.registering(Sync::class) {
             from(layout.projectDirectory.dir("src/main/java"))
+            include("**/*.java")
             into(generatedJava)
             filesMatching(
                 listOf(

@@ -244,6 +244,8 @@ class StreamExtractor(private val context: Context) {
             VidsrcNetExtractor(),
             VidsrcRuExtractor(),
             PrimeSrcExtractor(),
+            VideasyExtractor(),
+            VidFastExtractor(),
             VoeExtractor(),
             StreamtapeExtractor(),
             TwoEmbedExtractor(),
@@ -529,6 +531,10 @@ class StreamExtractor(private val context: Context) {
                 Log.w(tag, "No extractor for ${server.name}")
                 return null
             }
+            if (isLowRamDevice() && extractor.usesWebView) {
+                Log.w(tag, "Skipping WebView extractor ${extractor.name} on low-RAM device")
+                return null
+            }
             Log.d(tag, "Dispatching ${server.name} to ${extractor.name}")
 
             val result = if (extractor.usesWebView) {
@@ -553,8 +559,12 @@ class StreamExtractor(private val context: Context) {
 
             when (result) {
                 is ExtractionResult.Final -> {
+                    val stream = result.stream.copy(server = initialServer.name)
+                    if (stream.source == "VidLink" || stream.source == "2Embed") {
+                        return stream
+                    }
                     return try {
-                        validateStream(result.stream.copy(server = initialServer.name))
+                        validateStream(stream)
                     } catch (error: Throwable) {
                         if (error is CancellationException) throw error
                         Log.w(tag, "Validation failed for ${extractor.name}: ${error.message}")
@@ -600,6 +610,24 @@ class StreamExtractor(private val context: Context) {
                     "https://www.2embed.cc/embed/$id"
                 } else {
                     "https://www.2embed.cc/embedtv/$id&s=${request.season}&e=${request.episode}"
+                },
+            )
+
+            servers += StreamServer(
+                "Videasy",
+                if (request.isMovie) {
+                    "https://player.videasy.to/movie/$id"
+                } else {
+                    "https://player.videasy.to/tv/$id/${request.season}/${request.episode}"
+                },
+            )
+
+            servers += StreamServer(
+                "VidFast",
+                if (request.isMovie) {
+                    "https://vidfast.vc/movie/$id"
+                } else {
+                    "https://vidfast.vc/tv/$id/${request.season}/${request.episode}"
                 },
             )
 
@@ -2096,38 +2124,137 @@ class StreamExtractor(private val context: Context) {
 
     private inner class VideasyExtractor : HostExtractor {
         override val name = "Videasy"
-        override fun supports(server: StreamServer) = host(server.url).endsWith("videasy.net")
-
-        override suspend fun extract(server: StreamServer): ExtractionResult {
-            return try {
-                extractFromVideasy(server)
-            } catch (e: Exception) {
-                Log.w(tag, "Videasy extraction failed for ${server.name}: ${e.message}")
-                throw e
-            }
+        override fun supports(server: StreamServer): Boolean {
+            val domain = host(server.url)
+            return domain.endsWith("videasy.to") || domain.endsWith("videasy.net")
         }
 
-        private suspend fun extractFromVideasy(server: StreamServer): ExtractionResult {
-            val encrypted = httpGet(server.url)
-            val tmdbId = server.url.substringAfter("tmdbId=", "").substringBefore('&')
-            val requestJson = JSONObject().put("text", encrypted).put("id", tmdbId)
-            val decrypted = postJson("https://enc-dec.app/api/dec-videasy", requestJson.toString())
-            val result = JSONObject(decrypted).optString("result")
-            val sources = JSONObject(result).optJSONArray("sources")
-                ?: throw IllegalStateException("Videasy returned no sources")
-            val headers = refererHeaders("https://player.videasy.net/")
-            for (index in 0 until sources.length()) {
-                val source = sources.optJSONObject(index)?.optString("url").orEmpty()
-                if (source.isBlank()) continue
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            val segments = URI(server.url).path.split('/').filter(String::isNotBlank)
+            val mediaType = segments.firstOrNull().orEmpty()
+            val mediaId = segments.getOrNull(1).orEmpty()
+            require(mediaType == "movie" || mediaType == "tv") { "Unsupported Videasy URL" }
+            require(mediaId.isNotBlank()) { "Videasy media ID not found" }
+            val seed = getJson(
+                "https://api.speedracelight.com/seed?mediaId=${encode(mediaId)}",
+                videasyHeaders(),
+            ).optString("seed").ifBlank { throw IllegalStateException("Videasy seed not found") }
+            val parameters = buildString {
+                append("mediaType=").append(mediaType)
+                append("&tmdbId=").append(encode(mediaId))
+                if (mediaType == "tv") {
+                    append("&seasonId=").append(segments.getOrNull(2) ?: "1")
+                    append("&episodeId=").append(segments.getOrNull(3) ?: "1")
+                }
+                append("&enc=2&seed=").append(encode(seed))
+            }
+            var lastError: Throwable? = null
+            for (path in listOf("cdn", "m4uhd", "lamovie")) {
                 try {
-                    val stream = StreamResult(source, server.name, mediaType(source), headers)
-                    return ExtractionResult.Final(validateStream(stream))
+                    val encrypted = httpGet(
+                        "https://api.speedracelight.com/$path/sources-with-title?$parameters",
+                        videasyHeaders(),
+                    )
+                    val data = JSONObject(decryptVideasyPayload(encrypted, seed, mediaId))
+                    val sources = data.optJSONArray("sources")
+                    require(sources != null && sources.length() > 0) { "Videasy returned no sources" }
+                    val qualities = (0 until sources.length()).mapNotNull { index ->
+                        val item = sources.optJSONObject(index) ?: return@mapNotNull null
+                        val url = item.optString("url").ifBlank { return@mapNotNull null }
+                        val label = item.optString("quality", "Auto")
+                        val height = Regex("""\d{3,4}""").find(label)?.value?.toIntOrNull() ?: 0
+                        QualityOption(label, url, height)
+                    }.sortedByDescending(QualityOption::height)
+                    require(qualities.isNotEmpty()) { "Videasy returned no playable sources" }
+                    val playlist = data.optString("playlist").ifBlank { qualities.first().url }
+                    val subtitles = data.optJSONArray("subtitles")?.let { items ->
+                        (0 until items.length()).mapNotNull { index ->
+                            val item = items.optJSONObject(index) ?: return@mapNotNull null
+                            val url = item.optString("url").ifBlank { return@mapNotNull null }
+                            SubtitleOption(
+                                item.optString("language").ifBlank { item.optString("lang", "Subtitle") },
+                                url,
+                                source = name,
+                            )
+                        }
+                    }.orEmpty()
+                    return ExtractionResult.Final(
+                        StreamResult(
+                            playlist,
+                            name,
+                            if (playlist.contains(".mpd", true)) "dash" else "direct_m3u8",
+                            videasyHeaders(),
+                            qualities = qualities,
+                            subtitles = subtitles,
+                        ),
+                    )
                 } catch (error: Throwable) {
                     if (error is CancellationException) throw error
-                    Log.w(tag, "Videasy route $index failed: ${error.message}")
+                    lastError = error
+                    Log.w(tag, "Videasy $path failed: ${error.message}")
                 }
             }
-            throw IllegalStateException("Videasy returned no playable source")
+            throw lastError ?: IllegalStateException("Videasy returned no playable source")
+        }
+
+        private fun videasyHeaders() = refererHeaders("https://player.videasy.to/") +
+            mapOf("Accept" to "application/json")
+
+        private fun decryptVideasyPayload(encoded: String, seed: String, mediaId: String): String {
+            val bytes = Base64.decode(encoded.trim(), Base64.URL_SAFE or Base64.NO_WRAP)
+            val key = videasyKeyStream(seed, mediaId.toLong().toInt(), bytes.size)
+            bytes.indices.forEach { index -> bytes[index] = bytes[index] xor key[index] }
+            require(bytes.size >= 4 && bytes.copyOfRange(0, 4).contentEquals("mvm1".toByteArray())) {
+                "Videasy response could not be decrypted"
+            }
+            return String(bytes, 4, bytes.size - 4, Charsets.UTF_8)
+        }
+
+        private fun videasyKeyStream(seed: String, mediaId: Int, length: Int): ByteArray {
+            val table = arrayOfNulls<Int>(61)
+            val golden = -1640531527
+            var state = videasyMix(videasyFnv(seed) xor videasyMix(mediaId xor golden))
+            repeat(8) { round ->
+                val index = (state.toUInt() % 61u).toInt()
+                state = Integer.rotateLeft(state + golden, 7 + (7 and round))
+                table[index] = state xor videasyMix(state)
+                state = videasyMix(state + index)
+            }
+            var accumulator = videasyMix(-1515870811 xor state)
+            val output = ByteArray(length)
+            var position = 0
+            var counter = 0
+            while (position < length) {
+                val index = (accumulator.toUInt() % 61u).toInt()
+                val mask = if (table[index] != null) -1 else 0
+                val value = table[index] ?: 0
+                val mixed = value xor (golden * (counter + 1))
+                var next = (accumulator xor mixed) or (accumulator and mixed and mask)
+                next = Integer.rotateLeft(next + accumulator, index and 31) xor
+                    Integer.rotateLeft(accumulator, (index * 7) and 31)
+                accumulator = videasyMix(next + golden)
+                table[index] = accumulator
+                for (shift in 0..24 step 8) {
+                    if (position < length) output[position++] = (accumulator ushr shift).toByte()
+                }
+                counter++
+            }
+            return output
+        }
+
+        private fun videasyFnv(value: String): Int {
+            var hash = -2128831035
+            value.forEach { hash = (hash xor it.code) * 16777619 }
+            return videasyMix(hash)
+        }
+
+        private fun videasyMix(input: Int): Int {
+            var value = input
+            value = value xor (value ushr 16)
+            value *= -2048144789
+            value = value xor (value ushr 13)
+            value *= -1028477387
+            return value xor (value ushr 16)
         }
     }
 
@@ -2440,6 +2567,102 @@ class StreamExtractor(private val context: Context) {
             return ExtractionResult.Final(
                 StreamResult(absolute, "2Embed", "direct_m3u8", headers),
             )
+        }
+    }
+
+    private inner class VidFastExtractor : HostExtractor {
+        override val name = "VidFast"
+        override fun supports(server: StreamServer): Boolean {
+            val domain = host(server.url)
+            return domain.endsWith("vidfast.vc") || domain.endsWith("vidfast.pro")
+        }
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            val html = httpGet(server.url)
+            val pageToken = Regex("""\\"(?:en|token)\\":\\"([^"\\]+)\\"""")
+                .find(html)?.groupValues?.get(1)
+                ?: Regex(""""(?:en|token)":"([^"\\]{20,})"""")
+                    .find(html)?.groupValues?.get(1)
+                ?: throw IllegalStateException("VidFast page token not found")
+            val handshake = getJson(
+                "https://enc-dec.app/api/enc-vidfast?text=${encode(pageToken)}",
+            )
+            require(handshake.optInt("status") == 200) { "VidFast handshake failed" }
+            val boot = handshake.optJSONObject("result")
+                ?: throw IllegalStateException("VidFast handshake was incomplete")
+            val serversUrl = boot.optString("servers")
+            val streamBase = boot.optString("stream")
+            require(serversUrl.isNotBlank() && streamBase.isNotBlank()) {
+                "VidFast endpoints not found"
+            }
+            val headers = refererHeaders("https://vidfast.vc/")
+            val requestHeaders = boot.optString("token").takeIf(String::isNotBlank)?.let {
+                headers + mapOf("X-CSRF-Token" to it)
+            } ?: headers
+            val encryptedServers = postBody(
+                serversUrl,
+                ByteArray(0).toRequestBody(null),
+                requestHeaders,
+            )
+            val servers = JSONArray(decryptVidFast(encryptedServers).toString())
+            var lastError: Throwable? = null
+            for (index in 0 until servers.length()) {
+                val item = servers.optJSONObject(index) ?: continue
+                val data = item.optString("data").ifBlank { continue }
+                try {
+                    val encrypted = postBody(
+                        "$streamBase/$data",
+                        ByteArray(0).toRequestBody(null),
+                        requestHeaders,
+                    )
+                    val source = JSONObject(decryptVidFast(encrypted).toString())
+                    val url = source.optString("url").ifBlank { continue }
+                    val subtitles = source.optJSONArray("tracks")?.let { tracks ->
+                        (0 until tracks.length()).mapNotNull { trackIndex ->
+                            val track = tracks.optJSONObject(trackIndex) ?: return@mapNotNull null
+                            val trackUrl = track.optString("file").ifBlank {
+                                track.optString("url")
+                            }
+                            if (trackUrl.isBlank()) return@mapNotNull null
+                            SubtitleOption(
+                                track.optString("label", "Subtitle"),
+                                trackUrl,
+                                source = name,
+                            )
+                        }
+                    }.orEmpty()
+                    return ExtractionResult.Final(
+                        StreamResult(
+                            url,
+                            name,
+                            if (url.contains(".mpd", true)) "dash" else "direct_m3u8",
+                            headers,
+                            subtitles = subtitles,
+                        ),
+                    )
+                } catch (error: Throwable) {
+                    if (error is CancellationException) throw error
+                    lastError = error
+                    Log.w(tag, "VidFast server $index failed: ${error.message}")
+                }
+            }
+            throw lastError ?: IllegalStateException("VidFast returned no playable stream")
+        }
+
+        private fun decryptVidFast(encrypted: String): Any {
+            val response = JSONObject(
+                postJson(
+                    "https://enc-dec.app/api/dec-vidfast",
+                    JSONObject().put("text", encrypted).toString(),
+                ),
+            )
+            require(response.optInt("status") == 200) { "VidFast decryption failed" }
+            val result = response.opt("result")
+                ?: throw IllegalStateException("VidFast decrypted an empty response")
+            if (result !is String) return result
+            return runCatching<Any> { JSONObject(result) }
+                .recoverCatching { JSONArray(result) }
+                .getOrElse { result }
         }
     }
 
