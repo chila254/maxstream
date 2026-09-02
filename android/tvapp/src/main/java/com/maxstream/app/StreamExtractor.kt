@@ -71,7 +71,7 @@ class StreamExtractor(private val context: Context) {
     companion object {
         private const val HTTP_SERVER_TIMEOUT_MS = 18_000L
         private const val WEBVIEW_SERVER_TIMEOUT_MS = 12_000L
-        private const val ALL_SERVERS_TOTAL_TIMEOUT_MS = 75_000L
+        private const val ALL_SERVERS_TOTAL_TIMEOUT_MS = 25_000L
     }
 
     /** True on 1GB-class devices (most cheap TV boxes). */
@@ -461,7 +461,7 @@ class StreamExtractor(private val context: Context) {
                 Log.w(tag, "No extractor for ${server.name}")
                 return null
             }
-            if (isLowRamDevice() && extractor.usesWebView) {
+            if (isLowRamDevice() && extractor.usesWebView && extractor.name != "VidLink") {
                 Log.w(tag, "Skipping WebView extractor ${extractor.name} on low-RAM device")
                 return null
             }
@@ -850,6 +850,9 @@ class StreamExtractor(private val context: Context) {
             runCatching { extractViaWorker(server) }
                 .getOrNull()
                 ?.let { return it }
+            if (isLowRamDevice()) {
+                throw IllegalStateException("VidLink native extraction unavailable")
+            }
             Log.i(tag, "VidLink HTTP/Worker failed; falling back to hardened WebView hook")
             return runCatching { extractViaWebView(server) }
                 .getOrElse { e ->
@@ -953,7 +956,7 @@ class StreamExtractor(private val context: Context) {
                 while (iterator.hasNext()) {
                     val label = iterator.next()
                     val entry = qualities.optJSONObject(label) ?: continue
-                    val url = entry.optString("url").ifBlank { continue }
+                    val rawUrl = entry.optString("url").ifBlank { continue }
                     val height = label.toIntOrNull() ?: 0
                     val entryHeaders = entry.optJSONObject("headers")?.let { h ->
                         buildMap {
@@ -964,13 +967,15 @@ class StreamExtractor(private val context: Context) {
                         }
                     } ?: emptyMap()
                     val requiresProxy = entry.optBoolean("requiresProxy", false)
-                    val mediaHeaders = if (requiresProxy) {
-                        // VidLink's CDN serves these only when the request carries the
-                        // filmboom.top referer; fetch the MP4 directly like the older
-                        // native path did (the noir.suubmon.store relay currently 428s).
-                        refererHeaders(entryHeaders["referer"] ?: "https://filmboom.top/") + entryHeaders
+                    val url = if (requiresProxy) {
+                        vidLinkProxyUrl(rawUrl, entryHeaders)
                     } else {
+                        rawUrl
+                    }
+                    val mediaHeaders = if (requiresProxy) {
                         refererHeaders("https://vidlink.pro/")
+                    } else {
+                        refererHeaders("https://vidlink.pro/") + entryHeaders
                     }
                     qualityOptions += QualityOption("${label}p", url, height)
                     if (height > fallbackHeight) {
@@ -1014,6 +1019,19 @@ class StreamExtractor(private val context: Context) {
                     )
                 )
             }
+        }
+
+        private fun vidLinkProxyUrl(url: String, headers: Map<String, String>): String {
+            val uri = URI(url)
+            val allowed = setOf("auth", "expires", "hash", "key", "sign", "t", "token")
+            val query = uri.rawQuery.orEmpty().split('&').filter { part ->
+                part.isNotBlank() && runCatching {
+                    URLDecoder.decode(part.substringBefore('='), Charsets.UTF_8.name()).lowercase() in allowed
+                }.getOrDefault(false)
+            }.toMutableList()
+            query += "headers=${encode(JSONObject(headers.toSortedMap()).toString())}"
+            query += "host=${encode("${uri.scheme}://${uri.rawAuthority}")}"
+            return "https://noon.mooncase.online/mp${uri.rawPath}?${query.joinToString("&")}"
         }
 
         private suspend fun extractViaWebView(server: StreamServer): ExtractionResult {

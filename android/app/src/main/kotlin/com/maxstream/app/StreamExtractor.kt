@@ -531,7 +531,7 @@ class StreamExtractor(private val context: Context) {
                 Log.w(tag, "No extractor for ${server.name}")
                 return null
             }
-            if (isLowRamDevice() && extractor.usesWebView) {
+            if (isLowRamDevice() && extractor.usesWebView && extractor.name != "VidLink") {
                 Log.w(tag, "Skipping WebView extractor ${extractor.name} on low-RAM device")
                 return null
             }
@@ -913,6 +913,9 @@ class StreamExtractor(private val context: Context) {
             runCatching { extractViaWorker(server) }
                 .getOrNull()
                 ?.let { return it }
+            if (isLowRamDevice()) {
+                throw IllegalStateException("VidLink native extraction unavailable")
+            }
             Log.i(tag, "VidLink HTTP/Worker failed; falling back to hardened WebView hook")
             return runCatching { extractViaWebView(server) }
                 .getOrElse { e ->
@@ -1016,7 +1019,7 @@ class StreamExtractor(private val context: Context) {
                 while (iterator.hasNext()) {
                     val label = iterator.next()
                     val entry = qualities.optJSONObject(label) ?: continue
-                    val url = entry.optString("url").ifBlank { continue }
+                    val rawUrl = entry.optString("url").ifBlank { continue }
                     val height = label.toIntOrNull() ?: 0
                     val entryHeaders = entry.optJSONObject("headers")?.let { h ->
                         buildMap {
@@ -1027,13 +1030,15 @@ class StreamExtractor(private val context: Context) {
                         }
                     } ?: emptyMap()
                     val requiresProxy = entry.optBoolean("requiresProxy", false)
-                    val mediaHeaders = if (requiresProxy) {
-                        // VidLink's CDN serves these only when the request carries the
-                        // filmboom.top referer; fetch the MP4 directly like the older
-                        // native path did (the noir.suubmon.store relay currently 428s).
-                        refererHeaders(entryHeaders["referer"] ?: "https://filmboom.top/") + entryHeaders
+                    val url = if (requiresProxy) {
+                        vidLinkProxyUrl(rawUrl, entryHeaders)
                     } else {
+                        rawUrl
+                    }
+                    val mediaHeaders = if (requiresProxy) {
                         refererHeaders("https://vidlink.pro/")
+                    } else {
+                        refererHeaders("https://vidlink.pro/") + entryHeaders
                     }
                     qualityOptions += QualityOption("${label}p", url, height)
                     if (height > fallbackHeight) {
@@ -1066,10 +1071,6 @@ class StreamExtractor(private val context: Context) {
                 val url = bestUrl ?: fallbackUrl
                     ?: throw IllegalStateException("VidLink no quality URL")
                 if (bestUrl == null) bestHeaders = fallbackHeaders
-                // Skip validateMediaWithFallback: the /api/b/ endpoint already
-                // confirmed these URLs are valid.  The CDN frequently 428s/429s
-                // fresh token-derived URLs during the Range probe, causing the
-                // extraction to fall back to WebView unnecessarily.
                 ExtractionResult.Final(
                     StreamResult(
                         url,
@@ -1083,50 +1084,17 @@ class StreamExtractor(private val context: Context) {
             }
         }
 
-        /**
-         * VidLink's CDN signs media URLs at request time and frequently starts
-         * returning 428/429 for the exact header set a freshly-minted token
-         * produced seconds earlier.  Keep the filmboom.top referer (it is what
-         * unlocks the requiresProxy sources) as the primary probe, but when the
-         * CDN rejects it, fall back to lighter header sets so a stale-but-still
-         * valid media URL can still be played instead of aborting to WebView.
-         */
-        private fun validateMediaWithFallback(
-            url: String,
-            primaryHeaders: Map<String, String>,
-        ): Map<String, String> {
-            val probeSets = buildList {
-                add(primaryHeaders)
-                // The primary set is refererHeaders(filmboom) + entryHeaders.
-                // Drop the referer next; some CDN routes are keyed only on the
-                // Origin/X-Requested-With style headers embedded in entryHeaders.
-                add(primaryHeaders - "Referer")
-                // Then try VidLink's own origin as a neutral referer.
-                add(refererHeaders("https://vidlink.pro/"))
-                // Last resort: no special headers at all.
-                add(emptyMap())
-            }
-            var lastError: Throwable? = null
-            for (headers in probeSets) {
-                try {
-                    validateMediaRequest(url, headers)
-                    Log.i(
-                        tag,
-                        "VidLink media validated with referer=" +
-                            (headers["Referer"] ?: "none"),
-                    )
-                    return headers
-                } catch (error: Throwable) {
-                    if (error is CancellationException) throw error
-                    lastError = error
-                    Log.w(
-                        tag,
-                        "VidLink media probe rejected (referer=${headers["Referer"] ?: "none"}): " +
-                            error.message,
-                    )
-                }
-            }
-            throw lastError ?: IllegalStateException("VidLink media rejected by every header set")
+        private fun vidLinkProxyUrl(url: String, headers: Map<String, String>): String {
+            val uri = URI(url)
+            val allowed = setOf("auth", "expires", "hash", "key", "sign", "t", "token")
+            val query = uri.rawQuery.orEmpty().split('&').filter { part ->
+                part.isNotBlank() && runCatching {
+                    URLDecoder.decode(part.substringBefore('='), Charsets.UTF_8.name()).lowercase() in allowed
+                }.getOrDefault(false)
+            }.toMutableList()
+            query += "headers=${encode(JSONObject(headers.toSortedMap()).toString())}"
+            query += "host=${encode("${uri.scheme}://${uri.rawAuthority}")}"
+            return "https://noon.mooncase.online/mp${uri.rawPath}?${query.joinToString("&")}"
         }
 
         private suspend fun extractViaWebView(server: StreamServer): ExtractionResult {
