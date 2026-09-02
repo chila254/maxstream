@@ -135,6 +135,10 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
   }
 
   Future<void> _loadContinueWatching() async {
+    // Pull TV watches first so Haven S4E9 mid-watch appears immediately
+    try {
+      await CloudSyncService.pullToDevice();
+    } catch (_) {}
     final history = await WatchHistoryService.getContinueWatching();
     if (!mounted) return;
     setState(() => continueWatching = history.take(10).toList());
