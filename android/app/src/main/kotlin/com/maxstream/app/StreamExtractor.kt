@@ -907,16 +907,14 @@ class StreamExtractor(private val context: Context) {
         )
 
         override suspend fun extract(server: StreamServer): ExtractionResult {
-            runCatching { extractViaHttp(server) }
-                .getOrNull()
-                ?.let { return it }
+            // Prefer Worker (website path) first – Worker-signed HLS plays without 428s on low-RAM
             runCatching { extractViaWorker(server) }
                 .getOrNull()
                 ?.let { return it }
-            if (isLowRamDevice()) {
-                throw IllegalStateException("VidLink native extraction unavailable")
-            }
-            Log.i(tag, "VidLink HTTP/Worker failed; falling back to hardened WebView hook")
+            runCatching { extractViaHttp(server) }
+                .getOrNull()
+                ?.let { return it }
+            Log.i(tag, "VidLink Worker/HTTP failed; falling back to hardened WebView hook")
             return runCatching { extractViaWebView(server) }
                 .getOrElse { e ->
                     if (e is CancellationException) throw e
