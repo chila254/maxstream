@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:video_player/video_player.dart';
+import 'package:flutter_vlc_player/flutter_vlc_player.dart';
 import '../database/db_helper.dart';
 import '../services/direct_m3u8_service.dart';
 import '../services/media_download_manager.dart';
@@ -118,7 +119,7 @@ class _StablePlayerControls extends StatefulWidget {
     required this.downloadCompleted,
   });
 
-  final VideoPlayerController controller;
+  final dynamic controller;
   final VoidCallback onBack;
   final VoidCallback onMinimize;
   final String mediaTitle;
@@ -560,6 +561,8 @@ enum _AspectRatioMode { fit, stretch, zoom }
 
 class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   VideoPlayerController? _videoPlayerController;
+  VlcPlayerController? _vlcController;
+  bool _useVlc = false;
   bool _useNativePlayer = false;
   bool _isBuffering = false;
   bool _isSwitchingQuality = false;
@@ -599,6 +602,11 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   bool _currentStreamIsHls = true;
   Duration _lastStablePosition = Duration.zero;
   bool _recoveringPlayback = false;
+
+  bool get _isVlcActive => _useVlc && _vlcController != null;
+  Duration get _currentPosition => _isVlcActive ? _vlcController!.value.position : (_videoPlayerController?.value.position ?? Duration.zero);
+  Duration get _currentDuration => _isVlcActive ? _vlcController!.value.duration : (_videoPlayerController?.value.duration ?? Duration.zero);
+  bool get _isPlayingNow => _isVlcActive ? _vlcController!.value.isPlaying : (_videoPlayerController?.value.isPlaying ?? false);
   int _playbackRetryCount = 0;
   // Failure tracking is identity-based: re-discovery hands every server a new
   // signed URL, so URL-keyed entries would never match the fresh list and a
@@ -1480,27 +1488,50 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     required Duration position,
     required bool shouldPlay,
   }) async {
+    // Use VLC for VidLink (stable decoder on HiSilicon/Mali) — same controls/menus
+    final bool useVlc = source == 'VidLink';
     // Fix PlatformException(VideoError, ExoPlaybackException: Source error) on Android 10
-    // physical devices when switching VidLink servers: dispose the old ExoPlayer before
-    // creating the new one — keeping two ExoPlayers alive briefly exhausts codec + heap.
+    // physical devices when switching VidLink servers: dispose the old player before
+    // creating the new one — keeping two decoders alive briefly exhausts codec + heap.
     final previousVideo = _videoPlayerController;
+    final previousVlc = _vlcController;
     if (previousVideo != null) {
       previousVideo.removeListener(_handlePlaybackChanged);
       await previousVideo.dispose();
-      if (!mounted) return;
-      // Clear the reference so a concurrent switch doesn't double-dispose.
-      _videoPlayerController = null;
     }
+    if (previousVlc != null) {
+      await previousVlc.stopRendererScanning();
+      await previousVlc.dispose();
+    }
+    if (!mounted) return;
+    _videoPlayerController = null;
+    _vlcController = null;
+    _useVlc = useVlc;
 
-    final controller = VideoPlayerController.networkUrl(
-      Uri.parse(url),
-      httpHeaders: headers,
-      formatHint: isHls ? VideoFormat.hls : null,
-      videoPlayerOptions: VideoPlayerOptions(
-        backBufferDurationMs: 60000,
-        allowBackgroundPlayback: true,
-      ),
-    );
+    final controller = useVlc
+        ? null
+        : VideoPlayerController.networkUrl(
+            Uri.parse(url),
+            httpHeaders: headers,
+            formatHint: isHls ? VideoFormat.hls : null,
+            videoPlayerOptions: VideoPlayerOptions(
+              backBufferDurationMs: 60000,
+              allowBackgroundPlayback: true,
+            ),
+          );
+    final vlcController = useVlc
+        ? VlcPlayerController.network(
+            url,
+            hwAcc: HwAcc.full,
+            autoPlay: false,
+            options: VlcPlayerOptions(
+              advanced: VlcAdvancedOptions([
+                VlcAdvancedOptions.networkCaching(2000),
+              ]),
+              rtp: VlcRtpOptions([VlcRtpOptions.rtpOverRtsp(true)]),
+            ),
+          )
+        : null;
 
     try {
       _showStatus(
@@ -1508,33 +1539,67 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
             ? 'Loading video...'
             : 'Switching to $selectedQuality...',
       );
-      await controller.initialize();
-      if (position > Duration.zero) await controller.seekTo(position);
-      if (shouldPlay) await controller.play();
+      if (useVlc) {
+        final vlc = vlcController!;
+        if (!mounted) {
+          await vlc.dispose();
+          return;
+        }
+        vlc.addListener(_handleVlcPlaybackChanged);
+        setState(() {
+          _vlcController = vlc;
+          _videoPlayerController = null;
+          _useNativePlayer = true;
+          _useVlc = true;
+          _currentSource = source;
+          _streamHeaders = headers;
+          _qualities = qualities;
+          _selectedQuality = selectedQuality;
+          _isBuffering = false;
+          _isSwitchingQuality = false;
+          _videoInitialized = true;
+          _currentStreamUrl = url;
+          _currentStreamIsHls = isHls;
+        });
+        if (position > Duration.zero) await vlc.seekTo(position);
+        if (shouldPlay) await vlc.play();
+        _startProgressSaving();
+      } else {
+        final c = controller!;
+        await c.initialize();
+        if (position > Duration.zero) await c.seekTo(position);
+        if (shouldPlay) await c.play();
 
-      if (!mounted) {
-        await controller.dispose();
-        return;
+        if (!mounted) {
+          await c.dispose();
+          return;
+        }
+
+        c.addListener(_handlePlaybackChanged);
+        setState(() {
+          _videoPlayerController = c;
+          _vlcController = null;
+          _useVlc = false;
+          _useNativePlayer = true;
+          _currentSource = source;
+          _streamHeaders = headers;
+          _qualities = qualities;
+          _selectedQuality = selectedQuality;
+          _isBuffering = c.value.isBuffering;
+          _isSwitchingQuality = false;
+          _videoInitialized = true;
+          _currentStreamUrl = url;
+          _currentStreamIsHls = isHls;
+        });
+
+        _startProgressSaving();
       }
-
-      controller.addListener(_handlePlaybackChanged);
-      setState(() {
-        _videoPlayerController = controller;
-        _useNativePlayer = true;
-        _currentSource = source;
-        _streamHeaders = headers;
-        _qualities = qualities;
-        _selectedQuality = selectedQuality;
-        _isBuffering = controller.value.isBuffering;
-        _isSwitchingQuality = false;
-        _videoInitialized = true;
-        _currentStreamUrl = url;
-        _currentStreamIsHls = isHls;
-      });
-
-      _startProgressSaving();
     } catch (_) {
-      await controller.dispose();
+      if (useVlc) {
+        await vlcController?.dispose();
+      } else {
+        await controller?.dispose();
+      }
       rethrow;
     }
   }
@@ -1584,6 +1649,40 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       }
     }
     if (shouldRebuild) setState(() {});
+  }
+
+  void _handleVlcPlaybackChanged() {
+    if (!mounted || _vlcController == null) return;
+    final value = _vlcController!.value;
+    if (value.position > Duration.zero) _lastStablePosition = value.position;
+    if (value.hasError && !_recoveringPlayback) {
+      final hasNext = _nextServerAfter(_currentStreamUrl ?? '') != null;
+      if (_playbackRetryCount < 3 || hasNext) {
+        unawaited(_recoverPlayback());
+      }
+    }
+    // VLC buffering is exposed via isPlaying / isEnded, approximate with isPlaying
+    final isBuffering = value.isBuffering ?? false;
+    if (isBuffering != _isBuffering) {
+      _isBuffering = isBuffering;
+      if (mounted) setState(() {});
+    }
+    if (!widget.isMovie &&
+        _nextEpisode != null &&
+        !_nextEpisodeCancelled &&
+        value.duration > Duration.zero) {
+      final remaining = value.duration - value.position;
+      final countdown = remaining.inSeconds.clamp(0, 30);
+      final showNext = remaining <= const Duration(seconds: 30);
+      if (showNext != _showNextEpisode || countdown != _nextEpisodeCountdown) {
+        _showNextEpisode = showNext;
+        _nextEpisodeCountdown = countdown;
+        if (mounted) setState(() {});
+      }
+      if (remaining <= const Duration(milliseconds: 500) && !_loadingNextEpisode) {
+        unawaited(_playNextEpisode());
+      }
+    }
   }
 
   Map<String, dynamic>? _nextServerAfter(String currentUrl) {
@@ -1752,6 +1851,26 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   }
 
   Future<void> _saveProgress() async {
+    if (_isVlcActive) {
+      final c = _vlcController!;
+      if (!c.value.isInitialized) return;
+      final position = c.value.position;
+      final duration = c.value.duration;
+      if (position <= Duration.zero || duration <= Duration.zero) return;
+      await WatchHistoryService.saveWatchProgress(
+        tmdbId: widget.tmdbId,
+        title: _currentTitle,
+        seriesTitle: widget.isMovie ? null : _resolverTitle,
+        isMovie: widget.isMovie,
+        season: _currentSeason,
+        episode: _currentEpisode,
+        posterUrl: _posterUrl,
+        position: position,
+        duration: duration,
+        genreIds: widget.genreIds,
+      );
+      return;
+    }
     final controller = _videoPlayerController;
     if (controller == null || !controller.value.isInitialized) return;
     final position = controller.value.position;
@@ -1776,6 +1895,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     _isLeaving = true;
     await _saveProgress();
     _videoPlayerController?.dispose();
+    _vlcController?.dispose();
     if (mounted) Navigator.of(context).pop(true);
   }
 
@@ -1783,6 +1903,12 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     if (_isLeaving) return;
     _isLeaving = true;
     await _saveProgress();
+    // VLC minimize not yet supported via MiniplayerService (expects VideoPlayerController) — just dispose and pop
+    if (_isVlcActive) {
+      await _vlcController?.dispose();
+      if (mounted) Navigator.of(context).pop(true);
+      return;
+    }
     final controller = _videoPlayerController;
     if (controller != null && controller.value.isInitialized) {
       _isMinimizing = true;
@@ -2877,7 +3003,10 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   }
 
   Future<void> _switchQuality(_StreamQuality quality) async {
-    final current = _videoPlayerController;
+    final isVlc = _isVlcActive;
+    final currentVideo = _videoPlayerController;
+    final currentVlc = _vlcController;
+    final current = isVlc ? currentVlc : currentVideo;
     if (current == null ||
         quality.label == _selectedQuality ||
         _isSwitchingQuality) {
@@ -2892,8 +3021,8 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         ? (_currentStreamUrl ?? quality.url)
         : quality.url;
 
-    final position = current.value.position;
-    final shouldPlay = current.value.isPlaying || current.value.isBuffering;
+    final position = isVlc ? currentVlc!.value.position : currentVideo!.value.position;
+    final shouldPlay = isVlc ? currentVlc!.value.isPlaying : (currentVideo!.value.isPlaying || currentVideo!.value.isBuffering);
     setState(() {
       _isSwitchingQuality = true;
       _videoInitialized = false;
@@ -2926,9 +3055,11 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     _progressTimer?.cancel();
     unawaited(_saveProgress());
     _videoPlayerController?.removeListener(_handlePlaybackChanged);
+    _vlcController?.removeListener(_handleVlcPlaybackChanged);
     // Don't dispose controller if minimizing — it's now owned by MiniplayerService
     if (!_isMinimizing) {
       _videoPlayerController?.dispose();
+      _vlcController?.dispose();
     }
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
@@ -2954,7 +3085,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         backgroundColor: Colors.black,
         body: _error != null
             ? _buildError()
-            : _useNativePlayer && _videoPlayerController != null
+            : _useNativePlayer && (_videoPlayerController != null || _vlcController != null)
             ? _buildPlayer()
             : _buildLoading(),
       ),
@@ -2962,8 +3093,24 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   }
 
   Widget _buildPlayer() {
-    final controller = _videoPlayerController!;
-    final size = controller.value.size;
+    final bool isVlc = _useVlc && _vlcController != null;
+    final controller = _videoPlayerController;
+    final vlc = _vlcController;
+    Size size = const Size(1920, 1080);
+    double aspect = 16 / 9;
+    if (isVlc && vlc != null) {
+      // VLC reports size via value.size when available, fallback to 16/9
+      try {
+        final s = vlc.value.size;
+        if (s != null && s.width > 0 && s.height > 0) {
+          size = s;
+          aspect = s.width / s.height;
+        }
+      } catch (_) {}
+    } else if (controller != null) {
+      size = controller.value.size;
+      aspect = controller.value.aspectRatio > 0 ? controller.value.aspectRatio : 16 / 9;
+    }
     final videoWidth = size.width > 0 ? size.width : 1920.0;
     final videoHeight = size.height > 0 ? size.height : 1080.0;
     final playerHeight = MediaQuery.sizeOf(context).height;
@@ -2971,28 +3118,32 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     final subtitleBottom = compactPlayer
         ? (playerHeight * 0.06).clamp(18.0, 32.0)
         : 92.0;
+    Widget innerPlayer;
+    if (isVlc && vlc != null) {
+      innerPlayer = VlcPlayer(
+        controller: vlc,
+        aspectRatio: aspect,
+        placeholder: const Center(child: CircularProgressIndicator(color: Colors.red)),
+      );
+    } else if (controller != null) {
+      innerPlayer = VideoPlayer(controller);
+    } else {
+      innerPlayer = const SizedBox();
+    }
     final videoWidget = switch (_aspectRatioMode) {
       _AspectRatioMode.fit => Center(
         child: AspectRatio(
-          aspectRatio: controller.value.aspectRatio > 0
-              ? controller.value.aspectRatio
-              : 16 / 9,
-          child: VideoPlayer(controller),
+          aspectRatio: aspect,
+          child: innerPlayer,
         ),
       ),
-      _AspectRatioMode.stretch => SizedBox.expand(
-        child: VideoPlayer(controller),
-      ),
+      _AspectRatioMode.stretch => SizedBox.expand(child: innerPlayer),
       _AspectRatioMode.zoom => ClipRect(
         child: SizedBox.expand(
           child: FittedBox(
             fit: BoxFit.cover,
             clipBehavior: Clip.hardEdge,
-            child: SizedBox(
-              width: videoWidth,
-              height: videoHeight,
-              child: VideoPlayer(controller),
-            ),
+            child: SizedBox(width: videoWidth, height: videoHeight, child: innerPlayer),
           ),
         ),
       ),
@@ -3061,7 +3212,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
           ),
         Positioned.fill(
           child: _StablePlayerControls(
-            controller: controller,
+            controller: _isVlcActive ? _vlcController! : controller,
             onBack: _exitPlayer,
             onMinimize: _minimizePlayer,
             mediaTitle: _currentTitle,
@@ -3083,7 +3234,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
             downloadCompleted: _downloadCompleted,
           ),
         ),
-        if (_videoPlayerController != null)
+        if (_videoPlayerController != null || _vlcController != null)
           Positioned(
             left: compactPlayer ? 16 : 24,
             right: compactPlayer ? 16 : 24,
@@ -3093,44 +3244,41 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
                 valueListenable: _activeSubtitles,
                 builder: (context, subtitles, _) {
                   if (subtitles.isEmpty) return const SizedBox.shrink();
-                  return ValueListenableBuilder<VideoPlayerValue>(
-                    valueListenable: _videoPlayerController!,
-                    builder: (context, value, _) {
-                      // Apply subtitle offset for sync adjustment
-                      final adjustedPosition = Duration(
-                        milliseconds:
-                            value.position.inMilliseconds +
-                            _subtitleOffsetMs.round(),
-                      );
-                      final cues = subtitles.where(
-                        (cue) =>
-                            adjustedPosition >= cue.start &&
-                            adjustedPosition <= cue.end,
-                      );
-                      if (cues.isEmpty) return const SizedBox.shrink();
-                      return Center(
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 6,
+                  if (_isVlcActive) {
+                    return ValueListenableBuilder<VlcPlayerValue>(
+                      valueListenable: _vlcController!,
+                      builder: (context, value, _) {
+                        final adjustedPosition = Duration(
+                          milliseconds: value.position.inMilliseconds + _subtitleOffsetMs.round(),
+                        );
+                        final cues = subtitles.where((cue) => adjustedPosition >= cue.start && adjustedPosition <= cue.end);
+                        if (cues.isEmpty) return const SizedBox.shrink();
+                        return Center(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(4)),
+                            child: Text(cues.map((cue) => cue.text.toString()).join('\n'), textAlign: TextAlign.center, style: TextStyle(color: Colors.white, fontSize: compactPlayer ? 16 : 18, fontWeight: FontWeight.w600)),
                           ),
-                          decoration: BoxDecoration(
-                            color: Colors.black87,
-                            borderRadius: BorderRadius.circular(4),
+                        );
+                      },
+                    );
+                  } else {
+                    return ValueListenableBuilder<VideoPlayerValue>(
+                      valueListenable: _videoPlayerController!,
+                      builder: (context, value, _) {
+                        final adjustedPosition = Duration(milliseconds: value.position.inMilliseconds + _subtitleOffsetMs.round());
+                        final cues = subtitles.where((cue) => adjustedPosition >= cue.start && adjustedPosition <= cue.end);
+                        if (cues.isEmpty) return const SizedBox.shrink();
+                        return Center(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(4)),
+                            child: Text(cues.map((cue) => cue.text.toString()).join('\n'), textAlign: TextAlign.center, style: TextStyle(color: Colors.white, fontSize: compactPlayer ? 16 : 18, fontWeight: FontWeight.w600)),
                           ),
-                          child: Text(
-                            cues.map((cue) => cue.text.toString()).join('\n'),
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: compactPlayer ? 16 : 18,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                  );
+                        );
+                      },
+                    );
+                  }
                 },
               ),
             ),
