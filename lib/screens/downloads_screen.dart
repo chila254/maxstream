@@ -6,6 +6,7 @@ import '../database/db_helper.dart';
 import '../services/media_download_manager.dart';
 import '../widgets/app_network_image.dart';
 import '../widgets/app_shimmer.dart';
+import '../widgets/video_player_screen.dart';
 
 class DownloadsScreen extends StatefulWidget {
   final bool embedded;
