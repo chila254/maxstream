@@ -16,6 +16,10 @@
 -dontwarn kotlin.**
 -dontwarn kotlin.Metadata
 
+# org.json - Firebase Database uses its own bundled version; prevent R8 from
+# renaming JSONStringer fields which causes NoSuchFieldError at runtime.
+-keep class org.json.** { *; }
+
 # Keep line numbers for debugging
 -keepattributes SourceFile,LineNumberTable
 
