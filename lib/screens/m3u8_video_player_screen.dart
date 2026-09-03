@@ -3227,10 +3227,13 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         : 92.0;
     Widget innerPlayer;
     if (isVlc && vlc != null) {
-      innerPlayer = VlcPlayer(
-        controller: vlc,
-        aspectRatio: aspect,
-        placeholder: const Center(child: CircularProgressIndicator(color: Colors.red)),
+      innerPlayer = ColoredBox(
+        color: Colors.black,
+        child: VlcPlayer(
+          controller: vlc,
+          aspectRatio: aspect,
+          placeholder: const Center(child: CircularProgressIndicator(color: Colors.red)),
+        ),
       );
     } else if (controller != null) {
       innerPlayer = VideoPlayer(controller);
