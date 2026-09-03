@@ -831,18 +831,34 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
               url.toLowerCase().contains('.m3u8'),
         );
         if (!initialized) {
-          _showStatus(
-            'That stream is unavailable. Finding a working stream...',
-          );
-          discoveredServers = true;
-          await _discoverAvailableServers(discoveryGeneration);
-          final candidates = _availableServers
-              .where(
-                (s) =>
-                    (s['url']?.toString() ?? '').isNotEmpty &&
-                    s['url']?.toString() != url,
-              )
-              .toList();
+          // For VidLink, try other qualities of the same server (720p → 480p → 360p) before
+          // jumping to the next server — some VidLink qualities play while others 428.
+          for (final q in qualities.where((q) => q.url != url && q.url.isNotEmpty)) {
+            _showStatus('Trying ${q.label}...');
+            initialized = await _initializePlayer(
+              q.url,
+              headers: headers,
+              source: source,
+              qualities: qualities,
+              selectedQuality: q.label,
+              position: resumePosition,
+              isHls: q.url.toLowerCase().contains('.m3u8') || source.toLowerCase().contains('vidlink'),
+            );
+            if (initialized) break;
+          }
+          if (!initialized) {
+            _showStatus(
+              'That stream is unavailable. Finding a working stream...',
+            );
+            discoveredServers = true;
+            await _discoverAvailableServers(discoveryGeneration);
+            final candidates = _availableServers
+                .where(
+                  (s) =>
+                      (s['url']?.toString() ?? '').isNotEmpty &&
+                      s['url']?.toString() != url,
+                )
+                .toList();
           // Prefer servers that pass the pre-flight check, but never block the
           // player from trying the rest: validation can miss streams a CDN
           // will happily serve to ExoPlayer.
@@ -865,6 +881,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
               primaryUrl: url,
             );
             if (initialized) break;
+          }
           }
         }
         if (!initialized) {
