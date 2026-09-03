@@ -9,7 +9,6 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import kotlinx.coroutines.*
-import org.videolan.libvlc.LibVLC
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -28,13 +27,6 @@ class MainActivity : FlutterActivity() {
 
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         installNativeCrashHandler()
-        // Initialize VLC native library before Flutter engine creates VlcPlayerController.
-        // Without this, VlcPlayer shows a white screen or throws channel-error.
-        try {
-            if (!LibVLC.isInitialized()) {
-                LibVLC.init(applicationContext)
-            }
-        } catch (_: Throwable) { }
         super.onCreate(savedInstanceState)
     }
 
