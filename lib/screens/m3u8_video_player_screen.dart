@@ -1508,30 +1508,39 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     _vlcController = null;
     _useVlc = useVlc;
 
-    final controller = useVlc
-        ? null
-        : VideoPlayerController.networkUrl(
-            Uri.parse(url),
-            httpHeaders: headers,
-            formatHint: isHls ? VideoFormat.hls : null,
-            videoPlayerOptions: VideoPlayerOptions(
-              backBufferDurationMs: 60000,
-              allowBackgroundPlayback: true,
-            ),
-          );
-    final vlcController = useVlc
-        ? VlcPlayerController.network(
-            url,
-            hwAcc: HwAcc.full,
-            autoPlay: false,
-            options: VlcPlayerOptions(
-              advanced: VlcAdvancedOptions([
-                VlcAdvancedOptions.networkCaching(2000),
-              ]),
-              rtp: VlcRtpOptions([VlcRtpOptions.rtpOverRtsp(true)]),
-            ),
-          )
-        : null;
+    VlcPlayerController? vlcController;
+    VideoPlayerController? controller;
+    if (useVlc) {
+      try {
+        vlcController = VlcPlayerController.network(
+          url,
+          hwAcc: HwAcc.full,
+          autoPlay: false,
+          options: VlcPlayerOptions(
+            advanced: VlcAdvancedOptions([VlcAdvancedOptions.networkCaching(2000)]),
+            rtp: VlcRtpOptions([VlcRtpOptions.rtpOverRtsp(true)]),
+          ),
+        );
+      } catch (e) {
+        debugPrint('VLC create failed ($e), falling back to ExoPlayer');
+        // Fallback: treat as ExoPlayer for this VidLink URL
+        controller = VideoPlayerController.networkUrl(
+          Uri.parse(url),
+          httpHeaders: headers,
+          formatHint: isHls ? VideoFormat.hls : null,
+          videoPlayerOptions: VideoPlayerOptions(backBufferDurationMs: 60000, allowBackgroundPlayback: true),
+        );
+        // Switch to Exo path below
+        vlcController = null;
+      }
+    } else {
+      controller = VideoPlayerController.networkUrl(
+        Uri.parse(url),
+        httpHeaders: headers,
+        formatHint: isHls ? VideoFormat.hls : null,
+        videoPlayerOptions: VideoPlayerOptions(backBufferDurationMs: 60000, allowBackgroundPlayback: true),
+      );
+    }
 
     try {
       _showStatus(
@@ -1539,31 +1548,87 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
             ? 'Loading video...'
             : 'Switching to $selectedQuality...',
       );
-      if (useVlc) {
-        final vlc = vlcController!;
-        if (!mounted) {
-          await vlc.dispose();
-          return;
+      if (useVlc && vlcController != null) {
+        final vlc = vlcController;
+        try {
+          if (!mounted) {
+            await vlc.dispose();
+            return;
+          }
+          vlc.addListener(_handleVlcPlaybackChanged);
+          setState(() {
+            _vlcController = vlc;
+            _videoPlayerController = null;
+            _useNativePlayer = true;
+            _useVlc = true;
+            _currentSource = source;
+            _streamHeaders = headers;
+            _qualities = qualities;
+            _selectedQuality = selectedQuality;
+            _isBuffering = false;
+            _isSwitchingQuality = false;
+            _videoInitialized = true;
+            _currentStreamUrl = url;
+            _currentStreamIsHls = isHls;
+          });
+          // Wait for VlcPlayer platform view to establish channel (prevents channel-error)
+          await Future<void>.delayed(const Duration(milliseconds: 350));
+          if (!mounted || _vlcController != vlc) return;
+          if (position > Duration.zero) await vlc.seekTo(position);
+          if (shouldPlay) {
+            try {
+              await vlc.play();
+            } on PlatformException catch (e) {
+              if (e.code == 'channel-error') {
+                debugPrint('VLC channel-error, falling back to ExoPlayer for VidLink');
+                throw e;
+              }
+              rethrow;
+            }
+          }
+          _startProgressSaving();
+        } catch (e) {
+          // Fallback to ExoPlayer for same VidLink URL if VLC fails to initialize/play
+          if (e is PlatformException && e.code == 'channel-error') {
+            debugPrint('VLC failed ($e), retrying VidLink via ExoPlayer');
+            await vlc.dispose();
+            if (!mounted) return;
+            setState(() {
+              _vlcController = null;
+              _useVlc = false;
+            });
+            final fallback = VideoPlayerController.networkUrl(
+              Uri.parse(url),
+              httpHeaders: headers,
+              formatHint: isHls ? VideoFormat.hls : null,
+              videoPlayerOptions: VideoPlayerOptions(backBufferDurationMs: 60000, allowBackgroundPlayback: true),
+            );
+            await fallback.initialize();
+            if (position > Duration.zero) await fallback.seekTo(position);
+            if (shouldPlay) await fallback.play();
+            if (!mounted) {
+              await fallback.dispose();
+              return;
+            }
+            fallback.addListener(_handlePlaybackChanged);
+            setState(() {
+              _videoPlayerController = fallback;
+              _useNativePlayer = true;
+              _currentSource = source;
+              _streamHeaders = headers;
+              _qualities = qualities;
+              _selectedQuality = selectedQuality;
+              _isBuffering = fallback.value.isBuffering;
+              _isSwitchingQuality = false;
+              _videoInitialized = true;
+              _currentStreamUrl = url;
+              _currentStreamIsHls = isHls;
+            });
+            _startProgressSaving();
+            return;
+          }
+          rethrow;
         }
-        vlc.addListener(_handleVlcPlaybackChanged);
-        setState(() {
-          _vlcController = vlc;
-          _videoPlayerController = null;
-          _useNativePlayer = true;
-          _useVlc = true;
-          _currentSource = source;
-          _streamHeaders = headers;
-          _qualities = qualities;
-          _selectedQuality = selectedQuality;
-          _isBuffering = false;
-          _isSwitchingQuality = false;
-          _videoInitialized = true;
-          _currentStreamUrl = url;
-          _currentStreamIsHls = isHls;
-        });
-        if (position > Duration.zero) await vlc.seekTo(position);
-        if (shouldPlay) await vlc.play();
-        _startProgressSaving();
       } else {
         final c = controller!;
         await c.initialize();
@@ -1594,7 +1659,49 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
 
         _startProgressSaving();
       }
-    } catch (_) {
+    } catch (e) {
+      // If VLC failed to even create (channel-error before widget built), fall back to ExoPlayer for same VidLink URL
+      if (useVlc && e is PlatformException && e.code == 'channel-error') {
+        debugPrint('VLC create failed ($e), retrying VidLink via ExoPlayer');
+        await vlcController?.dispose();
+        if (!mounted) rethrow;
+        final fallback = VideoPlayerController.networkUrl(
+          Uri.parse(url),
+          httpHeaders: headers,
+          formatHint: isHls ? VideoFormat.hls : null,
+          videoPlayerOptions: VideoPlayerOptions(backBufferDurationMs: 60000, allowBackgroundPlayback: true),
+        );
+        try {
+          await fallback.initialize();
+          if (position > Duration.zero) await fallback.seekTo(position);
+          if (shouldPlay) await fallback.play();
+          if (!mounted) {
+            await fallback.dispose();
+            return;
+          }
+          fallback.addListener(_handlePlaybackChanged);
+          setState(() {
+            _videoPlayerController = fallback;
+            _vlcController = null;
+            _useVlc = false;
+            _useNativePlayer = true;
+            _currentSource = source;
+            _streamHeaders = headers;
+            _qualities = qualities;
+            _selectedQuality = selectedQuality;
+            _isBuffering = fallback.value.isBuffering;
+            _isSwitchingQuality = false;
+            _videoInitialized = true;
+            _currentStreamUrl = url;
+            _currentStreamIsHls = isHls;
+          });
+          _startProgressSaving();
+          return;
+        } catch (_) {
+          await fallback.dispose();
+          rethrow;
+        }
+      }
       if (useVlc) {
         await vlcController?.dispose();
       } else {
