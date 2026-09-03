@@ -55,14 +55,14 @@ jobs:
       - name: Flutter pub get
         run: flutter pub get
 
-      - name: Build Mobile APK
-        run: flutter build apk --release
+      - name: Build Mobile APKs (split per ABI for VLC size)
+        run: flutter build apk --release --split-per-abi
 
-      - name: Upload Mobile APK
+      - name: Upload Mobile APKs (arm64 + arm)
         uses: actions/upload-artifact@v4
         with:
-          name: maxstream-mobile.apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+          name: maxstream-mobile-apks
+          path: build/app/outputs/flutter-apk/app-*.apk
           retention-days: 7
 
   build-tv:
