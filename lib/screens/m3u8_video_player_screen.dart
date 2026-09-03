@@ -1584,8 +1584,11 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
           if (position > Duration.zero) {
             try {
               await vlc.seekTo(position);
-            } on LateInitializationError {
-              debugPrint('VLC seekTo failed (viewId not ready), falling back to ExoPlayer');
+            } catch (e) {
+              if (e.toString().contains('_viewId')) {
+                debugPrint('VLC seekTo failed (viewId not ready), falling back to ExoPlayer');
+                rethrow;
+              }
               rethrow;
             }
           }
@@ -1598,8 +1601,11 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
                 throw e;
               }
               rethrow;
-            } on LateInitializationError {
-              debugPrint('VLC play failed (viewId not ready), falling back to ExoPlayer');
+            } catch (e) {
+              if (e.toString().contains('_viewId')) {
+                debugPrint('VLC play failed (viewId not ready), falling back to ExoPlayer');
+                rethrow;
+              }
               rethrow;
             }
           }
@@ -1608,7 +1614,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         } catch (e) {
           // Fallback to ExoPlayer for same VidLink URL if VLC fails to initialize/play
           final isVlcError = e is PlatformException && e.code == 'channel-error';
-          final isLateInit = e is LateInitializationError;
+          final isLateInit = e.toString().contains('_viewId');
           if ((isVlcError || isLateInit) && vlcController != null) {
             debugPrint('VLC failed ($e), retrying VidLink via ExoPlayer');
             try { await vlcController!.dispose(); } catch (_) {}
