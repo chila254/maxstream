@@ -900,12 +900,36 @@ fun PlayerScreen(
                     ?.let { parseSubtitleCues(it) }
                     .orEmpty()
             }
-            val player = buildPlayer(
-                url = primary.url,
-                headers = primary.headers,
-                isHls = primary.isHls,
-                startMs = resumePositionMs,
-            )
+            // For VidLink, try 720p → 480p → 360p within the same server before giving up —
+            // some VidLink qualities 428 while others play.
+            val vidlinkQualities = if (primary.server == "VidLink" || primary.extractor == "VidLink") {
+                primary.qualities.sortedByDescending { it.height }
+                    .filter { it.url.isNotBlank() && it.url != primary.url }
+            } else emptyList()
+            var player: ExoPlayer? = null
+            var lastError: Exception? = null
+            val candidates = listOf(primary) + vidlinkQualities.map { q ->
+                primary.copy(url = q.url, headers = primary.headers)
+            }
+            for (candidate in candidates) {
+                try {
+                    val p = buildPlayer(
+                        url = candidate.url,
+                        headers = candidate.headers,
+                        isHls = candidate.isHls,
+                        startMs = resumePositionMs,
+                    )
+                    // Quick validation: if build succeeds, use it
+                    player = p
+                    source = candidate
+                    selectedQualityLabel = qualityLabelFor(candidate)
+                    break
+                } catch (e: Exception) {
+                    lastError = e
+                    continue
+                }
+            }
+            if (player == null) throw lastError ?: IllegalStateException("Failed to build player for ${primary.server}")
             releasePlayer(exoPlayer)
             exoPlayer = player
             // The player for the load target is now live — from here on, saves
