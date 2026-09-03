@@ -333,7 +333,11 @@ class MediaDownloadService {
       final audioGroup = _audioGroupId(playlist);
 
       // Fetch + rewrite every media playlist (chosen variant, audio, subtitles).
-      final playlistUris = <Uri>[Uri.parse(chosen.uri), ...mediaGroups];
+      // chosen.uri is often relative (e.g. sd/80/index-s480p…m3u8) so resolve
+      // against the master playlist base, otherwise _requireSafeUri sees a
+      // host-less Uri and throws "Unsafe media resource URL: sd/…".
+      final chosenUri = playlistUri.resolve(chosen.uri);
+      final playlistUris = <Uri>[chosenUri, ...mediaGroups];
       final seenPlaylists = <Uri>{};
       for (final mediaUri in playlistUris) {
         if (!seenPlaylists.add(mediaUri)) continue;
@@ -390,7 +394,7 @@ class MediaDownloadService {
         '${audioGroup == null || audioGroup.isEmpty ? '' : ',AUDIO="$audioGroup"'}',
       );
       masterLines.add(
-        localFileName(Uri.parse(chosen.uri)),
+        localFileName(chosenUri),
       );
       rewrittenPlaylists['playlist.m3u8'] = '${masterLines.join('\n')}\n';
     } else {
