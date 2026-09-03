@@ -56,13 +56,31 @@ jobs:
         run: flutter pub get
 
       - name: Build Mobile APKs (split per ABI for VLC size)
-        run: flutter build apk --release --split-per-abi
+        run: |
+          # --split-per-abi produces app-arm64-v8a-release.apk + app-armeabi-v7a-release.apk
+          # Flutter's post-build check looks for app-release.apk (single) and fails, so || true
+          flutter build apk --release --split-per-abi || true
+          # Verify the split APKs actually exist
+          ls -lh build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+          ls -lh build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
+          # Copy into per-ABI folders for clean artifact upload
+          mkdir -p build/app/outputs/flutter-apk/arm64
+          mkdir -p build/app/outputs/flutter-apk/arm
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk build/app/outputs/flutter-apk/arm64/maxstream-arm64.apk
+          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk build/app/outputs/flutter-apk/arm/maxstream-arm.apk
 
-      - name: Upload Mobile APKs (arm64 + arm)
+      - name: Upload arm64-v8a APK
         uses: actions/upload-artifact@v4
         with:
-          name: maxstream-mobile-apks
-          path: build/app/outputs/flutter-apk/app-*.apk
+          name: maxstream-mobile-arm64
+          path: build/app/outputs/flutter-apk/arm64/maxstream-arm64.apk
+          retention-days: 7
+
+      - name: Upload armeabi-v7a APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: maxstream-mobile-arm
+          path: build/app/outputs/flutter-apk/arm/maxstream-arm.apk
           retention-days: 7
 
   build-tv:

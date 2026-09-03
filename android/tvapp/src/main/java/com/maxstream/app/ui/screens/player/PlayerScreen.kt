@@ -284,6 +284,11 @@ fun PlayerScreen(
     var isPlaying by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
+    var retryPlaybackCount by remember { mutableIntStateOf(0) }
+    // Captured for onPlayerError retry (headers aren't accessible from player after build)
+    var _lastPlayerUrl by remember { mutableStateOf("") }
+    var _lastPlayerHeaders by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var _lastPlayerIsHls by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("") }
     var menuOpen by remember { mutableStateOf(false) }
     var activeMenu by remember { mutableStateOf<PlayerMenu?>(null) }
@@ -532,7 +537,7 @@ fun PlayerScreen(
                 DefaultLoadControl.Builder()
                     .setBufferDurationsMs(
                         DefaultLoadControl.DEFAULT_MIN_BUFFER_MS,
-                        300_000,
+                        60_000,
                         DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_MS,
                         DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS,
                     )
@@ -558,6 +563,41 @@ fun PlayerScreen(
                         if (!isMovie) {
                             coroutineScope.launch { playNextEpisode() }
                         }
+                    }
+                }
+
+                override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                    // Auto-retry transient errors (network glitch, 403, decoder hiccup)
+                    // up to MAX_PLAYER_RETRIES with exponential backoff before giving up.
+                    if (retryPlaybackCount < MAX_PLAYER_RETRIES) {
+                        retryPlaybackCount++
+                        val backoffMs = 1000L * retryPlaybackCount
+                        Log.w("TVPlayer", "Playback error (retry $retryPlaybackCount/$MAX_PLAYER_RETRIES in ${backoffMs}ms): ${error.message}")
+                        val capturedUrl = _lastPlayerUrl
+                        val capturedHeaders = _lastPlayerHeaders
+                        val capturedIsHls = _lastPlayerIsHls
+                        coroutineScope.launch {
+                            delay(backoffMs)
+                            try {
+                                val pos = player.currentPosition
+                                player.release()
+                                val p = buildPlayer(
+                                    url = capturedUrl,
+                                    headers = capturedHeaders,
+                                    isHls = capturedIsHls,
+                                    startMs = pos,
+                                )
+                                exoPlayer = p
+                            } catch (e: Exception) {
+                                Log.e("TVPlayer", "Retry failed: ${e.message}")
+                                this@PlayerScreen.error = e.message ?: "Playback failed"
+                                loading = false
+                            }
+                        }
+                    } else {
+                        Log.e("TVPlayer", "Playback error after $MAX_PLAYER_RETRIES retries: ${error.message}")
+                        this@PlayerScreen.error = error.message ?: "Playback failed"
+                        loading = false
                     }
                 }
             },
@@ -788,10 +828,18 @@ fun PlayerScreen(
         }
     }
 
-    /** Resolves the initial stream, remembers the resume position, and starts playback. */
+    /** Max retries for transient ExoPlayer errors (403, network glitch, decoder hiccup)
+     *  before giving up and showing error to user. */
+    private val MAX_PLAYER_RETRIES = 3
+
+    /** Resolved the initial stream, remembers the resume position, and starts playback. */
     suspend fun loadAndPlay() {
         loading = true
         error = null
+        retryPlaybackCount = 0
+        _lastPlayerUrl = ""
+        _lastPlayerHeaders = emptyMap()
+        _lastPlayerIsHls = false
         try {
             // Fetch metadata so Continue Watching entries carry a title + poster.
             // For series, also resolve the current episode's still + name so the
@@ -932,6 +980,10 @@ fun PlayerScreen(
             if (player == null) throw lastError ?: IllegalStateException("Failed to build player for ${primary.server}")
             releasePlayer(exoPlayer)
             exoPlayer = player
+            // Capture for onPlayerError retry (headers aren't accessible from player after build)
+            _lastPlayerUrl = source?.url ?: ""
+            _lastPlayerHeaders = source?.headers ?: emptyMap()
+            _lastPlayerIsHls = source?.isHls ?: false
             // The player for the load target is now live — from here on, saves
             // are attributed to this episode (and not the previous one whose
             // player is still being torn down).
