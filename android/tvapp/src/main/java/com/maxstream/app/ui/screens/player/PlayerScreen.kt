@@ -139,6 +139,9 @@ private data class SubtitleOption(
     val source: String = "",
 )
 
+/** Max retries for transient ExoPlayer errors (403, network glitch, decoder hiccup). */
+private const val MAX_PLAYER_RETRIES = 3
+
 /** A single timed caption parsed from a VTT/SRT file, rendered as an overlay
  * on top of the player (mirrors Dart's _SubtitleCue/_findSubtitleText). */
 private data class SubtitleCue(
@@ -568,11 +571,11 @@ fun PlayerScreen(
 
                 override fun onPlayerError(playbackError: androidx.media3.common.PlaybackException) {
                     // Auto-retry transient errors (network glitch, 403, decoder hiccup)
-                    // up to maxPlayerRetries with exponential backoff before giving up.
-                    if (retryPlaybackCount < maxPlayerRetries) {
+                    // up to MAX_PLAYER_RETRIES with exponential backoff before giving up.
+                    if (retryPlaybackCount < MAX_PLAYER_RETRIES) {
                         retryPlaybackCount++
                         val backoffMs = 1000L * retryPlaybackCount
-                        Log.w("TVPlayer", "Playback error (retry $retryPlaybackCount/$maxPlayerRetries in ${backoffMs}ms): ${playbackError.message}")
+                        Log.w("TVPlayer", "Playback error (retry $retryPlaybackCount/$MAX_PLAYER_RETRIES in ${backoffMs}ms): ${playbackError.message}")
                         val capturedUrl = _lastPlayerUrl
                         val capturedHeaders = _lastPlayerHeaders
                         val capturedIsHls = _lastPlayerIsHls
@@ -595,7 +598,7 @@ fun PlayerScreen(
                             }
                         }
                     } else {
-                        Log.e("TVPlayer", "Playback error after $maxPlayerRetries retries: ${playbackError.message}")
+                        Log.e("TVPlayer", "Playback error after $MAX_PLAYER_RETRIES retries: ${playbackError.message}")
                         error = playbackError.message ?: "Playback failed"
                         loading = false
                     }
@@ -827,10 +830,6 @@ fun PlayerScreen(
             }
         }
     }
-
-    /** Max retries for transient ExoPlayer errors (403, network glitch, decoder hiccup)
-     *  before giving up and showing error to user. */
-    val maxPlayerRetries = 3
 
     /** Resolved the initial stream, remembers the resume position, and starts playback. */
     suspend fun loadAndPlay() {
