@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../database/db_helper.dart';
 import '../models/movie.dart';
 import '../services/cloud_sync_service.dart';
-import '../widgets/custom_loading_widget.dart';
+import '../widgets/app_shimmer.dart';
 import 'maxstream_details_screen.dart';
 import 'maxstream_series_screen.dart';
 import '../widgets/app_network_image.dart';
@@ -113,8 +113,25 @@ class _MaxStreamWatchlistScreenState extends State<MaxStreamWatchlistScreen>
   @override
   Widget build(BuildContext context) {
     final body = isLoading
-        ? const Center(
-            child: MovieLoadingWidget(text: 'Loading watchlist...'),
+        ? AppShimmer(
+            baseColor: Colors.grey[800]!,
+            highlightColor: Colors.grey[600]!,
+            child: GridView.builder(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 3,
+                childAspectRatio: 0.6,
+                crossAxisSpacing: 8,
+                mainAxisSpacing: 8,
+              ),
+              itemCount: 9,
+              itemBuilder: (_, __) => Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+            ),
           )
         : TabBarView(
             controller: _tabController,
