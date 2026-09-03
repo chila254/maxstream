@@ -4,8 +4,8 @@ import 'package:flutter/material.dart';
 
 import '../database/db_helper.dart';
 import '../services/media_download_manager.dart';
-import '../widgets/video_player_screen.dart';
 import '../widgets/app_network_image.dart';
+import '../widgets/app_shimmer.dart';
 
 class DownloadsScreen extends StatefulWidget {
   final bool embedded;
@@ -187,8 +187,32 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
       series.putIfAbsent(key, () => []).add(episode);
     }
 
+    String totalSizeLabel(Iterable<int?> bytes) {
+      final total = bytes.whereType<int>().fold<int>(0, (a, b) => a + b);
+      if (total == 0) return '';
+      if (total < 1024 * 1024) return '${(total / 1024).toStringAsFixed(0)} KB';
+      if (total < 1024 * 1024 * 1024) return '${(total / (1024 * 1024)).toStringAsFixed(1)} MB';
+      return '${(total / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
+    }
+
+    final activeTotal = totalSizeLabel(_downloadManager.activeDownloads.map((d) => d.totalBytes));
+    final downloadedMoviesSize = totalSizeLabel(movies.map((m) => m['totalBytes'] as int? ?? m['fileSize'] as int?));
+    // series total from episodes' file sizes if available
+
     final body = _loading && _downloadManager.activeDownloads.isEmpty
-        ? const Center(child: CircularProgressIndicator(color: Colors.red))
+        ? AppShimmer(
+            baseColor: Colors.grey[800]!,
+            highlightColor: Colors.grey[600]!,
+            child: ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: 3,
+              itemBuilder: (_, __) => Container(
+                height: 88,
+                margin: const EdgeInsets.only(bottom: 12),
+                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+          )
         : _downloads.isEmpty && _downloadManager.activeDownloads.isEmpty
         ? const Center(
             child: Column(
@@ -215,7 +239,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
               children: [
                 if (_downloadManager.activeDownloads.isNotEmpty) ...[
                   _sectionTitle(
-                    'Downloading',
+                    'Downloading${activeTotal.isNotEmpty ? ' • $activeTotal' : ''}',
                     _downloadManager.activeDownloads.length,
                   ),
                   ..._downloadManager.activeDownloads.map(
@@ -224,9 +248,12 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                   const SizedBox(height: 20),
                 ],
                 if (_downloads.isNotEmpty)
-                  _sectionTitle('Downloaded', _downloads.length),
+                  _sectionTitle(
+                    'Downloaded${downloadedMoviesSize.isNotEmpty ? ' • $downloadedMoviesSize' : ''}',
+                    _downloads.length,
+                  ),
                 if (movies.isNotEmpty) ...[
-                  _subsectionTitle('Movies'),
+                  _subsectionTitle('Movies${downloadedMoviesSize.isNotEmpty ? ' • $downloadedMoviesSize' : ''}'),
                   ...movies.map(_downloadTile),
                   const SizedBox(height: 20),
                 ],
@@ -377,6 +404,29 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
     });
     final first = episodes.first;
     final title = first['title']?.toString().split(' - S').first ?? 'Series';
+    // Total size for this series (sum of local files + active downloads for its episodes)
+    String seriesTotal() {
+      int total = 0;
+      for (final ep in episodes) {
+        final path = ep['localPath']?.toString() ?? '';
+        if (path.isNotEmpty) {
+          try {
+            final f = File(path);
+            if (f.existsSync()) total += f.lengthSync();
+          } catch (_) {}
+        }
+      }
+      // Add active downloads for this series if any
+      final sid = first['seriesId']?.toString() ?? first['mediaId'].toString();
+      for (final d in _downloadManager.activeDownloads) {
+        if (d.seriesId?.toString() == sid && d.totalBytes != null) total += d.totalBytes!;
+      }
+      if (total == 0) return '';
+      if (total < 1024 * 1024) return ' • ${(total / 1024).toStringAsFixed(0)} KB';
+      if (total < 1024 * 1024 * 1024) return ' • ${(total / (1024 * 1024)).toStringAsFixed(1)} MB';
+      return ' • ${(total / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
+    }
+
     final seasons = <int, List<Map<String, dynamic>>>{};
     for (final episode in episodes) {
       final season = (episode['seasonNumber'] as num?)?.toInt() ?? 1;
@@ -388,7 +438,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
         leading: _thumbnail(first['thumbnail']?.toString() ?? ''),
         title: Text(title, style: const TextStyle(color: Colors.white)),
         subtitle: Text(
-          '${episodes.length} downloaded episode${episodes.length == 1 ? '' : 's'}',
+          '${episodes.length} downloaded episode${episodes.length == 1 ? '' : 's'}${seriesTotal()}',
           style: const TextStyle(color: Colors.white54),
         ),
         iconColor: Colors.white,
