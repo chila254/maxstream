@@ -1556,42 +1556,62 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
             return;
           }
           vlc.addListener(_handleVlcPlaybackChanged);
+          // Show loading indicator first — VLC platform view not built yet
+          setState(() {
+            _videoInitialized = false;
+            _useVlc = true;
+            _useNativePlayer = true;
+            _isBuffering = true;
+          });
+          // Assign controller so VlcPlayer widget renders and creates platform view
           setState(() {
             _vlcController = vlc;
             _videoPlayerController = null;
-            _useNativePlayer = true;
-            _useVlc = true;
             _currentSource = source;
             _streamHeaders = headers;
             _qualities = qualities;
             _selectedQuality = selectedQuality;
-            _isBuffering = false;
             _isSwitchingQuality = false;
-            _videoInitialized = true;
             _currentStreamUrl = url;
             _currentStreamIsHls = isHls;
           });
-          // Wait for VlcPlayer platform view to establish channel (prevents channel-error)
-          await Future<void>.delayed(const Duration(milliseconds: 350));
-          if (!mounted || _vlcController != vlc) return;
-          if (position > Duration.zero) await vlc.seekTo(position);
+          // Wait for VlcPlayer platform view to fully initialize (LateInit viewId)
+          await Future<void>.delayed(const Duration(milliseconds: 800));
+          if (!mounted || _vlcController != vlc) {
+            await vlc.dispose();
+            return;
+          }
+          if (position > Duration.zero) {
+            try {
+              await vlc.seekTo(position);
+            } on LateInitializationError {
+              debugPrint('VLC seekTo failed (viewId not ready), falling back to ExoPlayer');
+              rethrow;
+            }
+          }
           if (shouldPlay) {
             try {
               await vlc.play();
             } on PlatformException catch (e) {
               if (e.code == 'channel-error') {
-                debugPrint('VLC channel-error, falling back to ExoPlayer for VidLink');
+                debugPrint('VLC channel-error, falling back to ExoPlayer');
                 throw e;
               }
               rethrow;
+            } on LateInitializationError {
+              debugPrint('VLC play failed (viewId not ready), falling back to ExoPlayer');
+              rethrow;
             }
           }
+          if (mounted) setState(() => _videoInitialized = true);
           _startProgressSaving();
         } catch (e) {
           // Fallback to ExoPlayer for same VidLink URL if VLC fails to initialize/play
-          if (e is PlatformException && e.code == 'channel-error') {
+          final isVlcError = e is PlatformException && e.code == 'channel-error';
+          final isLateInit = e is LateInitializationError;
+          if ((isVlcError || isLateInit) && vlcController != null) {
             debugPrint('VLC failed ($e), retrying VidLink via ExoPlayer');
-            await vlc.dispose();
+            try { await vlcController!.dispose(); } catch (_) {}
             if (!mounted) return;
             setState(() {
               _vlcController = null;
