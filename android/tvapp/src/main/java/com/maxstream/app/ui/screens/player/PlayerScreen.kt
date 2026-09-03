@@ -566,13 +566,13 @@ fun PlayerScreen(
                     }
                 }
 
-                override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                override fun onPlayerError(playbackError: androidx.media3.common.PlaybackException) {
                     // Auto-retry transient errors (network glitch, 403, decoder hiccup)
-                    // up to MAX_PLAYER_RETRIES with exponential backoff before giving up.
-                    if (retryPlaybackCount < MAX_PLAYER_RETRIES) {
+                    // up to maxPlayerRetries with exponential backoff before giving up.
+                    if (retryPlaybackCount < maxPlayerRetries) {
                         retryPlaybackCount++
                         val backoffMs = 1000L * retryPlaybackCount
-                        Log.w("TVPlayer", "Playback error (retry $retryPlaybackCount/$MAX_PLAYER_RETRIES in ${backoffMs}ms): ${error.message}")
+                        Log.w("TVPlayer", "Playback error (retry $retryPlaybackCount/$maxPlayerRetries in ${backoffMs}ms): ${playbackError.message}")
                         val capturedUrl = _lastPlayerUrl
                         val capturedHeaders = _lastPlayerHeaders
                         val capturedIsHls = _lastPlayerIsHls
@@ -590,13 +590,13 @@ fun PlayerScreen(
                                 exoPlayer = p
                             } catch (e: Exception) {
                                 Log.e("TVPlayer", "Retry failed: ${e.message}")
-                                this@PlayerScreen.error = e.message ?: "Playback failed"
+                                error = e.message ?: "Playback failed"
                                 loading = false
                             }
                         }
                     } else {
-                        Log.e("TVPlayer", "Playback error after $MAX_PLAYER_RETRIES retries: ${error.message}")
-                        this@PlayerScreen.error = error.message ?: "Playback failed"
+                        Log.e("TVPlayer", "Playback error after $maxPlayerRetries retries: ${playbackError.message}")
+                        error = playbackError.message ?: "Playback failed"
                         loading = false
                     }
                 }
@@ -830,7 +830,7 @@ fun PlayerScreen(
 
     /** Max retries for transient ExoPlayer errors (403, network glitch, decoder hiccup)
      *  before giving up and showing error to user. */
-    private val MAX_PLAYER_RETRIES = 3
+    val maxPlayerRetries = 3
 
     /** Resolved the initial stream, remembers the resume position, and starts playback. */
     suspend fun loadAndPlay() {
