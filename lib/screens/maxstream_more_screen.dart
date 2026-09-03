@@ -7,6 +7,8 @@ import '../screens/profile_settings_screen.dart';
 import '../screens/streaming_provider_settings_screen.dart';
 import '../screens/tv_pairing_screen.dart';
 import '../screens/maxstream_about_screen.dart';
+import '../screens/server_health_screen.dart';
+import '../screens/updates_screen.dart';
 
 import '../widgets/profile_avatar.dart';
 
@@ -163,6 +165,32 @@ class _MaxStreamMoreScreenState extends State<MaxStreamMoreScreen> {
                       );
                     },
                 transitionDuration: const Duration(milliseconds: 250),
+              ),
+            );
+          },
+        ),
+        _buildMenuItem(
+          icon: Icons.health_and_safety,
+          title: 'Server Health',
+          onTap: () {
+            if (!mounted) return;
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const ServerHealthScreen(),
+              ),
+            );
+          },
+        ),
+        _buildMenuItem(
+          icon: Icons.system_update,
+          title: 'Updates',
+          onTap: () {
+            if (!mounted) return;
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const UpdatesScreen(),
               ),
             );
           },

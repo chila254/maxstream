@@ -243,6 +243,23 @@ class MainActivity : FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, INSTALL_CHANNEL)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
+                    "getArch" -> {
+                        // Return the device's primary ABI for APK variant selection.
+                        val primaryAbi = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
+                            android.os.Build.SUPPORTED_ABIS.firstOrNull() ?: "arm64-v8a"
+                        } else {
+                            @Suppress("DEPRECATION")
+                            android.os.Build.CPU_ABI
+                        }
+                        // Map CPU ABI to APK variant name
+                        val variant = when {
+                            primaryAbi.contains("arm64") || primaryAbi.contains("aarch64") -> "arm64-v8a"
+                            primaryAbi.contains("arm") -> "armeabi-v7a"
+                            primaryAbi.contains("x86_64") || primaryAbi.contains("amd64") -> "x86_64"
+                            else -> primaryAbi
+                        }
+                        result.success(variant)
+                    }
                     "installApk" -> {
                         val filePath = call.argument<String>("filePath") ?: ""
                         try {

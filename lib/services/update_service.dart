@@ -5,8 +5,35 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'notification_service.dart';
+
+/// APK variant names matching GitHub release assets.
+const Map<String, String> kApkVariants = {
+  'arm64-v8a': 'maxstream-arm64-v8a.apk',
+  'armeabi-v7a': 'maxstream-armeabi-v7a.apk',
+  'x86_64': 'maxstream-x86_64.apk',
+};
+
+/// Get the device's primary ABI (arm64-v8a, armeabi-v7a, x86_64).
+Future<String> getDeviceArch() async {
+  try {
+    if (Platform.isAndroid) {
+      final arch = await const MethodChannel('com.maxstream.app/install')
+          .invokeMethod<String>('getArch');
+      if (arch != null && kApkVariants.containsKey(arch)) return arch;
+    }
+  } catch (_) {}
+  // Fallback from Dart
+  try {
+    final abi = Platform.operatingSystemVersion;
+    if (abi.contains('arm64') || abi.contains('aarch64')) return 'arm64-v8a';
+    if (abi.contains('arm')) return 'armeabi-v7a';
+    if (abi.contains('x86_64') || abi.contains('amd64')) return 'x86_64';
+  } catch (_) {}
+  return 'arm64-v8a'; // default to most common
+}
 
 class UpdateInfo {
   final String downloadUrl;
@@ -198,8 +225,37 @@ class UpdateService {
       if (latestVersion.isEmpty) return null;
       if (!_isVersionNewer(currentVersion, latestVersion)) return null;
 
-      // Find the MaxStream.apk asset (never the TV variant).
+      // Auto-detect device variant and find matching APK asset.
+      final deviceArch = await getDeviceArch();
+      final expectedFilename = kApkVariants[deviceArch] ?? 'maxstream-arm64-v8a.apk';
+
       final assets = response.data['assets'] as List<dynamic>? ?? [];
+
+      // First, try to find the exact variant match.
+      for (final asset in assets) {
+        final name = (asset['name'] as String? ?? '');
+        if (name == expectedFilename) {
+          return UpdateInfo(
+            downloadUrl: asset['browser_download_url'] as String,
+            version: latestVersion,
+            changelog: changelog,
+          );
+        }
+      }
+
+      // Fallback: find any arm64 APK (most common).
+      for (final asset in assets) {
+        final name = (asset['name'] as String? ?? '').toLowerCase();
+        if (name.endsWith('.apk') && name.contains('maxstream-arm64')) {
+          return UpdateInfo(
+            downloadUrl: asset['browser_download_url'] as String,
+            version: latestVersion,
+            changelog: changelog,
+          );
+        }
+      }
+
+      // Last fallback: any maxstream APK (not TV).
       for (final asset in assets) {
         final name = (asset['name'] as String? ?? '').toLowerCase();
         if (name.endsWith('.apk') &&
@@ -247,6 +303,16 @@ class UpdateService {
 
   static bool reserveUpdateDialog(String version) =>
       _shownDialogVersions.add(version);
+
+  /// Check if auto-check for updates is enabled in settings.
+  static Future<bool> isAutoCheckEnabled() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getBool('auto_check_updates') ?? true;
+    } catch (_) {
+      return true;
+    }
+  }
 
   /// Download and install the APK from the given GitHub URL.
   /// At 100% the progress dialog now shows a website fallback, and after

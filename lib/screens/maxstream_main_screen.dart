@@ -65,11 +65,15 @@ class _MaxStreamMainScreenState extends State<MaxStreamMainScreen> {
   }
 
   Future<void> _initializeServices() async {
-    unawaited(_checkForUpdates());
-    _updateTimer = Timer.periodic(
-      const Duration(hours: 1),
-      (_) => unawaited(_checkForUpdates()),
-    );
+    // Only check for updates if auto-check is enabled
+    final autoCheck = await UpdateService.isAutoCheckEnabled();
+    if (autoCheck) {
+      unawaited(_checkForUpdates());
+      _updateTimer = Timer.periodic(
+        const Duration(hours: 1),
+        (_) => unawaited(_checkForUpdates()),
+      );
+    }
     _checkNotificationPermission();
     _contentCheckTimer = Timer.periodic(
       const Duration(hours: 6),

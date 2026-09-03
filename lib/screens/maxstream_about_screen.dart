@@ -1,4 +1,6 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -11,6 +13,7 @@ class MaxStreamAboutScreen extends StatefulWidget {
 
 class _MaxStreamAboutScreenState extends State<MaxStreamAboutScreen> {
   String _version = 'v1.6.0';
+  String _variant = '...';
 
   @override
   void initState() {
@@ -21,8 +24,32 @@ class _MaxStreamAboutScreenState extends State<MaxStreamAboutScreen> {
   Future<void> _loadVersion() async {
     try {
       final info = await PackageInfo.fromPlatform();
-      if (mounted) setState(() => _version = 'v${info.version}');
+      String variant = 'unknown';
+      try {
+        if (Platform.isAndroid) {
+          variant = await const MethodChannel('com.maxstream.app/install')
+              .invokeMethod<String>('getArch') ?? _getArchFromAbi();
+        }
+      } catch (_) {
+        variant = _getArchFromAbi();
+      }
+      if (mounted) {
+        setState(() {
+          _version = 'v${info.version}';
+          _variant = variant;
+        });
+      }
     } catch (_) {}
+  }
+
+  String _getArchFromAbi() {
+    try {
+      final abi = Platform.operatingSystemVersion;
+      if (abi.contains('arm64') || abi.contains('aarch64')) return 'arm64-v8a';
+      if (abi.contains('arm')) return 'armeabi-v7a';
+      if (abi.contains('x86_64') || abi.contains('amd64')) return 'x86_64';
+    } catch (_) {}
+    return 'unknown';
   }
 
   @override
@@ -66,6 +93,12 @@ class _MaxStreamAboutScreenState extends State<MaxStreamAboutScreen> {
                     icon: Icons.code,
                     title: 'Version',
                     content: _version,
+                  ),
+                  const SizedBox(height: 8),
+                  _buildInfoCard(
+                    icon: Icons.architecture,
+                    title: 'Variant',
+                    content: _variant,
                   ),
                   const SizedBox(height: 32),
                   _buildSectionTitle('Get Help'),
