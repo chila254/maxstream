@@ -228,13 +228,27 @@ bool isRenderFlexOverflowError(Object error) {
       msg.contains('overflowed by');
 }
 
+bool isBenignFvpStreamError(Object error) {
+  final msg = error.toString();
+  // fvp / MdkVideoPlayer throws Bad state: Cannot add event after closing when
+  // disposing a player while native events are still in flight (server switch).
+  // This is a race in the plugin, not an app bug - safe to ignore and let the
+  // new player take over. Otherwise it shows crash screen and leaves UI stuck
+  // at "Switching to Auto".
+  return msg.contains('Cannot add event after closing') &&
+      (msg.contains('MdkVideoPlayer') ||
+          msg.contains('fvp') ||
+          msg.contains('StreamController'));
+}
+
 /// Single decision point for whether an error should be ignored by every
 /// crash funnel (zone, FlutterError, PlatformDispatcher). A benign error never
 /// shows the crash screen and is never recorded as fatal.
 bool isBenignError(Object error) {
   return isBenignVideoPlayerChannelError(error) ||
       isBenignImageNetworkError(error) ||
-      isRenderFlexOverflowError(error);
+      isRenderFlexOverflowError(error) ||
+      isBenignFvpStreamError(error);
 }
 
 Future<void> recordCrash(String tag, Object error, StackTrace stack) async {

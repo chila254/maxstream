@@ -1489,14 +1489,19 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     required Duration position,
     required bool shouldPlay,
   }) async {
-    // Dispose old player before creating new one (prevents codec/heap exhaustion)
+    // Dispose old player without blocking switch - fvp/MdkVideoPlayer can throw
+    // Bad state: Cannot add event after closing if native events arrive after
+    // StreamController is closed during rapid server switches. Dispose in
+    // background and clear controller immediately so new player can start.
     final previousVideo = _videoPlayerController;
+    _videoPlayerController = null;
     if (previousVideo != null) {
-      previousVideo.removeListener(_handlePlaybackChanged);
-      await previousVideo.dispose();
+      try {
+        previousVideo.removeListener(_handlePlaybackChanged);
+      } catch (_) {}
+      unawaited(previousVideo.dispose().catchError((_) {}));
     }
     if (!mounted) return;
-    _videoPlayerController = null;
 
     // Detect MIME: force mp4 for proxied VidLink URLs or URLs with .mp4 extension
     final isProxied = url.contains('noon.mooncase.online');
@@ -1556,7 +1561,14 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         return; // success
       } catch (e) {
         debugPrint('M3U8VideoPlayer: init failed ($attemptUrl): $e');
-        await controller.dispose();
+        // Ignore fvp Bad state race during dispose - not a real init failure
+        if (e.toString().contains('Cannot add event after closing')) {
+          try { await controller.dispose(); } catch (_) {}
+          if (attemptUrl != urlsToTry.last) continue;
+          // treat as benign, let caller try next server
+          rethrow;
+        }
+        try { await controller.dispose(); } catch (_) {}
         // If this was an H.265 URL and we have fallbacks, continue to next
         if (attemptUrl != urlsToTry.last) {
           continue;
