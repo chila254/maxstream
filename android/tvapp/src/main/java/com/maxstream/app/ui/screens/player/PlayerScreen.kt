@@ -496,6 +496,66 @@ fun PlayerScreen(
      * the most reliable path on TV firmware (mirrors the Dart player, which
      * abandoned in-place re-queuing after it silently failed on some boxes).
      */
+    /** Rebuilds the player with a new MediaItem while preserving the position. */
+    fun switchMedia(
+        newUrl: String,
+        newHeaders: Map<String, String>,
+        newIsHls: Boolean,
+        newSubtitle: SubtitleOption?,
+    ) {
+        val old = exoPlayer
+        val positionMs = if (old != null && old.playbackState != Player.STATE_IDLE) {
+            old.currentPosition
+        } else {
+            resumePositionMs
+        }
+        releasePlayer(old)
+        val gen = ++rebuildGeneration.value
+        loading = true
+        status = "Switching..."
+        coroutineScope.launch {
+            // Subtitles are fetched with the server's headers and parsed into
+            // timed cues that WE render as an overlay — media3's own subtitle
+            // loader sends no headers, so VixSrc's referer-protected sub URLs 403
+            // and nothing renders (mirrors Dart's _selectSubtitle/_fetchSubtitles).
+            val cueSet = if (newSubtitle == null) {
+                emptyList()
+            } else {
+                val resolvedUrl = resolveSubtitleUrl(newSubtitle.url, newUrl.takeIf { it.startsWith("http") })
+                fetchSubtitleContent(resolvedUrl, newSubtitle.headers, newHeaders)
+                    ?.let { parseSubtitleCues(it) }
+                    .orEmpty()
+            }
+            if (gen != rebuildGeneration.value) return@launch
+            val player = buildPlayer(newUrl, newHeaders, newIsHls, positionMs)
+            if (gen != rebuildGeneration.value) {
+                releasePlayer(player)
+                return@launch
+            }
+            releasePlayer(exoPlayer)
+            exoPlayer = player
+            loading = false
+            status = ""
+            // Only commit cue settings if the rebuild we just did is still current.
+            val subtitleChanged = newSubtitle != activeSubtitle
+            activeSubtitle = newSubtitle
+            subtitleCues = cueSet
+            activeSubtitleText = ""
+            selectedSubtitleLabel = newSubtitle?.label ?: "Off"
+            // Surface the outcome so the user can tell whether cues actually
+            // loaded — a label alone doesn't prove the text rendered.
+            if (subtitleChanged || newSubtitle == null) {
+                subtitleToast = if (newSubtitle == null) {
+                    "Subtitles off"
+                } else if (cueSet.isEmpty()) {
+                    "Subtitles: ${newSubtitle.label} (failed to load)"
+                } else {
+                    "Subtitles: ${newSubtitle.label} (${cueSet.size} cues)"
+                }
+            }
+        }
+    }
+
     fun buildPlayer(
         url: String,
         headers: Map<String, String>,
@@ -814,65 +874,7 @@ fun PlayerScreen(
         return result
     }
 
-    /** Rebuilds the player with a new MediaItem while preserving the position. */
-    fun switchMedia(
-        newUrl: String,
-        newHeaders: Map<String, String>,
-        newIsHls: Boolean,
-        newSubtitle: SubtitleOption?,
-    ) {
-        val old = exoPlayer
-        val positionMs = if (old != null && old.playbackState != Player.STATE_IDLE) {
-            old.currentPosition
-        } else {
-            resumePositionMs
-        }
-        releasePlayer(old)
-        val gen = ++rebuildGeneration.value
-        loading = true
-        status = "Switching..."
-        coroutineScope.launch {
-            // Subtitles are fetched with the server's headers and parsed into
-            // timed cues that WE render as an overlay — media3's own subtitle
-            // loader sends no headers, so VixSrc's referer-protected sub URLs 403
-            // and nothing renders (mirrors Dart's _selectSubtitle/_fetchSubtitles).
-            val cueSet = if (newSubtitle == null) {
-                emptyList()
-            } else {
-                val resolvedUrl = resolveSubtitleUrl(newSubtitle.url, newUrl.takeIf { it.startsWith("http") })
-                fetchSubtitleContent(resolvedUrl, newSubtitle.headers, newHeaders)
-                    ?.let { parseSubtitleCues(it) }
-                    .orEmpty()
-            }
-            if (gen != rebuildGeneration.value) return@launch
-            val player = buildPlayer(newUrl, newHeaders, newIsHls, positionMs)
-            if (gen != rebuildGeneration.value) {
-                releasePlayer(player)
-                return@launch
-            }
-            releasePlayer(exoPlayer)
-            exoPlayer = player
-            loading = false
-            status = ""
-            // Only commit cue settings if the rebuild we just did is still current.
-            val subtitleChanged = newSubtitle != activeSubtitle
-            activeSubtitle = newSubtitle
-            subtitleCues = cueSet
-            activeSubtitleText = ""
-            selectedSubtitleLabel = newSubtitle?.label ?: "Off"
-            // Surface the outcome so the user can tell whether cues actually
-            // loaded — a label alone doesn't prove the text rendered.
-            if (subtitleChanged || newSubtitle == null) {
-                subtitleToast = if (newSubtitle == null) {
-                    "Subtitles off"
-                } else if (cueSet.isEmpty()) {
-                    "Subtitles: ${newSubtitle.label} (failed to load)"
-                } else {
-                    "Subtitles: ${newSubtitle.label} (${cueSet.size} cues)"
-                }
-            }
-        }
-    }
+
 
     /** Resolved the initial stream, remembers the resume position, and starts playback. */
     suspend fun loadAndPlay() {
