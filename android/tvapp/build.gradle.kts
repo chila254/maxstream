@@ -16,7 +16,7 @@ if (keystoreFile.exists()) {
 @Suppress("Deprecation")
 android {
     namespace = "com.maxstream.app"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.maxstream.tv"
