@@ -1789,6 +1789,133 @@ class _ComingSoonFullListScreenState extends State<_ComingSoonFullListScreen> {
     );
   }
 
+  Widget _buildComingSoonGridCard(Map<String, dynamic> item) {
+    final name = item['title'] ?? item['name'] ?? 'Unknown';
+    final posterPath = item['poster_path'];
+    final backdropPath = item['backdrop_path'];
+    final rating = (item['vote_average'] as num?)?.toDouble();
+    final releaseDate = (item['release_date'] ?? item['first_air_date'])?.toString() ?? '';
+    final isTv = item['media_type'] == 'tv';
+    final typeLabel = isTv ? 'TV' : 'MOVIE';
+    final isWatchlistUpcoming = item['_isWatchlistUpcoming'] == true;
+    final nextSeason = item['_nextSeason'];
+    final nextEpisode = item['_nextEpisode'];
+
+    return GestureDetector(
+      onTap: () {
+        if (!mounted) return;
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => isTv
+                ? MaxStreamSeriesScreen(seriesItem: Movie.fromJson(item))
+                : MaxStreamDetailsScreen(item: Movie.fromJson(item), mediaType: 'movie'),
+          ),
+        );
+      },
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  backdropPath != null
+                      ? AppNetworkImage(
+                          url: TmdbApiService.getBackdropUrl(backdropPath),
+                          fit: BoxFit.cover,
+                          errorWidget: _posterFallback(posterPath),
+                        )
+                      : (posterPath != null
+                          ? AppNetworkImage(
+                              url: TmdbApiService.getPosterUrl(posterPath),
+                              fit: BoxFit.cover,
+                            )
+                          : _posterFallback(posterPath)),
+                  Positioned.fill(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [Colors.transparent, Colors.black.withValues(alpha: 0.85)],
+                          stops: const [0.5, 1.0],
+                        ),
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    top: 6,
+                    left: 6,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: isTv ? Colors.teal : Colors.red,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(typeLabel, style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                  Positioned(
+                    top: 6,
+                    right: 6,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: isWatchlistUpcoming ? Colors.amber.shade700 : Colors.purple.shade700,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(isWatchlistUpcoming ? 'WATCHLIST' : 'UPCOMING', style: const TextStyle(color: Colors.white, fontSize: 7, fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                  if (rating != null && rating > 0)
+                    Positioned(
+                      bottom: 6,
+                      right: 6,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                        decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.7), borderRadius: BorderRadius.circular(4)),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.star, color: Colors.amber, size: 9),
+                            const SizedBox(width: 2),
+                            Text(rating.toStringAsFixed(1), style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)),
+                          ],
+                        ),
+                      ),
+                    ),
+                  if (posterPath != null)
+                    Positioned(
+                      left: 6,
+                      bottom: 6,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(4),
+                        child: AppNetworkImage(
+                          url: TmdbApiService.getPosterUrl(posterPath),
+                          width: 28,
+                          height: 38,
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(name, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w500), maxLines: 2, overflow: TextOverflow.ellipsis),
+          if (isWatchlistUpcoming && nextSeason != null)
+            Text('S$nextSeason · E$nextEpisode', style: const TextStyle(color: Colors.amberAccent, fontSize: 9, fontWeight: FontWeight.w600)),
+          if (releaseDate.isNotEmpty)
+            Text(_formatReleaseDate(releaseDate), style: TextStyle(color: isWatchlistUpcoming ? Colors.amberAccent : Colors.purpleAccent, fontSize: 9), maxLines: 1, overflow: TextOverflow.ellipsis),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -1805,14 +1932,20 @@ class _ComingSoonFullListScreenState extends State<_ComingSoonFullListScreen> {
           : Column(
               children: [
                 Expanded(
-                  child: ListView.builder(
+                  child: GridView.builder(
                     controller: _scrollController,
                     physics: const ClampingScrollPhysics(),
                     padding: const EdgeInsets.all(16),
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 3,
+                      crossAxisSpacing: 12,
+                      mainAxisSpacing: 12,
+                      childAspectRatio: 0.62,
+                    ),
                     itemCount: _items.length,
                     itemBuilder: (context, index) {
                       final item = _items[index];
-                      return _buildComingSoonCard(item);
+                      return _buildComingSoonGridCard(item);
                     },
                   ),
                 ),
