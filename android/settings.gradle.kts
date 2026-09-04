@@ -23,4 +23,15 @@ plugins {
 }
 
 include(":app")
-include(":tvapp")
+// TV app is a separate product flavor with heavy native deps (nextlib FFmpeg).
+// Including it unconditionally makes *any* Gradle invocation (including
+// `flutter build apk` for mobile) configure :tvapp and try to resolve
+// nextlib-media3ext. If that artifact is temporarily unavailable (503) the
+// mobile build fails with the same TV error. Conditionally include it:
+// - Mobile CI sets EXCLUDE_TV=true / -PexcludeTv so only :app is configured.
+// - Local & TV CI include it by default for normal development.
+val excludeTv = providers.gradleProperty("excludeTv").isPresent
+    || System.getenv("EXCLUDE_TV") == "true"
+if (!excludeTv) {
+    include(":tvapp")
+}
