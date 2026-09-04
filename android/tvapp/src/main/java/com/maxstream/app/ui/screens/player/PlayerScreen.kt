@@ -2397,16 +2397,22 @@ private fun EpisodePanel(
                 .height(1.dp)
                 .background(Color(0x40FFFFFF)),
         )
-        // Season tabs (horizontal, active = red pill).
+        // Season tabs (horizontal, active = red pill) - auto-scrolls like episodes list.
         if (seasons.isNotEmpty()) {
-            Row(
+            val seasonListState = androidx.compose.foundation.lazy.rememberLazyListState()
+            androidx.compose.runtime.LaunchedEffect(menuSeason) {
+                val idx = seasons.indexOfFirst { it.number == menuSeason }
+                if (idx >= 0) seasonListState.animateScrollToItem(idx)
+            }
+            androidx.compose.foundation.lazy.LazyRow(
+                state = seasonListState,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
                     .padding(horizontal = 12.dp, vertical = 10.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                seasons.forEach { season ->
+                items(seasons.size) { sIdx ->
+                    val season = seasons[sIdx]
                     val active = season.number == menuSeason
                     val label = if (season.name.isNotEmpty() && season.name.length <= 14) {
                         season.name
