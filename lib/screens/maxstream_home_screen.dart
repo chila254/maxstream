@@ -1795,6 +1795,7 @@ class _ComingSoonFullListScreenState extends State<_ComingSoonFullListScreen> {
     final backdropPath = item['backdrop_path'];
     final rating = (item['vote_average'] as num?)?.toDouble();
     final releaseDate = (item['release_date'] ?? item['first_air_date'])?.toString() ?? '';
+    final overview = item['overview']?.toString() ?? '';
     final isTv = item['media_type'] == 'tv';
     final typeLabel = isTv ? 'TV' : 'MOVIE';
     final isWatchlistUpcoming = item['_isWatchlistUpcoming'] == true;
@@ -1911,6 +1912,8 @@ class _ComingSoonFullListScreenState extends State<_ComingSoonFullListScreen> {
             Text('S$nextSeason · E$nextEpisode', style: const TextStyle(color: Colors.amberAccent, fontSize: 9, fontWeight: FontWeight.w600)),
           if (releaseDate.isNotEmpty)
             Text(_formatReleaseDate(releaseDate), style: TextStyle(color: isWatchlistUpcoming ? Colors.amberAccent : Colors.purpleAccent, fontSize: 9), maxLines: 1, overflow: TextOverflow.ellipsis),
+          if (overview.isNotEmpty)
+            Text(overview, style: const TextStyle(color: Colors.white54, fontSize: 9), maxLines: 2, overflow: TextOverflow.ellipsis),
         ],
       ),
     );
@@ -1925,11 +1928,7 @@ class _ComingSoonFullListScreenState extends State<_ComingSoonFullListScreen> {
         title: const Text('Coming Soon', style: TextStyle(color: Colors.white)),
         iconTheme: const IconThemeData(color: Colors.white),
       ),
-      body: _isLoading
-          ? const Center(
-              child: CustomLoadingWidget(size: 30, color: Color(0xFFE50914), style: LoadingStyle.dots),
-            )
-          : Column(
+      body: Column(
               children: [
                 Expanded(
                   child: GridView.builder(
@@ -1940,7 +1939,7 @@ class _ComingSoonFullListScreenState extends State<_ComingSoonFullListScreen> {
                       crossAxisCount: 3,
                       crossAxisSpacing: 12,
                       mainAxisSpacing: 12,
-                      childAspectRatio: 0.62,
+                      childAspectRatio: 0.52,
                     ),
                     itemCount: _items.length,
                     itemBuilder: (context, index) {
@@ -1949,7 +1948,7 @@ class _ComingSoonFullListScreenState extends State<_ComingSoonFullListScreen> {
                     },
                   ),
                 ),
-                if (_isLoadingMore)
+                if (_isLoading || _isLoadingMore)
                   const Padding(
                     padding: EdgeInsets.all(16.0),
                     child: CustomLoadingWidget(size: 30, color: Color(0xFFE50914), style: LoadingStyle.dots),
