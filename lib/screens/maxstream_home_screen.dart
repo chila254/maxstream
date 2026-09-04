@@ -1489,18 +1489,17 @@ class _ComingSoonFullListScreenState extends State<_ComingSoonFullListScreen> {
       final watchlist = await DBHelper.getWatchlist();
       final tvItems = watchlist.where((m) => m.mediaType == 'tv').toList();
       if (tvItems.isEmpty) return const [];
-      final upcoming = <Map<String, dynamic>>[];
-      for (final item in tvItems.take(12)) {
+      final futures = tvItems.take(12).map((item) async {
         try {
           final details = await TmdbApiService.getSeriesDetails(int.parse(item.id));
-          if (details == null) continue;
+          if (details == null) return null;
           final nextAir = details['next_episode_to_air'];
-          if (nextAir == null || nextAir is! Map) continue;
+          if (nextAir == null || nextAir is! Map) return null;
           final seasonNum = nextAir['season_number'] ?? 0;
           final episodeNum = nextAir['episode_number'] ?? 0;
           final airDate = nextAir['air_date']?.toString() ?? '';
-          if (seasonNum == 0 && episodeNum == 0) continue;
-          upcoming.add({
+          if (seasonNum == 0 && episodeNum == 0) return null;
+          return {
             'id': item.id,
             'title': item.title,
             'name': item.title,
@@ -1517,10 +1516,13 @@ class _ComingSoonFullListScreenState extends State<_ComingSoonFullListScreen> {
             '_nextEpisode': episodeNum,
             '_nextAirDate': airDate,
             '_isWatchlistUpcoming': true,
-          });
-        } catch (_) {}
-      }
-      return upcoming;
+          };
+        } catch (_) {
+          return null;
+        }
+      }).toList();
+      final results = await Future.wait(futures);
+      return results.whereType<Map<String, dynamic>>().toList();
     } catch (_) {
       return const [];
     }
@@ -1529,11 +1531,16 @@ class _ComingSoonFullListScreenState extends State<_ComingSoonFullListScreen> {
   Future<void> _loadInitial() async {
     setState(() => _isLoading = true);
     try {
-      final watchlistUpcoming = await _loadWatchlistUpcoming();
-      final moviesRaw = await TmdbApiService.fetchUpcomingMovies(page: 1);
+      final results = await Future.wait([
+        _loadWatchlistUpcoming(),
+        TmdbApiService.fetchUpcomingMovies(page: 1),
+        TmdbApiService.fetchUpcomingSeries(page: 1),
+      ]);
+      final watchlistUpcoming = results[0] as List<Map<String, dynamic>>;
+      final moviesRaw = results[1] as List<Map<String, dynamic>>;
+      final seriesRaw = results[2] as List<Map<String, dynamic>>;
       final movies = TmdbApiService.filterUnreleased(moviesRaw);
       for (final m in movies) m['media_type'] = 'movie';
-      final seriesRaw = await TmdbApiService.fetchUpcomingSeries(page: 1);
       final series = TmdbApiService.filterUnreleased(seriesRaw, dateField: 'first_air_date');
       for (final s in series) s['media_type'] = 'tv';
       final merged = [...watchlistUpcoming, ...movies, ...series];
@@ -1561,10 +1568,14 @@ class _ComingSoonFullListScreenState extends State<_ComingSoonFullListScreen> {
     try {
       final nextMoviePage = _moviePage + 1;
       final nextSeriesPage = _seriesPage + 1;
-      final moviesRaw = await TmdbApiService.fetchUpcomingMovies(page: nextMoviePage);
+      final results = await Future.wait([
+        TmdbApiService.fetchUpcomingMovies(page: nextMoviePage),
+        TmdbApiService.fetchUpcomingSeries(page: nextSeriesPage),
+      ]);
+      final moviesRaw = results[0] as List<Map<String, dynamic>>;
+      final seriesRaw = results[1] as List<Map<String, dynamic>>;
       final movies = TmdbApiService.filterUnreleased(moviesRaw);
       for (final m in movies) m['media_type'] = 'movie';
-      final seriesRaw = await TmdbApiService.fetchUpcomingSeries(page: nextSeriesPage);
       final series = TmdbApiService.filterUnreleased(seriesRaw, dateField: 'first_air_date');
       for (final s in series) s['media_type'] = 'tv';
       final newItems = [...movies, ...series];
