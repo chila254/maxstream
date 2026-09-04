@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../widgets/app_shimmer.dart';
 import '../models/movie.dart';
+import '../database/db_helper.dart';
 import '../services/cloud_sync_service.dart';
 import '../services/tmdb_api_service.dart';
 import '../utils/tmdb_list_utils.dart';
@@ -72,6 +73,7 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
         _safeList(() => TmdbApiService.fetchUpcomingSeries()),
         syncFuture.then((_) => WatchHistoryService.getContinueWatching())
             .catchError((_) => <Map<String, dynamic>>[]),
+        _safeList(() => _loadWatchlistUpcoming()),
       ]);
 
       if (!mounted) return;
@@ -88,7 +90,9 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
       for (final item in upcomingMv) {
         item['media_type'] = 'movie';
       }
-      final mergedUpcoming = [...upcomingMv, ...upcomingTv]..shuffle();
+      // Watchlist upcoming episodes (already formatted)
+      final watchlistUpcoming = results[6] as List<Map<String, dynamic>>;
+      final mergedUpcoming = [...upcomingMv, ...upcomingTv, ...watchlistUpcoming]..shuffle();
       setState(() {
         trendingMovies = results[0] as List<Map<String, dynamic>>;
         popularMovies = results[1] as List<Map<String, dynamic>>;
@@ -100,6 +104,55 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
       debugPrint('Home load error: $e');
     } finally {
       if (mounted) setState(() => isLoading = false);
+    }
+  }
+
+  /// Fetches upcoming seasons/episodes for TV series in the user's watchlist.
+  Future<List<Map<String, dynamic>>> _loadWatchlistUpcoming() async {
+    try {
+      final watchlist = await DBHelper.getWatchlist();
+      final tvItems = watchlist.where((m) => m.mediaType == 'tv').toList();
+      if (tvItems.isEmpty) return const [];
+
+      final upcoming = <Map<String, dynamic>>[];
+      // Limit to 8 series to avoid too many API calls
+      for (final item in tvItems.take(8)) {
+        try {
+          final details = await TmdbApiService.getSeriesDetails(int.parse(item.id));
+          if (details == null) continue;
+          final nextAir = details['next_episode_to_air'];
+          if (nextAir == null || nextAir is! Map) continue;
+
+          final seasonNum = nextAir['season_number'] ?? 0;
+          final episodeNum = nextAir['episode_number'] ?? 0;
+          final airDate = nextAir['air_date']?.toString() ?? '';
+          if (seasonNum == 0 && episodeNum == 0) continue;
+
+          upcoming.add({
+            'id': item.id,
+            'title': item.title,
+            'name': item.title,
+            'poster_path': item.thumbnail.replaceFirst(RegExp(r'^https?://image\.tmdb\.org/t/p/w\d+'), ''),
+            'backdrop_path': item.backdrop.isNotEmpty
+                ? item.backdrop.replaceFirst(RegExp(r'^https?://image\.tmdb\.org/t/p/w\d+'), '')
+                : item.thumbnail.replaceFirst(RegExp(r'^https?://image\.tmdb\.org/t/p/w\d+'), ''),
+            'vote_average': item.rating,
+            'overview': item.description,
+            'media_type': 'tv',
+            'release_date': airDate,
+            'first_air_date': airDate,
+            '_nextSeason': seasonNum,
+            '_nextEpisode': episodeNum,
+            '_nextAirDate': airDate,
+            '_isWatchlistUpcoming': true,
+          });
+        } catch (_) {
+          // Skip individual failures
+        }
+      }
+      return upcoming;
+    } catch (_) {
+      return const [];
     }
   }
 
@@ -626,6 +679,9 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
     final overview = item['overview']?.toString() ?? '';
     final isTv = item['media_type'] == 'tv';
     final typeLabel = isTv ? 'TV' : 'MOVIE';
+    final isWatchlistUpcoming = item['_isWatchlistUpcoming'] == true;
+    final nextSeason = item['_nextSeason'];
+    final nextEpisode = item['_nextEpisode'];
 
     return GestureDetector(
       onTap: () {
@@ -720,12 +776,12 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
                         vertical: 4,
                       ),
                       decoration: BoxDecoration(
-                        color: Colors.purple.shade700,
+                        color: isWatchlistUpcoming ? Colors.amber.shade700 : Colors.purple.shade700,
                         borderRadius: BorderRadius.circular(6),
                       ),
-                      child: const Text(
-                        'UPCOMING',
-                        style: TextStyle(
+                      child: Text(
+                        isWatchlistUpcoming ? 'IN YOUR WATCHLIST' : 'UPCOMING',
+                        style: const TextStyle(
                           color: Colors.white,
                           fontSize: 9,
                           fontWeight: FontWeight.bold,
@@ -790,20 +846,41 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    if (releaseDate.isNotEmpty) ...[
+                    if (isWatchlistUpcoming && nextSeason != null) ...[
                       const SizedBox(height: 4),
                       Row(
                         children: [
                           const Icon(
-                            Icons.calendar_today,
-                            color: Colors.purpleAccent,
+                            Icons.tv,
+                            color: Colors.amberAccent,
+                            size: 11,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Season $nextSeason · Episode $nextEpisode',
+                            style: const TextStyle(
+                              color: Colors.amberAccent,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                    if (releaseDate.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Icon(
+                            isWatchlistUpcoming ? Icons.access_time : Icons.calendar_today,
+                            color: isWatchlistUpcoming ? Colors.amberAccent : Colors.purpleAccent,
                             size: 11,
                           ),
                           const SizedBox(width: 4),
                           Text(
                             _formatReleaseDate(releaseDate),
-                            style: const TextStyle(
-                              color: Colors.purpleAccent,
+                            style: TextStyle(
+                              color: isWatchlistUpcoming ? Colors.amberAccent : Colors.purpleAccent,
                               fontSize: 11,
                               fontWeight: FontWeight.w500,
                             ),

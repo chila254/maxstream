@@ -1587,7 +1587,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       // RPM HLS URL that ExoPlayer rejects) never blocks playback. Recovery
       // re-resolves streams fresh, so allow a few rounds without a known next.
       final hasNext = _nextServerAfter(_currentStreamUrl ?? '') != null;
-      if (_playbackRetryCount < 3 || hasNext) {
+      if (_playbackRetryCount < 1 || hasNext) {
         unawaited(_recoverPlayback());
       }
     }
@@ -1654,11 +1654,9 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       // over stale entries that ExoPlayer rejects with a source error.
       await _discoverAvailableServers(_serverDiscoveryGeneration);
       if (!mounted) return;
-      // After the current URL has already failed a couple of times, switch to
-      // another server instead of replaying a dead stream. Prefer servers that
-      // pass the pre-flight check, but never block the player from trying the
-      // rest: validation can miss streams a CDN will happily serve.
-      final shouldSwitch = _playbackRetryCount >= 2;
+      // After the first failure, switch to another server immediately
+      // instead of retrying a dead stream.
+      final shouldSwitch = _playbackRetryCount >= 1;
       if (shouldSwitch) {
         final currentKey = _selectedServerKey;
         if (currentKey != null) _failedServerKeys.add(currentKey);
@@ -1711,7 +1709,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       _playbackRetryCount = 0;
     } catch (error) {
       debugPrint('M3U8Player: Playback recovery failed: $error');
-      if (mounted && _playbackRetryCount >= 2) {
+      if (mounted && _playbackRetryCount >= 1) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
