@@ -15,7 +15,7 @@ class NotificationService {
     _notificationsPlugin = FlutterLocalNotificationsPlugin();
 
     const AndroidInitializationSettings androidSettings =
-        AndroidInitializationSettings('@mipmap/ic_launcher');
+        AndroidInitializationSettings('ic_notification');
 
     const DarwinInitializationSettings iosSettings =
         DarwinInitializationSettings(
@@ -49,6 +49,7 @@ class NotificationService {
           importance: Importance.max,
           priority: Priority.high,
           showWhen: true,
+          icon: 'ic_notification',
           largeIcon: DrawableResourceAndroidBitmap('ic_launcher'),
         );
 
@@ -86,6 +87,7 @@ class NotificationService {
       showProgress: true,
       maxProgress: 100,
       progress: progress.clamp(0, 100),
+      icon: 'ic_notification',
       largeIcon: const DrawableResourceAndroidBitmap('ic_launcher'),
     );
     await _notificationsPlugin.show(
@@ -110,6 +112,7 @@ class NotificationService {
       priority: Priority.defaultPriority,
       autoCancel: true,
       onlyAlertOnce: true,
+      icon: 'ic_notification',
       largeIcon: DrawableResourceAndroidBitmap('ic_launcher'),
     );
     await _notificationsPlugin.show(

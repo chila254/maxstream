@@ -9,10 +9,12 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
@@ -473,6 +475,11 @@ private fun SeriesListTab(
 
 @Composable
 private fun ExitDialog(onDismiss: () -> Unit, onConfirm: () -> Unit) {
+    val cancelFocus = androidx.compose.ui.focus.FocusRequester()
+    val confirmFocus = androidx.compose.ui.focus.FocusRequester()
+    var cancelFocused by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    var confirmFocused by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(Unit) { cancelFocus.requestFocus() }
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor   = Color(0xFF1E1E1E),
@@ -485,18 +492,48 @@ private fun ExitDialog(onDismiss: () -> Unit, onConfirm: () -> Unit) {
                 color = Color.White.copy(alpha = 0.7f), fontSize = 18.sp)
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel", color = Color.Gray, fontSize = 18.sp)
+            TextButton(
+                modifier = Modifier
+                    .focusRequester(cancelFocus)
+                    .onFocusChanged { cancelFocused = it.isFocused }
+                    .background(
+                        if (cancelFocused) Color.White else Color.Transparent,
+                        RoundedCornerShape(20.dp)
+                    )
+                    .border(
+                        width = if (cancelFocused) 2.dp else 1.dp,
+                        color = if (cancelFocused) Color.White else Color(0x40FFFFFF),
+                        shape = RoundedCornerShape(20.dp)
+                    ),
+                onClick = onDismiss,
+                colors = ButtonDefaults.textButtonColors(
+                    contentColor = if (cancelFocused) Color.Black else Color.White
+                ),
+            ) {
+                Text("Cancel", fontSize = 18.sp, fontWeight = if (cancelFocused) FontWeight.Bold else FontWeight.Normal)
             }
         },
         confirmButton = {
-            FilledTonalButton(
+            TextButton(
+                modifier = Modifier
+                    .focusRequester(confirmFocus)
+                    .onFocusChanged { confirmFocused = it.isFocused }
+                    .background(
+                        if (confirmFocused) Color.White else Color(0xFFE50914),
+                        RoundedCornerShape(20.dp)
+                    )
+                    .border(
+                        width = if (confirmFocused) 2.dp else 0.dp,
+                        color = if (confirmFocused) Color.White else Color.Transparent,
+                        shape = RoundedCornerShape(20.dp)
+                    ),
                 onClick = onConfirm,
-                colors  = ButtonDefaults.filledTonalButtonColors(
-                    containerColor = Color(0xFFE50914),
-                    contentColor   = Color.White,
+                colors = ButtonDefaults.textButtonColors(
+                    contentColor = if (confirmFocused) Color.Black else Color.White
                 ),
-            ) { Text("Exit", fontSize = 18.sp) }
+            ) {
+                Text("Exit", fontSize = 18.sp, fontWeight = if (confirmFocused) FontWeight.Bold else FontWeight.Normal)
+            }
         },
     )
 }
