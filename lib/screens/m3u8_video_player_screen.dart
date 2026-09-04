@@ -1609,7 +1609,8 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
               rethrow;
             }
           }
-          if (mounted) setState(() => _videoInitialized = true);
+          // Don't set _videoInitialized here — let _handleVlcPlaybackChanged
+          // set it when VLC actually starts rendering (prevents white screen).
           _startProgressSaving();
         } catch (e) {
           // Fallback to ExoPlayer for same VidLink URL if VLC fails to initialize/play
@@ -1787,6 +1788,11 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   void _handleVlcPlaybackChanged() {
     if (!mounted || _vlcController == null) return;
     final value = _vlcController!.value;
+    // Set _videoInitialized when VLC first reports a position — means the
+    // SurfaceView is rendering (hides the loading overlay, prevents white screen).
+    if (value.position > Duration.zero && !_videoInitialized) {
+      setState(() => _videoInitialized = true);
+    }
     if (value.position > Duration.zero) _lastStablePosition = value.position;
     if (value.hasError && !_recoveringPlayback) {
       final hasNext = _nextServerAfter(_currentStreamUrl ?? '') != null;
