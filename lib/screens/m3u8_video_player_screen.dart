@@ -1505,7 +1505,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     // Detect MIME: force mp4 for proxied VidLink URLs or URLs with .mp4 extension
     final isProxied = url.contains('noon.mooncase.online');
     final isMp4 = url.toLowerCase().contains('.mp4') || isProxied;
-    final isH265 = url.contains('/h265/', true);
+    final isH265 = url.toLowerCase().contains('/h265/');
 
     // Try the original URL, then fall back to H.264 if H.265 fails
     final urlsToTry = <String>[url];
@@ -1518,7 +1518,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       final controller = VideoPlayerController.networkUrl(
         Uri.parse(attemptUrl),
         httpHeaders: headers,
-        formatHint: isHls ? VideoFormat.hls : VideoFormat.mp4,
+        formatHint: isHls ? VideoFormat.hls : VideoFormat.other,
         videoPlayerOptions: VideoPlayerOptions(backBufferDurationMs: 60000, allowBackgroundPlayback: true),
       );
 
