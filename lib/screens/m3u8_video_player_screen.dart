@@ -1265,7 +1265,16 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       return true;
     } catch (e) {
       debugPrint('M3U8VideoPlayer: Error initializing player: $e');
-      _showStatus('Server failed: $e');
+      final msg = e.toString();
+      String userMsg;
+      if (msg.contains('h265') || msg.contains('hevc') || msg.contains('H.265') || msg.contains('HEVC')) {
+        userMsg = 'This device does not support H.265/HEVC video. The source only provides HEVC encoding.';
+      } else if (msg.contains('PlatformException')) {
+        userMsg = 'Video codec not supported on this device: ${msg.length > 120 ? msg.substring(0, 120) + '...' : msg}';
+      } else {
+        userMsg = 'Server failed: $e';
+      }
+      _showStatus(userMsg);
       return false;
     }
   }
@@ -1493,47 +1502,69 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     if (!mounted) return;
     _videoPlayerController = null;
 
-    final controller = VideoPlayerController.networkUrl(
-      Uri.parse(url),
-      httpHeaders: headers,
-      formatHint: isHls ? VideoFormat.hls : null,
-      videoPlayerOptions: VideoPlayerOptions(backBufferDurationMs: 60000, allowBackgroundPlayback: true),
-    );
+    // Detect MIME: force mp4 for proxied VidLink URLs or URLs with .mp4 extension
+    final isProxied = url.contains('noon.mooncase.online');
+    final isMp4 = url.toLowerCase().contains('.mp4') || isProxied;
+    final isH265 = url.contains('/h265/', true);
 
-    try {
-      _showStatus(
-        position == Duration.zero
-            ? 'Loading video...'
-            : 'Switching to $selectedQuality...',
+    // Try the original URL, then fall back to H.264 if H.265 fails
+    final urlsToTry = <String>[url];
+    if (isH265) {
+      urlsToTry.add(url.replaceAll('/h265/', '/h264/'));
+      urlsToTry.add(url.replaceAll('/h265/', '/h265-720/'));
+    }
+
+    for (final attemptUrl in urlsToTry) {
+      final controller = VideoPlayerController.networkUrl(
+        Uri.parse(attemptUrl),
+        httpHeaders: headers,
+        formatHint: isHls ? VideoFormat.hls : VideoFormat.mp4,
+        videoPlayerOptions: VideoPlayerOptions(backBufferDurationMs: 60000, allowBackgroundPlayback: true),
       );
-      await controller.initialize();
-      if (position > Duration.zero) await controller.seekTo(position);
-      if (shouldPlay) await controller.play();
 
-      if (!mounted) {
+      try {
+        final isFallback = attemptUrl != url;
+        _showStatus(
+          position == Duration.zero
+              ? (isFallback ? 'Trying compatible codec...' : 'Loading video...')
+              : 'Switching to $selectedQuality...',
+        );
+        // Timeout after 15s to prevent indefinite loading
+        await controller.initialize().timeout(const Duration(seconds: 15));
+        if (position > Duration.zero) await controller.seekTo(position);
+        if (shouldPlay) await controller.play();
+
+        if (!mounted) {
+          await controller.dispose();
+          return;
+        }
+
+        controller.addListener(_handlePlaybackChanged);
+        setState(() {
+          _videoPlayerController = controller;
+          _useNativePlayer = true;
+          _currentSource = source;
+          _streamHeaders = headers;
+          _qualities = qualities;
+          _selectedQuality = selectedQuality;
+          _isBuffering = controller.value.isBuffering;
+          _isSwitchingQuality = false;
+          _videoInitialized = true;
+          _currentStreamUrl = attemptUrl;
+          _currentStreamIsHls = isHls;
+        });
+
+        _startProgressSaving();
+        return; // success
+      } catch (e) {
+        debugPrint('M3U8VideoPlayer: init failed ($attemptUrl): $e');
         await controller.dispose();
-        return;
+        // If this was an H.265 URL and we have fallbacks, continue to next
+        if (attemptUrl != urlsToTry.last) {
+          continue;
+        }
+        rethrow;
       }
-
-      controller.addListener(_handlePlaybackChanged);
-      setState(() {
-        _videoPlayerController = controller;
-        _useNativePlayer = true;
-        _currentSource = source;
-        _streamHeaders = headers;
-        _qualities = qualities;
-        _selectedQuality = selectedQuality;
-        _isBuffering = controller.value.isBuffering;
-        _isSwitchingQuality = false;
-        _videoInitialized = true;
-        _currentStreamUrl = url;
-        _currentStreamIsHls = isHls;
-      });
-
-      _startProgressSaving();
-    } catch (e) {
-      await controller.dispose();
-      rethrow;
     }
   }
 

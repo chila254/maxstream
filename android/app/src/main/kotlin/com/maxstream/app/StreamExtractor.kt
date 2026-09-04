@@ -1042,6 +1042,8 @@ class StreamExtractor(private val context: Context) {
                         refererHeaders("https://vidlink.pro/") + entryHeaders
                     }
                     qualityOptions += QualityOption("${label}p", url, height)
+                    // Prefer H.264 over H.265 — most Android devices lack HEVC HW decoders.
+                    val isH265 = rawUrl.contains("/h265/", true)
                     // Track raw URL for correct MIME when this quality becomes best/fallback
                     if (height > fallbackHeight) {
                         fallbackHeight = height
