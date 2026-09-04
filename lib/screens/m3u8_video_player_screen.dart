@@ -870,22 +870,11 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
                       s['url']?.toString() != url,
                 )
                 .toList();
-          // Prefer servers that pass the pre-flight check, but never block the
-          // player from trying the rest: validation can miss streams a CDN
-          // will happily serve to ExoPlayer.
-          final validated = <Map<String, dynamic>>[];
-          final unvalidated = <Map<String, dynamic>>[];
+          // Try next servers immediately without pre-flight validation - validation
+          // was sequential (6x HTTP HEAD) and made switching feel stuck at
+          // "Switching to Auto". _tryPlayServer will fail fast if unreachable.
           for (final server in candidates) {
-            if (await DirectM3u8Service.validateStream(
-              server['url'].toString(),
-              headers: _parseStreamHeaders(server),
-            )) {
-              validated.add(server);
-            } else {
-              unvalidated.add(server);
-            }
-          }
-          for (final server in [...validated, ...unvalidated]) {
+            _showStatus('Trying ${server['source']}...');
             initialized = await _tryPlayServer(
               server,
               position: resumePosition,
@@ -1676,20 +1665,10 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
                   _serverIdentity(s) != currentKey,
             )
             .toList();
-        final validated = <Map<String, dynamic>>[];
-        final unvalidated = <Map<String, dynamic>>[];
-        for (final server in candidates) {
-          if (await DirectM3u8Service.validateStream(
-            server['url'].toString(),
-            headers: _parseStreamHeaders(server),
-          )) {
-            validated.add(server);
-          } else {
-            unvalidated.add(server);
-          }
-        }
+        // Try next servers immediately without sequential HEAD validation - was
+        // causing stuck at "Switching to Auto" (6x 15s validates).
         var switched = false;
-        for (final server in [...validated, ...unvalidated]) {
+        for (final server in candidates) {
           _showStatus('Loading a working stream from ${server['source']}...');
           switched = await _tryPlayServer(
             server,
@@ -1970,7 +1949,37 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     final url = stream['url']?.toString() ?? '';
     if (url.isEmpty || _serverIdentity(stream) == _selectedServerKey) return;
     final current = _videoPlayerController;
-    if (current == null) return;
+    // Allow switching even when no player exists (initial Vidlink HEVC failed) - initialize directly
+    if (current == null) {
+      final headers = _parseStreamHeaders(stream);
+      final qualities = _parseQualities(stream['qualities']);
+      _separateAudio = stream['separateAudio'] == true;
+      var selectedQuality = 'Auto';
+      for (final q in qualities) if (q.url == url) selectedQuality = q.label;
+      final position = _lastStablePosition;
+      setState(() {
+        _isSwitchingServer = true;
+        _error = null;
+        _subtitleTracks = _unionSubtitleTracks();
+        _selectedSubtitle.value = 'Off';
+        _activeSubtitles.value = const [];
+      });
+      try {
+        final ok = await _initializePlayer(
+          url,
+          headers: headers,
+          source: stream['source']?.toString() ?? 'Server',
+          qualities: qualities,
+          selectedQuality: selectedQuality,
+          isHls: stream['type'] == 'direct_m3u8' || url.toLowerCase().contains('.m3u8'),
+          position: position,
+        );
+        if (ok && mounted) setState(() => _selectedServerKey = _serverIdentity(stream));
+      } finally {
+        if (mounted) setState(() => _isSwitchingServer = false);
+      }
+      return;
+    }
 
     final oldTracks = _subtitleTracks;
     final oldSelectedSubtitle = _selectedSubtitle.value;
