@@ -26,9 +26,3 @@
 
 # Keep line numbers for debugging
 -keepattributes SourceFile,LineNumberTable
-
-# VLC - stable decoder for VidLink (flutter_vlc_player 7.4.4 bundles 5 ABIs)
--keep class org.videolan.** { *; }
--keep class org.videolan.libvlc.** { *; }
--dontwarn org.videolan.**
--keep class com.example.flutter_vlc_player.** { *; }

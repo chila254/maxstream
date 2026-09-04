@@ -7,7 +7,6 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:video_player/video_player.dart';
-import 'package:flutter_vlc_player/flutter_vlc_player.dart';
 import '../database/db_helper.dart';
 import '../services/direct_m3u8_service.dart';
 import '../services/media_download_manager.dart';
@@ -561,8 +560,6 @@ enum _AspectRatioMode { fit, stretch, zoom }
 
 class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   VideoPlayerController? _videoPlayerController;
-  VlcPlayerController? _vlcController;
-  bool _useVlc = false;
   bool _useNativePlayer = false;
   bool _isBuffering = false;
   bool _isSwitchingQuality = false;
@@ -603,10 +600,9 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   Duration _lastStablePosition = Duration.zero;
   bool _recoveringPlayback = false;
 
-  bool get _isVlcActive => _useVlc && _vlcController != null;
-  Duration get _currentPosition => _isVlcActive ? _vlcController!.value.position : (_videoPlayerController?.value.position ?? Duration.zero);
-  Duration get _currentDuration => _isVlcActive ? _vlcController!.value.duration : (_videoPlayerController?.value.duration ?? Duration.zero);
-  bool get _isPlayingNow => _isVlcActive ? _vlcController!.value.isPlaying : (_videoPlayerController?.value.isPlaying ?? false);
+  Duration get _currentPosition => _videoPlayerController?.value.position ?? Duration.zero;
+  Duration get _currentDuration => _videoPlayerController?.value.duration ?? Duration.zero;
+  bool get _isPlayingNow => _videoPlayerController?.value.isPlaying ?? false;
   int _playbackRetryCount = 0;
   // Failure tracking is identity-based: re-discovery hands every server a new
   // signed URL, so URL-keyed entries would never match the fresh list and a
@@ -856,7 +852,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
           }
           if (!initialized) {
             _showStatus(
-              'That stream is unavailable. Finding a working stream...',
+              'Trying next server...',
             );
             discoveredServers = true;
             await _discoverAvailableServers(discoveryGeneration);
@@ -1269,7 +1265,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       return true;
     } catch (e) {
       debugPrint('M3U8VideoPlayer: Error initializing player: $e');
-      _showStatus('That stream is unavailable. Finding a working stream...');
+      _showStatus('Server failed: $e');
       return false;
     }
   }
@@ -1488,59 +1484,21 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     required Duration position,
     required bool shouldPlay,
   }) async {
-    // Use VLC for VidLink (stable decoder on HiSilicon/Mali) — same controls/menus
-    final bool useVlc = source == 'VidLink';
-    // Fix PlatformException(VideoError, ExoPlaybackException: Source error) on Android 10
-    // physical devices when switching VidLink servers: dispose the old player before
-    // creating the new one — keeping two decoders alive briefly exhausts codec + heap.
+    // Dispose old player before creating new one (prevents codec/heap exhaustion)
     final previousVideo = _videoPlayerController;
-    final previousVlc = _vlcController;
     if (previousVideo != null) {
       previousVideo.removeListener(_handlePlaybackChanged);
       await previousVideo.dispose();
     }
-    if (previousVlc != null) {
-      await previousVlc.stopRendererScanning();
-      await previousVlc.dispose();
-    }
     if (!mounted) return;
     _videoPlayerController = null;
-    _vlcController = null;
-    _useVlc = useVlc;
 
-    VlcPlayerController? vlcController;
-    VideoPlayerController? controller;
-    if (useVlc) {
-      try {
-        vlcController = VlcPlayerController.network(
-          url,
-          hwAcc: HwAcc.full,
-          autoPlay: false,
-          options: VlcPlayerOptions(
-            advanced: VlcAdvancedOptions([VlcAdvancedOptions.networkCaching(2000)]),
-            rtp: VlcRtpOptions([VlcRtpOptions.rtpOverRtsp(true)]),
-          ),
-        );
-      } catch (e) {
-        debugPrint('VLC create failed ($e), falling back to ExoPlayer');
-        // Fallback: treat as ExoPlayer for this VidLink URL
-        controller = VideoPlayerController.networkUrl(
-          Uri.parse(url),
-          httpHeaders: headers,
-          formatHint: isHls ? VideoFormat.hls : null,
-          videoPlayerOptions: VideoPlayerOptions(backBufferDurationMs: 60000, allowBackgroundPlayback: true),
-        );
-        // Switch to Exo path below
-        vlcController = null;
-      }
-    } else {
-      controller = VideoPlayerController.networkUrl(
-        Uri.parse(url),
-        httpHeaders: headers,
-        formatHint: isHls ? VideoFormat.hls : null,
-        videoPlayerOptions: VideoPlayerOptions(backBufferDurationMs: 60000, allowBackgroundPlayback: true),
-      );
-    }
+    final controller = VideoPlayerController.networkUrl(
+      Uri.parse(url),
+      httpHeaders: headers,
+      formatHint: isHls ? VideoFormat.hls : null,
+      videoPlayerOptions: VideoPlayerOptions(backBufferDurationMs: 60000, allowBackgroundPlayback: true),
+    );
 
     try {
       _showStatus(
@@ -1548,192 +1506,33 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
             ? 'Loading video...'
             : 'Switching to $selectedQuality...',
       );
-      if (useVlc && vlcController != null) {
-        final vlc = vlcController;
-        try {
-          if (!mounted) {
-            await vlc.dispose();
-            return;
-          }
-          vlc.addListener(_handleVlcPlaybackChanged);
-          // Show loading indicator first — VLC platform view not built yet
-          setState(() {
-            _videoInitialized = false;
-            _useVlc = true;
-            _useNativePlayer = true;
-            _isBuffering = true;
-          });
-          // Assign controller so VlcPlayer widget renders and creates platform view
-          setState(() {
-            _vlcController = vlc;
-            _videoPlayerController = null;
-            _currentSource = source;
-            _streamHeaders = headers;
-            _qualities = qualities;
-            _selectedQuality = selectedQuality;
-            _isSwitchingQuality = false;
-            _currentStreamUrl = url;
-            _currentStreamIsHls = isHls;
-          });
-          // Wait for VlcPlayer platform view to fully initialize (LateInit viewId)
-          await Future<void>.delayed(const Duration(milliseconds: 800));
-          if (!mounted || _vlcController != vlc) {
-            await vlc.dispose();
-            return;
-          }
-          if (position > Duration.zero) {
-            try {
-              await vlc.seekTo(position);
-            } catch (e) {
-              if (e.toString().contains('_viewId')) {
-                debugPrint('VLC seekTo failed (viewId not ready), falling back to ExoPlayer');
-                rethrow;
-              }
-              rethrow;
-            }
-          }
-          if (shouldPlay) {
-            try {
-              await vlc.play();
-            } on PlatformException catch (e) {
-              if (e.code == 'channel-error') {
-                debugPrint('VLC channel-error, falling back to ExoPlayer');
-                throw e;
-              }
-              rethrow;
-            } catch (e) {
-              if (e.toString().contains('_viewId')) {
-                debugPrint('VLC play failed (viewId not ready), falling back to ExoPlayer');
-                rethrow;
-              }
-              rethrow;
-            }
-          }
-          // Don't set _videoInitialized here — let _handleVlcPlaybackChanged
-          // set it when VLC actually starts rendering (prevents white screen).
-          _startProgressSaving();
-        } catch (e) {
-          // Fallback to ExoPlayer for same VidLink URL if VLC fails to initialize/play
-          final isVlcError = e is PlatformException && e.code == 'channel-error';
-          final isLateInit = e.toString().contains('_viewId');
-          if ((isVlcError || isLateInit) && vlcController != null) {
-            debugPrint('VLC failed ($e), retrying VidLink via ExoPlayer');
-            try { await vlcController!.dispose(); } catch (_) {}
-            if (!mounted) return;
-            setState(() {
-              _vlcController = null;
-              _useVlc = false;
-            });
-            final fallback = VideoPlayerController.networkUrl(
-              Uri.parse(url),
-              httpHeaders: headers,
-              formatHint: isHls ? VideoFormat.hls : null,
-              videoPlayerOptions: VideoPlayerOptions(backBufferDurationMs: 60000, allowBackgroundPlayback: true),
-            );
-            await fallback.initialize();
-            if (position > Duration.zero) await fallback.seekTo(position);
-            if (shouldPlay) await fallback.play();
-            if (!mounted) {
-              await fallback.dispose();
-              return;
-            }
-            fallback.addListener(_handlePlaybackChanged);
-            setState(() {
-              _videoPlayerController = fallback;
-              _useNativePlayer = true;
-              _currentSource = source;
-              _streamHeaders = headers;
-              _qualities = qualities;
-              _selectedQuality = selectedQuality;
-              _isBuffering = fallback.value.isBuffering;
-              _isSwitchingQuality = false;
-              _videoInitialized = true;
-              _currentStreamUrl = url;
-              _currentStreamIsHls = isHls;
-            });
-            _startProgressSaving();
-            return;
-          }
-          rethrow;
-        }
-      } else {
-        final c = controller!;
-        await c.initialize();
-        if (position > Duration.zero) await c.seekTo(position);
-        if (shouldPlay) await c.play();
+      await controller.initialize();
+      if (position > Duration.zero) await controller.seekTo(position);
+      if (shouldPlay) await controller.play();
 
-        if (!mounted) {
-          await c.dispose();
-          return;
-        }
-
-        c.addListener(_handlePlaybackChanged);
-        setState(() {
-          _videoPlayerController = c;
-          _vlcController = null;
-          _useVlc = false;
-          _useNativePlayer = true;
-          _currentSource = source;
-          _streamHeaders = headers;
-          _qualities = qualities;
-          _selectedQuality = selectedQuality;
-          _isBuffering = c.value.isBuffering;
-          _isSwitchingQuality = false;
-          _videoInitialized = true;
-          _currentStreamUrl = url;
-          _currentStreamIsHls = isHls;
-        });
-
-        _startProgressSaving();
+      if (!mounted) {
+        await controller.dispose();
+        return;
       }
+
+      controller.addListener(_handlePlaybackChanged);
+      setState(() {
+        _videoPlayerController = controller;
+        _useNativePlayer = true;
+        _currentSource = source;
+        _streamHeaders = headers;
+        _qualities = qualities;
+        _selectedQuality = selectedQuality;
+        _isBuffering = controller.value.isBuffering;
+        _isSwitchingQuality = false;
+        _videoInitialized = true;
+        _currentStreamUrl = url;
+        _currentStreamIsHls = isHls;
+      });
+
+      _startProgressSaving();
     } catch (e) {
-      // If VLC failed to even create (channel-error before widget built), fall back to ExoPlayer for same VidLink URL
-      if (useVlc && e is PlatformException && e.code == 'channel-error') {
-        debugPrint('VLC create failed ($e), retrying VidLink via ExoPlayer');
-        await vlcController?.dispose();
-        if (!mounted) rethrow;
-        final fallback = VideoPlayerController.networkUrl(
-          Uri.parse(url),
-          httpHeaders: headers,
-          formatHint: isHls ? VideoFormat.hls : null,
-          videoPlayerOptions: VideoPlayerOptions(backBufferDurationMs: 60000, allowBackgroundPlayback: true),
-        );
-        try {
-          await fallback.initialize();
-          if (position > Duration.zero) await fallback.seekTo(position);
-          if (shouldPlay) await fallback.play();
-          if (!mounted) {
-            await fallback.dispose();
-            return;
-          }
-          fallback.addListener(_handlePlaybackChanged);
-          setState(() {
-            _videoPlayerController = fallback;
-            _vlcController = null;
-            _useVlc = false;
-            _useNativePlayer = true;
-            _currentSource = source;
-            _streamHeaders = headers;
-            _qualities = qualities;
-            _selectedQuality = selectedQuality;
-            _isBuffering = fallback.value.isBuffering;
-            _isSwitchingQuality = false;
-            _videoInitialized = true;
-            _currentStreamUrl = url;
-            _currentStreamIsHls = isHls;
-          });
-          _startProgressSaving();
-          return;
-        } catch (_) {
-          await fallback.dispose();
-          rethrow;
-        }
-      }
-      if (useVlc) {
-        await vlcController?.dispose();
-      } else {
-        await controller?.dispose();
-      }
+      await controller.dispose();
       rethrow;
     }
   }
@@ -1785,45 +1584,6 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     if (shouldRebuild) setState(() {});
   }
 
-  void _handleVlcPlaybackChanged() {
-    if (!mounted || _vlcController == null) return;
-    final value = _vlcController!.value;
-    // Set _videoInitialized when VLC first reports a position — means the
-    // SurfaceView is rendering (hides the loading overlay, prevents white screen).
-    if (value.position > Duration.zero && !_videoInitialized) {
-      setState(() => _videoInitialized = true);
-    }
-    if (value.position > Duration.zero) _lastStablePosition = value.position;
-    if (value.hasError && !_recoveringPlayback) {
-      final hasNext = _nextServerAfter(_currentStreamUrl ?? '') != null;
-      if (_playbackRetryCount < 3 || hasNext) {
-        unawaited(_recoverPlayback());
-      }
-    }
-    // VLC buffering is exposed via isPlaying / isEnded, approximate with isPlaying
-    final isBuffering = value.isBuffering ?? false;
-    if (isBuffering != _isBuffering) {
-      _isBuffering = isBuffering;
-      if (mounted) setState(() {});
-    }
-    if (!widget.isMovie &&
-        _nextEpisode != null &&
-        !_nextEpisodeCancelled &&
-        value.duration > Duration.zero) {
-      final remaining = value.duration - value.position;
-      final countdown = remaining.inSeconds.clamp(0, 30);
-      final showNext = remaining <= const Duration(seconds: 30);
-      if (showNext != _showNextEpisode || countdown != _nextEpisodeCountdown) {
-        _showNextEpisode = showNext;
-        _nextEpisodeCountdown = countdown;
-        if (mounted) setState(() {});
-      }
-      if (remaining <= const Duration(milliseconds: 500) && !_loadingNextEpisode) {
-        unawaited(_playNextEpisode());
-      }
-    }
-  }
-
   Map<String, dynamic>? _nextServerAfter(String currentUrl) {
     if (_availableServers.length <= 1 || currentUrl.isEmpty) return null;
     final currentKey = _selectedServerKey;
@@ -1853,7 +1613,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     if (mounted) {
       setState(() {
         _isBuffering = true;
-        _statusMessage = 'The stream stopped. Finding a working one...';
+        _statusMessage = 'Stream interrupted. Trying next server...';
       });
     }
     await Future<void>.delayed(Duration(seconds: 2));
@@ -1990,30 +1750,10 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   }
 
   Future<void> _saveProgress() async {
-    if (_isVlcActive) {
-      final c = _vlcController!;
-      if (!c.value.isInitialized) return;
-      final position = c.value.position;
-      final duration = c.value.duration;
-      if (position <= Duration.zero || duration <= Duration.zero) return;
-      await WatchHistoryService.saveWatchProgress(
-        tmdbId: widget.tmdbId,
-        title: _currentTitle,
-        seriesTitle: widget.isMovie ? null : _resolverTitle,
-        isMovie: widget.isMovie,
-        season: _currentSeason,
-        episode: _currentEpisode,
-        posterUrl: _posterUrl,
-        position: position,
-        duration: duration,
-        genreIds: widget.genreIds,
-      );
-      return;
-    }
-    final controller = _videoPlayerController;
-    if (controller == null || !controller.value.isInitialized) return;
-    final position = controller.value.position;
-    final duration = controller.value.duration;
+    final c = _videoPlayerController;
+    if (c == null || !c.value.isInitialized) return;
+    final position = c.value.position;
+    final duration = c.value.duration;
     if (position <= Duration.zero || duration <= Duration.zero) return;
     await WatchHistoryService.saveWatchProgress(
       tmdbId: widget.tmdbId,
@@ -2034,7 +1774,6 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     _isLeaving = true;
     await _saveProgress();
     _videoPlayerController?.dispose();
-    _vlcController?.dispose();
     if (mounted) Navigator.of(context).pop(true);
   }
 
@@ -2042,12 +1781,6 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     if (_isLeaving) return;
     _isLeaving = true;
     await _saveProgress();
-    // VLC minimize not yet supported via MiniplayerService (expects VideoPlayerController) — just dispose and pop
-    if (_isVlcActive) {
-      await _vlcController?.dispose();
-      if (mounted) Navigator.of(context).pop(true);
-      return;
-    }
     final controller = _videoPlayerController;
     if (controller != null && controller.value.isInitialized) {
       _isMinimizing = true;
@@ -3142,10 +2875,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   }
 
   Future<void> _switchQuality(_StreamQuality quality) async {
-    final isVlc = _isVlcActive;
-    final currentVideo = _videoPlayerController;
-    final currentVlc = _vlcController;
-    final current = isVlc ? currentVlc : currentVideo;
+    final current = _videoPlayerController;
     if (current == null ||
         quality.label == _selectedQuality ||
         _isSwitchingQuality) {
@@ -3160,8 +2890,8 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         ? (_currentStreamUrl ?? quality.url)
         : quality.url;
 
-    final position = isVlc ? currentVlc!.value.position : currentVideo!.value.position;
-    final shouldPlay = isVlc ? currentVlc!.value.isPlaying : (currentVideo!.value.isPlaying || currentVideo!.value.isBuffering);
+    final position = _videoPlayerController?.value.position ?? Duration.zero;
+    final shouldPlay = _videoPlayerController?.value.isPlaying ?? false;
     setState(() {
       _isSwitchingQuality = true;
       _videoInitialized = false;
@@ -3194,11 +2924,9 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     _progressTimer?.cancel();
     unawaited(_saveProgress());
     _videoPlayerController?.removeListener(_handlePlaybackChanged);
-    _vlcController?.removeListener(_handleVlcPlaybackChanged);
     // Don't dispose controller if minimizing — it's now owned by MiniplayerService
     if (!_isMinimizing) {
       _videoPlayerController?.dispose();
-      _vlcController?.dispose();
     }
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
@@ -3224,7 +2952,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         backgroundColor: Colors.black,
         body: _error != null
             ? _buildError()
-            : _useNativePlayer && (_videoPlayerController != null || _vlcController != null)
+            : _useNativePlayer && _videoPlayerController != null
             ? _buildPlayer()
             : _buildLoading(),
       ),
@@ -3232,21 +2960,10 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   }
 
   Widget _buildPlayer() {
-    final bool isVlc = _useVlc && _vlcController != null;
     final controller = _videoPlayerController;
-    final vlc = _vlcController;
     Size size = const Size(1920, 1080);
     double aspect = 16 / 9;
-    if (isVlc && vlc != null) {
-      // VLC reports size via value.size when available, fallback to 16/9
-      try {
-        final s = vlc.value.size;
-        if (s != null && s.width > 0 && s.height > 0) {
-          size = s;
-          aspect = s.width / s.height;
-        }
-      } catch (_) {}
-    } else if (controller != null) {
+    if (controller != null) {
       size = controller.value.size;
       aspect = controller.value.aspectRatio > 0 ? controller.value.aspectRatio : 16 / 9;
     }
@@ -3258,16 +2975,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         ? (playerHeight * 0.06).clamp(18.0, 32.0)
         : 92.0;
     Widget innerPlayer;
-    if (isVlc && vlc != null) {
-      innerPlayer = ColoredBox(
-        color: Colors.black,
-        child: VlcPlayer(
-          controller: vlc,
-          aspectRatio: aspect,
-          placeholder: const Center(child: CircularProgressIndicator(color: Colors.red)),
-        ),
-      );
-    } else if (controller != null) {
+    if (controller != null) {
       innerPlayer = VideoPlayer(controller);
     } else {
       innerPlayer = const SizedBox();
@@ -3354,7 +3062,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
           ),
         Positioned.fill(
           child: _StablePlayerControls(
-            controller: _isVlcActive ? _vlcController! : controller,
+            controller: controller,
             onBack: _exitPlayer,
             onMinimize: _minimizePlayer,
             mediaTitle: _currentTitle,
@@ -3376,7 +3084,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
             downloadCompleted: _downloadCompleted,
           ),
         ),
-        if (_videoPlayerController != null || _vlcController != null)
+        if (_videoPlayerController != null)
           Positioned(
             left: compactPlayer ? 16 : 24,
             right: compactPlayer ? 16 : 24,
@@ -3385,42 +3093,22 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
               child: ValueListenableBuilder<List<Subtitle>>(
                 valueListenable: _activeSubtitles,
                 builder: (context, subtitles, _) {
-                  if (subtitles.isEmpty) return const SizedBox.shrink();
-                  if (_isVlcActive) {
-                    return ValueListenableBuilder<VlcPlayerValue>(
-                      valueListenable: _vlcController!,
-                      builder: (context, value, _) {
-                        final adjustedPosition = Duration(
-                          milliseconds: value.position.inMilliseconds + _subtitleOffsetMs.round(),
-                        );
-                        final cues = subtitles.where((cue) => adjustedPosition >= cue.start && adjustedPosition <= cue.end);
-                        if (cues.isEmpty) return const SizedBox.shrink();
-                        return Center(
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                            decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(4)),
-                            child: Text(cues.map((cue) => cue.text.toString()).join('\n'), textAlign: TextAlign.center, style: TextStyle(color: Colors.white, fontSize: compactPlayer ? 16 : 18, fontWeight: FontWeight.w600)),
-                          ),
-                        );
-                      },
-                    );
-                  } else {
-                    return ValueListenableBuilder<VideoPlayerValue>(
-                      valueListenable: _videoPlayerController!,
-                      builder: (context, value, _) {
-                        final adjustedPosition = Duration(milliseconds: value.position.inMilliseconds + _subtitleOffsetMs.round());
-                        final cues = subtitles.where((cue) => adjustedPosition >= cue.start && adjustedPosition <= cue.end);
-                        if (cues.isEmpty) return const SizedBox.shrink();
-                        return Center(
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                            decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(4)),
-                            child: Text(cues.map((cue) => cue.text.toString()).join('\n'), textAlign: TextAlign.center, style: TextStyle(color: Colors.white, fontSize: compactPlayer ? 16 : 18, fontWeight: FontWeight.w600)),
-                          ),
-                        );
-                      },
-                    );
-                  }
+                  if (subtitles.isEmpty || _videoPlayerController == null) return const SizedBox.shrink();
+                  return ValueListenableBuilder<VideoPlayerValue>(
+                    valueListenable: _videoPlayerController!,
+                    builder: (context, value, _) {
+                      final adjustedPosition = Duration(milliseconds: value.position.inMilliseconds + _subtitleOffsetMs.round());
+                      final cues = subtitles.where((cue) => adjustedPosition >= cue.start && adjustedPosition <= cue.end);
+                      if (cues.isEmpty) return const SizedBox.shrink();
+                      return Center(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(4)),
+                          child: Text(cues.map((cue) => cue.text.toString()).join('\n'), textAlign: TextAlign.center, style: TextStyle(color: Colors.white, fontSize: compactPlayer ? 16 : 18, fontWeight: FontWeight.w600)),
+                        ),
+                      );
+                    },
+                  );
                 },
               ),
             ),
@@ -3595,12 +3283,31 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
               style: const TextStyle(color: Colors.grey, fontSize: 13),
               textAlign: TextAlign.center,
             ),
-            const SizedBox(height: 12),
-            Text(
-              'Last status: $_statusMessage',
-              style: const TextStyle(color: Colors.grey, fontSize: 11),
-              textAlign: TextAlign.center,
-            ),
+            const SizedBox(height: 8),
+            // Show detailed error log for debugging
+            if (_error != null && _error!.isNotEmpty)
+              GestureDetector(
+                onTap: () {
+                  Clipboard.setData(ClipboardData(text: 'Error: $_error\nStatus: $_statusMessage'));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Error copied to clipboard'), duration: Duration(seconds: 1)),
+                  );
+                },
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.05),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.white24),
+                  ),
+                  child: Text(
+                    '$_error\nStatus: $_statusMessage',
+                    style: TextStyle(color: Colors.grey[400], fontSize: 11, fontFamily: 'monospace'),
+                    textAlign: TextAlign.left,
+                  ),
+                ),
+              ),
             if (_availableServers.isNotEmpty) ...[
               const SizedBox(height: 20),
               const Text(
