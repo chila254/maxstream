@@ -20,6 +20,10 @@
 # renaming JSONStringer fields which causes NoSuchFieldError at runtime.
 -keep class org.json.** { *; }
 
+# flutter_local_notifications - keep drawable resources referenced by string at runtime
+-keep class **.R$drawable { *; }
+-keepclassmembers class **.R$drawable { *; }
+
 # Keep line numbers for debugging
 -keepattributes SourceFile,LineNumberTable
 
