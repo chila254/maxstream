@@ -1460,17 +1460,20 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     required Duration position,
     required bool shouldPlay,
   }) async {
-    // Dispose old player without blocking switch - fvp/MdkVideoPlayer can throw
-    // Bad state: Cannot add event after closing if native events arrive after
-    // StreamController is closed during rapid server switches. Dispose in
-    // background and clear controller immediately so new player can start.
+    // Dispose old player before creating new one to free decoder/surface.
+    // Await with short timeout and swallow fvp Bad state race where native
+    // still sends events after StreamController closed during rapid switches.
     final previousVideo = _videoPlayerController;
     _videoPlayerController = null;
     if (previousVideo != null) {
       try {
         previousVideo.removeListener(_handlePlaybackChanged);
       } catch (_) {}
-      unawaited(previousVideo.dispose().catchError((_) {}));
+      try {
+        await previousVideo.dispose().timeout(const Duration(seconds: 3));
+      } catch (_) {
+        // Ignore Bad state: Cannot add event after closing and timeout
+      }
     }
     if (!mounted) return;
 
@@ -1503,8 +1506,10 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
               ? (isFallback ? 'Trying compatible codec...' : 'Loading video...')
               : 'Switching to $selectedQuality...',
         );
-        // Timeout after 15s to prevent indefinite loading
-        await controller.initialize().timeout(const Duration(seconds: 15));
+        // Timeout after 30s - HLS playlists on slow/CDN can take >15s, and
+        // 15s was causing working servers to be marked as failed with
+        // TimeoutException after 0:00:15.000000
+        await controller.initialize().timeout(const Duration(seconds: 30));
         if (position > Duration.zero) await controller.seekTo(position);
         if (shouldPlay) await controller.play();
 
