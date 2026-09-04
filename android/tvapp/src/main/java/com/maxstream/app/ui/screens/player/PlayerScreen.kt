@@ -589,6 +589,30 @@ fun PlayerScreen(
                 }
 
                 override fun onPlayerError(playbackError: androidx.media3.common.PlaybackException) {
+                    val msg = playbackError.message ?: ""
+                    val isSourceError = msg.contains("Source", true) ||
+                        playbackError.errorCodeName?.contains("SOURCE", true) == true ||
+                        playbackError.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS ||
+                        playbackError.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED ||
+                        playbackError.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_DECODER_INIT_FAILED
+                    // On Source Error (Vidlink HEVC unsupported / 403) switch to next working server
+                    // instead of retrying the same dead URL - mirrors mobile _recoverPlayback.
+                    if (isSourceError && allServers.size > 1) {
+                        val currentUrl = source?.url
+                        val next = allServers.firstOrNull { it.url.isNotBlank() && it.url != currentUrl } ?:
+                            allServers.firstOrNull { it.url.isNotBlank() }
+                        if (next != null && next.url != currentUrl) {
+                            Log.w("TVPlayer", "Source error on ${source?.displayName} (${playbackError.errorCodeName}), switching to ${next.displayName}")
+                            // Don't retry same URL, switch immediately
+                            coroutineScope.launch {
+                                try {
+                                    player.release()
+                                } catch (_: Exception) {}
+                                switchMedia(next.url, next.headers, next.isHls, activeSubtitle)
+                            }
+                            return
+                        }
+                    }
                     // Auto-retry transient errors (network glitch, 403, decoder hiccup)
                     // up to MAX_PLAYER_RETRIES with exponential backoff before giving up.
                     if (retryPlaybackCount < MAX_PLAYER_RETRIES) {
@@ -993,6 +1017,38 @@ fun PlayerScreen(
                 } catch (e: Exception) {
                     lastError = e
                     continue
+                }
+            }
+            if (player == null) {
+                // Vidlink Source Error (HEVC 503/403) - try other working servers immediately
+                // instead of showing error. Mirrors mobile fallback to next server.
+                val fallbackServers = runCatching {
+                    Modules.streamRepository(context).resolveAll(
+                        tmdbId = itemId,
+                        isMovie = isMovie,
+                        season = currentSeason,
+                        episode = currentEpisode,
+                        title = title,
+                    )
+                }.getOrNull().orEmpty()
+                for (srv in fallbackServers) {
+                    if (srv.url.isBlank() || srv.url == primary.url) continue
+                    try {
+                        val p = buildPlayer(
+                            url = srv.url,
+                            headers = srv.headers,
+                            isHls = srv.isHls,
+                            startMs = resumePositionMs,
+                        )
+                        player = p
+                        source = srv
+                        selectedQualityLabel = qualityLabelFor(srv)
+                        Log.w("TVPlayer", "Switched from ${primary.displayName} Source Error to ${srv.displayName}")
+                        break
+                    } catch (e: Exception) {
+                        lastError = e
+                        continue
+                    }
                 }
             }
             if (player == null) throw lastError ?: IllegalStateException("Failed to build player for ${primary.server}")
