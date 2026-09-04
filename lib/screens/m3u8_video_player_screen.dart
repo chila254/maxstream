@@ -835,44 +835,16 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
               url.toLowerCase().contains('.m3u8'),
         );
         if (!initialized) {
-          // For VidLink, try other qualities of the same server (720p → 480p → 360p) before
-          // jumping to the next server — some VidLink qualities play while others 428.
-          // Prefer H264 qualities first - H265 often fails on phones without HEVC decoder.
-          final sortedQualities = [...qualities]..sort((a, b) {
-              final aH265 = a.url.toLowerCase().contains('/h265/') ? 1 : 0;
-              final bH265 = b.url.toLowerCase().contains('/h265/') ? 1 : 0;
-              if (aH265 != bH265) return aH265 - bH265;
-              return a.height.compareTo(b.height);
-            });
-          for (final q in sortedQualities.where((q) => q.url != url && q.url.isNotEmpty)) {
-            _showStatus('Trying ${q.label}...');
-            initialized = await _initializePlayer(
-              q.url,
-              headers: headers,
-              source: source,
-              qualities: qualities,
-              selectedQuality: q.label,
-              position: resumePosition,
-              isHls: q.url.toLowerCase().contains('.m3u8'),
-            );
-            if (initialized) break;
-          }
-          if (!initialized) {
-            _showStatus(
-              'Trying next server...',
-            );
-            discoveredServers = true;
-            await _discoverAvailableServers(discoveryGeneration);
-            final candidates = _availableServers
-                .where(
-                  (s) =>
-                      (s['url']?.toString() ?? '').isNotEmpty &&
-                      s['url']?.toString() != url,
-                )
-                .toList();
-          // Try next servers immediately without pre-flight validation - validation
-          // was sequential (6x HTTP HEAD) and made switching feel stuck at
-          // "Switching to Auto". _tryPlayServer will fail fast if unreachable.
+          _showStatus('Trying next server...');
+          discoveredServers = true;
+          await _discoverAvailableServers(discoveryGeneration);
+          final candidates = _availableServers
+              .where(
+                (s) =>
+                    (s['url']?.toString() ?? '').isNotEmpty &&
+                    s['url']?.toString() != url,
+              )
+              .toList();
           for (final server in candidates) {
             _showStatus('Trying ${server['source']}...');
             initialized = await _tryPlayServer(
@@ -881,7 +853,6 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
               primaryUrl: url,
             );
             if (initialized) break;
-          }
           }
         }
         if (!initialized) {
