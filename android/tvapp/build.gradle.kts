@@ -20,7 +20,7 @@ android {
 
     defaultConfig {
         applicationId = "com.maxstream.tv"
-        minSdk = 21
+        minSdk = 23
         targetSdk = 34
         versionCode = 8
         versionName = "1.6.0"
