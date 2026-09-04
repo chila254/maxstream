@@ -13,11 +13,16 @@ import 'services/crashlytics_service.dart';
 import 'services/memory_service.dart';
 import 'widgets/cloud_sync_bootstrap.dart';
 import 'widgets/crash_screen.dart';
+import 'package:fvp/fvp.dart' as fvp;
 
 final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Enable FVP (libmdk + FFmpeg) as video_player backend for HEVC/H265 software
+  // decode fallback on devices without HEVC HW decoder. Falls back to MediaCodec
+  // HW first, then FFmpeg SW - fixes Vidlink noon.mooncase.online H265 mp4 on phones.
+  fvp.registerWith(options: {'platforms': ['android', 'ios']});
   installGlobalCrashHandlers();
   installMemoryTrimHandler();
   // Surface the previous process's native crash / unexpected exit before the

@@ -74,8 +74,8 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
-import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import io.github.anilbeesetti.nextlib.media3ext.NextRenderersFactory
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
 import androidx.navigation.NavController
@@ -531,8 +531,15 @@ fun PlayerScreen(
             itemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
         }
 
-        val renderersFactory = DefaultRenderersFactory(context)
-            .setEnableDecoderFallback(true)
+        // Use NextRenderersFactory (FFmpeg extension) for HEVC/H265 software decode
+        // fallback on TV boxes without HEVC HW decoder. It wraps DefaultRenderersFactory
+        // and tries HW first, then ffmpeg SW - fixes Vidlink H265 mp4 Source error.
+        val renderersFactory = NextRenderersFactory(context).apply {
+            setEnableDecoderFallback(true)
+            setExtensionRendererMode(
+                androidx.media3.exoplayer.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER
+            )
+        }
 
         val player = ExoPlayer.Builder(context, renderersFactory)
             .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))

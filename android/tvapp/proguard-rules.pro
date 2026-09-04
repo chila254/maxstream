@@ -1,9 +1,11 @@
 # MaxStream TV (native Kotlin) ProGuard rules.
 -keep class com.maxstream.app.** { *; }
 
-# Media3 / ExoPlayer
+# Media3 / ExoPlayer + nextlib FFmpeg extension
 -keep class androidx.media3.** { *; }
 -dontwarn androidx.media3.**
+-keep class io.github.anilbeesetti.** { *; }
+-dontwarn io.github.anilbeesetti.**
 
 # OkHttp
 -dontwarn okhttp3.**

@@ -584,6 +584,14 @@ packages:
     description: flutter
     source: sdk
     version: "0.0.0"
+  fvp:
+    dependency: "direct main"
+    description:
+      name: fvp
+      sha256: c6db09d88a6c84ba84fb047b4082a03987199e968273da9ad051660e18cfca55
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.38.1"
   glassmorphism:
     dependency: "direct main"
     description:
