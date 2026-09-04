@@ -943,12 +943,18 @@ class StreamExtractor(private val context: Context) {
                     "VidLink stream has no playable qualities"
                 }
 
-                var bestUrl: String? = null
-                var bestHeight = -1
-                var bestHeaders: Map<String, String> = refererHeaders("https://vidlink.pro/")
-                var fallbackUrl: String? = null
-                var fallbackHeight = -1
-                var fallbackHeaders: Map<String, String> = bestHeaders
+                var bestH264Url: String? = null
+                var bestH264Height = -1
+                var bestH264Headers: Map<String, String> = refererHeaders("https://vidlink.pro/")
+                var fallbackH264Url: String? = null
+                var fallbackH264Height = -1
+                var fallbackH264Headers: Map<String, String> = bestH264Headers
+                var bestH265Url: String? = null
+                var bestH265Height = -1
+                var bestH265Headers: Map<String, String> = refererHeaders("https://vidlink.pro/")
+                var fallbackH265Url: String? = null
+                var fallbackH265Height = -1
+                var fallbackH265Headers: Map<String, String> = bestH265Headers
                 val qualityOptions = mutableListOf<QualityOption>()
                 val iterator = qualities.keys()
                 while (iterator.hasNext()) {
@@ -978,17 +984,31 @@ class StreamExtractor(private val context: Context) {
                     } else {
                         refererHeaders("https://vidlink.pro/") + entryHeaders
                     }
-                    qualityOptions += QualityOption("${label}p", url, height)
-                    // Track raw URL for correct MIME when this quality becomes best/fallback
-                    if (height > fallbackHeight) {
-                        fallbackHeight = height
-                        fallbackUrl = url
-                        fallbackHeaders = mediaHeaders
-                    }
-                    if (height <= 720 && height > bestHeight) {
-                        bestHeight = height
-                        bestUrl = url
-                        bestHeaders = mediaHeaders
+                    val isH265 = rawUrl.contains("/h265/", true)
+                    val codec = if (isH265) "hevc" else "h264"
+                    qualityOptions += QualityOption("${label}p", url, height, codec)
+                    if (isH265) {
+                        if (height > fallbackH265Height) {
+                            fallbackH265Height = height
+                            fallbackH265Url = url
+                            fallbackH265Headers = mediaHeaders
+                        }
+                        if (height <= 720 && height > bestH265Height) {
+                            bestH265Height = height
+                            bestH265Url = url
+                            bestH265Headers = mediaHeaders
+                        }
+                    } else {
+                        if (height > fallbackH264Height) {
+                            fallbackH264Height = height
+                            fallbackH264Url = url
+                            fallbackH264Headers = mediaHeaders
+                        }
+                        if (height <= 720 && height > bestH264Height) {
+                            bestH264Height = height
+                            bestH264Url = url
+                            bestH264Headers = mediaHeaders
+                        }
                     }
                 }
 
@@ -1007,9 +1027,20 @@ class StreamExtractor(private val context: Context) {
                     }
                 }.orEmpty()
 
-                val url = bestUrl ?: fallbackUrl
-                    ?: throw IllegalStateException("VidLink no quality URL")
-                if (bestUrl == null) bestHeaders = fallbackHeaders
+                val (url, bestHeaders) = when {
+                    bestH264Url != null -> bestH264Url to bestH264Headers
+                    fallbackH264Url != null -> fallbackH264Url to fallbackH264Headers
+                    bestH265Url != null -> {
+                        Log.w(tag, "VidLink: no H264 available, falling back to HEVC ${bestH265Height}p - may fail on this device")
+                        bestH265Url to bestH265Headers
+                    }
+                    fallbackH265Url != null -> {
+                        Log.w(tag, "VidLink: no H264 available, falling back to HEVC ${fallbackH265Height}p - may fail on this device")
+                        fallbackH265Url to fallbackH265Headers
+                    }
+                    else -> throw IllegalStateException("VidLink no quality URL")
+                }
+                val sortedQualities = qualityOptions.sortedWith(compareBy({ if (it.codec == "hevc") 1 else 0 }, { -it.height }))
                 // Use raw CDN extension for MIME, not the proxy's /mp/ path
                 val finalMediaType = if (url.contains("noon.mooncase.online")) "mp4" else mediaType(url)
                 ExtractionResult.Final(
@@ -1018,7 +1049,7 @@ class StreamExtractor(private val context: Context) {
                         name,
                         finalMediaType,
                         bestHeaders,
-                        qualities = qualityOptions.sortedByDescending { it.height },
+                        qualities = sortedQualities,
                         subtitles = captions,
                     )
                 )

@@ -837,7 +837,14 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         if (!initialized) {
           // For VidLink, try other qualities of the same server (720p → 480p → 360p) before
           // jumping to the next server — some VidLink qualities play while others 428.
-          for (final q in qualities.where((q) => q.url != url && q.url.isNotEmpty)) {
+          // Prefer H264 qualities first - H265 often fails on phones without HEVC decoder.
+          final sortedQualities = [...qualities]..sort((a, b) {
+              final aH265 = a.url.toLowerCase().contains('/h265/') ? 1 : 0;
+              final bH265 = b.url.toLowerCase().contains('/h265/') ? 1 : 0;
+              if (aH265 != bH265) return aH265 - bH265;
+              return a.height.compareTo(b.height);
+            });
+          for (final q in sortedQualities.where((q) => q.url != url && q.url.isNotEmpty)) {
             _showStatus('Trying ${q.label}...');
             initialized = await _initializePlayer(
               q.url,
@@ -846,7 +853,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
               qualities: qualities,
               selectedQuality: q.label,
               position: resumePosition,
-              isHls: q.url.toLowerCase().contains('.m3u8') || source.toLowerCase().contains('vidlink'),
+              isHls: q.url.toLowerCase().contains('.m3u8'),
             );
             if (initialized) break;
           }
@@ -1515,10 +1522,12 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     }
 
     for (final attemptUrl in urlsToTry) {
+      // Determine format from actual URL - proxied mp4 must NOT be marked as HLS or ExoPlayer Source error.
+      final actualIsHls = attemptUrl.toLowerCase().contains('.m3u8');
       final controller = VideoPlayerController.networkUrl(
         Uri.parse(attemptUrl),
         httpHeaders: headers,
-        formatHint: isHls ? VideoFormat.hls : VideoFormat.other,
+        formatHint: actualIsHls ? VideoFormat.hls : VideoFormat.other,
         videoPlayerOptions: VideoPlayerOptions(backBufferDurationMs: 60000, allowBackgroundPlayback: true),
       );
 
