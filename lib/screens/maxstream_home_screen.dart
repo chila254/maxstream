@@ -641,7 +641,12 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
                 ),
                 TextButton(
                   onPressed: () {
-                    _showFullList('Upcoming', 'movie');
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const _ComingSoonFullListScreen(),
+                      ),
+                    );
                   },
                   child: const Text(
                     'See All',
@@ -1418,5 +1423,406 @@ class _FullListScreenState extends State<_FullListScreen> {
       return date.substring(0, 4);
     }
     return '';
+  }
+}
+
+class _ComingSoonFullListScreen extends StatefulWidget {
+  const _ComingSoonFullListScreen();
+
+  @override
+  State<_ComingSoonFullListScreen> createState() => _ComingSoonFullListScreenState();
+}
+
+class _ComingSoonFullListScreenState extends State<_ComingSoonFullListScreen> {
+  List<Map<String, dynamic>> _items = [];
+  bool _isLoading = true;
+  bool _isLoadingMore = false;
+  bool _hasMore = true;
+  int _moviePage = 1;
+  int _seriesPage = 1;
+  final ScrollController _scrollController = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_scrollListener);
+    _loadInitial();
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _scrollListener() {
+    if (_scrollController.position.pixels >=
+            _scrollController.position.maxScrollExtent - 200 &&
+        !_isLoadingMore &&
+        !_isLoading &&
+        _hasMore) {
+      _loadMore();
+    }
+  }
+
+  String _getReleaseDate(Map<String, dynamic> item) {
+    return (item['_nextAirDate'] ?? item['release_date'] ?? item['first_air_date'])?.toString() ?? '';
+  }
+
+  int _dateSort(Map<String, dynamic> a, Map<String, dynamic> b) {
+    final da = _getReleaseDate(a);
+    final db = _getReleaseDate(b);
+    if (da.isEmpty && db.isEmpty) return 0;
+    if (da.isEmpty) return 1;
+    if (db.isEmpty) return -1;
+    try {
+      final pa = DateTime.parse(da);
+      final pb = DateTime.parse(db);
+      return pa.compareTo(pb);
+    } catch (_) {
+      return da.compareTo(db);
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> _loadWatchlistUpcoming() async {
+    try {
+      final watchlist = await DBHelper.getWatchlist();
+      final tvItems = watchlist.where((m) => m.mediaType == 'tv').toList();
+      if (tvItems.isEmpty) return const [];
+      final upcoming = <Map<String, dynamic>>[];
+      for (final item in tvItems.take(12)) {
+        try {
+          final details = await TmdbApiService.getSeriesDetails(int.parse(item.id));
+          if (details == null) continue;
+          final nextAir = details['next_episode_to_air'];
+          if (nextAir == null || nextAir is! Map) continue;
+          final seasonNum = nextAir['season_number'] ?? 0;
+          final episodeNum = nextAir['episode_number'] ?? 0;
+          final airDate = nextAir['air_date']?.toString() ?? '';
+          if (seasonNum == 0 && episodeNum == 0) continue;
+          upcoming.add({
+            'id': item.id,
+            'title': item.title,
+            'name': item.title,
+            'poster_path': item.thumbnail.replaceFirst(RegExp(r'^https?://image\.tmdb\.org/t/p/w\d+'), ''),
+            'backdrop_path': item.backdrop.isNotEmpty
+                ? item.backdrop.replaceFirst(RegExp(r'^https?://image\.tmdb\.org/t/p/w\d+'), '')
+                : item.thumbnail.replaceFirst(RegExp(r'^https?://image\.tmdb\.org/t/p/w\d+'), ''),
+            'vote_average': item.rating,
+            'overview': item.description,
+            'media_type': 'tv',
+            'release_date': airDate,
+            'first_air_date': airDate,
+            '_nextSeason': seasonNum,
+            '_nextEpisode': episodeNum,
+            '_nextAirDate': airDate,
+            '_isWatchlistUpcoming': true,
+          });
+        } catch (_) {}
+      }
+      return upcoming;
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<void> _loadInitial() async {
+    setState(() => _isLoading = true);
+    try {
+      final watchlistUpcoming = await _loadWatchlistUpcoming();
+      final moviesRaw = await TmdbApiService.fetchUpcomingMovies(page: 1);
+      final movies = TmdbApiService.filterUnreleased(moviesRaw);
+      for (final m in movies) m['media_type'] = 'movie';
+      final seriesRaw = await TmdbApiService.fetchUpcomingSeries(page: 1);
+      final series = TmdbApiService.filterUnreleased(seriesRaw, dateField: 'first_air_date');
+      for (final s in series) s['media_type'] = 'tv';
+      final merged = [...watchlistUpcoming, ...movies, ...series];
+      merged.sort(_dateSort);
+      final deduped = <String, Map<String, dynamic>>{};
+      for (final item in merged) {
+        deduped.putIfAbsent(tmdbItemKey(item, item['media_type'] ?? 'movie'), () => item);
+      }
+      if (!mounted) return;
+      setState(() {
+        _items = deduped.values.toList();
+        _isLoading = false;
+        _moviePage = 1;
+        _seriesPage = 1;
+        _hasMore = moviesRaw.length >= 20 || seriesRaw.length >= 20;
+      });
+    } catch (e) {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _loadMore() async {
+    if (_isLoadingMore || !_hasMore) return;
+    setState(() => _isLoadingMore = true);
+    try {
+      final nextMoviePage = _moviePage + 1;
+      final nextSeriesPage = _seriesPage + 1;
+      final moviesRaw = await TmdbApiService.fetchUpcomingMovies(page: nextMoviePage);
+      final movies = TmdbApiService.filterUnreleased(moviesRaw);
+      for (final m in movies) m['media_type'] = 'movie';
+      final seriesRaw = await TmdbApiService.fetchUpcomingSeries(page: nextSeriesPage);
+      final series = TmdbApiService.filterUnreleased(seriesRaw, dateField: 'first_air_date');
+      for (final s in series) s['media_type'] = 'tv';
+      final newItems = [...movies, ...series];
+      if (newItems.isEmpty) {
+        if (mounted) setState(() => _hasMore = false);
+        return;
+      }
+      newItems.sort(_dateSort);
+      if (!mounted) return;
+      final merged = uniqueTmdbItems(_items, newItems, 'movie');
+      merged.sort(_dateSort);
+      setState(() {
+        _hasMore = moviesRaw.length >= 20 || seriesRaw.length >= 20;
+        _items = merged;
+        _moviePage = nextMoviePage;
+        _seriesPage = nextSeriesPage;
+      });
+    } catch (_) {
+      // keep hasMore so user can retry via scroll
+    } finally {
+      if (mounted) setState(() => _isLoadingMore = false);
+    }
+  }
+
+  Widget _posterFallback(String? posterPath) {
+    if (posterPath != null) {
+      return AppNetworkImage(
+        url: TmdbApiService.getPosterUrl(posterPath),
+        fit: BoxFit.cover,
+        errorWidget: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Colors.grey[850]!, Colors.grey[900]!],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+          child: const Icon(Icons.movie, color: Colors.grey, size: 50),
+        ),
+      );
+    }
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Colors.grey[850]!, Colors.grey[900]!],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
+      child: const Icon(Icons.movie, color: Colors.grey, size: 50),
+    );
+  }
+
+  String _formatReleaseDate(String date) {
+    if (date.isEmpty) return '';
+    try {
+      final parsed = DateTime.parse(date);
+      const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      return '${months[parsed.month - 1]} ${parsed.day}, ${parsed.year}';
+    } catch (_) {
+      return date;
+    }
+  }
+
+  Widget _buildComingSoonCard(Map<String, dynamic> item) {
+    final name = item['title'] ?? item['name'] ?? 'Unknown';
+    final posterPath = item['poster_path'];
+    final backdropPath = item['backdrop_path'];
+    final rating = (item['vote_average'] as num?)?.toDouble();
+    final releaseDate = (item['release_date'] ?? item['first_air_date'])?.toString() ?? '';
+    final overview = item['overview']?.toString() ?? '';
+    final isTv = item['media_type'] == 'tv';
+    final typeLabel = isTv ? 'TV' : 'MOVIE';
+    final isWatchlistUpcoming = item['_isWatchlistUpcoming'] == true;
+    final nextSeason = item['_nextSeason'];
+    final nextEpisode = item['_nextEpisode'];
+
+    return GestureDetector(
+      onTap: () {
+        if (!mounted) return;
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => isTv
+                ? MaxStreamSeriesScreen(seriesItem: Movie.fromJson(item))
+                : MaxStreamDetailsScreen(item: Movie.fromJson(item), mediaType: 'movie'),
+          ),
+        );
+      },
+      child: Container(
+        height: 200,
+        margin: const EdgeInsets.only(bottom: 14),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              backdropPath != null
+                  ? AppNetworkImage(
+                      url: TmdbApiService.getBackdropUrl(backdropPath),
+                      fit: BoxFit.cover,
+                      errorWidget: _posterFallback(posterPath),
+                    )
+                  : _posterFallback(posterPath),
+              Positioned.fill(
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [Colors.transparent, Colors.black.withValues(alpha: 0.9)],
+                      stops: const [0.3, 1.0],
+                    ),
+                  ),
+                ),
+              ),
+              if (posterPath != null)
+                Positioned(
+                  left: 10,
+                  bottom: 10,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: AppNetworkImage(
+                      url: TmdbApiService.getPosterUrl(posterPath),
+                      width: 56,
+                      height: 82,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                ),
+              Positioned(
+                top: 10,
+                left: 10,
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: isTv ? Colors.teal : Colors.red,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        typeLabel,
+                        style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: isWatchlistUpcoming ? Colors.amber.shade700 : Colors.purple.shade700,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        isWatchlistUpcoming ? 'IN YOUR WATCHLIST' : 'UPCOMING',
+                        style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold, letterSpacing: 0.5),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (rating != null && rating > 0)
+                Positioned(
+                  top: 10,
+                  right: 10,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.7),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.star, color: Colors.amber, size: 12),
+                        const SizedBox(width: 3),
+                        Text(rating.toStringAsFixed(1), style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                  ),
+                ),
+              Positioned(
+                left: 78,
+                right: 10,
+                bottom: 10,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(name, style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold), maxLines: 2, overflow: TextOverflow.ellipsis),
+                    if (isWatchlistUpcoming && nextSeason != null) ...[
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          const Icon(Icons.tv, color: Colors.amberAccent, size: 11),
+                          const SizedBox(width: 4),
+                          Text('Season $nextSeason \u00b7 Episode $nextEpisode', style: const TextStyle(color: Colors.amberAccent, fontSize: 11, fontWeight: FontWeight.w600)),
+                        ],
+                      ),
+                    ],
+                    if (releaseDate.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Icon(isWatchlistUpcoming ? Icons.access_time : Icons.calendar_today, color: isWatchlistUpcoming ? Colors.amberAccent : Colors.purpleAccent, size: 11),
+                          const SizedBox(width: 4),
+                          Text(_formatReleaseDate(releaseDate), style: TextStyle(color: isWatchlistUpcoming ? Colors.amberAccent : Colors.purpleAccent, fontSize: 11, fontWeight: FontWeight.w500)),
+                        ],
+                      ),
+                    ],
+                    if (overview.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(overview, style: const TextStyle(color: Colors.white54, fontSize: 11), maxLines: 2, overflow: TextOverflow.ellipsis),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF121212),
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF1A1A1A),
+        title: const Text('Coming Soon', style: TextStyle(color: Colors.white)),
+        iconTheme: const IconThemeData(color: Colors.white),
+      ),
+      body: _isLoading
+          ? const Center(
+              child: CustomLoadingWidget(size: 30, color: Color(0xFFE50914), style: LoadingStyle.dots),
+            )
+          : Column(
+              children: [
+                Expanded(
+                  child: ListView.builder(
+                    controller: _scrollController,
+                    physics: const ClampingScrollPhysics(),
+                    padding: const EdgeInsets.all(16),
+                    itemCount: _items.length,
+                    itemBuilder: (context, index) {
+                      final item = _items[index];
+                      return _buildComingSoonCard(item);
+                    },
+                  ),
+                ),
+                if (_isLoadingMore)
+                  const Padding(
+                    padding: EdgeInsets.all(16.0),
+                    child: CustomLoadingWidget(size: 30, color: Color(0xFFE50914), style: LoadingStyle.dots),
+                  ),
+              ],
+            ),
+    );
   }
 }

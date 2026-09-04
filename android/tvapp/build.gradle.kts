@@ -97,7 +97,6 @@ android {
 repositories {
     google()
     mavenCentral()
-    maven("https://maven.pkg.jetbrains.space/public/p/kotlin/p/kotlin/dev")
 }
 
 dependencies {
@@ -124,14 +123,14 @@ dependencies {
     // artifact never depends on BOM constraint resolution.
     implementation("androidx.compose.runtime:runtime-livedata:1.7.6")
     implementation("androidx.navigation:navigation-compose:2.8.0")
-    implementation("androidx.media3:media3-exoplayer:1.4.1")
-    implementation("androidx.media3:media3-exoplayer-hls:1.4.1")
-    implementation("androidx.media3:media3-ui:1.4.1")
-    implementation("androidx.media3:media3-common:1.4.1")
-    implementation("androidx.media3:media3-session:1.4.1")
-    implementation("androidx.media3:media3-datasource-okhttp:1.4.1")
-    // FFmpeg software decoders for HEVC/H264/VP9 fallback on TV boxes without HEVC HW decoder
-    implementation("io.github.anilbeesetti:nextlib-media3ext:1.4.1-0.12.0")
+    implementation("androidx.media3:media3-exoplayer:1.10.1")
+    implementation("androidx.media3:media3-exoplayer-hls:1.10.1")
+    implementation("androidx.media3:media3-ui:1.10.1")
+    implementation("androidx.media3:media3-common:1.10.1")
+    implementation("androidx.media3:media3-session:1.10.1")
+    implementation("androidx.media3:media3-datasource-okhttp:1.10.1")
+    // FFmpeg software decoders for HEVC/H264/VP9 fallback on TV boxes without HEVC HW decoder (Maven Central)
+    implementation("io.github.anilbeesetti:nextlib-media3ext:1.10.1-0.13.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
     implementation("com.github.bumptech.glide:glide:4.16.0")
