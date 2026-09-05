@@ -8,6 +8,8 @@ import com.maxstream.app.data.local.WatchProgressRepository
 import com.maxstream.app.data.local.WatchlistRepository
 import com.maxstream.app.data.model.MediaItem
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient

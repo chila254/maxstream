@@ -55,13 +55,15 @@ object CloudSyncCoordinator {
                 if (SessionManager.isLoggedIn(context)) {
                     // The stored Firebase idToken expires after ~1h; refresh it
                     // first so Realtime Database REST calls don't silently 401/403.
-                    runCatching { AuthRepository.ensureFreshIdToken(context) }
-                    val fbChange = runCatching {
+                    try { AuthRepository.ensureFreshIdToken(context) } catch (_: Exception) {}
+                    val fbChange = try {
                         CloudSyncRepository.pullToDevice(context)
-                    }.getOrDefault(CloudSyncRepository.SyncChange(false, false))
+                    } catch (_: Exception) {
+                        CloudSyncRepository.SyncChange(false, false)
+                    }
                     // Supabase full sync - TV+mobile share same Postgres, no racing
                     // Backfill already done, now just pull
-                    runCatching { com.maxstream.app.data.supabase.TvSupabaseSyncService.pullToDevice(context) }
+                    try { com.maxstream.app.data.supabase.TvSupabaseSyncService.pullToDevice(context) } catch (_: Exception) {}
                     if (fbChange.historyChanged) _historyRevision.value++
                     if (fbChange.watchlistChanged) _watchlistRevision.value++
                 }

@@ -72,9 +72,8 @@ object WatchProgressRepository {
         upsertRecent(context, entry)
         // Full Supabase sync (Option A, 45d) - TV + mobile share same Postgres, so phone sees TV progress instantly
         try {
-            val ctx = appContext ?: context
             com.maxstream.app.data.supabase.TvSupabaseSyncService.pushWatchProgress(
-                ctx, tmdbId, title, isMovie, season, episode, positionSeconds, durationSeconds, posterPath
+                context, tmdbId, title, isMovie, season, episode, positionSeconds, durationSeconds, posterPath
             )
         } catch (_: Exception) {}
     }

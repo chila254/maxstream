@@ -104,7 +104,7 @@ fun WatchlistScreen(
         try {
             // Pull the phone's watchlist into local storage so the TV shows the
             // same saved titles as the phone (same account).
-            runCatching { com.maxstream.app.data.repository.CloudSyncRepository.pullToDevice(context) }
+            try { com.maxstream.app.data.repository.CloudSyncRepository.pullToDevice(context) } catch (_: Exception) {}
             watchlist = WatchlistRepository.getAll(context)
         } catch (e: Exception) {
             error = e.message

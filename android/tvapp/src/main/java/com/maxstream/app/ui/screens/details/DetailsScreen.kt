@@ -140,7 +140,7 @@ fun DetailsScreen(
         try {
             // Pull the phone's watchlist/progress so the save state and the
             // Continue Watching row match the phone (same account).
-            runCatching { com.maxstream.app.data.repository.CloudSyncRepository.pullToDevice(context) }
+            try { com.maxstream.app.data.repository.CloudSyncRepository.pullToDevice(context) } catch (_: Exception) {}
             // Load the right endpoint directly — TMDB ids are NOT unique across
             // types, so a series id can resolve to an unrelated movie (the old
             // "try movie first, fall back to tv" made series show movie details).
