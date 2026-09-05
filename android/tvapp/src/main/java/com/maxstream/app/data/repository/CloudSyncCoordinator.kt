@@ -49,7 +49,7 @@ object CloudSyncCoordinator {
         started = true
         // Backfill TV's old Continue Watching (stored before Supabase was enabled) to cloud
         // so mobile can pull it - runs once at start, like mobile's pushEntireHistory.
-        scope.launch { runCatching { com.maxstream.app.data.supabase.TvSupabaseSyncService.pushEntireHistory(context) } }
+        scope.launch { try { com.maxstream.app.data.supabase.TvSupabaseSyncService.pushEntireHistory(context) } catch (_: Exception) {} }
         job = scope.launch {
             while (isActive) {
                 if (SessionManager.isLoggedIn(context)) {
