@@ -262,6 +262,8 @@ class StreamExtractor(private val context: Context) {
             GxPlayerExtractor(),
             VeevExtractor(),
             VidplayExtractor(),
+            VidflixExtractor(),
+            VixcloudExtractor(),
             StreamrubyExtractor(),
             VidLoveExtractor(),
             VidNestExtractor(),
