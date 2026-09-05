@@ -1589,10 +1589,12 @@ class _ComingSoonFullListScreenState extends State<_ComingSoonFullListScreen> {
       }
       newItems.sort(_dateSort);
       if (!mounted) return;
+      // Keep existing order to avoid glitch where already-shown movies jump
+      // positions when merged is re-sorted by date (new items with earlier dates
+      // would insert in middle, making it look like duplicates).
       final merged = uniqueTmdbItems(_items, newItems, 'movie');
-      merged.sort(_dateSort);
       setState(() {
-        _hasMore = moviesRaw.length >= 20 || seriesRaw.length >= 20;
+        _hasMore = movies.isNotEmpty || series.isNotEmpty;
         _items = merged;
         _moviePage = nextMoviePage;
         _seriesPage = nextSeriesPage;

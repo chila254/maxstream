@@ -252,17 +252,6 @@ object CloudSyncRepository {
                         isWatched = entry.optBoolean("isWatched", false),
                     ) || historyChanged
                 }
-                // Deletions: drop local entries the cloud no longer has.
-                val local = WatchProgressRepository.recent(context, limit = 200)
-                for (entry in local) {
-                    val key = watchHistoryKey(entry.tmdbId, entry.isMovie, entry.season, entry.episode)
-                    if (key !in cloudKeys) {
-                        WatchProgressRepository.removeEntry(
-                            context, entry.tmdbId, entry.isMovie, entry.season, entry.episode,
-                        )
-                        historyChanged = true
-                    }
-                }
             }
         }
 
@@ -294,15 +283,10 @@ object CloudSyncRepository {
                     cloudKeys += key
                     WatchlistRepository.add(context, item)
                 }
-                // Deletions: drop local items the cloud no longer has.
-                val local = WatchlistRepository.getAll(context)
-                for (item in local) {
-                    val key = watchlistKey(item.id.toString(), item.mediaType)
-                    if (key !in cloudKeys) {
-                        WatchlistRepository.removeByKey(context, item.id.toString(), item.mediaType)
-                        watchlistChanged = true
-                    }
-                }
+                // Don't delete local watchlist items not in cloud - they may be
+                // old local items not yet pushed (e.g. TV continue watching before
+                // Supabase was enabled). Let pushEntireWatchlist backfill them
+                // instead of wiping local Continue Watching on back navigation.
                 // Additions: a new cloud entry that wasn't local before.
                 val localKeysAfter = WatchlistRepository.getAll(context)
                     .map { watchlistKey(it.id.toString(), it.mediaType) }

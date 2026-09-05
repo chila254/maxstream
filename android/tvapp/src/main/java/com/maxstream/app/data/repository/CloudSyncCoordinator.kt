@@ -47,40 +47,21 @@ object CloudSyncCoordinator {
     fun start(context: Context) {
         if (started) return
         started = true
+        // Backfill TV's old Continue Watching (stored before Supabase was enabled) to cloud
+        // so mobile can pull it - runs once at start, like mobile's pushEntireHistory.
+        scope.launch { runCatching { com.maxstream.app.data.supabase.TvSupabaseSyncService.pushEntireHistory(context) } }
         job = scope.launch {
             while (isActive) {
                 if (SessionManager.isLoggedIn(context)) {
                     // The stored Firebase idToken expires after ~1h; refresh it
                     // first so Realtime Database REST calls don't silently 401/403.
                     runCatching { AuthRepository.ensureFreshIdToken(context) }
-                    // Prefer Supabase when configured (full sync, instant Realtime), fallback to Firebase RTDB
-                    // This avoids racing where both backends have same watch_history with slightly different
-                    // ServerValue timestamps and the list flips every 10s.
-                    val useSupabase = com.maxstream.app.data.supabase.TvSupabaseSyncService.isConfigured()
-                    val fbChange = if (useSupabase) {
-                        // When Supabase is configured, still pull Firebase as fallback but don't double-bump
-                        runCatching { CloudSyncRepository.pullToDevice(context) }.getOrDefault(CloudSyncRepository.SyncChange(false, false))
-                    } else {
-                        runCatching { CloudSyncRepository.pullToDevice(context) }.getOrDefault(CloudSyncRepository.SyncChange(false, false))
-                    }
-                    var supaChanged = false
-                    if (useSupabase) {
-                        supaChanged = runCatching {
-                            com.maxstream.app.data.supabase.TvSupabaseSyncService.pullToDevice(context)
-                            // TvSupabaseSyncService returns Unit, so we check if it imported anything by
-                            // comparing recent count before/after - simple bump if it did anything
-                            true
-                        }.getOrDefault(false)
-                        // Supabase pull imports directly, we need to know if it actually changed
-                        // For now, only bump if Firebase didn't already bump and Supabase is configured
-                        // The TvSupabaseService will have imported, so we bump once if Firebase didn't
-                        if (!fbChange.historyChanged && supaChanged) {
-                            // Don't bump every cycle - only if Supabase actually had new data
-                            // We can't know, so we rely on WatchProgressRepository's import returning changed
-                            // For now, don't auto-bump here; Supabase Realtime (when added) will push via channel
-                            // Polling fallback: let Firebase's bump drive UI, Supabase data is already imported
-                        }
-                    }
+                    val fbChange = runCatching {
+                        CloudSyncRepository.pullToDevice(context)
+                    }.getOrDefault(CloudSyncRepository.SyncChange(false, false))
+                    // Supabase full sync - TV+mobile share same Postgres, no racing
+                    // Backfill already done, now just pull
+                    runCatching { com.maxstream.app.data.supabase.TvSupabaseSyncService.pullToDevice(context) }
                     if (fbChange.historyChanged) _historyRevision.value++
                     if (fbChange.watchlistChanged) _watchlistRevision.value++
                 }

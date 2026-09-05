@@ -163,4 +163,24 @@ object TvSupabaseSyncService {
             }
         }
     }
+
+    suspend fun pushEntireHistory(context: Context) {
+        if (!isConfigured()) return
+        val uid = SessionManager.uid(context)
+        if (uid.isEmpty()) return
+        val recent = WatchProgressRepository.recent(context, limit = 100)
+        for (entry in recent) {
+            pushWatchProgress(
+                context = context,
+                tmdbId = entry.tmdbId,
+                title = entry.title,
+                isMovie = entry.isMovie,
+                season = entry.season,
+                episode = entry.episode,
+                positionSeconds = entry.positionSeconds,
+                durationSeconds = entry.durationSeconds,
+                posterPath = entry.posterPath,
+            )
+        }
+    }
 }
