@@ -48,7 +48,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             // Pull the phone's watch progress/watchlist into local storage so
             // Continue Watching reflects what was watched on the phone.
             // Never let sync failure block catalogue loading.
-            runCatching { CloudSyncRepository.pullToDevice(getApplication()) }
+            try { CloudSyncRepository.pullToDevice(getApplication()) } catch (_: Exception) {}
             // Fetch all catalogue rows in parallel; a single TMDB failure must
             // not blank the whole home screen (previously sequential without
             // per-row catch left every list empty on the first exception).

@@ -230,38 +230,37 @@ object CloudSyncRepository {
         if (!isSupabaseConfigured()) {
             runCatching {
                 val historyJson = getJson("/users/$uid/watch_history", context)
-            if (historyJson != null) {
-                val cloudKeys = mutableSetOf<String>()
-                val keys = historyJson.keys()
-                while (keys.hasNext()) {
-                    val key = keys.next()
-                    val entry = historyJson.optJSONObject(key) ?: continue
-                    val tmdbId = entry.optString("tmdbId", "")
-                    if (tmdbId.isEmpty()) continue
-                    val isMovie = entry.optBoolean("isMovie", false)
-                    val season = entry.optInt("season", 1).takeIf { it > 0 } ?: 1
-                    val episode = entry.optInt("episode", 1).takeIf { it > 0 } ?: 1
-                    val position = entry.optLong("position", 0)
-                    val duration = entry.optLong("duration", 0)
-                    if (position <= 0L) continue
-                    val title = entry.optString("title", tmdbId)
-                    cloudKeys += key
-                    historyChanged = WatchProgressRepository.importCloudEntry(
-                        context,
-                        tmdbId = tmdbId,
-                        title = title,
-                        isMovie = isMovie,
-                        season = season,
-                        episode = episode,
-                        positionSeconds = position,
-                        durationSeconds = duration,
-                        posterPath = entry.optString("posterUrl", ""),
-                        backdropPath = "",
-                        timestamp = entry.optLong("timestamp", 0),
-                        seriesTitle = entry.optString("seriesTitle", ""),
-                        episodeName = entry.optString("episodeName", ""),
-                        isWatched = entry.optBoolean("isWatched", false),
-                    ) || historyChanged
+                if (historyJson != null) {
+                    val keys = historyJson.keys()
+                    while (keys.hasNext()) {
+                        val key = keys.next()
+                        val entry = historyJson.optJSONObject(key) ?: continue
+                        val tmdbId = entry.optString("tmdbId", "")
+                        if (tmdbId.isEmpty()) continue
+                        val isMovie = entry.optBoolean("isMovie", false)
+                        val season = entry.optInt("season", 1).takeIf { it > 0 } ?: 1
+                        val episode = entry.optInt("episode", 1).takeIf { it > 0 } ?: 1
+                        val position = entry.optLong("position", 0)
+                        val duration = entry.optLong("duration", 0)
+                        if (position <= 0L) continue
+                        val title = entry.optString("title", tmdbId)
+                        historyChanged = WatchProgressRepository.importCloudEntry(
+                            context,
+                            tmdbId = tmdbId,
+                            title = title,
+                            isMovie = isMovie,
+                            season = season,
+                            episode = episode,
+                            positionSeconds = position,
+                            durationSeconds = duration,
+                            posterPath = entry.optString("posterUrl", ""),
+                            backdropPath = "",
+                            timestamp = entry.optLong("timestamp", 0),
+                            seriesTitle = entry.optString("seriesTitle", ""),
+                            episodeName = entry.optString("episodeName", ""),
+                            isWatched = entry.optBoolean("isWatched", false),
+                        ) || historyChanged
+                    }
                 }
             }
         }
