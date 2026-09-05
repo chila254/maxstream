@@ -408,6 +408,14 @@ fun PlayerScreen(
             seriesTitle = seriesTitle,
             episodeName = episodeName,
         )
+        // Push to RTDB so phone removes this from Continue Watching
+        coroutineScope.launch {
+            try {
+                com.maxstream.app.data.repository.CloudSyncRepository.deleteWatchProgress(
+                    context, itemId, isMovie, activeSeason, activeEpisode
+                )
+            } catch (_: Exception) {}
+        }
     }
 
     /**

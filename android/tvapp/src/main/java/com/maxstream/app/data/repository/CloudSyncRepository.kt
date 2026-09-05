@@ -89,7 +89,11 @@ object CloudSyncRepository {
             val request = Request.Builder().url(url)
                 .put(body.toString().toRequestBody(JSON))
                 .build()
-            client.newCall(request).execute().use { }
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    android.util.Log.w("CloudSyncRepo", "PUT $path failed: ${response.code} ${response.body?.string()}")
+                }
+            }
         }
     }
 
@@ -98,7 +102,11 @@ object CloudSyncRepository {
             ensureFreshToken(context)
             val url = rtdbUrl(path, context)
             val request = Request.Builder().url(url).delete().build()
-            client.newCall(request).execute().use { }
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    android.util.Log.w("CloudSyncRepo", "DELETE $path failed: ${response.code} ${response.body?.string()}")
+                }
+            }
         }
     }
 
@@ -185,6 +193,7 @@ object CloudSyncRepository {
             put("timestamp", System.currentTimeMillis())
         }
         val key = watchHistoryKey(tmdbId, isMovie, season, episode)
+        android.util.Log.d("CloudSyncRepo", "pushWatchProgress: $key pos=${positionSeconds}s dur=${durationSeconds}s pct=$percentage%")
         putJson("/users/$uid/watch_history/$key", body, context)
     }
 
