@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../services/cloud_sync_service.dart';
+import '../services/supabase_sync_service.dart';
 
 /// Starts the cloud sync listener while the user is signed in and stops it
 /// when they sign out, on any platform (phone or TV).
@@ -26,8 +27,12 @@ class _CloudSyncBootstrapState extends State<CloudSyncBootstrap> {
       if (user != null) {
         CloudSyncService.stopListening();
         CloudSyncService.startListening();
+        SupabaseSyncService.stopListening();
+        SupabaseSyncService.startListening();
+        SupabaseSyncService.pullToDevice();
       } else {
         CloudSyncService.stopListening();
+        SupabaseSyncService.stopListening();
       }
     });
   }
@@ -36,6 +41,7 @@ class _CloudSyncBootstrapState extends State<CloudSyncBootstrap> {
   void dispose() {
     _authSub?.cancel();
     CloudSyncService.stopListening();
+    SupabaseSyncService.stopListening();
     super.dispose();
   }
 

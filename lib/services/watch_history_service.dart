@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'cloud_sync_service.dart';
+import 'supabase_sync_service.dart';
 import 'user_scope.dart';
 
 class WatchHistoryService {
@@ -122,6 +123,7 @@ class WatchHistoryService {
     );
     await _saveToGlobalHistory(history);
     unawaited(CloudSyncService.pushWatchProgress(history));
+    unawaited(SupabaseSyncService.pushWatchProgress(history));
   }
 
   /// Persists a history item fetched from the cloud into local storage without

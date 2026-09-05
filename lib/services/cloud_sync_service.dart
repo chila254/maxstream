@@ -19,12 +19,16 @@ class CloudSyncService {
   static bool _listening = false;
   static StreamSubscription<DatabaseEvent>? _historySub;
   static StreamSubscription<DatabaseEvent>? _watchlistSub;
+  static StreamSubscription<DatabaseEvent>? _prefsSub;
 
   /// Bumped whenever synced watch history changes; screens listen to refresh.
   static final ValueNotifier<int> historyRevision = ValueNotifier<int>(0);
 
   /// Bumped whenever synced watchlist changes; screens listen to refresh.
   static final ValueNotifier<int> watchlistRevision = ValueNotifier<int>(0);
+
+  /// Bumped whenever provider prefs change.
+  static final ValueNotifier<int> prefsRevision = ValueNotifier<int>(0);
 
   static String? get _uid => FirebaseAuth.instance.currentUser?.uid;
 
@@ -33,6 +37,9 @@ class CloudSyncService {
 
   static DatabaseReference _watchlistRef(String uid) =>
       _rtdb.ref('users/$uid/watchlist');
+
+  static DatabaseReference _prefsRef(String uid) =>
+      _rtdb.ref('users/$uid/provider_preferences');
 
   /// Deterministic doc id for a watch-history item. Keep in sync with
   /// WatchHistoryService.getWatchHistoryKey.
@@ -88,14 +95,21 @@ class CloudSyncService {
       onError: (Object e) =>
           debugPrint('CloudSync: watchlist listener error: $e'),
     );
+    _prefsSub = _prefsRef(uid).onValue.listen(
+      _onPrefsEvent,
+      onError: (Object e) =>
+          debugPrint('CloudSync: prefs listener error: $e'),
+    );
   }
 
   /// Cancels the real-time subscriptions.
   static void stopListening() {
     _historySub?.cancel();
     _watchlistSub?.cancel();
+    _prefsSub?.cancel();
     _historySub = null;
     _watchlistSub = null;
+    _prefsSub = null;
     _listening = false;
   }
 
@@ -127,6 +141,20 @@ class CloudSyncService {
       unawaited(DBHelper.importWatchlist(_movieFromData(value)));
     }
     watchlistRevision.value++;
+  }
+
+  static void _onPrefsEvent(DatabaseEvent event) {
+    final snapshot = event.snapshot;
+    if (snapshot.value == null) return;
+    final data = Map<String, dynamic>.from(snapshot.value as Map);
+    for (final entry in data.entries) {
+      final value = Map<String, dynamic>.from(entry.value as Map);
+      final pid = (value['providerId'] as num?)?.toInt();
+      if (pid == null) continue;
+      final isPref = value['isPreferred'] == true || value['isPreferred'] == 1;
+      unawaited(DBHelper.setProviderPreference(pid, isPref, pushToCloud: false));
+    }
+    prefsRevision.value++;
   }
 
   // ---------------------------------------------------------------------
@@ -204,6 +232,42 @@ class CloudSyncService {
     }
   }
 
+  static Future<void> pushProviderPreference(int providerId, String providerName, bool isPreferred) async {
+    final uid = _uid;
+    if (uid == null) return;
+    try {
+      await _prefsRef(uid).child(providerId.toString()).set({
+        'providerId': providerId,
+        'providerName': providerName,
+        'isPreferred': isPreferred,
+        'updatedAt': ServerValue.timestamp,
+      });
+    } catch (e) {
+      debugPrint('CloudSync: prefs push failed: $e');
+    }
+  }
+
+  static Future<void> pushAllProviderPrefs() async {
+    final uid = _uid;
+    if (uid == null) return;
+    try {
+      final prefs = await DBHelper.getProviderPreferences();
+      for (final row in prefs) {
+        final pid = row['providerId'] as int;
+        final name = row['providerName']?.toString() ?? '';
+        final isPref = (row['isPreferred'] as int) == 1;
+        await _prefsRef(uid).child(pid.toString()).set({
+          'providerId': pid,
+          'providerName': name,
+          'isPreferred': isPref,
+          'updatedAt': ServerValue.timestamp,
+        });
+      }
+    } catch (e) {
+      debugPrint('CloudSync: pushAllPrefs failed: $e');
+    }
+  }
+
   // ---------------------------------------------------------------------
   // Pull (called on TV sign-in / home + watchlist loads)
   // ---------------------------------------------------------------------
@@ -230,6 +294,18 @@ class CloudSyncService {
         for (final entry in data.entries) {
           final value = Map<String, dynamic>.from(entry.value as Map);
           await DBHelper.importWatchlist(_movieFromData(value));
+        }
+      }
+
+      final prefsSnap = await _prefsRef(uid).get();
+      if (prefsSnap.value != null) {
+        final data = Map<String, dynamic>.from(prefsSnap.value as Map);
+        for (final entry in data.entries) {
+          final value = Map<String, dynamic>.from(entry.value as Map);
+          final pid = (value['providerId'] as num?)?.toInt();
+          if (pid == null) continue;
+          final isPref = value['isPreferred'] == true || value['isPreferred'] == 1;
+          await DBHelper.setProviderPreference(pid, isPref, pushToCloud: false);
         }
       }
     } catch (e) {

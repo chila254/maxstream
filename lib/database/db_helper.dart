@@ -5,6 +5,7 @@ import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import '../models/movie.dart';
 import '../services/cloud_sync_service.dart';
+import '../services/supabase_sync_service.dart';
 import '../services/user_scope.dart';
 
 class DBHelper {
@@ -270,6 +271,7 @@ class DBHelper {
     if (kIsWeb) return;
     await _insertWatchlist(movie);
     unawaited(CloudSyncService.pushWatchlist(movie));
+    unawaited(SupabaseSyncService.pushWatchlist(movie));
   }
 
   /// Upserts a watchlist item into local storage without pushing it back to
@@ -608,25 +610,45 @@ class DBHelper {
 
   static Future<void> setProviderPreference(
     int providerId,
-    bool isPreferred,
-  ) async {
+    bool isPreferred, {
+    bool pushToCloud = true,
+    String? providerName,
+  }) async {
     if (kIsWeb) return;
     final db = await database;
     await _ensureProviderPreferencesTable(db);
 
+    // Resolve providerName if not supplied
+    String? resolvedName = providerName;
+    if (resolvedName == null || resolvedName.isEmpty) {
+      final existing = await db.query('provider_preferences', where: 'providerId = ?', whereArgs: [providerId], limit: 1);
+      if (existing.isNotEmpty) resolvedName = existing.first['providerName']?.toString();
+      resolvedName ??= _knownProviderName(providerId);
+    }
+
     final count = await db.update(
       'provider_preferences',
-      {'isPreferred': isPreferred ? 1 : 0},
+      {'isPreferred': isPreferred ? 1 : 0, if (resolvedName != null) 'providerName': resolvedName},
       where: 'providerId = ?',
       whereArgs: [providerId],
     );
     if (count == 0) {
       await db.insert('provider_preferences', {
         'providerId': providerId,
+        'providerName': resolvedName ?? '',
         'isPreferred': isPreferred ? 1 : 0,
         'addedDate': DateTime.now().toIso8601String(),
       });
     }
+    if (pushToCloud) {
+      unawaited(CloudSyncService.pushProviderPreference(providerId, resolvedName ?? '', isPreferred));
+      unawaited(SupabaseSyncService.pushProviderPreference(providerId, resolvedName ?? '', isPreferred));
+    }
+  }
+
+  static String? _knownProviderName(int id) {
+    const map = {8: 'Netflix', 9: 'Prime Video', 337: 'Disney+', 15: 'Hulu', 350: 'Apple TV', 1899: 'HBO Max', 386: 'Peacock', 582: 'Paramount+', 526: 'AMC+'};
+    return map[id];
   }
 
   static Future<List<Map<String, dynamic>>> getProviderPreferences() async {

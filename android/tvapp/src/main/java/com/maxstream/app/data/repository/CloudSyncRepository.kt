@@ -311,6 +311,23 @@ object CloudSyncRepository {
             }
         }
 
+        // Provider preferences (full sync) - mirrors phone's CloudSyncService
+        runCatching {
+            val prefsJson = getJson("/users/$uid/provider_preferences", context)
+            if (prefsJson != null) {
+                val prefs = context.getSharedPreferences("provider_prefs", Context.MODE_PRIVATE)
+                val keys = prefsJson.keys()
+                while (keys.hasNext()) {
+                    val key = keys.next()
+                    val entry = prefsJson.optJSONObject(key) ?: continue
+                    val pid = entry.optInt("providerId", -1)
+                    if (pid == -1) continue
+                    val isPref = entry.optBoolean("isPreferred", false)
+                    prefs.edit().putBoolean("provider_$pid", isPref).apply()
+                }
+            }
+        }
+
         return SyncChange(historyChanged, watchlistChanged)
     }
 
