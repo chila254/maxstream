@@ -30,7 +30,7 @@ object TvSupabaseSyncService {
     private val client: OkHttpClient by lazy {
         OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS).readTimeout(25, TimeUnit.SECONDS).build()
     }
-    private fun isConfigured(): Boolean {
+    fun isConfigured(): Boolean {
         val url = BuildConfig.SUPABASE_URL
         val key = BuildConfig.SUPABASE_ANON_KEY
         return url.contains("supabase.co") && key.isNotBlank() && !key.contains("YOUR_ANON")
