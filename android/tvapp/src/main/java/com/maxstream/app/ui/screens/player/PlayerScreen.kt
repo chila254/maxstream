@@ -544,27 +544,7 @@ fun PlayerScreen(
             itemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
         }
 
-        // Only use NextRenderersFactory (FFmpeg HEVC SW) for Vidlink H265 - other servers
-        // (VixSrc, Vidsrc etc are HLS/H264) work normally with HW DefaultRenderersFactory.
-        val isVidlink = url.contains("vidlink", true) || url.contains("noon.mooncase", true) || url.contains("/h265/", true)
-        val renderersFactory = if (isVidlink) {
-            try {
-                val clazz = Class.forName("io.github.anilbeesetti.nextlib.media3ext.NextRenderersFactory")
-                val ctor = clazz.getConstructor(android.content.Context::class.java)
-                val factory = ctor.newInstance(context) as DefaultRenderersFactory
-                factory.setEnableDecoderFallback(true)
-                try {
-                    val mode = DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER
-                    clazz.getMethod("setExtensionRendererMode", Int::class.javaPrimitiveType)
-                        .invoke(factory, mode)
-                } catch (_: Exception) {}
-                factory
-            } catch (_: Exception) {
-                DefaultRenderersFactory(context).apply { setEnableDecoderFallback(true) }
-            }
-        } else {
-            DefaultRenderersFactory(context).apply { setEnableDecoderFallback(true) }
-        }
+        val renderersFactory = DefaultRenderersFactory(context).apply { setEnableDecoderFallback(true) }
 
         val player = ExoPlayer.Builder(context, renderersFactory)
             .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))

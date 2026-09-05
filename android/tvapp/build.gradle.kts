@@ -138,8 +138,6 @@ dependencies {
     implementation("androidx.media3:media3-common:1.10.1")
     implementation("androidx.media3:media3-session:1.10.1")
     implementation("androidx.media3:media3-datasource-okhttp:1.10.1")
-    // FFmpeg software decoders for HEVC/H264/VP9 fallback on TV boxes without HEVC HW decoder (Maven Central)
-    implementation("io.github.anilbeesetti:nextlib-media3ext:1.10.1-0.13.0")
     // Supabase full sync (free) - TV + mobile together via same Postgres + Realtime
     implementation("io.github.jan-tennert.supabase:supabase-kt:3.0.2")
     implementation("io.github.jan-tennert.supabase:postgrest-kt:3.0.2")
