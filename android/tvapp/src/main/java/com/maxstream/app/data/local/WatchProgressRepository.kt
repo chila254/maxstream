@@ -73,7 +73,8 @@ object WatchProgressRepository {
         // Full Supabase sync (Option A, 45d) - TV + mobile share same Postgres, so phone sees TV progress instantly
         try {
             com.maxstream.app.data.supabase.TvSupabaseSyncService.pushWatchProgress(
-                context, tmdbId, title, isMovie, season, episode, positionSeconds, durationSeconds, posterPath
+                context, tmdbId, title, isMovie, season, episode, positionSeconds, durationSeconds, posterPath,
+                seriesTitle = seriesTitle, episodeName = episodeName, isWatched = watched, backdropPath = backdropPath
             )
         } catch (_: Exception) {}
     }
@@ -110,6 +111,16 @@ object WatchProgressRepository {
         if (episodeName.isNotEmpty()) entry.put("episodeName", episodeName)
         prefs(context).edit().putString(key, entry.toString()).apply()
         upsertRecent(context, entry)
+        // Push watched status to Supabase so phone knows this title is done
+        try {
+            com.maxstream.app.data.supabase.TvSupabaseSyncService.pushWatchProgress(
+                context, tmdbId, title, isMovie, season, episode,
+                positionSeconds = entry.optLong("position", 0),
+                durationSeconds = entry.optLong("duration", 0),
+                posterPath = posterPath,
+                seriesTitle = seriesTitle, episodeName = episodeName, isWatched = true, backdropPath = entry.optString("backdropPath", "")
+            )
+        } catch (_: Exception) {}
     }
 
     /**

@@ -20,6 +20,7 @@ class SupabaseSyncService {
   static RealtimeChannel? _historyChan;
   static RealtimeChannel? _watchlistChan;
   static RealtimeChannel? _prefsChan;
+  static Timer? _periodicPull;
 
   static final ValueNotifier<int> historyRevision = ValueNotifier<int>(0);
   static final ValueNotifier<int> watchlistRevision = ValueNotifier<int>(0);
@@ -106,9 +107,21 @@ class SupabaseSyncService {
         },
       )
       ..subscribe();
+
+    // Periodic pull fallback in case Realtime misses updates (e.g. TV push
+    // while phone app was backgrounded or Realtime not enabled on table).
+    _periodicPull?.cancel();
+    _periodicPull = Timer.periodic(const Duration(seconds: 15), (_) async {
+      if (!isAvailable) return;
+      try {
+        await pullToDevice();
+      } catch (_) {}
+    });
   }
 
   static void stopListening() {
+    _periodicPull?.cancel();
+    _periodicPull = null;
     _historyChan?.unsubscribe();
     _watchlistChan?.unsubscribe();
     _prefsChan?.unsubscribe();
@@ -137,9 +150,12 @@ class SupabaseSyncService {
         'episode': (item['episode'] as num?)?.toInt() ?? 0,
         'title': item['title'] ?? '',
         'series_title': item['seriesTitle'],
+        'episode_name': item['episodeName'],
         'poster_url': item['posterUrl'] ?? '',
+        'backdrop_path': item['backdropUrl'] ?? '',
         'position_seconds': (item['position'] as num?)?.toDouble() ?? 0,
         'duration_seconds': (item['duration'] as num?)?.toDouble() ?? 0,
+        'is_watched': item['isWatched'] == true,
         'updated_at': DateTime.now().toIso8601String(),
       }, onConflict: 'user_id,tmdb_id,is_movie,season,episode');
     } catch (e) {
@@ -285,9 +301,12 @@ class SupabaseSyncService {
         'episode': r['episode'] ?? 0,
         'title': r['title'] ?? '',
         'seriesTitle': r['series_title'],
+        'episodeName': r['episode_name'],
         'posterUrl': r['poster_url'] ?? '',
+        'backdropUrl': r['backdrop_path'] ?? '',
         'position': r['position_seconds'] ?? 0,
         'duration': r['duration_seconds'] ?? 0,
+        'isWatched': r['is_watched'] == true,
       };
 
   static Movie _movieFromSupa(Map<String, dynamic> r) => Movie(

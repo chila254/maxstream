@@ -60,6 +60,10 @@ object TvSupabaseSyncService {
         positionSeconds: Long,
         durationSeconds: Long,
         posterPath: String,
+        seriesTitle: String = "",
+        episodeName: String = "",
+        isWatched: Boolean = false,
+        backdropPath: String = "",
     ) {
         if (!isConfigured()) return
         val uid = SessionManager.uid(context)
@@ -73,9 +77,11 @@ object TvSupabaseSyncService {
                 put("season", season)
                 put("episode", episode)
                 put("title", title)
+                put("series_title", seriesTitle.ifEmpty { null })
                 put("poster_url", posterPath)
                 put("position_seconds", positionSeconds)
                 put("duration_seconds", durationSeconds)
+                put("is_watched", isWatched)
                 put("updated_at", java.time.Instant.now().toString())
             }
             val url = "${baseUrl()}/rest/v1/watch_history"
@@ -130,11 +136,11 @@ object TvSupabaseSyncService {
                             positionSeconds = obj.optLong("position_seconds", 0),
                             durationSeconds = obj.optLong("duration_seconds", 0),
                             posterPath = obj.optString("poster_url", ""),
-                            backdropPath = "",
+                            backdropPath = obj.optString("backdrop_path", ""),
                             timestamp = try { java.time.Instant.parse(obj.optString("updated_at", "")).toEpochMilli() } catch (_: Exception) { System.currentTimeMillis() },
-                            seriesTitle = "",
-                            episodeName = "",
-                            isWatched = false
+                            seriesTitle = obj.optString("series_title", ""),
+                            episodeName = obj.optString("episode_name", ""),
+                            isWatched = obj.optBoolean("is_watched", false)
                         )
                     }
                 }
@@ -185,6 +191,10 @@ object TvSupabaseSyncService {
                 positionSeconds = entry.positionSeconds,
                 durationSeconds = entry.durationSeconds,
                 posterPath = entry.posterPath,
+                seriesTitle = entry.seriesTitle,
+                episodeName = entry.episodeName,
+                isWatched = entry.isWatched,
+                backdropPath = entry.backdropPath,
             )
         }
     }
