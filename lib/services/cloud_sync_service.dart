@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/foundation.dart';
 
+import '../config/supabase_config.dart';
 import '../database/db_helper.dart';
 import '../models/movie.dart';
 import 'watch_history_service.dart';
@@ -114,6 +115,9 @@ class CloudSyncService {
   }
 
   static void _onHistoryEvent(DatabaseEvent event) {
+    // Option A: Supabase single source for watch_history (45d retention via pg_cron)
+    // If Supabase is configured, ignore RTDB watch_history to avoid racing with Supabase timestamps
+    if (SupabaseConfig.isConfigured) return;
     final snapshot = event.snapshot;
     if (snapshot.value == null) return;
     final data = Map<String, dynamic>.from(snapshot.value as Map);
@@ -162,6 +166,7 @@ class CloudSyncService {
   // ---------------------------------------------------------------------
 
   static Future<void> pushWatchProgress(Map<String, dynamic> item) async {
+    if (SupabaseConfig.isConfigured) return; // Supabase single source (Option A)
     final uid = _uid;
     final tmdbId = (item['tmdbId'] ?? '').toString();
     if (uid == null || tmdbId.isEmpty || tmdbId == '0') return;
@@ -187,6 +192,7 @@ class CloudSyncService {
     int season,
     int episode,
   ) async {
+    if (SupabaseConfig.isConfigured) return;
     final uid = _uid;
     if (uid == null || tmdbId.isEmpty) return;
     try {
@@ -279,12 +285,15 @@ class CloudSyncService {
     if (uid == null || _pullInProgress) return;
     _pullInProgress = true;
     try {
-      final historySnap = await _watchHistoryRef(uid).get();
-      if (historySnap.value != null) {
-        final data = Map<String, dynamic>.from(historySnap.value as Map);
-        for (final entry in data.entries) {
-          final value = Map<String, dynamic>.from(entry.value as Map);
-          await WatchHistoryService.importWatchProgress(value);
+      // Option A: watch_history single source Supabase (45d pg_cron), skip RTDB when configured
+      if (!SupabaseConfig.isConfigured) {
+        final historySnap = await _watchHistoryRef(uid).get();
+        if (historySnap.value != null) {
+          final data = Map<String, dynamic>.from(historySnap.value as Map);
+          for (final entry in data.entries) {
+            final value = Map<String, dynamic>.from(entry.value as Map);
+            await WatchHistoryService.importWatchProgress(value);
+          }
         }
       }
 
