@@ -564,18 +564,18 @@ class StreamExtractor(private val context: Context) {
             servers += StreamServer(
                 "VidFast",
                 if (request.isMovie) {
-                    "https://vidfast.vc/movie/$id"
+                    "https://vidfast.io/movie/$id"
                 } else {
-                    "https://vidfast.vc/tv/$id/${request.season}/${request.episode}"
+                    "https://vidfast.io/tv/$id/${request.season}/${request.episode}"
                 },
             )
 
             servers += StreamServer(
                 "Videasy",
                 if (request.isMovie) {
-                    "https://player.videasy.to/movie/$id"
+                    "https://player.videasy.net/movie/$id"
                 } else {
-                    "https://player.videasy.to/tv/$id/${request.season}/${request.episode}"
+                    "https://player.videasy.net/tv/$id/${request.season}/${request.episode}"
                 },
             )
 
@@ -868,7 +868,7 @@ class StreamExtractor(private val context: Context) {
             val mediaId = segments.getOrNull(1) ?: throw IllegalStateException("VidLink URL missing media id")
             val season = if (segments.firstOrNull().equals("tv", true)) segments.getOrNull(2) ?: "1" else "1"
             val episode = if (segments.firstOrNull().equals("tv", true)) segments.getOrNull(3) ?: "1" else "1"
-            val workerUrl = "https://maxstream-extractor.maxstream123.workers.dev/api/extract?tmdb_id=$mediaId&is_movie=$isMovie&season=$season&episode=$episode&server=vidlink"
+            val workerUrl = "https://maxstream-worker.maxstream123.workers.dev/api/extract?tmdb_id=$mediaId&is_movie=$isMovie&season=$season&episode=$episode&server=vidlink"
             requireSafeOutboundUrl(workerUrl)
             val request = Request.Builder().url(workerUrl).header("Accept", "application/json").build()
             client.newCall(request).execute().use { response ->
@@ -1276,7 +1276,7 @@ class StreamExtractor(private val context: Context) {
             if (type == "embed") {
                 val source = json.optString("source").ifBlank { "Worker (VidLink)" }
                 return ExtractionResult.Redirect(
-                    StreamServer(source, url, refererHeaders("https://maxstream123.workers.dev")),
+                    StreamServer(source, url, refererHeaders("https://maxstream-worker.maxstream123.workers.dev")),
                 )
             }
 
@@ -1290,7 +1290,7 @@ class StreamExtractor(private val context: Context) {
                     }
                     map.toMap()
                 } else emptyMap()
-            }.getOrDefault(emptyMap()).ifEmpty { refererHeaders("https://maxstream123.workers.dev") }
+            }.getOrDefault(emptyMap()).ifEmpty { refererHeaders("https://maxstream-worker.maxstream123.workers.dev") }
 
             val subtitles = runCatching {
                 val subs = json.optJSONArray("subtitles")
@@ -2049,7 +2049,7 @@ class StreamExtractor(private val context: Context) {
         override val name = "Videasy"
         override fun supports(server: StreamServer): Boolean {
             val domain = host(server.url)
-            return domain.endsWith("videasy.to") || domain.endsWith("videasy.net")
+            return domain.endsWith("videasy.to") || domain.endsWith("videasy.net") || domain.endsWith("videasy.io")
         }
 
         override suspend fun extract(server: StreamServer): ExtractionResult {
@@ -2120,7 +2120,7 @@ class StreamExtractor(private val context: Context) {
             throw lastError ?: IllegalStateException("Videasy returned no playable source")
         }
 
-        private fun videasyHeaders() = refererHeaders("https://player.videasy.to/") +
+        private fun videasyHeaders() = refererHeaders("https://player.videasy.net/") +
             mapOf("Accept" to "application/json")
 
         private fun decryptVideasyPayload(encoded: String, seed: String, mediaId: String): String {
@@ -2668,7 +2668,8 @@ class StreamExtractor(private val context: Context) {
         override val name = "VidFast"
         override fun supports(server: StreamServer): Boolean {
             val domain = host(server.url)
-            return domain.endsWith("vidfast.vc") || domain.endsWith("vidfast.pro")
+            return domain.endsWith("vidfast.vc") || domain.endsWith("vidfast.pro") ||
+                domain.endsWith("vidfast.io") || domain.endsWith("vidfast.xyz")
         }
 
         override suspend fun extract(server: StreamServer): ExtractionResult {
@@ -2689,7 +2690,7 @@ class StreamExtractor(private val context: Context) {
             require(serversUrl.isNotBlank() && streamBase.isNotBlank()) {
                 "VidFast endpoints not found"
             }
-            val headers = refererHeaders("https://vidfast.vc/")
+            val headers = refererHeaders("https://vidfast.io/")
             val requestHeaders = boot.optString("token").takeIf(String::isNotBlank)?.let {
                 headers + mapOf("X-CSRF-Token" to it)
             } ?: headers
