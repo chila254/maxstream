@@ -67,6 +67,15 @@ object WatchProgressRepository {
             .put("timestamp", System.currentTimeMillis())
         prefs(context).edit().putString(progressKey(tmdbId, isMovie, season, episode), entry.toString()).apply()
         upsertRecent(context, entry)
+        // Full Supabase sync (Option A, 45d) - TV + mobile share same Postgres, so phone sees TV progress instantly
+        try {
+            val ctx = appContext ?: context
+            kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                com.maxstream.app.data.supabase.TvSupabaseSyncService.pushWatchProgress(
+                    ctx, tmdbId, title, isMovie, season, episode, positionSeconds, durationSeconds, posterPath
+                )
+            }
+        } catch (_: Exception) {}
     }
 
     /**
