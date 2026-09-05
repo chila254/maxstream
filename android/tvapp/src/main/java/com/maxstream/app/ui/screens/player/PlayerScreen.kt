@@ -376,7 +376,7 @@ fun PlayerScreen(
             seriesTitle = seriesTitle,
             episodeName = episodeName,
         )
-        // Push to Firestore so the phone (same account) sees this progress live.
+        // Push to Firebase + Supabase so phone (same account) sees this progress live via either.
         coroutineScope.launch {
             com.maxstream.app.data.repository.CloudSyncRepository.pushWatchProgress(
                 context = context,
@@ -390,6 +390,19 @@ fun PlayerScreen(
                 posterPath = posterPath,
                 seriesTitle = seriesTitle,
                 episodeName = episodeName,
+            )
+        }
+        coroutineScope.launch {
+            com.maxstream.app.data.supabase.TvSupabaseSyncService.pushWatchProgress(
+                context = context,
+                tmdbId = itemId,
+                title = title.ifBlank { itemId },
+                isMovie = isMovie,
+                season = activeSeason,
+                episode = activeEpisode,
+                positionSeconds = positionMs / 1000,
+                durationSeconds = durationMs / 1000,
+                posterPath = posterPath,
             )
         }
     }
