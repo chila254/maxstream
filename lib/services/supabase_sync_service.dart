@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../config/supabase_config.dart';
 import '../database/db_helper.dart';
 import '../models/movie.dart';
+import 'cloud_sync_service.dart';
 import 'watch_history_service.dart';
 
 /// Full cloud sync via Supabase (free) - watches, watchlist, provider_prefs, downloads, settings.
@@ -69,6 +70,7 @@ class SupabaseSyncService {
           if (rec.isEmpty) return;
           await WatchHistoryService.importWatchProgress(_fromSupaHistory(rec));
           historyRevision.value++;
+          CloudSyncService.historyRevision.value++;
         },
       )
       ..subscribe();
@@ -84,6 +86,7 @@ class SupabaseSyncService {
           if (rec.isEmpty) return;
           await DBHelper.importWatchlist(_movieFromSupa(rec));
           watchlistRevision.value++;
+          CloudSyncService.watchlistRevision.value++;
         },
       )
       ..subscribe();
@@ -99,6 +102,7 @@ class SupabaseSyncService {
           if (rec.isEmpty) return;
           await DBHelper.setProviderPreference(rec['provider_id'] as int, rec['is_preferred'] as bool, pushToCloud: false);
           prefsRevision.value++;
+          CloudSyncService.prefsRevision.value++;
         },
       )
       ..subscribe();
