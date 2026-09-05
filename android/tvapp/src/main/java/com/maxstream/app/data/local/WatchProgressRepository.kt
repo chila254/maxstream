@@ -3,6 +3,9 @@ package com.maxstream.app.data.local
 import android.content.Context
 import android.content.SharedPreferences
 import com.maxstream.app.data.model.MediaItem
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -70,11 +73,9 @@ object WatchProgressRepository {
         // Full Supabase sync (Option A, 45d) - TV + mobile share same Postgres, so phone sees TV progress instantly
         try {
             val ctx = appContext ?: context
-            kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                com.maxstream.app.data.supabase.TvSupabaseSyncService.pushWatchProgress(
-                    ctx, tmdbId, title, isMovie, season, episode, positionSeconds, durationSeconds, posterPath
-                )
-            }
+            com.maxstream.app.data.supabase.TvSupabaseSyncService.pushWatchProgress(
+                ctx, tmdbId, title, isMovie, season, episode, positionSeconds, durationSeconds, posterPath
+            )
         } catch (_: Exception) {}
     }
 

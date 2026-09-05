@@ -48,7 +48,7 @@ object TvSupabaseSyncService {
         return this
     }
 
-    suspend fun pushWatchProgress(
+    fun pushWatchProgress(
         context: Context,
         tmdbId: String,
         title: String,
@@ -62,21 +62,24 @@ object TvSupabaseSyncService {
         if (!isConfigured()) return
         val uid = SessionManager.uid(context)
         if (uid.isEmpty() || tmdbId.isEmpty()) return
-        val body = JSONObject().apply {
-            put("user_id", uid)
-            put("tmdb_id", tmdbId)
-            put("is_movie", isMovie)
-            put("season", season)
-            put("episode", episode)
-            put("title", title)
-            put("poster_url", posterPath)
-            put("position_seconds", positionSeconds)
-            put("duration_seconds", durationSeconds)
-            put("updated_at", java.time.Instant.now().toString())
+        // Launch in background so callers (WatchProgressRepository.saveProgress) don't need to be suspend
+        kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
+            val body = JSONObject().apply {
+                put("user_id", uid)
+                put("tmdb_id", tmdbId)
+                put("is_movie", isMovie)
+                put("season", season)
+                put("episode", episode)
+                put("title", title)
+                put("poster_url", posterPath)
+                put("position_seconds", positionSeconds)
+                put("duration_seconds", durationSeconds)
+                put("updated_at", java.time.Instant.now().toString())
+            }
+            val url = "${baseUrl()}/rest/v1/watch_history"
+            val req = Request.Builder().url(url).headersToBuilder(authHeaders()).post(body.toString().toRequestBody(JSON)).build()
+            try { client.newCall(req).execute().use {} } catch (e: Exception) { Log.w(TAG, "pushHistory failed: ${e.message}") }
         }
-        val url = "${baseUrl()}/rest/v1/watch_history"
-        val req = Request.Builder().url(url).headersToBuilder(authHeaders()).post(body.toString().toRequestBody(JSON)).build()
-        try { withContext(Dispatchers.IO) { client.newCall(req).execute().use {} } } catch (e: Exception) { Log.w(TAG, "pushHistory failed: ${e.message}") }
     }
 
     suspend fun pushWatchlist(context: Context, item: MediaItem) {
