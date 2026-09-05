@@ -147,10 +147,17 @@ object CloudSyncRepository {
     // Watch progress
     // ─────────────────────────────────────────────────────────────────────────
 
+    private fun isSupabaseConfigured(): Boolean {
+        return try {
+            com.maxstream.app.BuildConfig.SUPABASE_URL.contains("supabase.co") &&
+                com.maxstream.app.BuildConfig.SUPABASE_ANON_KEY.isNotBlank()
+        } catch (_: Exception) { false }
+    }
+
     private fun watchHistoryKey(tmdbId: String, isMovie: Boolean, season: Int, episode: Int): String =
         if (isMovie) "movie_$tmdbId" else "tv_${tmdbId}_${season}_$episode"
 
-    /** Pushes watch progress to RTDB (upsert). */
+    /** Pushes watch progress to RTDB (upsert) - no-op when Supabase is single source (Option A, 45d retention). */
     suspend fun pushWatchProgress(
         context: Context,
         tmdbId: String,
@@ -164,6 +171,7 @@ object CloudSyncRepository {
         seriesTitle: String = "",
         episodeName: String = "",
     ) {
+        if (isSupabaseConfigured()) return
         val uid = SessionManager.uid(context)
         if (uid.isEmpty() || tmdbId.isEmpty()) return
         val percentage = if (durationSeconds > 0)
@@ -188,7 +196,7 @@ object CloudSyncRepository {
         putJson("/users/$uid/watch_history/$key", body, context)
     }
 
-    /** Deletes watch progress from RTDB. */
+    /** Deletes watch progress from RTDB - no-op when Supabase single source. */
     suspend fun deleteWatchProgress(
         context: Context,
         tmdbId: String,
@@ -196,6 +204,7 @@ object CloudSyncRepository {
         season: Int,
         episode: Int,
     ) {
+        if (isSupabaseConfigured()) return
         val uid = SessionManager.uid(context)
         if (uid.isEmpty() || tmdbId.isEmpty()) return
         val key = watchHistoryKey(tmdbId, isMovie, season, episode)
@@ -217,8 +226,10 @@ object CloudSyncRepository {
         var historyChanged = false
         var watchlistChanged = false
 
-        runCatching {
-            val historyJson = getJson("/users/$uid/watch_history", context)
+        // Option A: Supabase single source for watch_history (45d) - skip RTDB when configured
+        if (!isSupabaseConfigured()) {
+            runCatching {
+                val historyJson = getJson("/users/$uid/watch_history", context)
             if (historyJson != null) {
                 val cloudKeys = mutableSetOf<String>()
                 val keys = historyJson.keys()
