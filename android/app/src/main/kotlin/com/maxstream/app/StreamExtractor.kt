@@ -616,18 +616,18 @@ class StreamExtractor(private val context: Context) {
             servers += StreamServer(
                 "Videasy",
                 if (request.isMovie) {
-                    "https://player.videasy.to/movie/$id"
+                    "https://player.videasy.net/movie/$id"
                 } else {
-                    "https://player.videasy.to/tv/$id/${request.season}/${request.episode}"
+                    "https://player.videasy.net/tv/$id/${request.season}/${request.episode}"
                 },
             )
 
             servers += StreamServer(
                 "VidFast",
                 if (request.isMovie) {
-                    "https://vidfast.vc/movie/$id"
+                    "https://vidfast.io/movie/$id"
                 } else {
-                    "https://vidfast.vc/tv/$id/${request.season}/${request.episode}"
+                    "https://vidfast.io/tv/$id/${request.season}/${request.episode}"
                 },
             )
 
@@ -2215,7 +2215,7 @@ class StreamExtractor(private val context: Context) {
             throw lastError ?: IllegalStateException("Videasy returned no playable source")
         }
 
-        private fun videasyHeaders() = refererHeaders("https://player.videasy.to/") +
+        private fun videasyHeaders() = refererHeaders("https://player.videasy.net/") +
             mapOf("Accept" to "application/json")
 
         private fun decryptVideasyPayload(encoded: String, seed: String, mediaId: String): String {
@@ -2592,7 +2592,8 @@ class StreamExtractor(private val context: Context) {
         override val name = "VidFast"
         override fun supports(server: StreamServer): Boolean {
             val domain = host(server.url)
-            return domain.endsWith("vidfast.vc") || domain.endsWith("vidfast.pro")
+            return domain.endsWith("vidfast.vc") || domain.endsWith("vidfast.pro") ||
+                domain.endsWith("vidfast.io") || domain.endsWith("vidfast.xyz")
         }
 
         override suspend fun extract(server: StreamServer): ExtractionResult {
@@ -2613,7 +2614,7 @@ class StreamExtractor(private val context: Context) {
             require(serversUrl.isNotBlank() && streamBase.isNotBlank()) {
                 "VidFast endpoints not found"
             }
-            val headers = refererHeaders("https://vidfast.vc/")
+            val headers = refererHeaders("https://vidfast.io/")
             val requestHeaders = boot.optString("token").takeIf(String::isNotBlank)?.let {
                 headers + mapOf("X-CSRF-Token" to it)
             } ?: headers
@@ -3006,7 +3007,8 @@ class StreamExtractor(private val context: Context) {
 
         override fun supports(server: StreamServer): Boolean {
             val domain = host(server.url)
-            return domain.contains("dood") || domain.contains("d000d") || domain == "vide0.net"
+            return domain.contains("dood") || domain.contains("d000d") || domain == "vide0.net" ||
+                domain.contains("doodstream")
         }
 
         override suspend fun extract(server: StreamServer): ExtractionResult {
