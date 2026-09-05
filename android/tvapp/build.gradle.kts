@@ -25,13 +25,6 @@ android {
         versionCode = 8
         versionName = "1.6.0"
         vectorDrawables.useSupportLibrary = true
-        // Supabase full sync (free) - TV + mobile together via same Postgres
-        // Passed from GitHub Secrets SUPABASE_URL / SUPABASE_ANON_KEY (or PUBLISHABLE)
-        // Falls back to placeholder so build succeeds even without secrets (uses RTDB only)
-        val supaUrl = providers.environmentVariable("SUPABASE_URL").orElse(providers.gradleProperty("supabaseUrl")).orElse("https://lzfiqrodslkzirbbyfcw.supabase.co").get()
-        val supaKey = providers.environmentVariable("SUPABASE_ANON_KEY").orElse(providers.environmentVariable("SUPABASE_PUBLISHABLE_KEY")).orElse(providers.gradleProperty("supabaseAnonKey")).orElse("sb_publishable_6mF34lxnGvsJ7OmcyZffYQ_PaKitixG").get()
-        buildConfigField("String", "SUPABASE_URL", "\"$supaUrl\"")
-        buildConfigField("String", "SUPABASE_ANON_KEY", "\"$supaKey\"")
     }
 
     signingConfigs {
@@ -138,10 +131,6 @@ dependencies {
     implementation("androidx.media3:media3-common:1.10.1")
     implementation("androidx.media3:media3-session:1.10.1")
     implementation("androidx.media3:media3-datasource-okhttp:1.10.1")
-    // Supabase full sync (free) - TV + mobile together via same Postgres + Realtime
-    implementation("io.github.jan-tennert.supabase:supabase-kt:3.0.2")
-    implementation("io.github.jan-tennert.supabase:postgrest-kt:3.0.2")
-    implementation("io.github.jan-tennert.supabase:realtime-kt:3.0.2")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
     implementation("com.github.bumptech.glide:glide:4.16.0")

@@ -47,9 +47,6 @@ object CloudSyncCoordinator {
     fun start(context: Context) {
         if (started) return
         started = true
-        // Backfill TV's old Continue Watching (stored before Supabase was enabled) to cloud
-        // so mobile can pull it - runs once at start, like mobile's pushEntireHistory.
-        scope.launch { try { com.maxstream.app.data.supabase.TvSupabaseSyncService.pushEntireHistory(context) } catch (_: Exception) {} }
         job = scope.launch {
             while (isActive) {
                 if (SessionManager.isLoggedIn(context)) {
@@ -61,9 +58,6 @@ object CloudSyncCoordinator {
                     } catch (_: Exception) {
                         CloudSyncRepository.SyncChange(false, false)
                     }
-                    // Supabase full sync - TV+mobile share same Postgres, no racing
-                    // Backfill already done, now just pull
-                    try { com.maxstream.app.data.supabase.TvSupabaseSyncService.pullToDevice(context) } catch (_: Exception) {}
                     if (fbChange.historyChanged) _historyRevision.value++
                     if (fbChange.watchlistChanged) _watchlistRevision.value++
                 }

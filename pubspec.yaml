@@ -50,7 +50,6 @@ dependencies:
   web: ^1.1.1
   firebase_crashlytics: ^4.3.10
   speech_to_text: ^7.4.0
-  supabase_flutter: ^2.8.3
 
 dev_dependencies:
   flutter_test:

@@ -249,34 +249,18 @@ fun DetailsScreen(
         }
     }
 
-    // Watchlist toggle - push to both Firebase + Supabase so phone+TV stay in sync for everything
+    // Watchlist toggle - push to Firebase so phone+TV stay in sync
     fun toggleWatchlist() {
         val s = state ?: return
         scope.launch {
             val nowSaved = WatchlistRepository.toggle(context, s.item)
             state = s.copy(isSaved = nowSaved)
-            // Keep the phone in sync: add/remove via both sync backends.
             if (nowSaved) {
                 com.maxstream.app.data.repository.CloudSyncRepository.pushWatchlist(context, s.item)
-                com.maxstream.app.data.supabase.TvSupabaseSyncService.pushWatchlist(context, s.item)
             } else {
                 com.maxstream.app.data.repository.CloudSyncRepository.deleteWatchlist(
                     context, s.item.id.toString(), s.item.mediaType,
                 )
-                // Supabase delete via PostgREST (same table)
-                try {
-                    val uid = com.maxstream.app.data.local.SessionManager.uid(context)
-                    if (uid.isNotEmpty()) {
-                        val url = "${com.maxstream.app.BuildConfig.SUPABASE_URL.trimEnd('/')}/rest/v1/watchlist?user_id=eq.$uid&id=eq.${s.item.id}&media_type=eq.${s.item.mediaType}"
-                        val req = okhttp3.Request.Builder().url(url)
-                            .header("apikey", com.maxstream.app.BuildConfig.SUPABASE_ANON_KEY)
-                            .header("Authorization", "Bearer ${com.maxstream.app.BuildConfig.SUPABASE_ANON_KEY}")
-                            .delete().build()
-                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                            okhttp3.OkHttpClient().newCall(req).execute().use {}
-                        }
-                    }
-                } catch (_: Exception) {}
             }
         }
     }

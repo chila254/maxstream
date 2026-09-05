@@ -5,7 +5,6 @@ import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import '../models/movie.dart';
 import '../services/cloud_sync_service.dart';
-import '../services/supabase_sync_service.dart';
 import '../services/user_scope.dart';
 
 class DBHelper {
@@ -271,7 +270,6 @@ class DBHelper {
     if (kIsWeb) return;
     await _insertWatchlist(movie);
     unawaited(CloudSyncService.pushWatchlist(movie));
-    unawaited(SupabaseSyncService.pushWatchlist(movie));
   }
 
   /// Upserts a watchlist item into local storage without pushing it back to
@@ -642,7 +640,6 @@ class DBHelper {
     }
     if (pushToCloud) {
       unawaited(CloudSyncService.pushProviderPreference(providerId, resolvedName ?? '', isPreferred));
-      unawaited(SupabaseSyncService.pushProviderPreference(providerId, resolvedName ?? '', isPreferred));
     }
   }
 

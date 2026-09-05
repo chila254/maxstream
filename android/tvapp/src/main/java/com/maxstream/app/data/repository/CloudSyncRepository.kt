@@ -147,17 +147,10 @@ object CloudSyncRepository {
     // Watch progress
     // ─────────────────────────────────────────────────────────────────────────
 
-    private fun isSupabaseConfigured(): Boolean {
-        return try {
-            com.maxstream.app.BuildConfig.SUPABASE_URL.contains("supabase.co") &&
-                com.maxstream.app.BuildConfig.SUPABASE_ANON_KEY.isNotBlank()
-        } catch (_: Exception) { false }
-    }
-
     private fun watchHistoryKey(tmdbId: String, isMovie: Boolean, season: Int, episode: Int): String =
         if (isMovie) "movie_$tmdbId" else "tv_${tmdbId}_${season}_$episode"
 
-    /** Pushes watch progress to RTDB (upsert) - no-op when Supabase is single source (Option A, 45d retention). */
+    /** Pushes watch progress to RTDB (upsert). */
     suspend fun pushWatchProgress(
         context: Context,
         tmdbId: String,
@@ -171,7 +164,6 @@ object CloudSyncRepository {
         seriesTitle: String = "",
         episodeName: String = "",
     ) {
-        if (isSupabaseConfigured()) return
         val uid = SessionManager.uid(context)
         if (uid.isEmpty() || tmdbId.isEmpty()) return
         val percentage = if (durationSeconds > 0)
@@ -196,7 +188,7 @@ object CloudSyncRepository {
         putJson("/users/$uid/watch_history/$key", body, context)
     }
 
-    /** Deletes watch progress from RTDB - no-op when Supabase single source. */
+    /** Deletes watch progress from RTDB. */
     suspend fun deleteWatchProgress(
         context: Context,
         tmdbId: String,
@@ -204,7 +196,6 @@ object CloudSyncRepository {
         season: Int,
         episode: Int,
     ) {
-        if (isSupabaseConfigured()) return
         val uid = SessionManager.uid(context)
         if (uid.isEmpty() || tmdbId.isEmpty()) return
         val key = watchHistoryKey(tmdbId, isMovie, season, episode)
@@ -226,41 +217,38 @@ object CloudSyncRepository {
         var historyChanged = false
         var watchlistChanged = false
 
-        // Option A: Supabase single source for watch_history (45d) - skip RTDB when configured
-        if (!isSupabaseConfigured()) {
-            runCatching {
-                val historyJson = getJson("/users/$uid/watch_history", context)
-                if (historyJson != null) {
-                    val keys = historyJson.keys()
-                    while (keys.hasNext()) {
-                        val key = keys.next()
-                        val entry = historyJson.optJSONObject(key) ?: continue
-                        val tmdbId = entry.optString("tmdbId", "")
-                        if (tmdbId.isEmpty()) continue
-                        val isMovie = entry.optBoolean("isMovie", false)
-                        val season = entry.optInt("season", 1).takeIf { it > 0 } ?: 1
-                        val episode = entry.optInt("episode", 1).takeIf { it > 0 } ?: 1
-                        val position = entry.optLong("position", 0)
-                        val duration = entry.optLong("duration", 0)
-                        if (position <= 0L) continue
-                        val title = entry.optString("title", tmdbId)
-                        historyChanged = WatchProgressRepository.importCloudEntry(
-                            context,
-                            tmdbId = tmdbId,
-                            title = title,
-                            isMovie = isMovie,
-                            season = season,
-                            episode = episode,
-                            positionSeconds = position,
-                            durationSeconds = duration,
-                            posterPath = entry.optString("posterUrl", ""),
-                            backdropPath = "",
-                            timestamp = entry.optLong("timestamp", 0),
-                            seriesTitle = entry.optString("seriesTitle", ""),
-                            episodeName = entry.optString("episodeName", ""),
-                            isWatched = entry.optBoolean("isWatched", false),
-                        ) || historyChanged
-                    }
+        runCatching {
+            val historyJson = getJson("/users/$uid/watch_history", context)
+            if (historyJson != null) {
+                val keys = historyJson.keys()
+                while (keys.hasNext()) {
+                    val key = keys.next()
+                    val entry = historyJson.optJSONObject(key) ?: continue
+                    val tmdbId = entry.optString("tmdbId", "")
+                    if (tmdbId.isEmpty()) continue
+                    val isMovie = entry.optBoolean("isMovie", false)
+                    val season = entry.optInt("season", 1).takeIf { it > 0 } ?: 1
+                    val episode = entry.optInt("episode", 1).takeIf { it > 0 } ?: 1
+                    val position = entry.optLong("position", 0)
+                    val duration = entry.optLong("duration", 0)
+                    if (position <= 0L) continue
+                    val title = entry.optString("title", tmdbId)
+                    historyChanged = WatchProgressRepository.importCloudEntry(
+                        context,
+                        tmdbId = tmdbId,
+                        title = title,
+                        isMovie = isMovie,
+                        season = season,
+                        episode = episode,
+                        positionSeconds = position,
+                        durationSeconds = duration,
+                        posterPath = entry.optString("posterUrl", ""),
+                        backdropPath = "",
+                        timestamp = entry.optLong("timestamp", 0),
+                        seriesTitle = entry.optString("seriesTitle", ""),
+                        episodeName = entry.optString("episodeName", ""),
+                        isWatched = entry.optBoolean("isWatched", false),
+                    ) || historyChanged
                 }
             }
         }
@@ -294,8 +282,7 @@ object CloudSyncRepository {
                     WatchlistRepository.add(context, item)
                 }
                 // Don't delete local watchlist items not in cloud - they may be
-                // old local items not yet pushed (e.g. TV continue watching before
-                // Supabase was enabled). Let pushEntireWatchlist backfill them
+                // old local items not yet pushed). Let pushEntireWatchlist backfill them
                 // instead of wiping local Continue Watching on back navigation.
                 // Additions: a new cloud entry that wasn't local before.
                 val localKeysAfter = WatchlistRepository.getAll(context)

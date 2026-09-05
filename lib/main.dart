@@ -11,7 +11,6 @@ import 'services/media_download_manager.dart';
 import 'services/theme_service.dart';
 import 'services/crashlytics_service.dart';
 import 'services/memory_service.dart';
-import 'services/supabase_sync_service.dart';
 import 'widgets/cloud_sync_bootstrap.dart';
 import 'widgets/crash_screen.dart';
 
@@ -70,7 +69,6 @@ class _StartupGateState extends State<_StartupGate> {
       attachCrashlyticsFatalHandlers();
 
       if (!kIsWeb) await NotificationService().initialize();
-      if (!kIsWeb) await SupabaseSyncService.initialize();
       if (!kIsWeb) await MediaDownloadManager.instance.initialize();
       await ThemeService.instance.loadTheme();
     } catch (e, stack) {
