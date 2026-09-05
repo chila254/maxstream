@@ -17,6 +17,9 @@ jobs:
       KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
       KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
       GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY || secrets.SUPABASE_PUBLISHABLE_KEY }}
+      SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
       EXCLUDE_TV: "true"
     steps:
       - uses: actions/checkout@v4
@@ -58,9 +61,14 @@ jobs:
 
       - name: Build Mobile APKs (split per ABI for VLC size)
         run: |
+          # Supabase full sync (free) - pass URL + anon/publishable key if set in GitHub Secrets
+          SUPA_URL="${SUPABASE_URL:-}"
+          SUPA_KEY="${SUPABASE_ANON_KEY:-$SUPABASE_PUBLISHABLE_KEY}"
+          EXTRA_ARGS=""
+          if [ -n "$SUPA_URL" ] && [ -n "$SUPA_KEY" ]; then EXTRA_ARGS="--dart-define=SUPABASE_URL=$SUPA_URL --dart-define=SUPABASE_ANON_KEY=$SUPA_KEY"; fi
           # --split-per-abi produces app-arm64-v8a, app-armeabi-v7a, app-x86_64 release APKs
           # Flutter's post-build check looks for app-release.apk (single) and fails, so || true
-          flutter build apk --release --split-per-abi || true
+          flutter build apk --release --split-per-abi $EXTRA_ARGS || true
           # Verify the split APKs actually exist
           ls -lh build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
           ls -lh build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk

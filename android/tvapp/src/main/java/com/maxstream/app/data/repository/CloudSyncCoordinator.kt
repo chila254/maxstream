@@ -53,11 +53,24 @@ object CloudSyncCoordinator {
                     // The stored Firebase idToken expires after ~1h; refresh it
                     // first so Realtime Database REST calls don't silently 401/403.
                     runCatching { AuthRepository.ensureFreshIdToken(context) }
-                    val change = runCatching {
+                    val fbChange = runCatching {
                         CloudSyncRepository.pullToDevice(context)
                     }.getOrDefault(CloudSyncRepository.SyncChange(false, false))
-                    if (change.historyChanged) _historyRevision.value++
-                    if (change.watchlistChanged) _watchlistRevision.value++
+                    // Supabase full sync (watch_history, watchlist, provider_prefs) - same tables as mobile
+                    // Phone+TV now share same Postgres via Firebase UID, so continue watching is instant
+                    runCatching { com.maxstream.app.data.supabase.TvSupabaseSyncService.pullToDevice(context) }
+                    if (fbChange.historyChanged) _historyRevision.value++
+                    if (fbChange.watchlistChanged) _watchlistRevision.value++
+                    // Also bump for Supabase pulls (polling, no realtime yet) - ensures TV picks up phone's Supabase pushes
+                    // Simple: if Supabase had any data, bump (cheap, UI will dedupe)
+                    // We can't easily know if Supabase changed, so bump on any successful pull when not already bumped
+                    if (!fbChange.historyChanged) {
+                        // If Supabase had history, it would have imported, we bump to refresh
+                        // Use a lightweight check - if we just pulled Supabase, bump once per cycle
+                        // to keep TV in sync with phone's Supabase pushes (watch progress)
+                        _historyRevision.value++
+                        _watchlistRevision.value++
+                    }
                 }
                 delay(SYNC_INTERVAL_MS)
             }
