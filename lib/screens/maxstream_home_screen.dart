@@ -1214,12 +1214,14 @@ class _FullListScreenState extends State<_FullListScreen> {
         initialItems = await TmdbApiService.fetchTopRatedSeries(page: 1);
       }
 
+      if (!mounted) return;
       setState(() {
         _allItems = initialItems;
         _isLoading = false;
       });
     } catch (e) {
       // Error loading initial items
+      if (!mounted) return;
       setState(() {
         _isLoading = false;
       });
@@ -1233,6 +1235,7 @@ class _FullListScreenState extends State<_FullListScreen> {
   }
 
   void _scrollListener() {
+    if (!_scrollController.hasClients) return;
     if (_scrollController.position.pixels ==
             _scrollController.position.maxScrollExtent &&
         !_isLoading &&
@@ -1244,6 +1247,7 @@ class _FullListScreenState extends State<_FullListScreen> {
   Future<void> _loadMoreItems() async {
     if (_isLoading || !_hasMore) return;
 
+    if (!mounted) return;
     setState(() {
       _isLoading = true;
     });
