@@ -39,6 +39,12 @@ object CloudSyncRepository {
             .build()
     }
 
+    /** Cloud watchlist keys seen during the previous poll, so we can detect
+     * items that were deleted on the phone and mirror those deletions locally
+     * instead of only ever adding remote items. */
+    @Volatile
+    private var previousCloudKeys: Set<String> = emptySet()
+
     private fun auth(context: Context): String {
         val token = SessionManager.idToken(context)
         return if (token.isNotEmpty()) token else ""
@@ -264,11 +270,8 @@ object CloudSyncRepository {
 
         runCatching {
             val watchlistJson = getJson("/users/$uid/watchlist", context)
+            val cloudKeys = mutableSetOf<String>()
             if (watchlistJson != null) {
-                val localKeysBefore = WatchlistRepository.getAll(context)
-                    .map { watchlistKey(it.id.toString(), it.mediaType) }
-                    .toSet()
-                val cloudKeys = mutableSetOf<String>()
                 val keys = watchlistJson.keys()
                 while (keys.hasNext()) {
                     val key = keys.next()
@@ -287,17 +290,37 @@ object CloudSyncRepository {
                         voteAverage = entry.optDouble("rating", 0.0),
                         genreIds = emptyList(),
                     )
+                    if (!WatchlistRepository.isIn(context, item)) watchlistChanged = true
                     cloudKeys += key
                     WatchlistRepository.add(context, item)
                 }
-                // Don't delete local watchlist items not in cloud - they may be
-                // old local items not yet pushed). Let pushEntireWatchlist backfill them
-                // instead of wiping local Continue Watching on back navigation.
-                // Additions: a new cloud entry that wasn't local before.
-                val localKeysAfter = WatchlistRepository.getAll(context)
-                    .map { watchlistKey(it.id.toString(), it.mediaType) }
-                    .toSet()
-                if (localKeysAfter != localKeysBefore) watchlistChanged = true
+                // Reconcile deletions: items that were in the cloud during the
+                // previous poll but are absent now were removed on another device.
+                // Only delete keys that we actually saw in a prior cloud snapshot so
+                // that offline-only local additions (never pushed) are preserved.
+                if (previousCloudKeys.isNotEmpty()) {
+                    val deletedKeys = previousCloudKeys - cloudKeys
+                    for (delKey in deletedKeys) {
+                        val parts = delKey.split("_")
+                        if (parts.size == 2) {
+                            val delId = parts[0]
+                            val delType = parts[1]
+                            WatchlistRepository.removeByKey(context, delId, delType)
+                            watchlistChanged = true
+                        }
+                    }
+                }
+                previousCloudKeys = cloudKeys.toSet()
+            } else if (previousCloudKeys.isNotEmpty()) {
+                // Cloud watchlist is now empty — remove all previously-synced items.
+                for (delKey in previousCloudKeys) {
+                    val parts = delKey.split("_")
+                    if (parts.size == 2) {
+                        WatchlistRepository.removeByKey(context, parts[0], parts[1])
+                        watchlistChanged = true
+                    }
+                }
+                previousCloudKeys = emptySet()
             }
         }
 

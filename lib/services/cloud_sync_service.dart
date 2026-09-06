@@ -17,6 +17,7 @@ class CloudSyncService {
 
   static bool _pullInProgress = false;
   static bool _listening = false;
+  static Set<String>? _lastCloudKeys;
   static StreamSubscription<DatabaseEvent>? _historySub;
   static StreamSubscription<DatabaseEvent>? _watchlistSub;
   static StreamSubscription<DatabaseEvent>? _prefsSub;
@@ -131,16 +132,41 @@ class CloudSyncService {
 
   static void _onWatchlistEvent(DatabaseEvent event) {
     final snapshot = event.snapshot;
-    if (snapshot.value == null) return;
-    final data = Map<String, dynamic>.from(snapshot.value as Map);
+    final data = snapshot.value != null
+        ? Map<String, dynamic>.from(snapshot.value as Map)
+        : <String, dynamic>{};
 
+    final cloudKeys = <String>{};
     for (final entry in data.entries) {
       final value = Map<String, dynamic>.from(entry.value as Map);
       final id = (value['id'] ?? '').toString();
       if (id.isEmpty) continue;
+      final mediaType = value['mediaType']?.toString() ?? 'movie';
+      cloudKeys.add(watchlistKey(id, mediaType));
       unawaited(DBHelper.importWatchlist(_movieFromData(value)));
     }
+
+    // Reconcile deletions: an item present in the previous cloud snapshot
+    // but absent now was removed on another device — delete it locally.
+    final previousKeys = _lastCloudKeys;
+    if (previousKeys != null) {
+      unawaited(_removeStaleWatchlistItems(cloudKeys, previousKeys));
+    }
+    _lastCloudKeys = cloudKeys;
     watchlistRevision.value++;
+  }
+
+  static Future<void> _removeStaleWatchlistItems(
+    Set<String> cloudKeys,
+    Set<String> previousKeys,
+  ) async {
+    final localItems = await DBHelper.getWatchlist();
+    for (final movie in localItems) {
+      final key = watchlistKey(movie.id, movie.mediaType);
+      if (previousKeys.contains(key) && !cloudKeys.contains(key)) {
+        await DBHelper.removeMovieLocal(movie.id, movie.mediaType);
+      }
+    }
   }
 
   static void _onPrefsEvent(DatabaseEvent event) {
@@ -295,12 +321,28 @@ class CloudSyncService {
       }
 
       final watchlistSnap = await _watchlistRef(uid).get();
-      if (watchlistSnap.value != null) {
+       if (watchlistSnap.value != null) {
         final data = Map<String, dynamic>.from(watchlistSnap.value as Map);
+        final cloudKeys = <String>{};
         for (final entry in data.entries) {
           final value = Map<String, dynamic>.from(entry.value as Map);
+          final id = (value['id'] ?? '').toString();
+          if (id.isEmpty) continue;
+          final mediaType = value['mediaType']?.toString() ?? 'movie';
+          cloudKeys.add(watchlistKey(id, mediaType));
           await DBHelper.importWatchlist(_movieFromData(value));
         }
+        // Reconcile deletions: remove local items that were in the cloud
+        // during the previous pull but are absent now.
+        final previousKeys = _lastCloudKeys;
+        if (previousKeys != null) {
+          await _removeStaleWatchlistItems(cloudKeys, previousKeys);
+        }
+        _lastCloudKeys = cloudKeys;
+      } else if (_lastCloudKeys != null) {
+        // Cloud watchlist is now empty — clear all previously-synced items.
+        await _removeStaleWatchlistItems(<String>{}, _lastCloudKeys!);
+        _lastCloudKeys = <String>{};
       }
 
       final prefsSnap = await _prefsRef(uid).get();
