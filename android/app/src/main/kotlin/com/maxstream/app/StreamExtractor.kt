@@ -1061,12 +1061,6 @@ class StreamExtractor(private val context: Context) {
                 var fallbackH264Url: String? = null
                 var fallbackH264Height = -1
                 var fallbackH264Headers: Map<String, String> = bestH264Headers
-                var bestH265Url: String? = null
-                var bestH265Height = -1
-                var bestH265Headers: Map<String, String> = refererHeaders("https://vidlink.pro/")
-                var fallbackH265Url: String? = null
-                var fallbackH265Height = -1
-                var fallbackH265Headers: Map<String, String> = bestH265Headers
                 val qualityOptions = mutableListOf<QualityOption>()
                 val iterator = qualities.keys()
                 while (iterator.hasNext()) {
@@ -1088,41 +1082,24 @@ class StreamExtractor(private val context: Context) {
                     } else {
                         rawUrl
                     }
-                    // For ExoPlayer MIME sniffing, use the original CDN URL's extension (e.g. .mp4)
-                    // not the proxy's /mp/... path which has no extension and would be mis-detected as HLS.
-                    val rawMediaType = mediaType(rawUrl)
                     val mediaHeaders = if (requiresProxy) {
                         refererHeaders("https://vidlink.pro/")
                     } else {
                         refererHeaders("https://vidlink.pro/") + entryHeaders
                     }
+                    // Skip H.265/HEVC — most Android phones lack HW decoders
                     val isH265 = rawUrl.contains("/h265/", true)
-                    val codec = if (isH265) "hevc" else "h264"
-                    qualityOptions += QualityOption("${label}p", url, height, codec)
-                    // Prefer H.264 over H.265 — most Android phones lack HEVC HW decoders.
-                    // Track H.264 and H.265 separately so H264 is always preferred when available.
-                    if (isH265) {
-                        if (height > fallbackH265Height) {
-                            fallbackH265Height = height
-                            fallbackH265Url = url
-                            fallbackH265Headers = mediaHeaders
-                        }
-                        if (height <= 720 && height > bestH265Height) {
-                            bestH265Height = height
-                            bestH265Url = url
-                            bestH265Headers = mediaHeaders
-                        }
-                    } else {
-                        if (height > fallbackH264Height) {
-                            fallbackH264Height = height
-                            fallbackH264Url = url
-                            fallbackH264Headers = mediaHeaders
-                        }
-                        if (height <= 720 && height > bestH264Height) {
-                            bestH264Height = height
-                            bestH264Url = url
-                            bestH264Headers = mediaHeaders
-                        }
+                    if (isH265) continue
+                    qualityOptions += QualityOption("${label}p", url, height)
+                    if (height > fallbackH264Height) {
+                        fallbackH264Height = height
+                        fallbackH264Url = url
+                        fallbackH264Headers = mediaHeaders
+                    }
+                    if (height <= 720 && height > bestH264Height) {
+                        bestH264Height = height
+                        bestH264Url = url
+                        bestH264Headers = mediaHeaders
                     }
                 }
 
@@ -1141,23 +1118,12 @@ class StreamExtractor(private val context: Context) {
                     }
                 }.orEmpty()
 
-                // Prefer H.264: on phones without HEVC, H265 throws Source error.
-                // Order: 720p H264 > any H264 > 720p H265 > any H265 . Log when falling back to HEVC.
                 val (url, bestHeaders) = when {
                     bestH264Url != null -> bestH264Url to bestH264Headers
                     fallbackH264Url != null -> fallbackH264Url to fallbackH264Headers
-                    bestH265Url != null -> {
-                        Log.w(tag, "VidLink: no H264 available, falling back to HEVC ${bestH265Height}p - may fail on this device")
-                        bestH265Url to bestH265Headers
-                    }
-                    fallbackH265Url != null -> {
-                        Log.w(tag, "VidLink: no H264 available, falling back to HEVC ${fallbackH265Height}p - may fail on this device")
-                        fallbackH265Url to fallbackH265Headers
-                    }
                     else -> throw IllegalStateException("VidLink no quality URL")
                 }
-                // For UI, show H264 options first, then HEVC so user sees compatible qualities at top.
-                val sortedQualities = qualityOptions.sortedWith(compareBy({ if (it.codec == "hevc") 1 else 0 }, { -it.height }))
+                val sortedQualities = qualityOptions.sortedByDescending { it.height }
                 // Use raw CDN extension for MIME, not the proxy's /mp/ path
                 val finalMediaType = if (url.contains("noon.mooncase.online")) "mp4" else mediaType(url)
                 ExtractionResult.Final(

@@ -1234,10 +1234,8 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       debugPrint('M3U8VideoPlayer: Error initializing player: $e');
       final msg = e.toString();
       String userMsg;
-      if (msg.contains('h265') || msg.contains('hevc') || msg.contains('H.265') || msg.contains('HEVC')) {
-        userMsg = 'This device does not support H.265/HEVC video. The source only provides HEVC encoding.';
-      } else if (msg.contains('PlatformException')) {
-        userMsg = 'Video codec not supported on this device: ${msg.length > 120 ? msg.substring(0, 120) + '...' : msg}';
+      if (msg.contains('PlatformException') || msg.contains('codec')) {
+        userMsg = 'Video codec not supported on this device';
       } else {
         userMsg = 'Server failed: $e';
       }
@@ -1477,80 +1475,55 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     }
     if (!mounted) return;
 
-    // Detect MIME: force mp4 for proxied VidLink URLs or URLs with .mp4 extension
-    final isProxied = url.contains('noon.mooncase.online');
-    final isMp4 = url.toLowerCase().contains('.mp4') || isProxied;
-    final isH265 = url.toLowerCase().contains('/h265/');
+    // Determine format from actual URL
+    final actualIsHls = url.toLowerCase().contains('.m3u8');
+    final controller = VideoPlayerController.networkUrl(
+      Uri.parse(url),
+      httpHeaders: headers,
+      formatHint: actualIsHls ? VideoFormat.hls : VideoFormat.other,
+      videoPlayerOptions: VideoPlayerOptions(backBufferDurationMs: 60000, allowBackgroundPlayback: true),
+    );
 
-    // Try the original URL, then fall back to H.264 if H.265 fails
-    final urlsToTry = <String>[url];
-    if (isH265) {
-      urlsToTry.add(url.replaceAll('/h265/', '/h264/'));
-      urlsToTry.add(url.replaceAll('/h265/', '/h265-720/'));
-    }
-
-    for (final attemptUrl in urlsToTry) {
-      // Determine format from actual URL - proxied mp4 must NOT be marked as HLS or ExoPlayer Source error.
-      final actualIsHls = attemptUrl.toLowerCase().contains('.m3u8');
-      final controller = VideoPlayerController.networkUrl(
-        Uri.parse(attemptUrl),
-        httpHeaders: headers,
-        formatHint: actualIsHls ? VideoFormat.hls : VideoFormat.other,
-        videoPlayerOptions: VideoPlayerOptions(backBufferDurationMs: 60000, allowBackgroundPlayback: true),
+    try {
+      _showStatus(
+        position == Duration.zero ? 'Loading video...' : 'Switching to $selectedQuality...',
       );
+      // Timeout after 30s - HLS playlists on slow/CDN can take >15s, and
+      // 15s was causing working servers to be marked as failed with
+      // TimeoutException after 0:00:15.000000
+      await controller.initialize().timeout(const Duration(seconds: 30));
+      if (position > Duration.zero) await controller.seekTo(position);
+      if (shouldPlay) await controller.play();
 
-      try {
-        final isFallback = attemptUrl != url;
-        _showStatus(
-          position == Duration.zero
-              ? (isFallback ? 'Trying compatible codec...' : 'Loading video...')
-              : 'Switching to $selectedQuality...',
-        );
-        // Timeout after 30s - HLS playlists on slow/CDN can take >15s, and
-        // 15s was causing working servers to be marked as failed with
-        // TimeoutException after 0:00:15.000000
-        await controller.initialize().timeout(const Duration(seconds: 30));
-        if (position > Duration.zero) await controller.seekTo(position);
-        if (shouldPlay) await controller.play();
+      if (!mounted) {
+        await controller.dispose();
+        return;
+      }
 
-        if (!mounted) {
-          await controller.dispose();
-          return;
-        }
+      controller.addListener(_handlePlaybackChanged);
+      setState(() {
+        _videoPlayerController = controller;
+        _useNativePlayer = true;
+        _currentSource = source;
+        _streamHeaders = headers;
+        _qualities = qualities;
+        _selectedQuality = selectedQuality;
+        _isBuffering = controller.value.isBuffering;
+        _isSwitchingQuality = false;
+        _videoInitialized = true;
+        _currentStreamUrl = url;
+        _currentStreamIsHls = isHls;
+      });
 
-        controller.addListener(_handlePlaybackChanged);
-        setState(() {
-          _videoPlayerController = controller;
-          _useNativePlayer = true;
-          _currentSource = source;
-          _streamHeaders = headers;
-          _qualities = qualities;
-          _selectedQuality = selectedQuality;
-          _isBuffering = controller.value.isBuffering;
-          _isSwitchingQuality = false;
-          _videoInitialized = true;
-          _currentStreamUrl = attemptUrl;
-          _currentStreamIsHls = isHls;
-        });
-
-        _startProgressSaving();
-        return; // success
-      } catch (e) {
-        debugPrint('M3U8VideoPlayer: init failed ($attemptUrl): $e');
-        // Ignore fvp Bad state race during dispose - not a real init failure
-        if (e.toString().contains('Cannot add event after closing')) {
-          try { await controller.dispose(); } catch (_) {}
-          if (attemptUrl != urlsToTry.last) continue;
-          // treat as benign, let caller try next server
-          rethrow;
-        }
+      _startProgressSaving();
+    } catch (e) {
+      debugPrint('M3U8VideoPlayer: init failed ($url): $e');
+      if (e.toString().contains('Cannot add event after closing')) {
         try { await controller.dispose(); } catch (_) {}
-        // If this was an H.265 URL and we have fallbacks, continue to next
-        if (attemptUrl != urlsToTry.last) {
-          continue;
-        }
         rethrow;
       }
+      try { await controller.dispose(); } catch (_) {}
+      rethrow;
     }
   }
 
@@ -1937,7 +1910,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     final url = stream['url']?.toString() ?? '';
     if (url.isEmpty || _serverIdentity(stream) == _selectedServerKey) return;
     final current = _videoPlayerController;
-    // Allow switching even when no player exists (initial Vidlink HEVC failed) - initialize directly
+    // Allow switching even when no player exists (initial load failed) - initialize directly
     if (current == null) {
       final headers = _parseStreamHeaders(stream);
       final qualities = _parseQualities(stream['qualities']);

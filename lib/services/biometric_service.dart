@@ -10,7 +10,7 @@ class BiometricService {
     try {
       return await _localAuth.canCheckBiometrics;
     } catch (e) {
-      print('Error checking biometric availability: $e');
+      debugPrint('Error checking biometric availability: $e');
       return false;
     }
   }
@@ -20,7 +20,7 @@ class BiometricService {
     try {
       return await _localAuth.getAvailableBiometrics();
     } catch (e) {
-      print('Error getting available biometrics: $e');
+      debugPrint('Error getting available biometrics: $e');
       return [];
     }
   }
@@ -32,7 +32,7 @@ class BiometricService {
       final isDeviceSupported = await _localAuth.isDeviceSupported();
       return canCheck || isDeviceSupported;
     } catch (e) {
-      print('Error checking device biometric support: $e');
+      debugPrint('Error checking device biometric support: $e');
       return false;
     }
   }
@@ -61,13 +61,13 @@ class BiometricService {
 
       return isAuthenticated;
     } catch (e) {
-      print('Biometric authentication error: $e');
+      debugPrint('Biometric authentication error: $e');
       return false;
     }
   }
 
   /// Authenticate with fingerprint
-  static Future<bool> authenticateWithFingerprint() async {
+  static Future<bool> authenticateWithFingerdebugPrint() async {
     return authenticate(
       reason: 'Authenticate using your fingerprint',
       biometricOnly: true,
@@ -101,7 +101,7 @@ class BiometricService {
         biometricOnly: false, // Allow PIN fallback if biometric fails
       );
     } catch (e) {
-      print('Device code biometric authentication error: $e');
+      debugPrint('Device code biometric authentication error: $e');
       return false;
     }
   }
@@ -112,7 +112,7 @@ class BiometricService {
       final biometrics = await getAvailableBiometrics();
       return biometrics.isNotEmpty;
     } catch (e) {
-      print('Error checking biometric enrollment: $e');
+      debugPrint('Error checking biometric enrollment: $e');
       return false;
     }
   }
@@ -132,7 +132,7 @@ class BiometricService {
 
       return 'Biometric';
     } catch (e) {
-      print('Error getting biometric type: $e');
+      debugPrint('Error getting biometric type: $e');
       return 'Biometric';
     }
   }

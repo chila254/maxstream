@@ -120,7 +120,7 @@ class _StreamingProviderSettingsScreenState
         isLoading = false;
       });
     } catch (e) {
-      print('Error loading preferences: $e');
+      debugPrint('Error loading preferences: $e');
       setState(() => isLoading = false);
     }
   }
@@ -156,7 +156,7 @@ class _StreamingProviderSettingsScreenState
         );
       }
     } catch (e) {
-      print('Error updating preference: $e');
+      debugPrint('Error updating preference: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(

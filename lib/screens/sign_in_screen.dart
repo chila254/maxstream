@@ -123,19 +123,19 @@ class _SignInScreenState extends State<SignInScreen> with SingleTickerProviderSt
     });
 
     try {
-      print('Attempting Google sign-in...');
+      debugPrint('Attempting Google sign-in...');
       final user = await AuthService.signInWithGoogleEnhanced();
-      print('Google sign-in result: ${user != null ? 'Success' : 'Failed'}');
+      debugPrint('Google sign-in result: ${user != null ? 'Success' : 'Failed'}');
       
       if (user != null && mounted) {
-        print('Navigating to main screen...');
+        debugPrint('Navigating to main screen...');
         Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const MaxStreamMainScreen()));
       } else if (mounted) {
-        print('Google sign-in was cancelled or failed');
+        debugPrint('Google sign-in was cancelled or failed');
         setState(() => _errorMessage = 'Google sign-in was cancelled or failed');
       }
     } on FirebaseAuthException catch (e) {
-      print('FirebaseAuthException during Google sign-in: ${e.code}');
+      debugPrint('FirebaseAuthException during Google sign-in: ${e.code}');
       if (mounted) {
         String errorMessage = 'Google sign-in failed';
         switch (e.code) {
@@ -160,11 +160,11 @@ class _SignInScreenState extends State<SignInScreen> with SingleTickerProviderSt
           default:
             errorMessage = e.message ?? 'Google authentication failed';
         }
-        print('Google sign-in error: $errorMessage');
+        debugPrint('Google sign-in error: $errorMessage');
         setState(() => _errorMessage = errorMessage);
       }
     } catch (e) {
-      print('General exception during Google sign-in: $e');
+      debugPrint('General exception during Google sign-in: $e');
       if (mounted) {
         setState(() => _errorMessage = 'Google sign-in error: ${e.toString()}');
       }
