@@ -6,28 +6,28 @@ class MediaSessionHandler {
   static MediaSessionHandler get instance => _instance ??= MediaSessionHandler._();
   MediaSessionHandler._();
 
-  AudioHandler? _handler;
+  MaxStreamAudioHandler? _handler;
   bool _initialized = false;
 
   Future<void> init() async {
     if (_initialized) return;
     try {
       _handler = await AudioService.init(
-        builder: () => _MaxStreamAudioHandler(),
+        builder: () => MaxStreamAudioHandler(),
         config: const AudioServiceConfig(
           androidNotificationChannelId: 'com.maxstream.app.playback',
           androidNotificationChannelName: 'MaxStream Playback',
           androidNotificationOngoing: true,
           androidStopForegroundOnPause: true,
         ),
-      );
+      ) as MaxStreamAudioHandler;
       _initialized = true;
     } catch (e) {
       debugPrint('MediaSession init error: $e');
     }
   }
 
-  AudioHandler? get handler => _handler;
+  MaxStreamAudioHandler? get handler => _handler;
 
   void updateMetadata({
     required String title,
@@ -101,7 +101,7 @@ class MediaSessionHandler {
   }
 }
 
-class _MaxStreamAudioHandler extends BaseAudioHandler with SeekHandler {
+class MaxStreamAudioHandler extends BaseAudioHandler with SeekHandler {
   VoidCallback? onPlay;
   VoidCallback? onPause;
   VoidCallback? onSkipPrevious;
