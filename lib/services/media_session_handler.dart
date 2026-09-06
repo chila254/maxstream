@@ -94,7 +94,7 @@ class MediaSessionHandler {
   }
 
   void notifyStopped() {
-    _handler?.playbackState.add(const PlaybackState(
+    _handler?.playbackState.add(PlaybackState(
       processingState: AudioProcessingState.idle,
       playing: false,
     ));
