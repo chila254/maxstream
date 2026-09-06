@@ -71,7 +71,7 @@ class StreamExtractor(private val context: Context) {
     companion object {
         private const val HTTP_SERVER_TIMEOUT_MS = 18_000L
         private const val WEBVIEW_SERVER_TIMEOUT_MS = 12_000L
-        private const val ALL_SERVERS_TOTAL_TIMEOUT_MS = 25_000L
+        private const val ALL_SERVERS_TOTAL_TIMEOUT_MS = 75_000L
     }
 
     /** True on 1GB-class devices (most cheap TV boxes). */
