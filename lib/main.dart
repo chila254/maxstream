@@ -59,9 +59,15 @@ class _StartupGateState extends State<_StartupGate> {
   Future<void> _initialize() async {
     try {
       if (Firebase.apps.isEmpty) {
-        await Firebase.initializeApp(
-          options: DefaultFirebaseOptions.currentPlatform,
-        );
+        try {
+          await Firebase.initializeApp(
+            options: DefaultFirebaseOptions.currentPlatform,
+          );
+        } on Exception catch (e) {
+          // Another isolate/path already initialized Firebase between our
+          // isEmpty check and initializeApp — treat this as success.
+          if (!e.toString().contains('already exists')) rethrow;
+        }
       }
 
       // Crashlytics captures native crashes (which Dart can never see) and
