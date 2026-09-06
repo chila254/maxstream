@@ -10,6 +10,7 @@ import 'package:video_player/video_player.dart';
 import '../database/db_helper.dart';
 import '../services/direct_m3u8_service.dart';
 import '../services/media_download_manager.dart';
+import '../services/media_session_handler.dart';
 import '../services/native_stream_extractor.dart';
 import '../services/tmdb_api_service.dart';
 import '../services/watch_history_service.dart';
@@ -677,6 +678,17 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         // Re-discover servers in background for fresh URLs
         _loadMediaMetadata();
         _discoverAvailableServers(++_serverDiscoveryGeneration);
+        MediaSessionHandler.instance.init().then((_) {
+          final handler = MediaSessionHandler.instance.handler;
+          if (handler != null && mounted) {
+            handler.onPlay = () => _videoPlayerController?.play();
+            handler.onPause = () => _videoPlayerController?.pause();
+            handler.onSeek = (pos) => _videoPlayerController?.seekTo(pos);
+            handler.onStop = () {
+              if (mounted) _exitPlayer();
+            };
+          }
+        });
         return;
       }
     }
@@ -687,6 +699,17 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     ]);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     _loadStream();
+    MediaSessionHandler.instance.init().then((_) {
+      final handler = MediaSessionHandler.instance.handler;
+      if (handler != null && mounted) {
+        handler.onPlay = () => _videoPlayerController?.play();
+        handler.onPause = () => _videoPlayerController?.pause();
+        handler.onSeek = (pos) => _videoPlayerController?.seekTo(pos);
+        handler.onStop = () {
+          if (mounted) _exitPlayer();
+        };
+      }
+    });
   }
 
   void _showStatus(String message) {
@@ -1572,6 +1595,16 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       }
     }
     if (shouldRebuild) setState(() {});
+    MediaSessionHandler.instance.updateMetadata(
+      title: _currentTitle,
+      artist: widget.isMovie ? 'Movie' : 'S${_currentSeason.toString().padLeft(2, '0')}E${_currentEpisode.toString().padLeft(2, '0')}',
+      artUri: _posterUrl.isNotEmpty ? _posterUrl : null,
+    );
+    MediaSessionHandler.instance.updatePlaybackState(
+      isPlaying: value.isPlaying,
+      position: value.position,
+      duration: value.duration,
+    );
   }
 
   Map<String, dynamic>? _nextServerAfter(String currentUrl) {
@@ -1723,7 +1756,16 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     _progressTimer?.cancel();
     _progressTimer = Timer.periodic(
       const Duration(seconds: 15),
-      (_) => _saveProgress(),
+      (_) {
+        _saveProgress();
+        final c = _videoPlayerController;
+        if (c != null && c.value.isInitialized) {
+          MediaSessionHandler.instance.updateProgress(
+            position: c.value.position,
+            duration: c.value.duration,
+          );
+        }
+      },
     );
   }
 
@@ -2946,6 +2988,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       SystemUiMode.manual,
       overlays: SystemUiOverlay.values,
     );
+    MediaSessionHandler.instance.notifyStopped();
     super.dispose();
   }
 

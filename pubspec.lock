@@ -9,14 +9,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.3.59"
-  adaptive_number:
-    dependency: transitive
-    description:
-      name: adaptive_number
-      sha256: "3a567544e9b5c9c803006f51140ad544aedc79604fd4f3f2c1380003f97c1d77"
-      url: "https://pub.dev"
-    source: hosted
-    version: "1.0.0"
   ansicolor:
     dependency: transitive
     description:
@@ -25,38 +17,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.0.3"
-  app_links:
-    dependency: transitive
-    description:
-      name: app_links
-      sha256: f8db46d2ea9ff6f3a37191a7fd5b7813da1253ace8c32c1b9eadace41d1188ea
-      url: "https://pub.dev"
-    source: hosted
-    version: "7.2.1"
-  app_links_linux:
-    dependency: transitive
-    description:
-      name: app_links_linux
-      sha256: f5f7173a78609f3dfd4c2ff2c95bd559ab43c80a87dc6a095921d96c05688c81
-      url: "https://pub.dev"
-    source: hosted
-    version: "1.0.3"
-  app_links_platform_interface:
-    dependency: transitive
-    description:
-      name: app_links_platform_interface
-      sha256: "7546f09a6e93f4a2df2fe2bd40a5c6c64310ac461b036d82b43033be7a59f809"
-      url: "https://pub.dev"
-    source: hosted
-    version: "2.0.4"
-  app_links_web:
-    dependency: transitive
-    description:
-      name: app_links_web
-      sha256: af060ed76183f9e2b87510a9480e56a5352b6c249778d07bd2c95fc35632a555
-      url: "https://pub.dev"
-    source: hosted
-    version: "1.0.4"
   archive:
     dependency: transitive
     description:
@@ -89,6 +49,38 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.13.1"
+  audio_service:
+    dependency: "direct main"
+    description:
+      name: audio_service
+      sha256: "95f3267f3449eb5cf71c8fcf1d556f57af1e898e2dc5815fb168d1843653edb7"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.18.19"
+  audio_service_platform_interface:
+    dependency: transitive
+    description:
+      name: audio_service_platform_interface
+      sha256: "6283782851f6c8b501b60904a32fc7199dc631172da0629d7301e66f672ab777"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.1.3"
+  audio_service_web:
+    dependency: transitive
+    description:
+      name: audio_service_web
+      sha256: b8ea9243201ee53383157fbccf13d5d2a866b5dda922ec19d866d1d5d70424df
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.1.4"
+  audio_session:
+    dependency: transitive
+    description:
+      name: audio_session
+      sha256: f9e7711a0e24ca8b40f5d7ac374c3c6e55016f3157912badd18199cdbbca5c4d
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.2.4"
   boolean_selector:
     dependency: transitive
     description:
@@ -233,14 +225,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.0.9"
-  dart_jsonwebtoken:
-    dependency: transitive
-    description:
-      name: dart_jsonwebtoken
-      sha256: b268ff9bb87a16360a397f1accb50e7c781384e1119010b34f6d7c25820c44d8
-      url: "https://pub.dev"
-    source: hosted
-    version: "3.1.1"
   dbus:
     dependency: transitive
     description:
@@ -265,14 +249,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.2.1"
-  ed25519_edwards:
-    dependency: transitive
-    description:
-      name: ed25519_edwards
-      sha256: f3c3b109a0e470ee35f6346a155cab290578660852237fce10df6bbd92758534
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.3.2"
   encrypt:
     dependency: "direct main"
     description:
@@ -640,14 +616,6 @@ packages:
     description: flutter
     source: sdk
     version: "0.0.0"
-  functions_client:
-    dependency: transitive
-    description:
-      name: functions_client
-      sha256: "931e822688d2e97867b2300e2fdbb08c9db73f8653fc83efc7a259d2e0cca769"
-      url: "https://pub.dev"
-    source: hosted
-    version: "2.7.1"
   glassmorphism:
     dependency: "direct main"
     description:
@@ -712,22 +680,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.12.4+4"
-  gotrue:
-    dependency: transitive
-    description:
-      name: gotrue
-      sha256: cd73a6de4198baca71341177bed233673d7965aca2a0257ab5561feb2abdaf59
-      url: "https://pub.dev"
-    source: hosted
-    version: "2.27.2"
-  gtk:
-    dependency: transitive
-    description:
-      name: gtk
-      sha256: "4ff85b2a16724029dd9e5bbb5a94b6918f9973f74ba571c949d2002801879cf5"
-      url: "https://pub.dev"
-    source: hosted
-    version: "2.2.0"
   hooks:
     dependency: transitive
     description:
@@ -1056,14 +1008,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.2.1"
-  passkeys_platform_interface:
-    dependency: transitive
-    description:
-      name: passkeys_platform_interface
-      sha256: e810520c7b79dca629fdc266958564eedd77dc85a955f5e94430dfccb92eef68
-      url: "https://pub.dev"
-    source: hosted
-    version: "2.9.0"
   path:
     dependency: "direct main"
     description:
@@ -1208,14 +1152,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "6.5.2"
-  postgrest:
-    dependency: transitive
-    description:
-      name: postgrest
-      sha256: b7f957273ba6a1c26cefa987ac524f4138e9ab7542fbb9e6abdfddacb9895a21
-      url: "https://pub.dev"
-    source: hosted
-    version: "2.9.1"
   provider:
     dependency: "direct main"
     description:
@@ -1232,14 +1168,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.2.0"
-  realtime_client:
-    dependency: transitive
-    description:
-      name: realtime_client
-      sha256: ff731ce21fd775e0d7accfb1eaccdcf47b687610720822ba8b9fd8f5bccb2bd9
-      url: "https://pub.dev"
-    source: hosted
-    version: "2.13.0"
   record_use:
     dependency: transitive
     description:
@@ -1405,14 +1333,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.12.1"
-  storage_client:
-    dependency: transitive
-    description:
-      name: storage_client
-      sha256: b16aaaadcef812fda31fca056f50fb3485afe64f94e5d537d30f485ed55dec5e
-      url: "https://pub.dev"
-    source: hosted
-    version: "2.8.0"
   stream_channel:
     dependency: transitive
     description:
@@ -1429,30 +1349,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.4.1"
-  supabase:
-    dependency: transitive
-    description:
-      name: supabase
-      sha256: "0645becf76f49d2633d8ec9bfd78ab98dce42de6899da8fa1f069c2c836d5d23"
-      url: "https://pub.dev"
-    source: hosted
-    version: "2.16.1"
-  supabase_common:
-    dependency: transitive
-    description:
-      name: supabase_common
-      sha256: a7961a44953cf8d9da049381fc3377516348255042fbb12b9d4f8540816f2fe9
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.1.2"
-  supabase_flutter:
-    dependency: "direct main"
-    description:
-      name: supabase_flutter
-      sha256: "26eb3d3b71bcc5651551e64d6b131ba929ea261998570bbcc90356b1b42fd532"
-      url: "https://pub.dev"
-    source: hosted
-    version: "2.17.2"
   synchronized:
     dependency: transitive
     description:
@@ -1653,22 +1549,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.1.1"
-  web_socket:
-    dependency: transitive
-    description:
-      name: web_socket
-      sha256: "34d64019aa8e36bf9842ac014bb5d2f5586ca73df5e4d9bf5c936975cae6982c"
-      url: "https://pub.dev"
-    source: hosted
-    version: "1.0.1"
-  web_socket_channel:
-    dependency: transitive
-    description:
-      name: web_socket_channel
-      sha256: d645757fb0f4773d602444000a8131ff5d48c9e47adfe9772652dd1a4f2d45c8
-      url: "https://pub.dev"
-    source: hosted
-    version: "3.0.3"
   win32:
     dependency: transitive
     description:
@@ -1701,14 +1581,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.1.3"
-  yet_another_json_isolate:
-    dependency: transitive
-    description:
-      name: yet_another_json_isolate
-      sha256: eaa26beb5990b25a49d942374fd5a0c5aa67a837e03b14b4c26134aaa1ed01a9
-      url: "https://pub.dev"
-    source: hosted
-    version: "2.1.1"
   youtube_player_flutter:
     dependency: "direct main"
     description:

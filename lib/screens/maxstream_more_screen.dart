@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/user_service.dart';
 import '../services/auth_service.dart';
+import '../services/biometric_service.dart';
 import '../screens/sign_in_screen.dart';
 import '../screens/profile_settings_screen.dart';
 import '../screens/streaming_provider_settings_screen.dart';
@@ -23,6 +25,7 @@ class _MaxStreamMoreScreenState extends State<MaxStreamMoreScreen> {
   String _userName = 'MaxStream User';
   String _userEmail = 'user@maxstream.app';
   final UserService _userService = UserService();
+  bool _biometricEnabled = false;
 
   @override
   void initState() {
@@ -30,6 +33,12 @@ class _MaxStreamMoreScreenState extends State<MaxStreamMoreScreen> {
     _loadUserInfo();
     _userService.loadAvatar();
     _userService.loadProfilePicture();
+    _loadBiometricPreference();
+  }
+
+  Future<void> _loadBiometricPreference() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (mounted) setState(() => _biometricEnabled = prefs.getBool('biometric_lock') ?? false);
   }
 
   void _loadUserInfo() async {
@@ -94,6 +103,10 @@ class _MaxStreamMoreScreenState extends State<MaxStreamMoreScreen> {
   Widget _buildMenuItems() {
     return Column(
       children: [
+        _buildSectionHeader('SECURITY'),
+        _buildBiometricToggle(),
+        const SizedBox(height: 20),
+        _buildSectionHeader('SETTINGS'),
         _buildMenuItem(
           icon: Icons.person,
           title: 'Profile Settings',
@@ -236,6 +249,69 @@ class _MaxStreamMoreScreenState extends State<MaxStreamMoreScreen> {
           isDestructive: true,
         ),
       ],
+    );
+  }
+
+  Widget _buildSectionHeader(String title) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Text(
+          title,
+          style: TextStyle(
+            color: Colors.grey[500],
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 1.2,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBiometricToggle() {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      child: ListTile(
+        leading: const Icon(Icons.fingerprint, color: Colors.white),
+        title: const Text(
+          'Biometric Lock',
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        trailing: Switch(
+          value: _biometricEnabled,
+          onChanged: (value) async {
+            if (value) {
+              final available = await BiometricService.canUseBiometric();
+              if (!available) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Biometric authentication not available on this device'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+                return;
+              }
+            }
+            final prefs = await SharedPreferences.getInstance();
+            if (mounted) {
+              setState(() => _biometricEnabled = value);
+              await prefs.setBool('biometric_lock', value);
+            }
+          },
+          activeColor: Colors.green,
+        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        tileColor: Colors.transparent,
+        hoverColor: Colors.white.withAlpha(12),
+        splashColor: Colors.white.withAlpha(25),
+      ),
     );
   }
 

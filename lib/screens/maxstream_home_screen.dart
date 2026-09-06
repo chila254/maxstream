@@ -32,6 +32,8 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
   List<Map<String, dynamic>> topRatedMovies = [];
   List<Map<String, dynamic>> upcomingContent = [];
   List<Map<String, dynamic>> continueWatching = [];
+  List<Map<String, dynamic>> nowPlaying = [];
+  List<Map<String, dynamic>> genres = [];
 
   @override
   void initState() {
@@ -74,6 +76,8 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
         syncFuture.then((_) => WatchHistoryService.getContinueWatching())
             .catchError((_) => <Map<String, dynamic>>[]),
         _safeList(() => _loadWatchlistUpcoming()),
+        _safeList(() => TmdbApiService.fetchNowPlayingMovies()),
+        _safeList(() => TmdbApiService.fetchGenreList()),
       ]);
 
       if (!mounted) return;
@@ -99,6 +103,8 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
         topRatedMovies = results[2] as List<Map<String, dynamic>>;
         upcomingContent = mergedUpcoming;
         continueWatching = (results[5] as List<Map<String, dynamic>>).take(10).toList();
+        nowPlaying = results[7] as List<Map<String, dynamic>>;
+        genres = results[8] as List<Map<String, dynamic>>;
       });
     } catch (e) {
       debugPrint('Home load error: $e');
@@ -176,6 +182,8 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
                     ),
                   ),
                   SliverToBoxAdapter(child: _buildProvidersSection()),
+                  if (genres.isNotEmpty) SliverToBoxAdapter(child: _buildGenresSection()),
+                  if (nowPlaying.isNotEmpty) _buildSection('Now Playing', nowPlaying, 'movie'),
                   _buildSection('Trending Movies', trendingMovies, 'movie'),
                   _buildSection('Popular Movies', popularMovies, 'movie'),
                   _buildSection('Top Rated Movies', topRatedMovies, 'movie'),
@@ -539,6 +547,77 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
                         ),
                       ),
                     ),
+                );
+              }),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGenresSection() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Browse by Genre',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 12),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: List.generate(genres.length, (index) {
+                final genre = genres[index];
+                final name = genre['name']?.toString() ?? '';
+                final id = genre['id'] as int?;
+                if (name.isEmpty || id == null) return const SizedBox();
+                return Padding(
+                  padding: EdgeInsets.only(
+                    right: index == genres.length - 1 ? 0 : 10,
+                  ),
+                  child: GestureDetector(
+                    onTap: () {
+                      HapticFeedback.lightImpact();
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => _GenreMoviesScreen(
+                            genreId: id,
+                            genreName: name,
+                          ),
+                        ),
+                      );
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 18,
+                        vertical: 10,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1E1E1E),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.12),
+                        ),
+                      ),
+                      child: Text(
+                        name,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ),
                 );
               }),
             ),
@@ -1154,6 +1233,118 @@ class _ProviderInfo {
     required this.color,
     this.logoPath,
   });
+}
+
+class _GenreMoviesScreen extends StatefulWidget {
+  final int genreId;
+  final String genreName;
+
+  const _GenreMoviesScreen({required this.genreId, required this.genreName});
+
+  @override
+  State<_GenreMoviesScreen> createState() => _GenreMoviesScreenState();
+}
+
+class _GenreMoviesScreenState extends State<_GenreMoviesScreen> {
+  List<Map<String, dynamic>> _movies = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadMovies();
+  }
+
+  Future<void> _loadMovies() async {
+    setState(() => _isLoading = true);
+    try {
+      final results = await TmdbApiService.getMoviesByGenre(widget.genreId);
+      if (mounted) setState(() => _movies = results);
+    } catch (_) {
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF121212),
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF1A1A1A),
+        title: Text(widget.genreName, style: const TextStyle(color: Colors.white)),
+        iconTheme: const IconThemeData(color: Colors.white),
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator(color: Colors.red))
+          : _movies.isEmpty
+              ? const Center(
+                  child: Text(
+                    'No movies found',
+                    style: TextStyle(color: Colors.grey, fontSize: 16),
+                  ),
+                )
+              : GridView.builder(
+                  physics: const ClampingScrollPhysics(),
+                  padding: const EdgeInsets.all(12),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 3,
+                    crossAxisSpacing: 10,
+                    mainAxisSpacing: 10,
+                    childAspectRatio: 0.6,
+                  ),
+                  itemCount: _movies.length,
+                  itemBuilder: (context, index) {
+                    final item = _movies[index];
+                    return GestureDetector(
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => MaxStreamDetailsScreen(
+                              item: Movie.fromJson(item),
+                              mediaType: 'movie',
+                            ),
+                          ),
+                        );
+                      },
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: item['poster_path'] != null
+                                  ? AppNetworkImage(
+                                      url: TmdbApiService.getPosterUrl(item['poster_path']),
+                                      width: double.infinity,
+                                      fit: BoxFit.cover,
+                                    )
+                                  : Container(
+                                      width: double.infinity,
+                                      color: Colors.grey[800],
+                                      child: const Icon(Icons.movie, color: Colors.grey, size: 40),
+                                    ),
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            item['title'] ?? item['name'] ?? 'Unknown',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w500,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+    );
+  }
 }
 
 class _FullListScreen extends StatefulWidget {

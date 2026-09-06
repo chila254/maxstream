@@ -179,6 +179,8 @@ class TmdbApiService {
     };
   }
 
+  static Future<List<Map<String, dynamic>>> fetchGenreList() => results('/genre/movie/list', {'language': 'en-US'});
+
   static Future<List<Map<String, dynamic>>> getMoviesByGenre(
     int genreId, {
     int page = 1,

@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import '../models/movie.dart';
 import '../services/tmdb_api_service.dart';
@@ -33,6 +35,7 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
   int _searchGeneration = 0;
 
   // Top Searched / Most Watched (idle state when no query)
+  List<String> _searchHistory = [];
   List<Map<String, dynamic>> topSearched = [];
   List<Map<String, dynamic>> mostWatched = [];
   bool isLoadingRecommendations = true;
@@ -57,6 +60,7 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
         }
       }
     });
+    _loadSearchHistory();
     _loadSearchRecommendations();
     _initSpeech();
   }
@@ -154,6 +158,39 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
     }
   }
 
+  Future<void> _loadSearchHistory() async {
+    final prefs = await SharedPreferences.getInstance();
+    final encoded = prefs.getString('search_history');
+    if (encoded != null) {
+      final List<dynamic> decoded = jsonDecode(encoded);
+      setState(() => _searchHistory = decoded.cast<String>());
+    }
+  }
+
+  Future<void> _saveToHistory(String query) async {
+    final trimmed = query.trim();
+    if (trimmed.isEmpty) return;
+    setState(() {
+      _searchHistory.remove(trimmed);
+      _searchHistory.insert(0, trimmed);
+      if (_searchHistory.length > 20) _searchHistory = _searchHistory.sublist(0, 20);
+    });
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('search_history', jsonEncode(_searchHistory));
+  }
+
+  Future<void> _removeFromHistory(String query) async {
+    setState(() => _searchHistory.remove(query));
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('search_history', jsonEncode(_searchHistory));
+  }
+
+  Future<void> _clearHistory() async {
+    setState(() => _searchHistory.clear());
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('search_history');
+  }
+
   Future<void> _loadSearchRecommendations() async {
     setState(() => isLoadingRecommendations = true);
     try {
@@ -198,6 +235,7 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
       return;
     }
 
+    _saveToHistory(trimmedQuery);
     setState(() => isLoading = true);
 
     try {
@@ -275,14 +313,17 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
           Expanded(
             child: _searchController.text.trim().isEmpty
                 ? _buildSearchRecommendations()
-                : TabBarView(
-                    controller: _tabController,
-                    children: [
-                      _buildAllResults(),
-                      _buildMovieResults(),
-                      _buildTVResults(),
-                      _buildActorResults(),
-                    ],
+                : RefreshIndicator(
+                    onRefresh: () => _performSearch(_searchController.text),
+                    child: TabBarView(
+                      controller: _tabController,
+                      children: [
+                        _buildAllResults(),
+                        _buildMovieResults(),
+                        _buildTVResults(),
+                        _buildActorResults(),
+                      ],
+                    ),
                   ),
           ),
         ],
@@ -319,6 +360,47 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            if (_searchHistory.isNotEmpty) ...[
+              _buildSectionHeader('Recent Searches'),
+              SizedBox(
+                height: 42,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  itemCount: _searchHistory.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 8),
+                  itemBuilder: (context, index) {
+                    final item = _searchHistory[index];
+                    return GestureDetector(
+                      onTap: () {
+                        _searchController.text = item;
+                        _performSearch(item);
+                        setState(() {});
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF1E1E1E),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(item, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500)),
+                            const SizedBox(width: 6),
+                            GestureDetector(
+                              onTap: () => _removeFromHistory(item),
+                              child: Icon(Icons.close_rounded, color: Colors.grey[500], size: 14),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
             if (topSearched.isNotEmpty) ...[
               _buildSectionHeader('Top Searched'),
               _buildRecommendationCarousel(topSearched),
@@ -590,15 +672,17 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
   }
 
   Widget _buildSectionHeader(String title) {
-    final icon = title == 'Top Searched'
-        ? Icons.trending_up_rounded
-        : title == 'Most Watched'
-            ? Icons.local_fire_department_rounded
-            : title == 'Movies'
-                ? Icons.movie_rounded
-                : title == 'TV Shows'
-                    ? Icons.tv_rounded
-                    : Icons.people_rounded;
+    final icon = title == 'Recent Searches'
+        ? Icons.history_rounded
+        : title == 'Top Searched'
+            ? Icons.trending_up_rounded
+            : title == 'Most Watched'
+                ? Icons.local_fire_department_rounded
+                : title == 'Movies'
+                    ? Icons.movie_rounded
+                    : title == 'TV Shows'
+                        ? Icons.tv_rounded
+                        : Icons.people_rounded;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 20, 16, 10),
       child: Row(

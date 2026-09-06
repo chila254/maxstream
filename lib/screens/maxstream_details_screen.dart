@@ -358,25 +358,30 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
       child: Scaffold(
         body: isLoading
             ? buildLoadingShimmer()
-            : CustomScrollView(
-                controller: _scrollController,
-                physics: const BouncingScrollPhysics(),
-                slivers: [
-                  buildSliverAppBar(),
-                  SliverToBoxAdapter(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        buildDetailsSection(),
-                        if (_watchProgress != null) _buildContinueWatching(),
-                        if (cast.isNotEmpty) buildCastSection(),
-                        if (recommendations.isNotEmpty)
-                          buildRecommendationsSection(),
-                        const SizedBox(height: 20),
-                      ],
+            : RefreshIndicator(
+                onRefresh: _loadDetails,
+                color: Colors.red,
+                child: CustomScrollView(
+                  controller: _scrollController,
+                  physics: const BouncingScrollPhysics(),
+                  slivers: [
+                    buildSliverAppBar(),
+                    SliverToBoxAdapter(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          buildDetailsSection(),
+                          if (_watchProgress != null)
+                            _buildContinueWatching(),
+                          if (cast.isNotEmpty) buildCastSection(),
+                          if (recommendations.isNotEmpty)
+                            buildRecommendationsSection(),
+                          const SizedBox(height: 20),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
       ),
     );

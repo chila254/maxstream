@@ -3,6 +3,8 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'maxstream_home_screen.dart';
 import 'maxstream_search_screen.dart';
 import 'maxstream_series_list_screen.dart';
@@ -13,6 +15,7 @@ import '../services/notification_permission_service.dart';
 import '../services/content_notification_service.dart';
 import '../services/recommendation_notification_service.dart';
 import '../services/miniplayer_service.dart';
+import '../services/biometric_service.dart';
 import '../widgets/miniplayer_bar.dart';
 import '../widgets/video_player_screen.dart';
 
@@ -65,7 +68,7 @@ class _MaxStreamMainScreenState extends State<MaxStreamMainScreen> {
   }
 
   Future<void> _initializeServices() async {
-    // Only check for updates if auto-check is enabled
+    await _checkBiometricLock();
     final autoCheck = await UpdateService.isAutoCheckEnabled();
     if (autoCheck) {
       unawaited(_checkForUpdates());
@@ -105,6 +108,21 @@ class _MaxStreamMainScreenState extends State<MaxStreamMainScreen> {
       debugPrint('Could not check for updates: $error');
     } finally {
       _checkingForUpdate = false;
+    }
+  }
+
+  Future<void> _checkBiometricLock() async {
+    final prefs = await SharedPreferences.getInstance();
+    final biometricEnabled = prefs.getBool('biometric_lock') ?? false;
+    if (!biometricEnabled || !mounted) return;
+    final isAvailable = await BiometricService.canUseBiometric();
+    if (!isAvailable || !mounted) return;
+    final authenticated = await BiometricService.authenticate(
+      reason: 'Unlock MaxStream',
+      biometricOnly: false,
+    );
+    if (!authenticated && mounted) {
+      SystemNavigator.pop();
     }
   }
 
