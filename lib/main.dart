@@ -58,10 +58,11 @@ class _StartupGateState extends State<_StartupGate> {
 
   Future<void> _initialize() async {
     try {
-      // Remove name: 'MaxStreamApp' – only needed if initializing multiple apps
-      await Firebase.initializeApp(
-        options: DefaultFirebaseOptions.currentPlatform,
-      );
+      if (Firebase.apps.isEmpty) {
+        await Firebase.initializeApp(
+          options: DefaultFirebaseOptions.currentPlatform,
+        );
+      }
 
       // Crashlytics captures native crashes (which Dart can never see) and
       // receives fatal Dart errors once initialized.
