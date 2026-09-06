@@ -1491,12 +1491,10 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     }
     if (!mounted) return;
 
-    // Determine format from actual URL
-    final actualIsHls = url.toLowerCase().contains('.m3u8');
     final controller = VideoPlayerController.networkUrl(
       Uri.parse(url),
       httpHeaders: headers,
-      formatHint: actualIsHls ? VideoFormat.hls : VideoFormat.other,
+      formatHint: isHls ? VideoFormat.hls : VideoFormat.other,
       videoPlayerOptions: VideoPlayerOptions(backBufferDurationMs: 60000, allowBackgroundPlayback: true),
     );
 

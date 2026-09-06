@@ -1087,8 +1087,15 @@ class StreamExtractor(private val context: Context) {
                     } else {
                         refererHeaders("https://vidlink.pro/") + entryHeaders
                     }
-                    // Skip H.265/HEVC — most Android phones lack HW decoders
-                    val isH265 = rawUrl.contains("/h265/", true)
+                    // Skip H.265/HEVC — most Android phones lack HW decoders.
+                    // CDNs use many path patterns, so check for the common ones.
+                    val isH265 = rawUrl.contains("/h265/", true) ||
+                        rawUrl.contains("/h.265/", true) ||
+                        rawUrl.contains("/hevc/", true) ||
+                        rawUrl.contains("_h265_", true) ||
+                        rawUrl.contains("_hevc_", true) ||
+                        rawUrl.contains("-h265-", true) ||
+                        rawUrl.contains("-hevc-", true)
                     if (isH265) continue
                     qualityOptions += QualityOption("${label}p", url, height)
                     if (height > fallbackH264Height) {
