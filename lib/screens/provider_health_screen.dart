@@ -65,7 +65,7 @@ class _ProviderHealthScreenState extends State<ProviderHealthScreen>
     ProviderStatus(name: 'Mov2Day', domain: 'mov2day.xyz', type: 'extractor-webview'),
     ProviderStatus(name: 'VidsrcRu', domain: 'vidsrc.ru', type: 'extractor-webview'),
     ProviderStatus(name: 'StreamWish', domain: 'streamwish.com', type: 'extractor-webview'),
-    ProviderStatus(name: 'VidLove', domain: 'vidlove.cc', type: 'extractor-webview'),
+    ProviderStatus(name: 'VidLove', domain: 'player.vidlove.cc', type: 'extractor-webview'),
     // Active – API / native
     ProviderStatus(name: 'VixSrc', domain: 'vixsrc.to', type: 'extractor-native'),
     ProviderStatus(name: 'Vidsrc', domain: 'vidsrc-embed.ru', type: 'extractor-native'),
@@ -97,7 +97,7 @@ class _ProviderHealthScreenState extends State<ProviderHealthScreen>
     ProviderStatus(name: 'Vidsonic', domain: 'vidsonic.net', type: 'extractor-native'),
     ProviderStatus(name: 'Vtube', domain: 'vtbe.to', type: 'extractor-native'),
     ProviderStatus(name: 'Vidflix', domain: 'vidflix.club', type: 'extractor-native'),
-    ProviderStatus(name: 'Vixcloud', domain: 'vixcloud.co', type: 'extractor-native'),
+    ProviderStatus(name: 'Vixcloud', domain: 'vixcloud.co (under construction)', type: 'extractor-native'),
     ProviderStatus(name: 'Okru', domain: 'ok.ru', type: 'extractor-native'),
     ProviderStatus(name: 'Dailymotion', domain: 'dailymotion.com', type: 'extractor-native'),
     ProviderStatus(name: 'Worker', domain: 'maxstream-worker.maxstream123.workers.dev', type: 'extractor-api'),

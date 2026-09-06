@@ -642,6 +642,24 @@ class StreamExtractor(private val context: Context) {
                 },
             )
 
+            servers += StreamServer(
+                "Vidflix",
+                if (request.isMovie) {
+                    "https://vidflix.club/api/movie/$id"
+                } else {
+                    "https://vidflix.club/api/tv/$id/${request.season}/${request.episode}"
+                },
+            )
+
+            servers += StreamServer(
+                "VidLove",
+                if (request.isMovie) {
+                    "https://player.vidlove.cc/embed/movie/$id"
+                } else {
+                    "https://player.vidlove.cc/embed/tv/$id/${request.season}/${request.episode}"
+                },
+            )
+
             return servers
         }
     }
@@ -860,41 +878,70 @@ class StreamExtractor(private val context: Context) {
         override val name = "Vidflix"
         override fun supports(server: StreamServer) = host(server.url).endsWith("vidflix.club")
 
+        private val playerKey = "3a67e8866ae1d2bb9e81fe7f73315a56eb3bdf5e3e755c7554c8be6910aa6b13"
+        private val servers = listOf("scrapify", "oreon", "vaplayer")
+
         override suspend fun extract(server: StreamServer): ExtractionResult {
-            val referer = server.url.replace("/api/", "/")
-            val response = getJson(server.url, refererHeaders(referer))
-            val videoUrl = response.optString("video_url")
-            require(videoUrl.isNotBlank()) { "Vidflix returned no video_url" }
-            val subtitles = response.optJSONArray("subtitles")?.let { items ->
-                (0 until items.length()).mapNotNull { index ->
-                    val item = items.optJSONObject(index) ?: return@mapNotNull null
-                    val rawUrl = item.optString("url")
-                    if (rawUrl.isBlank() || host(rawUrl).endsWith("opensubtitles.org")) {
-                        return@mapNotNull null
-                    }
-                    val subtitleUrl = if (rawUrl.startsWith("http")) rawUrl
-                        else resolveUrl(server.url, rawUrl)
-                    SubtitleOption(
-                        item.optString("label", "Subtitle"),
-                        subtitleUrl,
-                        item.optBoolean("default", false),
-                        source = "Vidflix",
-                    )
-                }
-            }.orEmpty()
-            val uri = URI(videoUrl)
-            val hasFragment = !uri.rawFragment.isNullOrBlank()
-
-            if (hasFragment) {
-                // RPM domains (flixcdn.cyou, primevid.click, loadm.cam) are dead.
-                // Skip this result and let the pipeline try the next server.
-                Log.i(tag, "Vidflix returned RPM-style URL (dead backend); skipping")
-                throw IllegalStateException("Vidflix RPM backend unavailable")
+            val path = URI(server.url).path.orEmpty()
+            val segments = path.split('/').filter { it.isNotBlank() }
+            val isMovie = segments.contains("movie")
+            val typeIndex = segments.indexOfFirst { it == "movie" || it == "tv" }
+            val tmdbId = if (typeIndex >= 0 && typeIndex + 1 < segments.size) {
+                segments[typeIndex + 1]
+            } else {
+                segments.lastOrNull { it.all(Char::isDigit) && it.length >= 2 }
+                    ?: throw IllegalStateException("Vidflix: cannot parse TMDB ID from ${server.url}")
             }
+            val season = if (!isMovie && typeIndex >= 0 && typeIndex + 2 < segments.size) {
+                segments[typeIndex + 2]
+            } else null
+            val episode = if (!isMovie && typeIndex >= 0 && typeIndex + 3 < segments.size) {
+                segments[typeIndex + 3]
+            } else null
 
-            return ExtractionResult.Redirect(
-                StreamServer("Vidflix host", videoUrl, subtitles = subtitles),
-            )
+            // Try each backend server via the player API
+            for (srv in servers) {
+                val apiPath = if (isMovie) {
+                    "/api/vidora/v1/movie/$tmdbId?source=$srv"
+                } else {
+                    "/api/vidora/v1/tv/$tmdbId/${season ?: "1"}/${episode ?: "1"}?source=$srv"
+                }
+                val apiUrl = "https://player.vidflix.club$apiPath"
+                val headers = mapOf(
+                    "x-player-key" to playerKey,
+                    "Referer" to "https://player.vidflix.club/",
+                )
+                try {
+                    val json = getJson(apiUrl, headers)
+                    if (!json.optBoolean("result", false)) continue
+                    val source = json.optJSONArray("sources")?.optJSONObject(0) ?: continue
+                    val streamUrl = source.optString("url").orEmpty()
+                    if (streamUrl.isBlank()) continue
+                    val title = json.optString("title", "")
+                    val tracks = source.optJSONArray("tracks")?.let { items ->
+                        (0 until items.length()).mapNotNull { i ->
+                            val item = items.optJSONObject(i) ?: return@mapNotNull null
+                            val file = item.optString("file").orEmpty()
+                            if (file.isBlank()) return@mapNotNull null
+                            SubtitleOption(
+                                item.optString("label", "Subtitle"),
+                                file,
+                                source = "Vidflix",
+                            )
+                        }
+                    }.orEmpty()
+                    Log.i(tag, "Vidflix resolved via $srv: $streamUrl")
+                    return ExtractionResult.Final(
+                        validateStream(
+                            StreamResult(streamUrl, name, mediaType(streamUrl), headers, subtitles = tracks),
+                        ),
+                    )
+                } catch (e: Exception) {
+                    if (e is CancellationException) throw e
+                    Log.w(tag, "Vidflix $srv failed: ${e.message}")
+                }
+            }
+            throw IllegalStateException("Vidflix: all servers failed for $tmdbId")
         }
     }
 
