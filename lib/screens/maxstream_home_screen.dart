@@ -183,7 +183,6 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
                   ),
                   SliverToBoxAdapter(child: _buildProvidersSection()),
                   if (genres.isNotEmpty) SliverToBoxAdapter(child: _buildGenresSection()),
-                  if (nowPlaying.isNotEmpty) _buildSection('Now Playing', nowPlaying, 'movie'),
                   _buildSection('Trending Movies', trendingMovies, 'movie'),
                   _buildSection('Popular Movies', popularMovies, 'movie'),
                   _buildSection('Top Rated Movies', topRatedMovies, 'movie'),

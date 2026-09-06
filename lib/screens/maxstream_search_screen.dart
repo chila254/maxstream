@@ -235,7 +235,6 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
       return;
     }
 
-    _saveToHistory(trimmedQuery);
     setState(() => isLoading = true);
 
     try {
@@ -544,7 +543,11 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
                   }
                 },
                 onSubmitted: (v) {
-                  if (v.trim().length >= 2) _performSearch(v);
+                  final trimmed = v.trim();
+                  if (trimmed.length >= 2) {
+                    _saveToHistory(trimmed);
+                    _performSearch(v);
+                  }
                 },
               ),
             ),
