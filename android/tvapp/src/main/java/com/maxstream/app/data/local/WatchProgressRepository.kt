@@ -149,6 +149,11 @@ object WatchProgressRepository {
             .put("timestamp", if (timestamp > 0L) timestamp else System.currentTimeMillis())
         val key = progressKey(tmdbId, isMovie, season, episode)
         val before = prefs(context).getString(key, null)
+        if (before != null) {
+            val existingTs = runCatching { JSONObject(before).optLong("timestamp", 0L) }.getOrDefault(0L)
+            val incomingTs = if (timestamp > 0L) timestamp else System.currentTimeMillis()
+            if (incomingTs <= existingTs) return false
+        }
         val changed = before != entry.toString()
         prefs(context).edit().putString(key, entry.toString()).apply()
         upsertRecent(context, entry)

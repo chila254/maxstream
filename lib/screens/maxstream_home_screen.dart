@@ -174,7 +174,7 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
                 physics: const ClampingScrollPhysics(),
                 slivers: [
                   _buildAppBar(),
-                  const SliverToBoxAdapter(child: HeroBanner()),
+                  SliverToBoxAdapter(child: HeroBanner(onPlayerReturn: _loadContinueWatching)),
                   SliverToBoxAdapter(
                     child: ContinueWatchingSection(
                       continueWatching: continueWatching,

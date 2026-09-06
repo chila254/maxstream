@@ -9,7 +9,8 @@ import '../utils/responsive_utils.dart';
 import 'video_player_screen.dart';
 
 class HeroBanner extends StatefulWidget {
-  const HeroBanner({super.key});
+  final VoidCallback? onPlayerReturn;
+  const HeroBanner({super.key, this.onPlayerReturn});
 
   @override
   State<HeroBanner> createState() => _HeroBannerState();
@@ -190,6 +191,7 @@ class _HeroBannerState extends State<HeroBanner> {
       ).then((_) {
         if (mounted) {
           setState(() => _isPlayingVideo = false);
+          widget.onPlayerReturn?.call();
         }
       });
     } catch (e) {

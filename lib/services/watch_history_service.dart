@@ -157,6 +157,15 @@ class WatchHistoryService {
       'timestamp': _integer(history['timestamp']),
     };
     final prefs = await SharedPreferences.getInstance();
+    final existingJson = prefs.getString(getWatchHistoryKey(tmdbId, isMovie, season, episode));
+    if (existingJson != null) {
+      try {
+        final existing = jsonDecode(existingJson) as Map<String, dynamic>;
+        final existingTs = _integer(existing['timestamp']);
+        final incomingTs = _integer(history['timestamp']);
+        if (incomingTs <= existingTs) return;
+      } catch (_) {}
+    }
     await prefs.setString(
       getWatchHistoryKey(tmdbId, isMovie, season, episode),
       jsonEncode(clean),
