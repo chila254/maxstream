@@ -712,6 +712,12 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     });
   }
 
+  String _sourceLabel(Map<String, dynamic>? stream, {String fallback = 'Server'}) {
+    final source = stream?['source']?.toString() ?? fallback;
+    final method = stream?['method']?.toString();
+    return method != null ? '$source ($method)' : source;
+  }
+
   void _showStatus(String message) {
     debugPrint('M3U8Player: $message');
     if (mounted) {
@@ -771,6 +777,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       if (result != null && result['url'] != null) {
         final url = result['url'] as String;
         final source = result['source'] as String? ?? 'Unknown';
+        final method = result['method'] as String?;
         final headers = <String, String>{};
         if (result['referer'] != null) {
           headers['Referer'] = result['referer'].toString();
@@ -783,6 +790,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         final qualities = _parseQualities(result['qualities']);
         final subtitleTracks = _parseSubtitleTracks(result['subtitles']);
         _separateAudio = result['separateAudio'] == true;
+        _currentSource = source;
         _playbackRetryCount = 0;
         _failedServerKeys.clear();
         _availableServers = [result];
@@ -839,7 +847,8 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
             : 'Off';
         _selectedSubtitleUrl = initialSubtitle?.url;
 
-        _showStatus('Stream found from $source! Initializing player...');
+        final methodLabel = method != null ? ' ($method)' : '';
+        _showStatus('Stream found from $source$methodLabel! Initializing player...');
         var discoveredServers = false;
         // The native extractor already validated this exact stream with
         // OkHttp. Hand it straight to ExoPlayer instead of letting the
@@ -869,7 +878,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
               )
               .toList();
           for (final server in candidates) {
-            _showStatus('Trying ${server['source']}...');
+            _showStatus('Trying ${_sourceLabel(server)}...');
             initialized = await _tryPlayServer(
               server,
               position: resumePosition,
@@ -1654,7 +1663,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         // causing stuck at "Switching to Auto" (6x 15s validates).
         var switched = false;
         for (final server in candidates) {
-          _showStatus('Loading a working stream from ${server['source']}...');
+          _showStatus('Loading a working stream from ${_sourceLabel(server)}...');
           switched = await _tryPlayServer(
             server,
             position: _lastStablePosition,
@@ -1889,6 +1898,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
               final stream = entry.value;
               final source = stream['source']?.toString() ?? 'Server';
               final server = stream['server']?.toString() ?? source;
+              final method = stream['method']?.toString();
               final selected = _serverIdentity(stream) == _selectedServerKey;
               final url = stream['url']?.toString() ?? '';
               final available = url.isNotEmpty;
@@ -1911,9 +1921,11 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
                 ),
                 subtitle: Text(
                   available
-                      ? (server == source
-                          ? 'Server ${entry.key + 1}'
-                          : 'Via $server · Server ${entry.key + 1}')
+                      ? (method != null
+                          ? '$method · Server ${entry.key + 1}'
+                          : (server == source
+                              ? 'Server ${entry.key + 1}'
+                              : 'Via $server · Server ${entry.key + 1}'))
                       : 'Unavailable · Tap to retry',
                   style: TextStyle(
                     color: available ? Colors.white54 : Colors.orangeAccent,
@@ -2034,7 +2046,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     final identity = _serverIdentity(stream);
     if (identity.isEmpty) return;
     setState(() => _isRetryingServer = true);
-    _showStatus('Fetching $identity...');
+    _showStatus('Fetching ${_sourceLabel(stream, fallback: identity)}...');
     try {
       final resolved = await DirectM3u8Service.resolveServer(
         serverName: identity,

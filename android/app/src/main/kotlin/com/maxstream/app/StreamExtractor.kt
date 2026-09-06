@@ -117,6 +117,7 @@ class StreamExtractor(private val context: Context) {
         val subtitles: List<SubtitleOption> = emptyList(),
         val server: String = source,
         val separateAudio: Boolean = false,
+        val method: String = "",
     ) {
         fun toMap(): Map<String, Any> = mapOf(
             "url" to url,
@@ -128,6 +129,7 @@ class StreamExtractor(private val context: Context) {
             "qualities" to qualities.map(QualityOption::toMap),
             "subtitles" to subtitles.map(SubtitleOption::toMap),
             "separateAudio" to separateAudio,
+            "method" to method,
         )
     }
 
@@ -994,7 +996,7 @@ class StreamExtractor(private val context: Context) {
                 if (type != "hls" && !streamUrl.contains("/api/media")) {
                     throw IllegalStateException("Worker returned embed, not HLS")
                 }
-                return@withContext ExtractionResult.Final(StreamResult(streamUrl, name, "direct_m3u8", emptyMap()))
+                return@withContext ExtractionResult.Final(StreamResult(streamUrl, name, "direct_m3u8", emptyMap(), method = "Worker"))
             }
         }
 
@@ -1141,6 +1143,7 @@ class StreamExtractor(private val context: Context) {
                         bestHeaders,
                         qualities = sortedQualities,
                         subtitles = captions,
+                        method = "HTTP",
                     )
                 )
             }
@@ -1232,6 +1235,7 @@ class StreamExtractor(private val context: Context) {
                                         mediaType(playlist),
                                         refererHeaders(referer),
                                         subtitles = captions,
+                                        method = "WebView",
                                     )
                                 }
                                 val nonNull = parsed.getOrNull()

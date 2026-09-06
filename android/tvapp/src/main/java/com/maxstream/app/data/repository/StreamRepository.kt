@@ -87,6 +87,7 @@ class StreamRepository(private val context: Context) {
             subtitles = subtitles,
             separateAudio = map["separateAudio"] as? Boolean ?: false,
             extractor = extractor,
+            method = (map["method"] as? String).orEmpty(),
         )
     }
 }

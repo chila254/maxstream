@@ -958,6 +958,8 @@ fun PlayerScreen(
             source = primary
             allServers = listOf(primary)
             subtitleOptions = buildSubtitleOptions(primary, listOf(primary))
+            val methodLabel = primary.method.takeIf { it.isNotBlank() }?.let { " ($it)" } ?: ""
+            status = "Loading from ${primary.displayName}$methodLabel"
 
             // Default subtitle from the primary server: English CC / English
             // first (so subtitles come up in English when available), then the
