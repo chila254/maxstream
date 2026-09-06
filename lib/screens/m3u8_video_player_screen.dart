@@ -1255,14 +1255,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       return true;
     } catch (e) {
       debugPrint('M3U8VideoPlayer: Error initializing player: $e');
-      final msg = e.toString();
-      String userMsg;
-      if (msg.contains('PlatformException') || msg.contains('codec')) {
-        userMsg = 'Video codec not supported on this device';
-      } else {
-        userMsg = 'Server failed: $e';
-      }
-      _showStatus(userMsg);
+      _showStatus('Server failed: $e');
       return false;
     }
   }

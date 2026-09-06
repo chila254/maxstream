@@ -1824,20 +1824,21 @@ class StreamExtractor(private val context: Context) {
             val master = getValidationResponse(streamUrl, responseHeaders)
             require(master.body.startsWith("#EXTM3U")) { "VixSrc HLS endpoint did not return a playlist" }
             val variants = parseHlsVariants(master.url, master.body)
-            val h264Variants = variants.filter { it.codec != "hevc" }
-            val selected = if (h264Variants.isNotEmpty()) {
-                h264Variants.maxByOrNull { it.height } ?: h264Variants.first()
-            } else {
-                variants.firstOrNull()
+            if (variants.size > 1) {
+                val nonHevc = variants.filter {
+                    it.codec != "hevc" && !it.url.lowercase().contains("hevc") &&
+                    !it.url.lowercase().contains("h265")
+                }
+                if (nonHevc.isNotEmpty()) {
+                    val best = nonHevc.maxByOrNull { it.height } ?: nonHevc.first()
+                    val media = getValidationResponse(best.url, responseHeaders)
+                    validateMediaPlaylist(media.url, media.body, responseHeaders)
+                    return ExtractionResult.Final(
+                        StreamResult(best.url, name, "direct_m3u8", responseHeaders),
+                    )
+                }
             }
-            if (selected != null) {
-                val media = getValidationResponse(selected.url, responseHeaders)
-                validateMediaPlaylist(media.url, media.body, responseHeaders)
-                return ExtractionResult.Final(
-                    StreamResult(selected.url, name, "direct_m3u8", responseHeaders),
-                )
-            }
-            validateMediaPlaylist(master.url, master.body, responseHeaders)
+            validateFirstHlsSegment(streamUrl, responseHeaders)
             return ExtractionResult.Final(
                 StreamResult(streamUrl, name, "direct_m3u8", responseHeaders),
             )
@@ -1892,20 +1893,21 @@ class StreamExtractor(private val context: Context) {
             val master = getValidationResponse(streamUrl, vixHeaders)
             require(master.body.startsWith("#EXTM3U")) { "Vixcloud HLS endpoint did not return a playlist" }
             val variants = parseHlsVariants(master.url, master.body)
-            val h264Variants = variants.filter { it.codec != "hevc" }
-            val selected = if (h264Variants.isNotEmpty()) {
-                h264Variants.maxByOrNull { it.height } ?: h264Variants.first()
-            } else {
-                variants.firstOrNull()
+            if (variants.size > 1) {
+                val nonHevc = variants.filter {
+                    it.codec != "hevc" && !it.url.lowercase().contains("hevc") &&
+                    !it.url.lowercase().contains("h265")
+                }
+                if (nonHevc.isNotEmpty()) {
+                    val best = nonHevc.maxByOrNull { it.height } ?: nonHevc.first()
+                    val media = getValidationResponse(best.url, vixHeaders)
+                    validateMediaPlaylist(media.url, media.body, vixHeaders)
+                    return ExtractionResult.Final(
+                        StreamResult(best.url, name, "direct_m3u8", vixHeaders),
+                    )
+                }
             }
-            if (selected != null) {
-                val media = getValidationResponse(selected.url, vixHeaders)
-                validateMediaPlaylist(media.url, media.body, vixHeaders)
-                return ExtractionResult.Final(
-                    StreamResult(selected.url, name, "direct_m3u8", vixHeaders),
-                )
-            }
-            validateMediaPlaylist(master.url, master.body, vixHeaders)
+            validateFirstHlsSegment(streamUrl, vixHeaders)
             return ExtractionResult.Final(
                 StreamResult(streamUrl, name, "direct_m3u8", vixHeaders),
             )
