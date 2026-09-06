@@ -1192,7 +1192,7 @@ class StreamExtractor(private val context: Context) {
                         webView.addJavascriptInterface(object {
                             @JavascriptInterface
                             fun onStreamFound(payload: String) {
-                                val parsed = runCatching {
+                                val parsed: Result<StreamResult?> = runCatching {
                                     val json = JSONObject(payload)
                                     val stream = json.optJSONObject("stream") ?: json
                                     val playlist = listOf(
@@ -1234,8 +1234,9 @@ class StreamExtractor(private val context: Context) {
                                         subtitles = captions,
                                     )
                                 }
-                                if (parsed.isSuccess && parsed.getOrNull() != null) {
-                                    finish(parsed)
+                                val nonNull = parsed.getOrNull()
+                                if (nonNull != null) {
+                                    finish(Result.success(nonNull))
                                 }
                             }
                         }, "NativeBridge")
