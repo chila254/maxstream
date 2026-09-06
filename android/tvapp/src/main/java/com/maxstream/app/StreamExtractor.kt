@@ -576,9 +576,9 @@ class StreamExtractor(private val context: Context) {
             servers += StreamServer(
                 "Videasy",
                 if (request.isMovie) {
-                    "https://player.videasy.net/movie/$id"
+                    "https://player.videasy.to/movie/$id"
                 } else {
-                    "https://player.videasy.net/tv/$id/${request.season}/${request.episode}"
+                    "https://player.videasy.to/tv/$id/${request.season}/${request.episode}"
                 },
             )
 
@@ -2140,7 +2140,7 @@ class StreamExtractor(private val context: Context) {
             throw lastError ?: IllegalStateException("Videasy returned no playable source")
         }
 
-        private fun videasyHeaders() = refererHeaders("https://player.videasy.net/") +
+        private fun videasyHeaders() = refererHeaders("https://player.videasy.to/") +
             mapOf("Accept" to "application/json")
 
         private fun decryptVideasyPayload(encoded: String, seed: String, mediaId: String): String {
