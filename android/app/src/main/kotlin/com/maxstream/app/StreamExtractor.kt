@@ -1821,23 +1821,6 @@ class StreamExtractor(private val context: Context) {
             val responseHeaders = refererHeaders("https://vixsrc.to") +
                 mapOf("Origin" to "https://vixsrc.to") +
                 (if (cookieHeader.isNotBlank()) mapOf("Cookie" to cookieHeader) else emptyMap())
-            val master = getValidationResponse(streamUrl, responseHeaders)
-            require(master.body.startsWith("#EXTM3U")) { "VixSrc HLS endpoint did not return a playlist" }
-            val variants = parseHlsVariants(master.url, master.body)
-            if (variants.size > 1) {
-                val nonHevc = variants.filter {
-                    it.codec != "hevc" && !it.url.lowercase().contains("hevc") &&
-                    !it.url.lowercase().contains("h265")
-                }
-                if (nonHevc.isNotEmpty()) {
-                    val best = nonHevc.maxByOrNull { it.height } ?: nonHevc.first()
-                    val media = getValidationResponse(best.url, responseHeaders)
-                    validateMediaPlaylist(media.url, media.body, responseHeaders)
-                    return ExtractionResult.Final(
-                        StreamResult(best.url, name, "direct_m3u8", responseHeaders),
-                    )
-                }
-            }
             validateFirstHlsSegment(streamUrl, responseHeaders)
             return ExtractionResult.Final(
                 StreamResult(streamUrl, name, "direct_m3u8", responseHeaders),
@@ -1889,27 +1872,8 @@ class StreamExtractor(private val context: Context) {
             )
             if (page.contains("window.canPlayFHD = true")) parameters += "h=1"
             val streamUrl = "$origin/playlist/$videoId?${parameters.joinToString("&")}"
-            val vixHeaders = refererHeaders("$origin/")
-            val master = getValidationResponse(streamUrl, vixHeaders)
-            require(master.body.startsWith("#EXTM3U")) { "Vixcloud HLS endpoint did not return a playlist" }
-            val variants = parseHlsVariants(master.url, master.body)
-            if (variants.size > 1) {
-                val nonHevc = variants.filter {
-                    it.codec != "hevc" && !it.url.lowercase().contains("hevc") &&
-                    !it.url.lowercase().contains("h265")
-                }
-                if (nonHevc.isNotEmpty()) {
-                    val best = nonHevc.maxByOrNull { it.height } ?: nonHevc.first()
-                    val media = getValidationResponse(best.url, vixHeaders)
-                    validateMediaPlaylist(media.url, media.body, vixHeaders)
-                    return ExtractionResult.Final(
-                        StreamResult(best.url, name, "direct_m3u8", vixHeaders),
-                    )
-                }
-            }
-            validateFirstHlsSegment(streamUrl, vixHeaders)
             return ExtractionResult.Final(
-                StreamResult(streamUrl, name, "direct_m3u8", vixHeaders),
+                StreamResult(streamUrl, name, "direct_m3u8", refererHeaders("$origin/")),
             )
         }
     }
