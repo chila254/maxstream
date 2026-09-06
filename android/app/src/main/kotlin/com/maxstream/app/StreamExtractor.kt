@@ -1159,6 +1159,15 @@ class StreamExtractor(private val context: Context) {
             return "https://noon.mooncase.online/mp${uri.rawPath}?${query.joinToString("&")}"
         }
 
+        private fun isH265(url: String): Boolean =
+            url.contains("/h265/", true) ||
+                url.contains("/h.265/", true) ||
+                url.contains("/hevc/", true) ||
+                url.contains("_h265_", true) ||
+                url.contains("_hevc_", true) ||
+                url.contains("-h265-", true) ||
+                url.contains("-hevc-", true)
+
         private suspend fun extractViaWebView(server: StreamServer): ExtractionResult {
             return withContext(Dispatchers.Main) {
                 withTimeout(45_000) {
@@ -1195,6 +1204,7 @@ class StreamExtractor(private val context: Context) {
                                     require(!playlist.isNullOrBlank()) {
                                         "VidLink stream has no playlist URL"
                                     }
+                                    if (isH265(playlist)) return@runCatching null
                                     val captions = stream.optJSONArray("captions")?.let { items ->
                                         (0 until items.length()).mapNotNull { index ->
                                             val item = items.optJSONObject(index) ?: return@mapNotNull null
@@ -1224,7 +1234,7 @@ class StreamExtractor(private val context: Context) {
                                         subtitles = captions,
                                     )
                                 }
-                                if (parsed.isSuccess) {
+                                if (parsed.isSuccess && parsed.getOrNull() != null) {
                                     finish(parsed)
                                 }
                             }
@@ -1235,6 +1245,7 @@ class StreamExtractor(private val context: Context) {
                                 val reqUrl = request.url.toString()
                                 // Real JS injection capture: intercept HLS/mp4 directly – mirrors vidlink-extension
                                 if ((reqUrl.contains(".m3u8") || reqUrl.contains(".mp4")) && !reqUrl.contains("noir.suubmon.store")) {
+                                    if (isH265(reqUrl)) return super.shouldInterceptRequest(view, request)
                                     val isHls = reqUrl.contains(".m3u8")
                                     val result = runCatching {
                                         StreamResult(reqUrl, name, if (isHls) "hls" else "mp4", refererHeaders(if (reqUrl.contains("hakunaymatata.com")) "https://filmboom.top/" else "https://vidlink.pro/"))
