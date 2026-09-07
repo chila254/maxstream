@@ -1064,11 +1064,13 @@ class StreamExtractor(private val context: Context) {
                 var fallbackH264Height = -1
                 var fallbackH264Headers: Map<String, String> = bestH264Headers
                 val qualityOptions = mutableListOf<QualityOption>()
+                var hasOriginalHls = false
                 val iterator = qualities.keys()
                 while (iterator.hasNext()) {
                     val label = iterator.next()
                     val entry = qualities.optJSONObject(label) ?: continue
                     val rawUrl = entry.optString("url").ifBlank { continue }
+                    if (rawUrl.contains(".m3u8", true)) hasOriginalHls = true
                     val height = label.toIntOrNull() ?: 0
                     val entryHeaders = entry.optJSONObject("headers")?.let { h ->
                         buildMap {
@@ -1134,9 +1136,8 @@ class StreamExtractor(private val context: Context) {
                 }
                 val sortedQualities = qualityOptions.sortedByDescending { it.height }
                 // Use raw CDN extension for MIME, not the proxy's /mp/ path
-                val isOriginalHls = rawUrl.contains(".m3u8", true)
                 val finalMediaType = if (url.contains("noon.mooncase.online")) {
-                    if (isOriginalHls) "direct_m3u8" else "mp4"
+                    if (hasOriginalHls) "direct_m3u8" else "mp4"
                 } else mediaType(url)
                 ExtractionResult.Final(
                     StreamResult(
