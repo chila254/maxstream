@@ -6,6 +6,7 @@
     <uses-feature android:name="android.software.leanback" android:required="false" />
 
     <application
+        android:name=".MaxStreamTvApp"
         android:label="@string/app_name"
         android:icon="@drawable/ic_launcher_foreground"
         android:banner="@drawable/tv_banner"
