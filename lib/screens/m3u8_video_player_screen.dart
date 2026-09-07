@@ -3168,7 +3168,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
                         shadows.add(Shadow(color: ss.textShadowColorParsed, blurRadius: 3));
                       }
                       if (ss.edgeType == 'outline') {
-                        shadows.add(Shadow(color: ss.edgeColorParsed, blurRadius: 0, spreadRadius: 1));
+                        shadows.add(Shadow(color: ss.edgeColorParsed, blurRadius: 2));
                       } else if (ss.edgeType == 'dropShadow') {
                         shadows.add(Shadow(color: ss.edgeColorParsed, blurRadius: 4, offset: const Offset(1, 1)));
                       }

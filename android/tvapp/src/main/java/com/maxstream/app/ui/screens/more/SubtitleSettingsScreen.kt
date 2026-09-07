@@ -83,7 +83,7 @@ fun SubtitleSettingsScreen(
     var showColorPicker by remember { mutableStateOf<String?>(null) }
 
     val focusRequesters = remember { List(8) { FocusRequester() } }
-    var focusedIndex by remember { mutableIntStateOf(0) }
+    var focusedIndex by remember { mutableStateOf(0) }
 
     fun save() {
         val settings = TvSubtitleSettings(
@@ -146,7 +146,7 @@ fun SubtitleSettingsScreen(
                     Text(
                         text = "This is a sample subtitle text",
                         color = textColor,
-                        fontSize = fontSize.sp.coerceIn(10.sp, 28.sp),
+                        fontSize = fontSize.coerceIn(10f, 28f).sp,
                         textAlign = TextAlign.Center,
                         modifier = Modifier
                             .background(
