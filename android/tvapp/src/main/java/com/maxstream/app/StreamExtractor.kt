@@ -1072,7 +1072,10 @@ class StreamExtractor(private val context: Context) {
                 }
                 val sortedQualities = qualityOptions.sortedByDescending { it.height }
                 // Use raw CDN extension for MIME, not the proxy's /mp/ path
-                val finalMediaType = if (url.contains("noon.mooncase.online")) "mp4" else mediaType(url)
+                val isOriginalHls = rawUrl.contains(".m3u8", true)
+                val finalMediaType = if (url.contains("noon.mooncase.online")) {
+                    if (isOriginalHls) "direct_m3u8" else "mp4"
+                } else mediaType(url)
                 ExtractionResult.Final(
                     StreamResult(
                         url,
