@@ -26,6 +26,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -68,17 +70,32 @@ fun SubtitleSettingsScreen(
     onBack: () -> Unit = {},
 ) {
     val context = LocalContext.current
-    val saved = remember { SubtitleSettingsRepository.load(context) }
+    val cloudRevision by SubtitleSettingsRepository.cloudRevision.collectAsState()
 
-    var textColor by remember { mutableStateOf(parseColor(saved.textColor)) }
-    var bgColor by remember { mutableStateOf(parseColor(saved.backgroundColor)) }
-    var bgOpacity by remember { mutableFloatStateOf(saved.backgroundOpacity) }
-    var fontSize by remember { mutableFloatStateOf(saved.fontSize) }
-    var textShadow by remember { mutableStateOf(saved.textShadow) }
-    var shadowColor by remember { mutableStateOf(parseColor(saved.textShadowColor)) }
-    var edgeType by remember { mutableStateOf(saved.edgeType) }
-    var edgeColor by remember { mutableStateOf(parseColor(saved.edgeColor)) }
-    var position by remember { mutableStateOf(saved.position) }
+    var textColor by remember { mutableStateOf(Color.White) }
+    var bgColor by remember { mutableStateOf(Color.Black) }
+    var bgOpacity by remember { mutableFloatStateOf(0.55f) }
+    var fontSize by remember { mutableFloatStateOf(22f) }
+    var textShadow by remember { mutableStateOf(true) }
+    var shadowColor by remember { mutableStateOf(Color.Black) }
+    var edgeType by remember { mutableStateOf("outline") }
+    var edgeColor by remember { mutableStateOf(Color.Black) }
+    var position by remember { mutableStateOf("bottom") }
+
+    // Re-read settings when cloud pull bumps the revision
+    LaunchedEffect(cloudRevision) {
+        SubtitleSettingsRepository.invalidateCache()
+        val s = SubtitleSettingsRepository.load(context)
+        textColor = parseColor(s.textColor)
+        bgColor = parseColor(s.backgroundColor)
+        bgOpacity = s.backgroundOpacity
+        fontSize = s.fontSize
+        textShadow = s.textShadow
+        shadowColor = parseColor(s.textShadowColor)
+        edgeType = s.edgeType
+        edgeColor = parseColor(s.edgeColor)
+        position = s.position
+    }
 
     var showColorPicker by remember { mutableStateOf<String?>(null) }
 

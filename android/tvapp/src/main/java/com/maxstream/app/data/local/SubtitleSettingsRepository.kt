@@ -6,6 +6,9 @@ import android.util.Log
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ServerValue
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONObject
 
 data class TvSubtitleSettings(
@@ -58,6 +61,11 @@ object SubtitleSettingsRepository {
     private const val KEY_JSON = "settings_json"
 
     private var cached: TvSubtitleSettings? = null
+
+    private val _cloudRevision = MutableStateFlow(0)
+    /** Bumped every time cloud pull updates local settings. UI observes this
+     *  to re-read SharedPreferences after a remote change. */
+    val cloudRevision: StateFlow<Int> = _cloudRevision.asStateFlow()
 
     private fun prefs(context: Context): SharedPreferences =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -139,6 +147,7 @@ object SubtitleSettingsRepository {
                         val settings = TvSubtitleSettings.fromJson(json)
                         cached = settings
                         prefs(context).edit().putString(KEY_JSON, settings.toJson().toString()).apply()
+                        _cloudRevision.value++
                     } catch (e: Exception) {
                         Log.w(TAG, "Failed to parse cloud settings: ${e.message}")
                     }
