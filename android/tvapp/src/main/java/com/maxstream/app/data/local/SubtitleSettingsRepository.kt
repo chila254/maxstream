@@ -105,7 +105,7 @@ object SubtitleSettingsRepository {
             map["edgeColor"] = settings.edgeColor
             map["position"] = settings.position
             map["subtitleOffsetMs"] = settings.subtitleOffsetMs.toDouble()
-            map["updatedAt"] = ServerValue.timestamp
+            map["updatedAt"] = ServerValue.TIMESTAMP
             FirebaseDatabase.getInstance()
                 .reference
                 .child("users")
