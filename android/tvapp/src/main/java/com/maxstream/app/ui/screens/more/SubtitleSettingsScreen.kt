@@ -102,6 +102,18 @@ fun SubtitleSettingsScreen(
     val focusRequesters = remember { List(8) { FocusRequester() } }
     var focusedIndex by remember { mutableStateOf(0) }
 
+    // Bug fix #2: Seed focus on the first row when the screen opens so
+    // D-pad navigation works immediately without requiring a click first.
+    LaunchedEffect(Unit) {
+        var attempt = 0
+        while (attempt < 6) {
+            if (attempt > 0) kotlinx.coroutines.delay(50L * attempt)
+            val ok = runCatching { focusRequesters[0].requestFocus() }
+            if (ok.isSuccess) break
+            attempt++
+        }
+    }
+
     fun save() {
         val settings = TvSubtitleSettings(
             textColor = colorToHex(textColor),
@@ -117,10 +129,20 @@ fun SubtitleSettingsScreen(
         SubtitleSettingsRepository.save(context, settings)
     }
 
+    // Bug fix #1: Make the overlay Box focusable so it sits in the focus tree
+    // and its onKeyEvent fires before the TvAppRoot Back handler (which would
+    // otherwise call handleBack() → open sidebar instead of closing this screen).
+    val overlayFocusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        runCatching { overlayFocusRequester.requestFocus() }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFF121212))
+            .focusRequester(overlayFocusRequester)
+            .focusable()
             .onKeyEvent { event ->
                 if (event.type == KeyEventType.KeyDown && (event.key == Key.Back || event.key == Key.Escape)) {
                     onBack(); true
@@ -488,5 +510,11 @@ private fun parseColor(hex: String): Color {
 }
 
 private fun colorToHex(color: Color): String {
-    return "#${Integer.toHexString(color.hashCode()).takeLast(6).uppercase().padStart(6, '0')}"
+    // Bug fix #3: color.hashCode() is NOT the ARGB packed int — it varies by
+    // JVM and produces wrong values. Use toArgb() which returns the standard
+    // 0xAARRGGBB int, then extract the lower 24 bits (RGB) for a "#RRGGBB"
+    // string that round-trips correctly through the cloud and the phone app's
+    // parseColor helper.
+    val argb = color.toArgb()
+    return "#%06X".format(argb and 0x00FFFFFF)
 }

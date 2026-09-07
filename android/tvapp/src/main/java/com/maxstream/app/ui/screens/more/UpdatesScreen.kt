@@ -31,6 +31,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -101,10 +102,19 @@ fun UpdatesScreen(
         }
     }
 
+    // Bug fix #1: Make the overlay Box focusable so its onKeyEvent fires before
+    // the TvAppRoot Back handler (which would call handleBack() → open sidebar).
+    val overlayFocusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        runCatching { overlayFocusRequester.requestFocus() }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFF121212))
+            .focusRequester(overlayFocusRequester)
+            .focusable()
             .onKeyEvent { event ->
                 if (event.type == KeyEventType.KeyDown && (event.key == Key.Back || event.key == Key.Escape)) {
                     onBack(); true
