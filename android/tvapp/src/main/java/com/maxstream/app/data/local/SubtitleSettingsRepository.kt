@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import android.util.Log
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.FirebaseDatabase
+import com.google.firebase.database.ServerValue
 import org.json.JSONObject
 
 data class TvSubtitleSettings(
@@ -92,15 +93,26 @@ object SubtitleSettingsRepository {
         val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
         val settings = cached ?: return
         try {
-            val data = settings.toJson()
-            data.put("updatedAt", com.google.firebase.database.ServerValue.timestamp)
+            val map = HashMap<String, Any>()
+            map["textColor"] = settings.textColor
+            map["backgroundColor"] = settings.backgroundColor
+            map["backgroundOpacity"] = settings.backgroundOpacity.toDouble()
+            map["fontSize"] = settings.fontSize.toDouble()
+            map["fontFamily"] = settings.fontFamily
+            map["textShadow"] = settings.textShadow
+            map["textShadowColor"] = settings.textShadowColor
+            map["edgeType"] = settings.edgeType
+            map["edgeColor"] = settings.edgeColor
+            map["position"] = settings.position
+            map["subtitleOffsetMs"] = settings.subtitleOffsetMs.toDouble()
+            map["updatedAt"] = ServerValue.timestamp
             FirebaseDatabase.getInstance()
                 .reference
                 .child("users")
                 .child(uid)
                 .child("user_preferences")
                 .child("subtitle_settings")
-                .setValue(data)
+                .setValue(map)
         } catch (e: Exception) {
             Log.w(TAG, "Failed to push subtitle settings to cloud: ${e.message}")
         }
