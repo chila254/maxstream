@@ -365,17 +365,37 @@ class UpdateService {
 
       if (context.mounted) {
         final packageInfo = await PackageInfo.fromPlatform();
-        // Show completion dialog with fallback to website — user can Install
-        // or open https://maxstreamweb.vercel.app if the system installer
-        // doesn't launch (the reported stall at 100%).
-        await showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (dialogContext) => DownloadCompleteDialog(
-            filePath: filePath!,
-            packageName: packageInfo.packageName,
-          ),
-        );
+        // Auto-launch the system installer — no extra tap needed.
+        // Fall back to the DownloadCompleteDialog if the installer can't launch.
+        try {
+          final result = await const MethodChannel('com.maxstream.app/install')
+              .invokeMethod<String>('installApk', {
+            'filePath': filePath!,
+            'packageName': packageInfo.packageName,
+          });
+          if (result != 'ok' && context.mounted) {
+            // Installer didn't launch — show fallback dialog
+            await showDialog(
+              context: context,
+              barrierDismissible: false,
+              builder: (dialogContext) => DownloadCompleteDialog(
+                filePath: filePath!,
+                packageName: packageInfo.packageName,
+              ),
+            );
+          }
+        } catch (e) {
+          if (context.mounted) {
+            await showDialog(
+              context: context,
+              barrierDismissible: false,
+              builder: (dialogContext) => DownloadCompleteDialog(
+                filePath: filePath!,
+                packageName: packageInfo.packageName,
+              ),
+            );
+          }
+        }
       }
     } catch (e) {
       if (context.mounted && progressShown) {

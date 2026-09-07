@@ -14,6 +14,7 @@ import '../services/media_session_handler.dart';
 import '../services/native_stream_extractor.dart';
 import '../services/tmdb_api_service.dart';
 import '../models/subtitle_settings.dart';
+import '../services/cloud_sync_service.dart';
 import '../services/watch_history_service.dart';
 import '../services/miniplayer_service.dart';
 import '../widgets/app_network_image.dart';
@@ -639,6 +640,8 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     SubtitleSettings.load().then((s) {
       if (mounted) setState(() => _subtitleSettings = s);
     });
+    // Re-load subtitle settings when cloud sync delivers changes from another device
+    CloudSyncService.subtitlePrefsRevision.addListener(_onSubtitlePrefsChanged);
 
     // Check if we're restoring from miniplayer
     final miniplayer = MiniplayerService.instance;
@@ -1149,6 +1152,13 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       _downloadCompletionVersion = manager.completionVersion;
       unawaited(_refreshDownloadStatus());
     }
+  }
+
+  void _onSubtitlePrefsChanged() {
+    if (!mounted) return;
+    SubtitleSettings.load().then((s) {
+      if (mounted) setState(() => _subtitleSettings = s);
+    });
   }
 
   Future<void> _loadMediaMetadata() async {
@@ -2979,6 +2989,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   @override
   void dispose() {
     MediaDownloadManager.instance.removeListener(_handleDownloadChanged);
+    CloudSyncService.subtitlePrefsRevision.removeListener(_onSubtitlePrefsChanged);
     _selectedSubtitle.dispose();
     _activeSubtitles.dispose();
     _progressTimer?.cancel();
