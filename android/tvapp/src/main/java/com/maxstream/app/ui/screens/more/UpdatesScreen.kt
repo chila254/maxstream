@@ -20,7 +20,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Icon
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -32,6 +32,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -100,6 +105,11 @@ fun UpdatesScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFF121212))
+            .onKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown && (event.key == Key.Back || event.key == Key.Escape)) {
+                    onBack(); true
+                } else false
+            }
     ) {
         Column(
             modifier = Modifier
@@ -164,15 +174,5 @@ fun UpdatesScreen(
                 }
             }
         }
-
-        Text(
-            text = "< Back",
-            color = Color.Gray,
-            fontSize = 16.sp,
-            modifier = Modifier
-                .padding(24.dp)
-                .clickable { onBack() }
-                .padding(8.dp),
-        )
     }
 }

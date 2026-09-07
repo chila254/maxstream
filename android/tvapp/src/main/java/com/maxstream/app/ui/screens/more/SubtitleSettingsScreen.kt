@@ -104,6 +104,11 @@ fun SubtitleSettingsScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFF121212))
+            .onKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown && (event.key == Key.Back || event.key == Key.Escape)) {
+                    onBack(); true
+                } else false
+            }
     ) {
         Column(
             modifier = Modifier
@@ -273,17 +278,6 @@ fun SubtitleSettingsScreen(
                 },
             )
         }
-
-        // Back button
-        Text(
-            text = "< Back",
-            color = Color.Gray,
-            fontSize = 16.sp,
-            modifier = Modifier
-                .padding(24.dp)
-                .clickable { onBack() }
-                .padding(8.dp),
-        )
 
         // Color picker dialog
         if (showColorPicker != null) {

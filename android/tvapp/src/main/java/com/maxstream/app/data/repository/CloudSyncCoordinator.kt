@@ -2,6 +2,7 @@ package com.maxstream.app.data.repository
 
 import android.content.Context
 import com.maxstream.app.data.local.SessionManager
+import com.maxstream.app.data.local.SubtitleSettingsRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -60,6 +61,7 @@ object CloudSyncCoordinator {
                     }
                     if (fbChange.historyChanged) _historyRevision.value++
                     if (fbChange.watchlistChanged) _watchlistRevision.value++
+                    try { SubtitleSettingsRepository.pullFromCloud(context) } catch (_: Exception) {}
                 }
                 delay(SYNC_INTERVAL_MS)
             }

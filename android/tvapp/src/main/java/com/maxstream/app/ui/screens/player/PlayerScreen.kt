@@ -346,9 +346,17 @@ fun PlayerScreen(
     // The caption text active at the current playback position, rendered as an
     // overlay at the bottom of the video (mirrors Dart's _subtitleText ValueNotifier).
     var activeSubtitleText by remember { mutableStateOf("") }
-    // Subtitle display settings (synced across devices via cloud)
-    val subtitleSettings = remember {
-        com.maxstream.app.data.local.SubtitleSettingsRepository.load(context)
+    // Subtitle display settings (synced across devices via cloud).
+    // Reload every 12s so cloud-pushed changes appear during playback.
+    var subtitleSettings by remember {
+        mutableStateOf(com.maxstream.app.data.local.SubtitleSettingsRepository.load(context))
+    }
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(12_000)
+            com.maxstream.app.data.local.SubtitleSettingsRepository.invalidateCache()
+            subtitleSettings = com.maxstream.app.data.local.SubtitleSettingsRepository.load(context)
+        }
     }
     // Transient popup describing the current subtitle selection (auto or manual
     // pick) so the user can see what got applied.
