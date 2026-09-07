@@ -498,8 +498,8 @@ private fun SettingsRowContainer(
                 shadowElevation = if (isFocused) 18f else 0f
                 shape = RoundedCornerShape(12.dp)
                 clip = true
-                ambientShadowColor = android.graphics.Color.WHITE
-                spotShadowColor    = android.graphics.Color.WHITE
+                ambientShadowColor = Color.White
+                spotShadowColor    = Color.White
             }
             .clip(RoundedCornerShape(12.dp))
             .background(if (isFocused) Color(0xFF242424) else Color(0xFF1A1A1A))
