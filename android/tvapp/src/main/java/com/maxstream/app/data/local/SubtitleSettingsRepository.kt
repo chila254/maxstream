@@ -35,10 +35,6 @@ data class TvSubtitleSettings(
     }
 
     companion object {
-        private const val TAG = "SubtitleSettingsRepo"
-        private const val PREFS = "maxstream_tv_subtitle_settings"
-        private const val KEY_JSON = "settings_json"
-
         fun fromJson(json: JSONObject): TvSubtitleSettings = TvSubtitleSettings(
             textColor = json.optString("textColor", "#FFFFFF"),
             backgroundColor = json.optString("backgroundColor", "#000000"),
@@ -56,6 +52,10 @@ data class TvSubtitleSettings(
 }
 
 object SubtitleSettingsRepository {
+    private const val TAG = "SubtitleSettingsRepo"
+    private const val PREFS = "maxstream_tv_subtitle_settings"
+    private const val KEY_JSON = "settings_json"
+
     private var cached: TvSubtitleSettings? = null
 
     private fun prefs(context: Context): SharedPreferences =
@@ -92,15 +92,15 @@ object SubtitleSettingsRepository {
         val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
         val settings = cached ?: return
         try {
+            val data = settings.toJson()
+            data.put("updatedAt", com.google.firebase.database.ServerValue.timestamp)
             FirebaseDatabase.getInstance()
                 .reference
                 .child("users")
                 .child(uid)
                 .child("user_preferences")
                 .child("subtitle_settings")
-                .setValue(settings.toJson().apply {
-                    put("updatedAt", com.google.firebase.database.ServerValue.timestamp)
-                })
+                .setValue(data)
         } catch (e: Exception) {
             Log.w(TAG, "Failed to push subtitle settings to cloud: ${e.message}")
         }
