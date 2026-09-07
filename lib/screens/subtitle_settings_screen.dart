@@ -15,13 +15,29 @@ class _SubtitleSettingsScreenState extends State<SubtitleSettingsScreen> {
   SubtitleSettings _settings = SubtitleSettings();
   bool _loading = true;
 
+  // Listen to subtitlePrefsRevision so the screen reloads whenever another
+  // device (e.g. TV) pushes new subtitle settings to Firebase.
+  late final VoidCallback _syncListener;
+
   @override
   void initState() {
     super.initState();
+    _syncListener = () {
+      // Only reload if the screen is still mounted and not already loading
+      if (mounted && !_loading) _load(silent: true);
+    };
+    CloudSyncService.subtitlePrefsRevision.addListener(_syncListener);
     _load();
   }
 
-  Future<void> _load() async {
+  @override
+  void dispose() {
+    CloudSyncService.subtitlePrefsRevision.removeListener(_syncListener);
+    super.dispose();
+  }
+
+  Future<void> _load({bool silent = false}) async {
+    if (!silent && mounted) setState(() => _loading = true);
     final s = await SubtitleSettings.load();
     if (mounted) setState(() { _settings = s; _loading = false; });
   }
