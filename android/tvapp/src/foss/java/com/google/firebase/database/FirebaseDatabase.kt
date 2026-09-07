@@ -12,5 +12,5 @@ class FirebaseDatabase private constructor() {
         @JvmStatic fun getInstance(): FirebaseDatabase = INSTANCE
     }
     private val root = DatabaseReference()
-    fun getReference(): DatabaseReference = root
+    val reference: DatabaseReference get() = root
 }

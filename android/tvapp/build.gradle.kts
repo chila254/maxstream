@@ -7,10 +7,10 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose") version "2.2.20"
 }
 
-// Apply Google Services plugin only when google-services.json exists
-// (standard flavor builds have it; FOSS builds do not).
-val gsFile = rootProject.file("tvapp/google-services.json")
-if (gsFile.exists()) {
+// Apply Google Services plugin only for standard builds (has GOOGLE_SERVICES_JSON).
+// FOSS builds set -PstandardFirebase=false (or omit it) — Kotlin stubs handle compilation.
+val enableFirebase = project.findProperty("standardFirebase")?.toString()?.toBoolean() == true
+if (enableFirebase) {
     apply(plugin = "com.google.gms.google-services")
 }
 
@@ -144,14 +144,14 @@ dependencies {
     implementation("com.google.code.gson:gson:2.11.0")
     implementation("io.coil-kt:coil-compose:2.6.0")
 
-    // Firebase — only included when google-services.json is present (standard builds).
+    // Firebase — only included for standard builds (has GOOGLE_SERVICES_JSON + service account).
     // FOSS builds skip these; MaxStreamTvApp.initFirebase() is a no-op.
-    if (gsFile.exists()) {
+    if (enableFirebase) {
         implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
         implementation("com.google.firebase:firebase-auth-ktx")
         implementation("com.google.firebase:firebase-database-ktx")
     } else {
         // FOSS stubs need play-services-tasks for the Task<> API surface
-        implementation("com.google.android.gms:play-services-tasks:18.2.0")
+        implementation("com.google.android.gms:play-services-tasks:18.3.0")
     }
 }
