@@ -130,11 +130,44 @@ fun SubtitleSettingsScreen(onBack: () -> Unit = {}) {
     // ── Color picker — top-level state so the dialog is NOT inside LazyColumn
     var colorPickerTarget by remember { mutableStateOf<String?>(null) }
 
+    // ── Focus — one FocusRequester per row for manual up/down navigation ─────
+    val focusRequesters = remember { List(9) { FocusRequester() } }
+    var focusedIndex by remember { mutableIntStateOf(0) }
+
+    // Helpers: next/previous visible row (skip shadowColor when hidden)
+    fun nextIdx(idx: Int): Int {
+        val n = idx + 1
+        return if (n == 7 && !textShadow) n + 1 else n
+    }
+    fun prevIdx(idx: Int): Int {
+        val p = idx - 1
+        return if (p == 7 && !textShadow) p - 1 else p
+    }
+
+    // Seed initial focus
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(120)
+        runCatching { focusRequesters[0].requestFocus() }
+    }
+
+    // When textShadow is toggled off, move focus away from the hidden ShadowColor row
+    LaunchedEffect(textShadow) {
+        if (!textShadow && focusedIndex == 7) {
+            focusedIndex = 8
+            runCatching { focusRequesters[8].requestFocus() }
+        }
+    }
+
     // ── Layout ───────────────────────────────────────────────────────────────
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFF0F0F0F))
+            .onPreviewKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown &&
+                    (event.key == Key.Back || event.key == Key.Escape)
+                ) { onBack(); true } else false
+            }
     ) {
         LazyColumn(
             modifier = Modifier
@@ -196,7 +229,12 @@ fun SubtitleSettingsScreen(onBack: () -> Unit = {}) {
                 SubColorRow(
                     label = "Text Color",
                     color = textColor,
+                    focusRequester = focusRequesters[0],
+                    isFocused = focusedIndex == 0,
+                    onFocused = { focusedIndex = 0 },
                     onSelect = { colorPickerTarget = "textColor" },
+                    onMoveUp = { /* first */ },
+                    onMoveDown = { val n = nextIdx(0); focusRequesters[n].let { runCatching { it.requestFocus() } }; focusedIndex = n },
                 )
             }
 
@@ -204,8 +242,13 @@ fun SubtitleSettingsScreen(onBack: () -> Unit = {}) {
                 SubStepRow(
                     label = "Font Size",
                     value = "${fontSize.toInt()}sp",
+                    focusRequester = focusRequesters[1],
+                    isFocused = focusedIndex == 1,
+                    onFocused = { focusedIndex = 1 },
                     onDecrement = { fontSize = (fontSize - 2f).coerceIn(12f, 36f); save() },
                     onIncrement = { fontSize = (fontSize + 2f).coerceIn(12f, 36f); save() },
+                    onMoveUp = { val p = prevIdx(1); focusRequesters[p].let { runCatching { it.requestFocus() } }; focusedIndex = p },
+                    onMoveDown = { val n = nextIdx(1); focusRequesters[n].let { runCatching { it.requestFocus() } }; focusedIndex = n },
                 )
             }
 
@@ -216,7 +259,12 @@ fun SubtitleSettingsScreen(onBack: () -> Unit = {}) {
                 SubColorRow(
                     label = "Background Color",
                     color = bgColor,
+                    focusRequester = focusRequesters[2],
+                    isFocused = focusedIndex == 2,
+                    onFocused = { focusedIndex = 2 },
                     onSelect = { colorPickerTarget = "bgColor" },
+                    onMoveUp = { val p = prevIdx(2); focusRequesters[p].let { runCatching { it.requestFocus() } }; focusedIndex = p },
+                    onMoveDown = { val n = nextIdx(2); focusRequesters[n].let { runCatching { it.requestFocus() } }; focusedIndex = n },
                 )
             }
 
@@ -224,8 +272,13 @@ fun SubtitleSettingsScreen(onBack: () -> Unit = {}) {
                 SubStepRow(
                     label = "Opacity",
                     value = "${(bgOpacity * 100).toInt()}%",
+                    focusRequester = focusRequesters[3],
+                    isFocused = focusedIndex == 3,
+                    onFocused = { focusedIndex = 3 },
                     onDecrement = { bgOpacity = (bgOpacity - 0.05f).coerceIn(0f, 1f); save() },
                     onIncrement = { bgOpacity = (bgOpacity + 0.05f).coerceIn(0f, 1f); save() },
+                    onMoveUp = { val p = prevIdx(3); focusRequesters[p].let { runCatching { it.requestFocus() } }; focusedIndex = p },
+                    onMoveDown = { val n = nextIdx(3); focusRequesters[n].let { runCatching { it.requestFocus() } }; focusedIndex = n },
                 )
             }
 
@@ -238,8 +291,13 @@ fun SubtitleSettingsScreen(onBack: () -> Unit = {}) {
                 SubCycleRow(
                     label = "Edge Type",
                     value = labels[edgeType] ?: edgeType,
+                    focusRequester = focusRequesters[4],
+                    isFocused = focusedIndex == 4,
+                    onFocused = { focusedIndex = 4 },
                     onPrev = { val i = types.indexOf(edgeType); edgeType = types[(i - 1 + types.size) % types.size]; save() },
                     onNext = { val i = types.indexOf(edgeType); edgeType = types[(i + 1) % types.size]; save() },
+                    onMoveUp = { val p = prevIdx(4); focusRequesters[p].let { runCatching { it.requestFocus() } }; focusedIndex = p },
+                    onMoveDown = { val n = nextIdx(4); focusRequesters[n].let { runCatching { it.requestFocus() } }; focusedIndex = n },
                 )
             }
 
@@ -247,7 +305,12 @@ fun SubtitleSettingsScreen(onBack: () -> Unit = {}) {
                 SubColorRow(
                     label = "Edge Color",
                     color = edgeColor,
+                    focusRequester = focusRequesters[5],
+                    isFocused = focusedIndex == 5,
+                    onFocused = { focusedIndex = 5 },
                     onSelect = { colorPickerTarget = "edgeColor" },
+                    onMoveUp = { val p = prevIdx(5); focusRequesters[p].let { runCatching { it.requestFocus() } }; focusedIndex = p },
+                    onMoveDown = { val n = nextIdx(5); focusRequesters[n].let { runCatching { it.requestFocus() } }; focusedIndex = n },
                 )
             }
 
@@ -255,7 +318,12 @@ fun SubtitleSettingsScreen(onBack: () -> Unit = {}) {
                 SubToggleRow(
                     label = "Text Shadow",
                     value = textShadow,
+                    focusRequester = focusRequesters[6],
+                    isFocused = focusedIndex == 6,
+                    onFocused = { focusedIndex = 6 },
                     onToggle = { textShadow = !textShadow; save() },
+                    onMoveUp = { val p = prevIdx(6); focusRequesters[p].let { runCatching { it.requestFocus() } }; focusedIndex = p },
+                    onMoveDown = { val n = nextIdx(6); focusRequesters[n].let { runCatching { it.requestFocus() } }; focusedIndex = n },
                 )
             }
 
@@ -264,7 +332,12 @@ fun SubtitleSettingsScreen(onBack: () -> Unit = {}) {
                     SubColorRow(
                         label = "Shadow Color",
                         color = shadowColor,
+                        focusRequester = focusRequesters[7],
+                        isFocused = focusedIndex == 7,
+                        onFocused = { focusedIndex = 7 },
                         onSelect = { colorPickerTarget = "shadowColor" },
+                        onMoveUp = { val p = prevIdx(7); focusRequesters[p].let { runCatching { it.requestFocus() } }; focusedIndex = p },
+                        onMoveDown = { val n = nextIdx(7); focusRequesters[n].let { runCatching { it.requestFocus() } }; focusedIndex = n },
                     )
                 }
             }
@@ -276,8 +349,13 @@ fun SubtitleSettingsScreen(onBack: () -> Unit = {}) {
                 SubCycleRow(
                     label = "Position",
                     value = position.replaceFirstChar { it.uppercase() },
+                    focusRequester = focusRequesters[8],
+                    isFocused = focusedIndex == 8,
+                    onFocused = { focusedIndex = 8 },
                     onPrev = { position = if (position == "bottom") "top" else "bottom"; save() },
                     onNext = { position = if (position == "bottom") "top" else "bottom"; save() },
+                    onMoveUp = { val p = prevIdx(8); focusRequesters[p].let { runCatching { it.requestFocus() } }; focusedIndex = p },
+                    onMoveDown = { /* last */ },
                 )
             }
 
@@ -335,39 +413,40 @@ fun SubtitleSettingsScreen(onBack: () -> Unit = {}) {
 
 @Composable
 private fun SubRowSurface(
+    focusRequester: FocusRequester,
+    isFocused: Boolean,
+    onFocused: () -> Unit,
     onClick: (() -> Unit)? = null,
     onLeft: (() -> Unit)? = null,
     onRight: (() -> Unit)? = null,
+    onMoveUp: (() -> Unit)? = null,
+    onMoveDown: (() -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
-    var focused by remember { mutableStateOf(false) }
-
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .onFocusChanged { focused = it.isFocused }
             .border(
-                width = if (focused) 2.dp else 0.dp,
-                color = if (focused) Color.White else Color.Transparent,
+                width = if (isFocused) 2.dp else 0.dp,
+                color = if (isFocused) Color.White else Color.Transparent,
                 shape = RoundedCornerShape(12.dp),
             )
-            // D-pad left/right for step/cycle rows — only intercept if handlers given
-            .then(
-                if (onLeft != null || onRight != null) {
-                    Modifier.onPreviewKeyEvent { event ->
-                        if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                        when (event.key) {
-                            Key.DirectionLeft  -> { onLeft?.invoke();  onLeft  != null }
-                            Key.DirectionRight -> { onRight?.invoke(); onRight != null }
-                            else -> false
-                        }
-                    }
-                } else Modifier
-            )
+            .focusRequester(focusRequester)
+            .onFocusChanged { if (it.isFocused) onFocused() }
+            .onPreviewKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                when (event.key) {
+                    Key.DirectionLeft  -> { onLeft?.invoke();  onLeft != null }
+                    Key.DirectionRight -> { onRight?.invoke(); onRight != null }
+                    Key.DirectionUp    -> { onMoveUp?.invoke(); onMoveUp != null }
+                    Key.DirectionDown  -> { onMoveDown?.invoke(); onMoveDown != null }
+                    else -> false
+                }
+            }
             .focusable()
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
-        color = if (focused) Color(0xFF2A2A2A) else Color(0xFF1C1C1C),
+        color = if (isFocused) Color(0xFF2A2A2A) else Color(0xFF1C1C1C),
         shape = RoundedCornerShape(12.dp),
     ) {
         content()
@@ -378,10 +457,19 @@ private fun SubRowSurface(
 private fun SubStepRow(
     label: String,
     value: String,
+    focusRequester: FocusRequester,
+    isFocused: Boolean,
+    onFocused: () -> Unit,
     onDecrement: () -> Unit,
     onIncrement: () -> Unit,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
 ) {
-    SubRowSurface(onLeft = onDecrement, onRight = onIncrement) {
+    SubRowSurface(
+        focusRequester = focusRequester, isFocused = isFocused, onFocused = onFocused,
+        onLeft = onDecrement, onRight = onIncrement,
+        onMoveUp = onMoveUp, onMoveDown = onMoveDown,
+    ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -405,10 +493,19 @@ private fun SubStepRow(
 private fun SubCycleRow(
     label: String,
     value: String,
+    focusRequester: FocusRequester,
+    isFocused: Boolean,
+    onFocused: () -> Unit,
     onPrev: () -> Unit,
     onNext: () -> Unit,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
 ) {
-    SubRowSurface(onLeft = onPrev, onRight = onNext) {
+    SubRowSurface(
+        focusRequester = focusRequester, isFocused = isFocused, onFocused = onFocused,
+        onLeft = onPrev, onRight = onNext,
+        onMoveUp = onMoveUp, onMoveDown = onMoveDown,
+    ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -432,9 +529,18 @@ private fun SubCycleRow(
 private fun SubColorRow(
     label: String,
     color: Color,
+    focusRequester: FocusRequester,
+    isFocused: Boolean,
+    onFocused: () -> Unit,
     onSelect: () -> Unit,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
 ) {
-    SubRowSurface(onClick = onSelect) {
+    SubRowSurface(
+        focusRequester = focusRequester, isFocused = isFocused, onFocused = onFocused,
+        onClick = onSelect,
+        onMoveUp = onMoveUp, onMoveDown = onMoveDown,
+    ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -462,9 +568,18 @@ private fun SubColorRow(
 private fun SubToggleRow(
     label: String,
     value: Boolean,
+    focusRequester: FocusRequester,
+    isFocused: Boolean,
+    onFocused: () -> Unit,
     onToggle: () -> Unit,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
 ) {
-    SubRowSurface(onClick = onToggle) {
+    SubRowSurface(
+        focusRequester = focusRequester, isFocused = isFocused, onFocused = onFocused,
+        onClick = onToggle,
+        onMoveUp = onMoveUp, onMoveDown = onMoveDown,
+    ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
