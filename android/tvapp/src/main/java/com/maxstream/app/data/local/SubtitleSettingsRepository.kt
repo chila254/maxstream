@@ -127,8 +127,10 @@ object SubtitleSettingsRepository {
     }
 
     fun pullFromCloud(context: Context, onComplete: (() -> Unit)? = null) {
-        val uid = FirebaseAuth.getInstance().currentUser?.uid
-            ?: return onComplete?.invoke()
+        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: run {
+            onComplete?.invoke()
+            return
+        }
         try {
             val ref = FirebaseDatabase.getInstance()
                 .reference
