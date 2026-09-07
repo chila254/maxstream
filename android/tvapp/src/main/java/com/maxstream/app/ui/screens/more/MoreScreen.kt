@@ -140,9 +140,15 @@ fun MoreScreen(
     // menu without focus until a direction key is pressed again.
     LaunchedEffect(showHelpDialog, showAboutDialog, showSignOutConfirm, showSubtitleSettings, showUpdatesScreen) {
         if (showHelpDialog || showAboutDialog || showSignOutConfirm || showSubtitleSettings || showUpdatesScreen || !isVisible) return@LaunchedEffect
-        delay(80)
+        delay(200)
         val index = focusedIndex.coerceIn(0, MENU_ITEMS.lastIndex)
-        runCatching { focusRequesters[index].requestFocus() }
+        var attempt = 0
+        while (attempt < 6) {
+            if (attempt > 0) delay(50L * attempt)
+            val ok = runCatching { focusRequesters[index].requestFocus() }
+            if (ok.isSuccess) return@LaunchedEffect
+            attempt++
+        }
     }
 
     fun launchCommunity() {

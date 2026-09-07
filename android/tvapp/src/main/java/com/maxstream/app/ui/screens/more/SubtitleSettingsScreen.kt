@@ -180,6 +180,7 @@ fun SubtitleSettingsScreen(
                     fontSize = (fontSize + 2f).coerceIn(12f, 36f)
                     save()
                 },
+                onMoveDown = { runCatching { focusRequesters[1].requestFocus() } },
             )
 
             // Text Color
@@ -190,6 +191,8 @@ fun SubtitleSettingsScreen(
                 isFocused = focusedIndex == 1,
                 onFocused = { focusedIndex = 1 },
                 onSelect = { showColorPicker = "textColor" },
+                onMoveUp = { runCatching { focusRequesters[0].requestFocus() } },
+                onMoveDown = { runCatching { focusRequesters[2].requestFocus() } },
             )
 
             // Background Color
@@ -200,6 +203,8 @@ fun SubtitleSettingsScreen(
                 isFocused = focusedIndex == 2,
                 onFocused = { focusedIndex = 2 },
                 onSelect = { showColorPicker = "bgColor" },
+                onMoveUp = { runCatching { focusRequesters[1].requestFocus() } },
+                onMoveDown = { runCatching { focusRequesters[3].requestFocus() } },
             )
 
             // Background Opacity
@@ -217,6 +222,8 @@ fun SubtitleSettingsScreen(
                     bgOpacity = (bgOpacity + 0.05f).coerceIn(0f, 1f)
                     save()
                 },
+                onMoveUp = { runCatching { focusRequesters[2].requestFocus() } },
+                onMoveDown = { runCatching { focusRequesters[4].requestFocus() } },
             )
 
             // Edge Type
@@ -238,6 +245,8 @@ fun SubtitleSettingsScreen(
                     edgeType = edgeTypes[(idx + 1) % edgeTypes.size]
                     save()
                 },
+                onMoveUp = { runCatching { focusRequesters[3].requestFocus() } },
+                onMoveDown = { runCatching { focusRequesters[5].requestFocus() } },
             )
 
             // Edge Color
@@ -248,6 +257,8 @@ fun SubtitleSettingsScreen(
                 isFocused = focusedIndex == 5,
                 onFocused = { focusedIndex = 5 },
                 onSelect = { showColorPicker = "edgeColor" },
+                onMoveUp = { runCatching { focusRequesters[4].requestFocus() } },
+                onMoveDown = { runCatching { focusRequesters[6].requestFocus() } },
             )
 
             // Text Shadow
@@ -259,6 +270,8 @@ fun SubtitleSettingsScreen(
                 onFocused = { focusedIndex = 6 },
                 onLeft = { textShadow = !textShadow; save() },
                 onRight = { textShadow = !textShadow; save() },
+                onMoveUp = { runCatching { focusRequesters[5].requestFocus() } },
+                onMoveDown = { runCatching { focusRequesters[7].requestFocus() } },
             )
 
             // Position
@@ -276,6 +289,7 @@ fun SubtitleSettingsScreen(
                     position = if (position == "bottom") "top" else "bottom"
                     save()
                 },
+                onMoveUp = { runCatching { focusRequesters[6].requestFocus() } },
             )
         }
 
@@ -337,6 +351,8 @@ private fun SettingRowComposable(
     onFocused: () -> Unit,
     onLeft: () -> Unit,
     onRight: () -> Unit,
+    onMoveUp: () -> Unit = {},
+    onMoveDown: () -> Unit = {},
 ) {
     val scale by animateFloatAsState(
         targetValue = if (isFocused) 1.01f else 1f,
@@ -364,6 +380,8 @@ private fun SettingRowComposable(
                 when (event.key) {
                     Key.DirectionLeft -> { onLeft(); true }
                     Key.DirectionRight -> { onRight(); true }
+                    Key.DirectionUp -> { onMoveUp(); true }
+                    Key.DirectionDown -> { onMoveDown(); true }
                     else -> false
                 }
             }
@@ -393,6 +411,8 @@ private fun ColorSettingRow(
     isFocused: Boolean,
     onFocused: () -> Unit,
     onSelect: () -> Unit,
+    onMoveUp: () -> Unit = {},
+    onMoveDown: () -> Unit = {},
 ) {
     val scale by animateFloatAsState(
         targetValue = if (isFocused) 1.01f else 1f,
@@ -416,9 +436,13 @@ private fun ColorSettingRow(
             .onFocusChanged { if (it.hasFocus) onFocused() }
             .focusable()
             .onKeyEvent { event ->
-                if (event.type == KeyEventType.KeyDown && event.key == Key.Enter) {
-                    onSelect(); true
-                } else false
+                if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                when (event.key) {
+                    Key.Enter -> { onSelect(); true }
+                    Key.DirectionUp -> { onMoveUp(); true }
+                    Key.DirectionDown -> { onMoveDown(); true }
+                    else -> false
+                }
             }
             .clickable(onClick = onSelect)
             .padding(horizontal = 20.dp, vertical = 14.dp),
