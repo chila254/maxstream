@@ -98,7 +98,14 @@ object SubtitleSettingsRepository {
     }
 
     private fun pushToCloud() {
-        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
+        // Guard: Firebase may not be initialized in FOSS builds.
+        val uid = try {
+            FirebaseAuth.getInstance().currentUser?.uid
+        } catch (e: Exception) {
+            Log.d(TAG, "Firebase not available, skipping cloud push: ${e.message}")
+            return
+        } ?: return
+
         val settings = cached ?: return
         try {
             val map = HashMap<String, Any>()
@@ -127,7 +134,15 @@ object SubtitleSettingsRepository {
     }
 
     fun pullFromCloud(context: Context, onComplete: (() -> Unit)? = null) {
-        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
+        // Guard: Firebase may not be initialized in FOSS builds.
+        val uid = try {
+            FirebaseAuth.getInstance().currentUser?.uid
+        } catch (e: Exception) {
+            Log.d(TAG, "Firebase not available, skipping cloud pull: ${e.message}")
+            onComplete?.invoke()
+            return
+        } ?: run { onComplete?.invoke(); return }
+
         try {
             val ref = FirebaseDatabase.getInstance()
                 .reference
