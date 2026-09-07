@@ -346,6 +346,10 @@ fun PlayerScreen(
     // The caption text active at the current playback position, rendered as an
     // overlay at the bottom of the video (mirrors Dart's _subtitleText ValueNotifier).
     var activeSubtitleText by remember { mutableStateOf("") }
+    // Subtitle display settings (synced across devices via cloud)
+    val subtitleSettings = remember {
+        com.maxstream.app.data.local.SubtitleSettingsRepository.load(context)
+    }
     // Transient popup describing the current subtitle selection (auto or manual
     // pick) so the user can see what got applied.
     var subtitleToast by remember { mutableStateOf<String?>(null) }
@@ -1217,7 +1221,8 @@ fun PlayerScreen(
             activeSubtitleText = if (cues.isEmpty()) {
                 ""
             } else {
-                val current = pos.coerceAtLeast(0L)
+                val offsetMs = subtitleSettings.subtitleOffsetMs.toLong()
+                val current = (pos + offsetMs).coerceAtLeast(0L)
                 cues.firstOrNull { current >= it.startMs && current < it.endMs }?.text ?: ""
             }
             kotlinx.coroutines.delay(200)
@@ -1800,22 +1805,32 @@ fun PlayerScreen(
             label = "subtitleBottomPadding",
         )
         if (activeSubtitleText.isNotBlank() && !loading && error == null) {
+            val textColor = try {
+                Color(android.graphics.Color.parseColor(subtitleSettings.textColor))
+            } catch (_: Exception) { Color.White }
+            val bgColor = try {
+                Color(android.graphics.Color.parseColor(subtitleSettings.backgroundColor))
+            } catch (_: Exception) { Color.Black }
+            val edgeColorParsed = try {
+                Color(android.graphics.Color.parseColor(subtitleSettings.edgeColor))
+            } catch (_: Exception) { Color.Black }
+
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .align(Alignment.BottomCenter)
+                    .align(if (subtitleSettings.position == "top") Alignment.TopCenter else Alignment.BottomCenter)
                     .padding(horizontal = 48.dp, vertical = subtitleBottomPadding),
-                contentAlignment = Alignment.BottomCenter,
+                contentAlignment = if (subtitleSettings.position == "top") Alignment.TopCenter else Alignment.BottomCenter,
             ) {
                 Text(
                     text = activeSubtitleText,
-                    color = Color.White,
-                    fontSize = 22.sp,
+                    color = textColor,
+                    fontSize = subtitleSettings.fontSize.sp,
                     fontWeight = androidx.compose.ui.text.font.FontWeight.Normal,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                     modifier = Modifier
                         .background(
-                            Color(0x8C000000),
+                            bgColor.copy(alpha = subtitleSettings.backgroundOpacity),
                             androidx.compose.foundation.shape.RoundedCornerShape(6.dp),
                         )
                         .padding(horizontal = 12.dp, vertical = 6.dp),

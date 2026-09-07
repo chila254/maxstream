@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 
 import '../database/db_helper.dart';
 import '../models/movie.dart';
+import '../models/subtitle_settings.dart';
 import 'watch_history_service.dart';
 
 /// Syncs a user's watch history and watchlist between devices through
@@ -21,6 +22,7 @@ class CloudSyncService {
   static StreamSubscription<DatabaseEvent>? _historySub;
   static StreamSubscription<DatabaseEvent>? _watchlistSub;
   static StreamSubscription<DatabaseEvent>? _prefsSub;
+  static StreamSubscription<DatabaseEvent>? _subtitlePrefsSub;
 
   /// Bumped whenever synced watch history changes; screens listen to refresh.
   static final ValueNotifier<int> historyRevision = ValueNotifier<int>(0);
@@ -30,6 +32,9 @@ class CloudSyncService {
 
   /// Bumped whenever provider prefs change.
   static final ValueNotifier<int> prefsRevision = ValueNotifier<int>(0);
+
+  /// Bumped whenever subtitle settings change.
+  static final ValueNotifier<int> subtitlePrefsRevision = ValueNotifier<int>(0);
 
   static String? get _uid => FirebaseAuth.instance.currentUser?.uid;
 
@@ -41,6 +46,9 @@ class CloudSyncService {
 
   static DatabaseReference _prefsRef(String uid) =>
       _rtdb.ref('users/$uid/provider_preferences');
+
+  static DatabaseReference _subtitlePrefsRef(String uid) =>
+      _rtdb.ref('users/$uid/user_preferences/subtitle_settings');
 
   /// Deterministic doc id for a watch-history item. Keep in sync with
   /// WatchHistoryService.getWatchHistoryKey.
@@ -101,6 +109,11 @@ class CloudSyncService {
       onError: (Object e) =>
           debugPrint('CloudSync: prefs listener error: $e'),
     );
+    _subtitlePrefsSub = _subtitlePrefsRef(uid).onValue.listen(
+      _onSubtitlePrefsEvent,
+      onError: (Object e) =>
+          debugPrint('CloudSync: subtitle prefs listener error: $e'),
+    );
   }
 
   /// Cancels the real-time subscriptions.
@@ -108,9 +121,11 @@ class CloudSyncService {
     _historySub?.cancel();
     _watchlistSub?.cancel();
     _prefsSub?.cancel();
+    _subtitlePrefsSub?.cancel();
     _historySub = null;
     _watchlistSub = null;
     _prefsSub = null;
+    _subtitlePrefsSub = null;
     _listening = false;
   }
 
@@ -181,6 +196,14 @@ class CloudSyncService {
       unawaited(DBHelper.setProviderPreference(pid, isPref, pushToCloud: false));
     }
     prefsRevision.value++;
+  }
+
+  static void _onSubtitlePrefsEvent(DatabaseEvent event) {
+    final snapshot = event.snapshot;
+    if (snapshot.value == null) return;
+    final data = Map<String, dynamic>.from(snapshot.value as Map);
+    unawaited(SubtitleSettings.saveFromJson(data));
+    subtitlePrefsRevision.value++;
   }
 
   // ---------------------------------------------------------------------
@@ -300,6 +323,20 @@ class CloudSyncService {
     }
   }
 
+  static Future<void> pushSubtitleSettings() async {
+    final uid = _uid;
+    if (uid == null) return;
+    try {
+      final settings = await SubtitleSettings.load();
+      await _subtitlePrefsRef(uid).set({
+        ...settings.toJson(),
+        'updatedAt': ServerValue.timestamp,
+      });
+    } catch (e) {
+      debugPrint('CloudSync: subtitle prefs push failed: $e');
+    }
+  }
+
   // ---------------------------------------------------------------------
   // Pull (called on TV sign-in / home + watchlist loads)
   // ---------------------------------------------------------------------
@@ -355,6 +392,12 @@ class CloudSyncService {
           final isPref = value['isPreferred'] == true || value['isPreferred'] == 1;
           await DBHelper.setProviderPreference(pid, isPref, pushToCloud: false);
         }
+      }
+
+      final subtitlePrefsSnap = await _subtitlePrefsRef(uid).get();
+      if (subtitlePrefsSnap.value != null) {
+        final data = Map<String, dynamic>.from(subtitlePrefsSnap.value as Map);
+        await SubtitleSettings.saveFromJson(data);
       }
     } catch (e) {
       debugPrint('CloudSync: pull failed: $e');

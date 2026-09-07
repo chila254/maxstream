@@ -62,6 +62,8 @@ import kotlinx.coroutines.delay
 private data class MoreMenuItem(val label: String, val isDestructive: Boolean = false)
 
 private val MENU_ITEMS = listOf(
+    MoreMenuItem("Subtitle Settings"),
+    MoreMenuItem("Updates"),
     MoreMenuItem("Help & Support"),
     MoreMenuItem("About MaxStream"),
     MoreMenuItem("Join Community"),
@@ -95,6 +97,8 @@ fun MoreScreen(
     var showHelpDialog     by remember { mutableStateOf(false) }
     var showAboutDialog    by remember { mutableStateOf(false) }
     var showSignOutConfirm by remember { mutableStateOf(false) }
+    var showSubtitleSettings by remember { mutableStateOf(false) }
+    var showUpdatesScreen  by remember { mutableStateOf(false) }
 
     // One FocusRequester per menu item so we can navigate and seed focus precisely
     val focusRequesters = remember { List(MENU_ITEMS.size) { FocusRequester() } }
@@ -134,8 +138,8 @@ fun MoreScreen(
     // Restore focus to the previously focused menu row after a dialog closes.
     // Compose dialogs run in their own window, so dismissing one leaves the
     // menu without focus until a direction key is pressed again.
-    LaunchedEffect(showHelpDialog, showAboutDialog, showSignOutConfirm) {
-        if (showHelpDialog || showAboutDialog || showSignOutConfirm || !isVisible) return@LaunchedEffect
+    LaunchedEffect(showHelpDialog, showAboutDialog, showSignOutConfirm, showSubtitleSettings, showUpdatesScreen) {
+        if (showHelpDialog || showAboutDialog || showSignOutConfirm || showSubtitleSettings || showUpdatesScreen || !isVisible) return@LaunchedEffect
         delay(80)
         val index = focusedIndex.coerceIn(0, MENU_ITEMS.lastIndex)
         runCatching { focusRequesters[index].requestFocus() }
@@ -148,10 +152,12 @@ fun MoreScreen(
 
     fun handleSelect(index: Int) {
         when (index) {
-            0 -> showHelpDialog = true
-            1 -> showAboutDialog = true
-            2 -> launchCommunity()
-            3 -> showSignOutConfirm = true
+            0 -> showSubtitleSettings = true
+            1 -> showUpdatesScreen = true
+            2 -> showHelpDialog = true
+            3 -> showAboutDialog = true
+            4 -> launchCommunity()
+            5 -> showSignOutConfirm = true
         }
     }
 
@@ -341,6 +347,14 @@ fun MoreScreen(
                 }
             },
         )
+    }
+
+    if (showSubtitleSettings) {
+        SubtitleSettingsScreen(onBack = { showSubtitleSettings = false })
+    }
+
+    if (showUpdatesScreen) {
+        UpdatesScreen(onBack = { showUpdatesScreen = false })
     }
 }
 

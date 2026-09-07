@@ -11,6 +11,7 @@ import '../screens/tv_pairing_screen.dart';
 import '../screens/maxstream_about_screen.dart';
 import '../screens/provider_health_screen.dart';
 import '../screens/updates_screen.dart';
+import '../screens/subtitle_settings_screen.dart';
 
 import '../widgets/profile_avatar.dart';
 
@@ -107,6 +108,19 @@ class _MaxStreamMoreScreenState extends State<MaxStreamMoreScreen> {
         _buildBiometricToggle(),
         const SizedBox(height: 20),
         _buildSectionHeader('SETTINGS'),
+        _buildMenuItem(
+          icon: Icons.subtitles,
+          title: 'Subtitle Settings',
+          onTap: () {
+            if (!mounted) return;
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const SubtitleSettingsScreen(),
+              ),
+            );
+          },
+        ),
         _buildMenuItem(
           icon: Icons.person,
           title: 'Profile Settings',

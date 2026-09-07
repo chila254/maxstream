@@ -19,6 +19,18 @@
         "profile": {
           ".read": "$uid === auth.uid",
           ".write": "$uid === auth.uid"
+        },
+        "provider_preferences": {
+          "$key": {
+            ".read": "$uid === auth.uid",
+            ".write": "$uid === auth.uid"
+          }
+        },
+        "user_preferences": {
+          "$key": {
+            ".read": "$uid === auth.uid",
+            ".write": "$uid === auth.uid"
+          }
         }
       }
     },

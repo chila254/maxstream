@@ -13,6 +13,7 @@ import '../services/media_download_manager.dart';
 import '../services/media_session_handler.dart';
 import '../services/native_stream_extractor.dart';
 import '../services/tmdb_api_service.dart';
+import '../models/subtitle_settings.dart';
 import '../services/watch_history_service.dart';
 import '../services/miniplayer_service.dart';
 import '../widgets/app_network_image.dart';
@@ -580,6 +581,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   /// to re-sync the display value when group names change after re-discovery.
   String? _selectedSubtitleUrl;
   double _subtitleOffsetMs = 0; // Subtitle timing offset in milliseconds
+  SubtitleSettings _subtitleSettings = SubtitleSettings();
   String _statusMessage = 'Initializing...';
   Timer? _progressTimer;
   bool _isLeaving = false;
@@ -634,6 +636,9 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         MediaDownloadManager.instance.completionVersion;
     MediaDownloadManager.instance.addListener(_handleDownloadChanged);
     unawaited(_refreshDownloadStatus());
+    SubtitleSettings.load().then((s) {
+      if (mounted) setState(() => _subtitleSettings = s);
+    });
 
     // Check if we're restoring from miniplayer
     final miniplayer = MiniplayerService.instance;
@@ -2199,7 +2204,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
                             ),
                           ),
                           Text(
-                            '${_subtitleOffsetMs.round()}ms',
+                            '${_subtitleSettings.subtitleOffsetMs.round()}ms',
                             style: const TextStyle(
                               color: Colors.white70,
                               fontSize: 14,
@@ -2220,16 +2225,17 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
                           overlayColor: Colors.red.withOpacity(0.2),
                         ),
                         child: Slider(
-                          value: _subtitleOffsetMs.clamp(-5000, 5000),
+                          value: _subtitleSettings.subtitleOffsetMs.clamp(-5000, 5000),
                           min: -5000,
                           max: 5000,
                           divisions: 100,
                           onChanged: (value) {
                             setSheetState(() {
-                              _subtitleOffsetMs = value;
+                              _subtitleSettings.subtitleOffsetMs = value;
                             });
                             setState(() {});
                           },
+                          onChangeEnd: (_) => _subtitleSettings.save(),
                         ),
                       ),
                       Row(
@@ -2238,8 +2244,9 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
                           TextButton(
                             onPressed: () {
                               setSheetState(() {
-                                _subtitleOffsetMs = 0;
+                                _subtitleSettings.subtitleOffsetMs = 0;
                               });
+                              _subtitleSettings.save();
                               setState(() {});
                             },
                             child: const Text(
@@ -2248,9 +2255,9 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
                             ),
                           ),
                           Text(
-                            _subtitleOffsetMs > 0
+                            _subtitleSettings.subtitleOffsetMs > 0
                                 ? 'Subtitles later'
-                                : _subtitleOffsetMs < 0
+                                : _subtitleSettings.subtitleOffsetMs < 0
                                 ? 'Subtitles earlier'
                                 : 'Synced',
                             style: const TextStyle(
@@ -3151,14 +3158,38 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
                   return ValueListenableBuilder<VideoPlayerValue>(
                     valueListenable: _videoPlayerController!,
                     builder: (context, value, _) {
-                      final adjustedPosition = Duration(milliseconds: value.position.inMilliseconds + _subtitleOffsetMs.round());
+                      final adjustedPosition = Duration(milliseconds: value.position.inMilliseconds + _subtitleSettings.subtitleOffsetMs.round());
                       final cues = subtitles.where((cue) => adjustedPosition >= cue.start && adjustedPosition <= cue.end);
                       if (cues.isEmpty) return const SizedBox.shrink();
+                      final ss = _subtitleSettings;
+                      final bgOpacity = ss.backgroundOpacity;
+                      final shadows = <Shadow>[];
+                      if (ss.textShadow) {
+                        shadows.add(Shadow(color: ss.textShadowColorParsed, blurRadius: 3));
+                      }
+                      if (ss.edgeType == 'outline') {
+                        shadows.add(Shadow(color: ss.edgeColorParsed, blurRadius: 0, spreadRadius: 1));
+                      } else if (ss.edgeType == 'dropShadow') {
+                        shadows.add(Shadow(color: ss.edgeColorParsed, blurRadius: 4, offset: const Offset(1, 1)));
+                      }
                       return Center(
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                          decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(4)),
-                          child: Text(cues.map((cue) => cue.text.toString()).join('\n'), textAlign: TextAlign.center, style: TextStyle(color: Colors.white, fontSize: compactPlayer ? 16 : 18, fontWeight: FontWeight.w600)),
+                          decoration: BoxDecoration(
+                            color: ss.backgroundColorParsed.withValues(alpha: bgOpacity),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            cues.map((cue) => cue.text.toString()).join('\n'),
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: ss.textColorParsed,
+                              fontSize: (compactPlayer ? ss.fontSize - 2 : ss.fontSize).clamp(10, 32),
+                              fontWeight: FontWeight.w600,
+                              fontFamily: ss.fontFamily.isNotEmpty ? ss.fontFamily : null,
+                              shadows: shadows.isNotEmpty ? shadows : null,
+                            ),
+                          ),
                         ),
                       );
                     },
