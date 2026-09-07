@@ -103,15 +103,17 @@ fun SubtitleSettingsScreen(
     val focusRequesters = remember { List(8) { FocusRequester() } }
     var focusedIndex by remember { mutableStateOf(0) }
 
-    // Bug fix #2: Seed focus on the first row when the screen opens so
-    // D-pad navigation works immediately without requiring a click first.
+    // Seed focus on the first row when the screen opens so D-pad navigation
+    // works immediately. Use a short initial delay to let the scroll container
+    // finish its first layout pass before requesting focus.
     LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(100)
         var attempt = 0
-        while (attempt < 6) {
-            if (attempt > 0) kotlinx.coroutines.delay(50L * attempt)
+        while (attempt < 8) {
             val ok = runCatching { focusRequesters[0].requestFocus() }
             if (ok.isSuccess) break
             attempt++
+            kotlinx.coroutines.delay(50L * attempt)
         }
     }
 
@@ -130,20 +132,14 @@ fun SubtitleSettingsScreen(
         SubtitleSettingsRepository.save(context, settings)
     }
 
-    // Bug fix #1: Make the overlay Box focusable so it sits in the focus tree
-    // and its onKeyEvent fires before the TvAppRoot Back handler (which would
-    // otherwise call handleBack() → open sidebar instead of closing this screen).
-    val overlayFocusRequester = remember { FocusRequester() }
-    LaunchedEffect(Unit) {
-        runCatching { overlayFocusRequester.requestFocus() }
-    }
-
+    // The overlay intercepts Back/Escape via onPreviewKeyEvent (top-down,
+    // fires before any child's onKeyEvent). This means we do NOT need the
+    // Box itself to be focusable — the rows own focus, and Back is caught
+    // here before it can ever reach TvAppRoot's handleBack().
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFF121212))
-            .focusRequester(overlayFocusRequester)
-            .focusable()
             .onKeyEvent { event ->
                 if (event.type == KeyEventType.KeyDown && (event.key == Key.Back || event.key == Key.Escape)) {
                     onBack(); true
@@ -414,17 +410,17 @@ private fun SettingRowComposable(
             )
             .focusRequester(focusRequester)
             .onFocusChanged { if (it.hasFocus) onFocused() }
-            .focusable()
             .onKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
                 when (event.key) {
-                    Key.DirectionLeft -> { onLeft(); true }
+                    Key.DirectionLeft  -> { onLeft(); true }
                     Key.DirectionRight -> { onRight(); true }
-                    Key.DirectionUp -> { onMoveUp(); true }
-                    Key.DirectionDown -> { onMoveDown(); true }
+                    Key.DirectionUp    -> { onMoveUp(); true }
+                    Key.DirectionDown  -> { onMoveDown(); true }
                     else -> false
                 }
             }
+            .focusable()
             .padding(horizontal = 20.dp, vertical = 14.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
@@ -474,16 +470,16 @@ private fun ColorSettingRow(
             )
             .focusRequester(focusRequester)
             .onFocusChanged { if (it.hasFocus) onFocused() }
-            .focusable()
             .onKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
                 when (event.key) {
-                    Key.Enter -> { onSelect(); true }
-                    Key.DirectionUp -> { onMoveUp(); true }
+                    Key.Enter, Key.DirectionCenter -> { onSelect(); true }
+                    Key.DirectionUp   -> { onMoveUp(); true }
                     Key.DirectionDown -> { onMoveDown(); true }
                     else -> false
                 }
             }
+            .focusable()
             .clickable(onClick = onSelect)
             .padding(horizontal = 20.dp, vertical = 14.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
