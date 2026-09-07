@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -146,187 +147,206 @@ fun SubtitleSettingsScreen(
                 } else false
             }
     ) {
-        Column(
+        LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 48.dp, vertical = 40.dp)
-                .verticalScroll(rememberScrollState()),
+                .padding(horizontal = 48.dp),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 40.dp),
+            verticalArrangement = Arrangement.spacedBy(0.dp),
         ) {
-            Text(
-                text = "Subtitle Settings",
-                color = Color.White,
-                fontSize = 28.sp,
-                fontWeight = FontWeight.Bold,
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = "Customize how subtitles appear during playback",
-                color = Color.Gray,
-                fontSize = 14.sp,
-            )
-            Spacer(Modifier.height(24.dp))
-
-            // Preview
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(120.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Color.Black),
-                contentAlignment = if (position == "top") Alignment.TopCenter else Alignment.BottomCenter,
-            ) {
+            item {
                 Text(
-                    text = "Sample Video",
-                    color = Color.Gray.copy(alpha = 0.4f),
-                    modifier = Modifier.align(Alignment.Center),
+                    text = "Subtitle Settings",
+                    color = Color.White,
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.Bold,
                 )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = "Customize how subtitles appear during playback",
+                    color = Color.Gray,
+                    fontSize = 14.sp,
+                )
+                Spacer(Modifier.height(24.dp))
+
+                // Preview
                 Box(
-                    modifier = Modifier.padding(8.dp),
-                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(120.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color.Black),
+                    contentAlignment = if (position == "top") Alignment.TopCenter else Alignment.BottomCenter,
                 ) {
                     Text(
-                        text = "This is a sample subtitle text",
-                        color = textColor,
-                        fontSize = fontSize.coerceIn(10f, 28f).sp,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier
-                            .background(
-                                bgColor.copy(alpha = bgOpacity),
-                                RoundedCornerShape(4.dp)
-                            )
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        text = "Sample Video",
+                        color = Color.Gray.copy(alpha = 0.4f),
+                        modifier = Modifier.align(Alignment.Center),
                     )
+                    Box(
+                        modifier = Modifier.padding(8.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = "This is a sample subtitle text",
+                            color = textColor,
+                            fontSize = fontSize.coerceIn(10f, 28f).sp,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier
+                                .background(
+                                    bgColor.copy(alpha = bgOpacity),
+                                    RoundedCornerShape(4.dp)
+                                )
+                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                        )
+                    }
                 }
+
+                Spacer(Modifier.height(24.dp))
             }
 
-            Spacer(Modifier.height(24.dp))
-
             // Font Size
-            SettingRowComposable(
-                label = "Font Size",
-                value = "${fontSize.toInt()}sp",
-                focusRequester = focusRequesters[0],
-                isFocused = focusedIndex == 0,
-                onFocused = { focusedIndex = 0 },
-                onLeft = {
-                    fontSize = (fontSize - 2f).coerceIn(12f, 36f)
-                    save()
-                },
-                onRight = {
-                    fontSize = (fontSize + 2f).coerceIn(12f, 36f)
-                    save()
-                },
-                onMoveDown = { runCatching { focusRequesters[1].requestFocus() } },
-            )
+            item {
+                SettingRowComposable(
+                    label = "Font Size",
+                    value = "${fontSize.toInt()}sp",
+                    focusRequester = focusRequesters[0],
+                    isFocused = focusedIndex == 0,
+                    onFocused = { focusedIndex = 0 },
+                    onLeft = {
+                        fontSize = (fontSize - 2f).coerceIn(12f, 36f)
+                        save()
+                    },
+                    onRight = {
+                        fontSize = (fontSize + 2f).coerceIn(12f, 36f)
+                        save()
+                    },
+                    onMoveDown = { runCatching { focusRequesters[1].requestFocus() } },
+                )
+            }
 
             // Text Color
-            ColorSettingRow(
-                label = "Text Color",
-                color = textColor,
-                focusRequester = focusRequesters[1],
-                isFocused = focusedIndex == 1,
-                onFocused = { focusedIndex = 1 },
-                onSelect = { showColorPicker = "textColor" },
-                onMoveUp = { runCatching { focusRequesters[0].requestFocus() } },
-                onMoveDown = { runCatching { focusRequesters[2].requestFocus() } },
-            )
+            item {
+                ColorSettingRow(
+                    label = "Text Color",
+                    color = textColor,
+                    focusRequester = focusRequesters[1],
+                    isFocused = focusedIndex == 1,
+                    onFocused = { focusedIndex = 1 },
+                    onSelect = { showColorPicker = "textColor" },
+                    onMoveUp = { runCatching { focusRequesters[0].requestFocus() } },
+                    onMoveDown = { runCatching { focusRequesters[2].requestFocus() } },
+                )
+            }
 
             // Background Color
-            ColorSettingRow(
-                label = "Background Color",
-                color = bgColor,
-                focusRequester = focusRequesters[2],
-                isFocused = focusedIndex == 2,
-                onFocused = { focusedIndex = 2 },
-                onSelect = { showColorPicker = "bgColor" },
-                onMoveUp = { runCatching { focusRequesters[1].requestFocus() } },
-                onMoveDown = { runCatching { focusRequesters[3].requestFocus() } },
-            )
+            item {
+                ColorSettingRow(
+                    label = "Background Color",
+                    color = bgColor,
+                    focusRequester = focusRequesters[2],
+                    isFocused = focusedIndex == 2,
+                    onFocused = { focusedIndex = 2 },
+                    onSelect = { showColorPicker = "bgColor" },
+                    onMoveUp = { runCatching { focusRequesters[1].requestFocus() } },
+                    onMoveDown = { runCatching { focusRequesters[3].requestFocus() } },
+                )
+            }
 
             // Background Opacity
-            SettingRowComposable(
-                label = "Background Opacity",
-                value = "${(bgOpacity * 100).toInt()}%",
-                focusRequester = focusRequesters[3],
-                isFocused = focusedIndex == 3,
-                onFocused = { focusedIndex = 3 },
-                onLeft = {
-                    bgOpacity = (bgOpacity - 0.05f).coerceIn(0f, 1f)
-                    save()
-                },
-                onRight = {
-                    bgOpacity = (bgOpacity + 0.05f).coerceIn(0f, 1f)
-                    save()
-                },
-                onMoveUp = { runCatching { focusRequesters[2].requestFocus() } },
-                onMoveDown = { runCatching { focusRequesters[4].requestFocus() } },
-            )
+            item {
+                SettingRowComposable(
+                    label = "Background Opacity",
+                    value = "${(bgOpacity * 100).toInt()}%",
+                    focusRequester = focusRequesters[3],
+                    isFocused = focusedIndex == 3,
+                    onFocused = { focusedIndex = 3 },
+                    onLeft = {
+                        bgOpacity = (bgOpacity - 0.05f).coerceIn(0f, 1f)
+                        save()
+                    },
+                    onRight = {
+                        bgOpacity = (bgOpacity + 0.05f).coerceIn(0f, 1f)
+                        save()
+                    },
+                    onMoveUp = { runCatching { focusRequesters[2].requestFocus() } },
+                    onMoveDown = { runCatching { focusRequesters[4].requestFocus() } },
+                )
+            }
 
             // Edge Type
-            val edgeTypes = listOf("none", "outline", "dropShadow")
-            val edgeLabels = mapOf("none" to "None", "outline" to "Outline", "dropShadow" to "Drop Shadow")
-            SettingRowComposable(
-                label = "Edge Type",
-                value = edgeLabels[edgeType] ?: edgeType,
-                focusRequester = focusRequesters[4],
-                isFocused = focusedIndex == 4,
-                onFocused = { focusedIndex = 4 },
-                onLeft = {
-                    val idx = edgeTypes.indexOf(edgeType)
-                    edgeType = edgeTypes[(idx - 1 + edgeTypes.size) % edgeTypes.size]
-                    save()
-                },
-                onRight = {
-                    val idx = edgeTypes.indexOf(edgeType)
-                    edgeType = edgeTypes[(idx + 1) % edgeTypes.size]
-                    save()
-                },
-                onMoveUp = { runCatching { focusRequesters[3].requestFocus() } },
-                onMoveDown = { runCatching { focusRequesters[5].requestFocus() } },
-            )
+            item {
+                val edgeTypes = listOf("none", "outline", "dropShadow")
+                val edgeLabels = mapOf("none" to "None", "outline" to "Outline", "dropShadow" to "Drop Shadow")
+                SettingRowComposable(
+                    label = "Edge Type",
+                    value = edgeLabels[edgeType] ?: edgeType,
+                    focusRequester = focusRequesters[4],
+                    isFocused = focusedIndex == 4,
+                    onFocused = { focusedIndex = 4 },
+                    onLeft = {
+                        val idx = edgeTypes.indexOf(edgeType)
+                        edgeType = edgeTypes[(idx - 1 + edgeTypes.size) % edgeTypes.size]
+                        save()
+                    },
+                    onRight = {
+                        val idx = edgeTypes.indexOf(edgeType)
+                        edgeType = edgeTypes[(idx + 1) % edgeTypes.size]
+                        save()
+                    },
+                    onMoveUp = { runCatching { focusRequesters[3].requestFocus() } },
+                    onMoveDown = { runCatching { focusRequesters[5].requestFocus() } },
+                )
+            }
 
             // Edge Color
-            ColorSettingRow(
-                label = "Edge Color",
-                color = edgeColor,
-                focusRequester = focusRequesters[5],
-                isFocused = focusedIndex == 5,
-                onFocused = { focusedIndex = 5 },
-                onSelect = { showColorPicker = "edgeColor" },
-                onMoveUp = { runCatching { focusRequesters[4].requestFocus() } },
-                onMoveDown = { runCatching { focusRequesters[6].requestFocus() } },
-            )
+            item {
+                ColorSettingRow(
+                    label = "Edge Color",
+                    color = edgeColor,
+                    focusRequester = focusRequesters[5],
+                    isFocused = focusedIndex == 5,
+                    onFocused = { focusedIndex = 5 },
+                    onSelect = { showColorPicker = "edgeColor" },
+                    onMoveUp = { runCatching { focusRequesters[4].requestFocus() } },
+                    onMoveDown = { runCatching { focusRequesters[6].requestFocus() } },
+                )
+            }
 
             // Text Shadow
-            SettingRowComposable(
-                label = "Text Shadow",
-                value = if (textShadow) "On" else "Off",
-                focusRequester = focusRequesters[6],
-                isFocused = focusedIndex == 6,
-                onFocused = { focusedIndex = 6 },
-                onLeft = { textShadow = !textShadow; save() },
-                onRight = { textShadow = !textShadow; save() },
-                onMoveUp = { runCatching { focusRequesters[5].requestFocus() } },
-                onMoveDown = { runCatching { focusRequesters[7].requestFocus() } },
-            )
+            item {
+                SettingRowComposable(
+                    label = "Text Shadow",
+                    value = if (textShadow) "On" else "Off",
+                    focusRequester = focusRequesters[6],
+                    isFocused = focusedIndex == 6,
+                    onFocused = { focusedIndex = 6 },
+                    onLeft = { textShadow = !textShadow; save() },
+                    onRight = { textShadow = !textShadow; save() },
+                    onMoveUp = { runCatching { focusRequesters[5].requestFocus() } },
+                    onMoveDown = { runCatching { focusRequesters[7].requestFocus() } },
+                )
+            }
 
             // Position
-            SettingRowComposable(
-                label = "Position",
-                value = position.replaceFirstChar { it.uppercase() },
-                focusRequester = focusRequesters[7],
-                isFocused = focusedIndex == 7,
-                onFocused = { focusedIndex = 7 },
-                onLeft = {
-                    position = if (position == "bottom") "top" else "bottom"
-                    save()
-                },
-                onRight = {
-                    position = if (position == "bottom") "top" else "bottom"
-                    save()
-                },
-                onMoveUp = { runCatching { focusRequesters[6].requestFocus() } },
-            )
+            item {
+                SettingRowComposable(
+                    label = "Position",
+                    value = position.replaceFirstChar { it.uppercase() },
+                    focusRequester = focusRequesters[7],
+                    isFocused = focusedIndex == 7,
+                    onFocused = { focusedIndex = 7 },
+                    onLeft = {
+                        position = if (position == "bottom") "top" else "bottom"
+                        save()
+                    },
+                    onRight = {
+                        position = if (position == "bottom") "top" else "bottom"
+                        save()
+                    },
+                    onMoveUp = { runCatching { focusRequesters[6].requestFocus() } },
+                )
+            }
         }
 
         // Color picker dialog
