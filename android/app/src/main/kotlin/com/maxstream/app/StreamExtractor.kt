@@ -1086,10 +1086,17 @@ class StreamExtractor(private val context: Context) {
                     } else {
                         rawUrl
                     }
-                    val mediaHeaders = if (requiresProxy) {
-                        refererHeaders("https://vidlink.pro/")
+                    // hakunaymatata.com streams (via filmboom.top) need filmboom Referer.
+                    // Direct vidlink.pro streams need vidlink.pro Referer.
+                    val streamReferer = if (rawUrl.contains("hakunaymatata.com")) {
+                        "https://filmboom.top/"
                     } else {
-                        refererHeaders("https://vidlink.pro/") + entryHeaders
+                        "https://vidlink.pro/"
+                    }
+                    val mediaHeaders = if (requiresProxy) {
+                        refererHeaders(streamReferer)
+                    } else {
+                        refererHeaders(streamReferer) + entryHeaders
                     }
                     // Skip H.265/HEVC — most Android phones lack HW decoders.
                     // CDNs use many path patterns, so check for the common ones.
