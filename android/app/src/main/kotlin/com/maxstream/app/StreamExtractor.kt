@@ -1041,6 +1041,7 @@ class StreamExtractor(private val context: Context) {
                     .header("User-Agent", userAgent)
                     .header("Origin", "https://vidlink.pro")
                     .header("Referer", "https://vidlink.pro/")
+                    .header("X-Playback-Environment", "standard")
                     .build()
                 val response = client.newCall(request).execute()
                 require(response.isSuccessful) { "VidLink /api/b/ HTTP ${response.code}" }

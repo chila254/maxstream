@@ -553,6 +553,7 @@ export default {
         headers: {
           "User-Agent": USER_AGENT,
           "Referer": pageUrl,
+          "X-Playback-Environment": "standard",
         },
       });
 
