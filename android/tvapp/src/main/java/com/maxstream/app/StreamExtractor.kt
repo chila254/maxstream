@@ -1020,22 +1020,31 @@ class StreamExtractor(private val context: Context) {
                         }
                     } ?: emptyMap()
                     val requiresProxy = entry.optBoolean("requiresProxy", false)
-                    val url = if (requiresProxy) {
+                    // hakunaymatata.com CDN rejects ANY request with headers (Referer,
+                    // Origin, User-Agent) — only bare requests with ExoPlayer's UA work.
+                    // The noon.mooncase.online proxy also fails (Cloudflare 403).
+                    // Bypass the proxy entirely and play direct CDN URLs with no headers.
+                    val isHakuna = rawUrl.contains("hakunaymatata.com")
+                    val url = if (requiresProxy && isHakuna) {
+                        rawUrl
+                    } else if (requiresProxy) {
                         vidLinkProxyUrl(rawUrl, entryHeaders)
                     } else {
                         rawUrl
                     }
-                    // hakunaymatata.com streams (via filmboom.top) need filmboom Referer.
-                    // Direct vidlink.pro streams need vidlink.pro Referer.
-                    val streamReferer = if (rawUrl.contains("hakunaymatata.com")) {
-                        "https://filmboom.top/"
+                    val mediaHeaders: Map<String, String> = if (isHakuna) {
+                        emptyMap()
                     } else {
-                        "https://vidlink.pro/"
-                    }
-                    val mediaHeaders = if (requiresProxy) {
-                        refererHeaders(streamReferer)
-                    } else {
-                        refererHeaders(streamReferer) + entryHeaders
+                        val streamReferer = if (rawUrl.contains("hakunaymatata.com")) {
+                            "https://filmboom.top/"
+                        } else {
+                            "https://vidlink.pro/"
+                        }
+                        if (requiresProxy) {
+                            refererHeaders(streamReferer)
+                        } else {
+                            refererHeaders(streamReferer) + entryHeaders
+                        }
                     }
                     // Skip H.265/HEVC — most Android TV boxes lack stable HW decoders.
                     // CDNs use many path patterns, so check for the common ones.
@@ -1175,7 +1184,8 @@ class StreamExtractor(private val context: Context) {
                                         }
                                     }.orEmpty()
                                     val referer = if (host(playlist).endsWith("hakunaymatata.com")) {
-                                        "https://filmboom.top/"
+                                        // hakunaymatata.com CDN rejects Referer — use empty headers.
+                                        ""
                                     } else {
                                         "https://vidlink.pro/"
                                     }
@@ -1183,7 +1193,7 @@ class StreamExtractor(private val context: Context) {
                                         playlist,
                                         name,
                                         mediaType(playlist),
-                                        refererHeaders(referer),
+                                        if (referer.isNotEmpty()) refererHeaders(referer) else emptyMap(),
                                         subtitles = captions,
                                         method = "WebView",
                                     )
@@ -1203,7 +1213,9 @@ class StreamExtractor(private val context: Context) {
                                     if (isH265(reqUrl)) return super.shouldInterceptRequest(view, request)
                                     val isHls = reqUrl.contains(".m3u8")
                                     val result = runCatching {
-                                        StreamResult(reqUrl, name, if (isHls) "hls" else "mp4", refererHeaders(if (reqUrl.contains("hakunaymatata.com")) "https://filmboom.top/" else "https://vidlink.pro/"))
+                                        // hakunaymatata.com CDN rejects Referer — send empty headers.
+                                        val hdrs = if (reqUrl.contains("hakunaymatata.com")) emptyMap() else refererHeaders("https://vidlink.pro/")
+                                        StreamResult(reqUrl, name, if (isHls) "hls" else "mp4", hdrs)
                                     }
                                     if (result.isSuccess) {
                                         view.post { finish(result) }
