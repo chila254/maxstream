@@ -187,14 +187,20 @@ export default {
     throw new Error("Unsupported provider profile");
   },
 
-  profileHeaders(profile) {
+  profileHeaders(profile, url) {
     const headers = { "User-Agent": USER_AGENT };
     if (profile === "vixsrc") {
       headers.Referer = "https://vixsrc.to/";
       headers.Origin = "https://vixsrc.to";
     } else if (profile === "vidlink") {
-      headers.Referer = "https://vidlink.pro/";
-      headers.Origin = "https://vidlink.pro";
+      // hakunaymatata.com streams (via filmboom.top) need filmboom Referer.
+      if (url && url.includes("hakunaymatata.com")) {
+        headers.Referer = "https://filmboom.top/";
+        headers.Origin = "https://filmboom.top";
+      } else {
+        headers.Referer = "https://vidlink.pro/";
+        headers.Origin = "https://vidlink.pro";
+      }
     } else if (profile === "2embed") {
       headers.Referer = "https://www.2embed.cc/";
       headers.Origin = "https://www.2embed.cc";
@@ -218,7 +224,7 @@ export default {
         env.PROXY_SECRET
       );
       this.validateUpstreamUrl(payload.url);
-      const headers = this.profileHeaders(payload.profile);
+      const headers = this.profileHeaders(payload.profile, payload.url);
       const range = request.headers.get("Range");
       const ifRange = request.headers.get("If-Range");
       if (range) headers.Range = range;

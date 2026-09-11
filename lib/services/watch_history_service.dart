@@ -165,10 +165,10 @@ class WatchHistoryService {
         final existingWatched = existing['isWatched'] == true;
         final incomingTs = _integer(history['timestamp']);
         final incomingWatched = history['isWatched'] == true;
-        // Always accept isWatched=true (other platform finished watching)
-        if (!incomingWatched && incomingTs <= existingTs) return;
         // Don't downgrade from watched to unwatched
         if (existingWatched && !incomingWatched) return;
+        // Never overwrite with older data
+        if (incomingTs <= existingTs) return;
       } catch (_) {}
     }
     await prefs.setString(
