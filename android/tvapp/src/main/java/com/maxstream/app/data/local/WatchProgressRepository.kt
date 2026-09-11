@@ -151,8 +151,13 @@ object WatchProgressRepository {
         val before = prefs(context).getString(key, null)
         if (before != null) {
             val existingTs = runCatching { JSONObject(before).optLong("timestamp", 0L) }.getOrDefault(0L)
+            val existingWatched = runCatching { JSONObject(before).optBoolean("isWatched", false) }.getOrDefault(false)
             val incomingTs = if (timestamp > 0L) timestamp else System.currentTimeMillis()
-            if (incomingTs <= existingTs) return false
+            // Always accept isWatched=true (other platform finished watching).
+            // Otherwise, only overwrite if incoming is newer.
+            if (!isWatched && incomingTs <= existingTs) return false
+            // If local is already watched, don't downgrade
+            if (existingWatched && !isWatched) return false
         }
         val changed = before != entry.toString()
         prefs(context).edit().putString(key, entry.toString()).apply()

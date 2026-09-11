@@ -221,16 +221,13 @@ class CloudSyncService {
       (item['episode'] as num?)?.toInt() ?? 0,
     );
     try {
-      final isWatched = item['isWatched'] == true;
-      if (isWatched) {
-        // Auto-delete watched entries from RTDB (keeps DB clean)
-        await _watchHistoryRef(uid).child(key).remove();
-      } else {
-        await _watchHistoryRef(uid).child(key).set({
-          ...item,
-          'updatedAt': ServerValue.timestamp,
-        });
-      }
+      // Always write the entry — even when isWatched=true.
+      // The receiving platform imports it and the isWatched flag causes
+      // getContinueWatching() to filter it out (no stale entries left behind).
+      await _watchHistoryRef(uid).child(key).set({
+        ...item,
+        'updatedAt': ServerValue.timestamp,
+      });
     } catch (e) {
       debugPrint('CloudSync: watch progress push failed: $e');
     }

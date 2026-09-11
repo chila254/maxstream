@@ -162,8 +162,13 @@ class WatchHistoryService {
       try {
         final existing = jsonDecode(existingJson) as Map<String, dynamic>;
         final existingTs = _integer(existing['timestamp']);
+        final existingWatched = existing['isWatched'] == true;
         final incomingTs = _integer(history['timestamp']);
-        if (incomingTs <= existingTs) return;
+        final incomingWatched = history['isWatched'] == true;
+        // Always accept isWatched=true (other platform finished watching)
+        if (!incomingWatched && incomingTs <= existingTs) return;
+        // Don't downgrade from watched to unwatched
+        if (existingWatched && !incomingWatched) return;
       } catch (_) {}
     }
     await prefs.setString(

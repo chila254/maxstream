@@ -177,6 +177,7 @@ object CloudSyncRepository {
         posterPath: String,
         seriesTitle: String = "",
         episodeName: String = "",
+        forceWatched: Boolean = false,
     ) {
         val uid = SessionManager.uid(context)
         if (uid.isEmpty() || tmdbId.isEmpty()) return
@@ -195,7 +196,7 @@ object CloudSyncRepository {
             put("position", positionSeconds)
             put("duration", durationSeconds)
             put("watchPercentage", percentage)
-            put("isWatched", percentage >= 90.0)
+            put("isWatched", forceWatched || percentage >= 90.0)
             put("timestamp", System.currentTimeMillis())
         }
         val key = watchHistoryKey(tmdbId, isMovie, season, episode)

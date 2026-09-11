@@ -419,11 +419,27 @@ fun PlayerScreen(
             seriesTitle = seriesTitle,
             episodeName = episodeName,
         )
-        // Push to RTDB so phone removes this from Continue Watching
+        // Push isWatched=true to RTDB so phone removes this from Continue Watching.
+        // DO NOT delete the node — the receiving platform needs the entry to import
+        // and set isWatched=true locally (which filters it out of Continue Watching).
         coroutineScope.launch {
             try {
-                com.maxstream.app.data.repository.CloudSyncRepository.deleteWatchProgress(
-                    context, itemId, isMovie, activeSeason, activeEpisode
+                val player = exoPlayer
+                val posSec = (player?.currentPosition ?: 0L) / 1000
+                val durSec = (player?.duration ?: 0L) / 1000
+                com.maxstream.app.data.repository.CloudSyncRepository.pushWatchProgress(
+                    context = context,
+                    tmdbId = itemId,
+                    title = title.ifBlank { itemId },
+                    isMovie = isMovie,
+                    season = activeSeason,
+                    episode = activeEpisode,
+                    positionSeconds = posSec,
+                    durationSeconds = durSec,
+                    posterPath = posterPath,
+                    seriesTitle = seriesTitle,
+                    episodeName = episodeName,
+                    forceWatched = true,
                 )
             } catch (_: Exception) {}
         }

@@ -1808,7 +1808,13 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     if (_isLeaving) return;
     _isLeaving = true;
     await _saveProgress();
-    _videoPlayerController?.dispose();
+    final controller = _videoPlayerController;
+    _videoPlayerController = null;
+    if (controller != null) {
+      controller.removeListener(_handlePlaybackChanged);
+      controller.pause();
+      await controller.dispose();
+    }
     if (mounted) Navigator.of(context).pop(true);
   }
 
@@ -2994,10 +3000,14 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     _activeSubtitles.dispose();
     _progressTimer?.cancel();
     unawaited(_saveProgress());
-    _videoPlayerController?.removeListener(_handlePlaybackChanged);
-    // Don't dispose controller if minimizing — it's now owned by MiniplayerService
-    if (!_isMinimizing) {
-      _videoPlayerController?.dispose();
+    final controller = _videoPlayerController;
+    _videoPlayerController = null;
+    if (controller != null) {
+      controller.removeListener(_handlePlaybackChanged);
+      if (!_isMinimizing) {
+        controller.pause();
+        controller.dispose();
+      }
     }
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
