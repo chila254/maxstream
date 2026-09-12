@@ -32,6 +32,10 @@ export default {
       );
     }
 
+    if (url.pathname === "/health") {
+      return this.handleHealth(url, corsHeaders, env);
+    }
+
     if (url.pathname === "/api/extract") {
       return this.handleExtract(url, corsHeaders, env, url.origin);
     }
@@ -434,6 +438,163 @@ export default {
     return new Response(JSON.stringify({ error: message }), {
       status,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  },
+
+  // === Health Check ===
+  // Pings all providers and returns their status. Results are cached for 5 minutes.
+  async handleHealth(url, corsHeaders, env) {
+    const CACHE_KEY = "health-check-cache";
+    const CACHE_TTL = 300; // 5 minutes
+
+    // Try to return cached result
+    const cache = caches.default;
+    const cachedRequest = new Request(url.origin + "/health", { method: "GET" });
+    const cachedResponse = await cache.match(cachedRequest);
+    if (cachedResponse) {
+      const data = await cachedResponse.json();
+      return new Response(JSON.stringify(data), {
+        headers: { ...corsHeaders, "Content-Type": "application/json", "X-Cache": "HIT" },
+      });
+    }
+
+    // Servers to check — mirrors mobile provider_health_screen.dart _servers
+    const servers = [
+      { name: "VixSrc", domain: "vixsrc.to" },
+      { name: "VidLink", domain: "vidlink.pro" },
+      { name: "2Embed", domain: "www.2embed.cc" },
+      { name: "Videasy", domain: "player.videasy.to" },
+      { name: "VidFast", domain: "vidfast.io" },
+      { name: "VidsrcRu", domain: "vidsrc.ru" },
+      { name: "Moflix", domain: "moflix-stream.xyz" },
+      { name: "Community", domain: "streamingunity.dog" },
+      { name: "Vidrock", domain: "vidrock.net" },
+      { name: "Vidzee", domain: "player.vidzee.wtf" },
+      { name: "PrimeSrc", domain: "primesrc.me" },
+      { name: "Frembed", domain: "frembed.click" },
+      { name: "Viduki", domain: "www.viduki.net" },
+    ];
+
+    // Extractors to check — mirrors mobile provider_health_screen.dart _extractors
+    const extractors = [
+      { name: "VidLink", domain: "vidlink.pro", kind: "webview" },
+      { name: "Viduki", domain: "www.viduki.net", kind: "webview" },
+      { name: "Mov2Day", domain: "mov2day.xyz", kind: "webview" },
+      { name: "VidsrcRu", domain: "vidsrc.ru", kind: "webview" },
+      { name: "StreamWish", domain: "streamwish.com", kind: "webview" },
+      { name: "VidLove", domain: "player.vidlove.cc", kind: "webview" },
+      { name: "VixSrc", domain: "vixsrc.to", kind: "native" },
+      { name: "Vidsrc", domain: "vidsrc-embed.ru", kind: "native" },
+      { name: "PrimeSrc", domain: "primesrc.me", kind: "api" },
+      { name: "Videasy", domain: "player.videasy.to", kind: "native" },
+      { name: "VidFast", domain: "vidfast.io", kind: "native" },
+      { name: "Voe", domain: "voe.sx", kind: "native" },
+      { name: "Streamtape", domain: "streamtape.com", kind: "native" },
+      { name: "2Embed", domain: "www.2embed.cc", kind: "native" },
+      { name: "Videm", domain: "videm.xyz", kind: "native" },
+      { name: "Filemoon", domain: "filemoon.sx", kind: "native" },
+      { name: "Dood", domain: "doodstream.com", kind: "native" },
+      { name: "VidMoLy", domain: "vidmoly.to", kind: "native" },
+      { name: "LuluVdo", domain: "luluvdo.com", kind: "native" },
+      { name: "MixDrop", domain: "mixdrop.to", kind: "native" },
+      { name: "Supervideo", domain: "supervideo.cc", kind: "native" },
+      { name: "Rabbitstream", domain: "rabbitstream.net", kind: "native" },
+      { name: "Megacloud", domain: "megacloud.co", kind: "native" },
+      { name: "GxPlayer", domain: "gxplayer.xyz", kind: "native" },
+      { name: "Veev", domain: "veev.to", kind: "native" },
+      { name: "Vidplay", domain: "vidplay.net", kind: "native" },
+      { name: "Streamruby", domain: "streamruby.com", kind: "native" },
+      { name: "VidNest", domain: "vidnest.fun", kind: "native" },
+      { name: "StreamUp", domain: "strmup.to", kind: "native" },
+      { name: "Vidara", domain: "vidara.to", kind: "native" },
+      { name: "VidHide", domain: "dhtpre.com", kind: "native" },
+      { name: "Nekostream", domain: "vidtube.site", kind: "native" },
+      { name: "Vidora", domain: "vidora.stream", kind: "native" },
+      { name: "Vidsonic", domain: "vidsonic.net", kind: "native" },
+      { name: "Vtube", domain: "vtbe.to", kind: "native" },
+      { name: "Vidflix", domain: "vidflix.club", kind: "native" },
+      { name: "Worker", domain: "maxstream-extractor.maxstream123.workers.dev", kind: "api" },
+      { name: "hakunaymatata CDN", domain: "hakunaymatata.com", kind: "native" },
+      { name: "1Flex DB", domain: "db.1flex.org", kind: "api" },
+    ];
+
+    // Deduplicate extractors by domain (some share domains)
+    const seen = new Set();
+    const uniqueExtractors = extractors.filter((e) => {
+      if (seen.has(e.domain)) return false;
+      seen.add(e.domain);
+      return true;
+    });
+
+    // Check all servers and extractors in parallel
+    const checkProvider = async (provider, type) => {
+      const startTime = Date.now();
+      try {
+        const response = await fetch(`https://${provider.domain}`, {
+          method: "HEAD",
+          headers: { "User-Agent": USER_AGENT },
+          signal: AbortSignal.timeout(8000),
+          redirect: "follow",
+        });
+        const responseMs = Date.now() - startTime;
+        return {
+          name: provider.name,
+          domain: provider.domain,
+          type,
+          kind: provider.kind || null,
+          healthy: response.status > 0 && response.status < 500,
+          status: response.status,
+          responseMs,
+        };
+      } catch (e) {
+        const responseMs = Date.now() - startTime;
+        return {
+          name: provider.name,
+          domain: provider.domain,
+          type,
+          kind: provider.kind || null,
+          healthy: false,
+          status: 0,
+          responseMs,
+          error: e.name === "TimeoutError" ? "Timeout" : e.message?.slice(0, 60) || "Failed",
+        };
+      }
+    };
+
+    const [serverResults, extractorResults] = await Promise.all([
+      Promise.all(servers.map((p) => checkProvider(p, "server"))),
+      Promise.all(uniqueExtractors.map((p) => checkProvider(p, "extractor"))),
+    ]);
+
+    const payload = {
+      timestamp: new Date().toISOString(),
+      servers: serverResults,
+      extractors: extractorResults,
+      summary: {
+        servers: {
+          total: serverResults.length,
+          healthy: serverResults.filter((r) => r.healthy).length,
+          unhealthy: serverResults.filter((r) => !r.healthy).length,
+        },
+        extractors: {
+          total: extractorResults.length,
+          healthy: extractorResults.filter((r) => r.healthy).length,
+          unhealthy: extractorResults.filter((r) => !r.healthy).length,
+        },
+      },
+    };
+
+    // Cache the result
+    const responseToCache = new Response(JSON.stringify(payload), {
+      headers: { "Content-Type": "application/json" },
+    });
+    const cacheRequest = new Request(url.origin + "/health", { method: "GET" });
+    try {
+      await cache.put(cacheRequest, responseToCache.clone());
+    } catch (_) {}
+
+    return new Response(JSON.stringify(payload), {
+      headers: { ...corsHeaders, "Content-Type": "application/json", "X-Cache": "MISS" },
     });
   },
 
