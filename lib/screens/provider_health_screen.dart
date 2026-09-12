@@ -56,12 +56,14 @@ class _ProviderHealthScreenState extends State<ProviderHealthScreen>
     ProviderStatus(name: 'Vidzee', domain: 'player.vidzee.wtf', type: 'server'),
     ProviderStatus(name: 'PrimeSrc', domain: 'primesrc.me', type: 'server'),
     ProviderStatus(name: 'Frembed', domain: 'frembed.click', type: 'server'),
+    ProviderStatus(name: 'Viduki', domain: 'www.viduki.net', type: 'server'),
   ];
 
   // ── Extractors (active registry + inactive/defined ones) ──
   final List<ProviderStatus> _extractors = const [
     // Active – WebView-based
     ProviderStatus(name: 'VidLink', domain: 'vidlink.pro', type: 'extractor-webview'),
+    ProviderStatus(name: 'Viduki', domain: 'www.viduki.net', type: 'extractor-webview'),
     ProviderStatus(name: 'Mov2Day', domain: 'mov2day.xyz', type: 'extractor-webview'),
     ProviderStatus(name: 'VidsrcRu', domain: 'vidsrc.ru', type: 'extractor-webview'),
     ProviderStatus(name: 'StreamWish', domain: 'streamwish.com', type: 'extractor-webview'),
