@@ -235,12 +235,14 @@ class StreamExtractor(private val context: Context) {
             StaticTmdbProvider(),
             VidrockServerProvider(),
             PrimeSrcServerProvider(),
+            VidukiServerProvider(),
         )
     }
 
     private val extractorRegistry: List<HostExtractor> by lazy {
         listOf(
             VidLinkExtractor(),
+            VidukiExtractor(),
             Mov2DayExtractor(),
             VixSrcExtractor(),
             VidsrcNetExtractor(),
@@ -858,6 +860,57 @@ class StreamExtractor(private val context: Context) {
         }
     }
 
+    private inner class VidukiServerProvider : ServerProvider {
+        override val name = "Viduki"
+
+        override suspend fun getServers(request: MediaRequest): List<StreamServer> {
+            val id = request.tmdbId
+            val servers = mutableListOf<StreamServer>()
+
+            // Server 1: VenusLoader player — resolves streams client-side
+            servers += StreamServer(
+                "Viduki-1",
+                if (request.isMovie) {
+                    "https://www.viduki.net/1/movie/$id"
+                } else {
+                    "https://www.viduki.net/1/tv/$id/${request.season}/${request.episode}"
+                },
+            )
+
+            // Server 2: Fetching page — resolves streams from external sources
+            servers += StreamServer(
+                "Viduki-2",
+                if (request.isMovie) {
+                    "https://www.viduki.net/2/movie/$id"
+                } else {
+                    "https://www.viduki.net/2/tv/$id/${request.season}/${request.episode}"
+                },
+            )
+
+            // Server 3: Multi-language selector — embeds from sub-providers
+            servers += StreamServer(
+                "Viduki-3",
+                if (request.isMovie) {
+                    "https://www.viduki.net/3/movie/$id"
+                } else {
+                    "https://www.viduki.net/3/tv/$id/${request.season}/${request.episode}"
+                },
+            )
+
+            // Server 4: Multi-server selector — embeds from sub-providers
+            servers += StreamServer(
+                "Viduki-4",
+                if (request.isMovie) {
+                    "https://www.viduki.net/4/movie/$id"
+                } else {
+                    "https://www.viduki.net/4/tv/$id/${request.season}/${request.episode}"
+                },
+            )
+
+            return servers
+        }
+    }
+
     private inner class MoflixExtractor : HostExtractor {
         override val name = "Moflix"
         private val origin = "https://moflix-stream.xyz"
@@ -1374,6 +1427,136 @@ class StreamExtractor(private val context: Context) {
                                 view.evaluateJavascript(script, null)
                             }
                         }
+                        webView.loadUrl(server.url)
+                        continuation.invokeOnCancellation {
+                            webView.post {
+                                webView.stopLoading()
+                                webView.destroy()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @SuppressLint("SetJavaScriptEnabled")
+    private inner class VidukiExtractor : HostExtractor {
+        override val name = "Viduki"
+        override val usesWebView = true
+        override fun supports(server: StreamServer) = host(server.url).endsWith("viduki.net")
+
+        override suspend fun extract(server: StreamServer): ExtractionResult {
+            return withContext(Dispatchers.Main) {
+                withTimeout(30_000) {
+                    suspendCancellableCoroutine { continuation ->
+                        val webView = WebView(context)
+                        webView.settings.javaScriptEnabled = true
+                        webView.settings.loadsImagesAutomatically = false
+                        webView.settings.blockNetworkImage = true
+                        webView.settings.cacheMode = android.webkit.WebSettings.LOAD_NO_CACHE
+                        webView.settings.domStorageEnabled = true
+                        webView.settings.mediaPlaybackRequiresUserGesture = false
+
+                        fun finish(result: Result<StreamResult>) {
+                            if (!continuation.isActive) return
+                            result.fold(
+                                onSuccess = { continuation.resume(ExtractionResult.Final(it)) },
+                                onFailure = { continuation.resumeWithException(it) },
+                            )
+                            webView.post { webView.destroy() }
+                        }
+
+                        webView.addJavascriptInterface(object {
+                            @JavascriptInterface
+                            fun onStreamFound(url: String) {
+                                if (url.isNotBlank() && continuation.isActive) {
+                                    val headers = refererHeaders("https://www.viduki.net/")
+                                    finish(Result.success(StreamResult(url, name, mediaType(url), headers, method = "WebView")))
+                                }
+                            }
+                        }, "NativeBridge")
+
+                        webView.webViewClient = object : WebViewClient() {
+                            override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
+                                val reqUrl = request.url.toString()
+                                if ((reqUrl.contains(".m3u8") || reqUrl.contains(".mp4")) &&
+                                    !reqUrl.contains("google") && !reqUrl.contains("cloudflare")
+                                ) {
+                                    if (continuation.isActive) {
+                                        val headers = refererHeaders("https://www.viduki.net/")
+                                        finish(Result.success(StreamResult(reqUrl, name, mediaType(reqUrl), headers)))
+                                    }
+                                }
+                                val blocked = listOf("googletagmanager", "google-analytics", "clarity", "adscore", "cloudflareinsights")
+                                if (blocked.any { reqUrl.contains(it, true) }) {
+                                    return WebResourceResponse("text/plain", "utf-8", java.io.ByteArrayInputStream(ByteArray(0)))
+                                }
+                                return super.shouldInterceptRequest(view, request)
+                            }
+
+                            override fun onPageFinished(view: WebView, url: String) {
+                                val script = """
+                                    (() => {
+                                      if (window.__vidukiHook) return;
+                                      window.__vidukiHook = true;
+                                      const send = u => window.NativeBridge.onStreamFound(u);
+                                      const isPlayable = s => typeof s === 'string' && /\.(m3u8|mp4)([?#]|$)/i.test(s);
+
+                                      const originalFetch = window.fetch.bind(window);
+                                      window.fetch = async (...args) => {
+                                        const response = await originalFetch(...args);
+                                        try {
+                                          const u = response.url || '';
+                                          if (isPlayable(u)) send(u);
+                                          response.clone().text().then(text => {
+                                            try {
+                                              const json = JSON.parse(text);
+                                              const src = json.url || json.src || json.file || json.playlist || (json.stream && json.stream.playlist);
+                                              if (isPlayable(src)) send(src);
+                                            } catch (e) {}
+                                          }).catch(() => {});
+                                        } catch (e) {}
+                                        return response;
+                                      };
+                                      const origOpen = XMLHttpRequest.prototype.open;
+                                      XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+                                        this.addEventListener('load', function() {
+                                          try {
+                                            if (isPlayable(url)) send(url);
+                                            const resp = this.responseText;
+                                            const json = JSON.parse(resp);
+                                            const src = json.url || json.src || json.file || json.playlist || (json.stream && json.stream.playlist);
+                                            if (isPlayable(src)) send(src);
+                                          } catch (e) {}
+                                        });
+                                        return origOpen.apply(this, [method, url, ...rest]);
+                                      };
+                                      setInterval(() => {
+                                        try {
+                                          const v = document.querySelector('video');
+                                          if (v) {
+                                            const src = v.currentSrc || v.src || '';
+                                            if (isPlayable(src) && !src.startsWith('blob:')) send(src);
+                                          }
+                                          const iframes = document.querySelectorAll('iframe');
+                                          iframes.forEach(f => {
+                                            try {
+                                              const s = f.contentDocument && f.contentDocument.querySelector('video');
+                                              if (s) {
+                                                const src = s.currentSrc || s.src || '';
+                                                if (isPlayable(src) && !src.startsWith('blob:')) send(src);
+                                              }
+                                            } catch (e) {}
+                                          });
+                                        } catch (e) {}
+                                      }, 1500);
+                                    })();
+                                """.trimIndent()
+                                view.evaluateJavascript(script, null)
+                            }
+                        }
+
                         webView.loadUrl(server.url)
                         continuation.invokeOnCancellation {
                             webView.post {
