@@ -526,7 +526,10 @@ export default {
       return true;
     });
 
-    // Check all servers and extractors in parallel
+    // Check all servers and extractors in batches of 15 to stay under
+    // Cloudflare's 50 subrequests-per-invocation limit.
+    const BATCH_SIZE = 15;
+
     const checkProvider = async (provider, type) => {
       const startTime = Date.now();
       try {
@@ -561,9 +564,19 @@ export default {
       }
     };
 
+    const batchCheck = async (items, type) => {
+      const results = [];
+      for (let i = 0; i < items.length; i += BATCH_SIZE) {
+        const batch = items.slice(i, i + BATCH_SIZE);
+        const batchResults = await Promise.all(batch.map((p) => checkProvider(p, type)));
+        results.push(...batchResults);
+      }
+      return results;
+    };
+
     const [serverResults, extractorResults] = await Promise.all([
-      Promise.all(servers.map((p) => checkProvider(p, "server"))),
-      Promise.all(uniqueExtractors.map((p) => checkProvider(p, "extractor"))),
+      batchCheck(servers, "server"),
+      batchCheck(uniqueExtractors, "extractor"),
     ]);
 
     const payload = {
