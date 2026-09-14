@@ -509,6 +509,10 @@ fun PlayerScreen(
             val next = (if (nextSeason == currentSeason) seasonEpisodes
                         else menuEpisodesCache[nextSeason]?.orEmpty())
                 ?.firstOrNull { it.number == nextEpisode }
+            if (next == null) {
+                status = "Series complete"
+                return
+            }
             if (next != null && !next.isReleased()) {
                 status = "To be released on ${formatReleaseDate(next.airDate)}"
                 return

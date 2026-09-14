@@ -31,6 +31,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.overscroll.OverscrollEffect
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -644,6 +645,7 @@ private fun ContentRow(
             contentPadding = PaddingValues(vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             modifier = if (showProgress) Modifier.height(260.dp) else Modifier,
+            overscrollEffect = OverscrollEffect.None,
         ) {
             items(
                 count = items.size,
