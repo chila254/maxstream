@@ -2,12 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/device_code_service.dart';
 
-/// Phone-side TV pairing screen.
-///
-/// Generates a 6-digit code (which carries the signed-in user's email and
-/// password) so they can sign in on MaxStream TV without re-typing their
-/// password. The code is written to Firestore `device_codes` with a 15-minute
-/// expiry and burned after use.
+const Color _accentBlue = Color(0xFF0066FF);
+const Color _darkBackground = Color(0xFF0D0D0D);
+const Color _cardDark = Color(0xFF161616);
+const Color _cardDarkAlt = Color(0xFF1A1A1A);
+const Color _buttonDark = Color(0xFF2A2A2A);
+
 class TVPairingScreen extends StatefulWidget {
   const TVPairingScreen({super.key});
 
@@ -77,10 +77,10 @@ class _TVPairingScreenState extends State<TVPairingScreen> {
     if (_generatedCode != null) {
       Clipboard.setData(ClipboardData(text: _generatedCode!));
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Code copied to clipboard'),
+        SnackBar(
+          content: const Text('Code copied to clipboard'),
           backgroundColor: Colors.green,
-          duration: Duration(seconds: 2),
+          duration: const Duration(seconds: 2),
         ),
       );
     }
@@ -96,246 +96,34 @@ class _TVPairingScreenState extends State<TVPairingScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textColor = isDark ? Colors.white : Colors.black87;
+
     return Scaffold(
-      backgroundColor: const Color(0xFF121212),
+      backgroundColor: _darkBackground,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF1A1A1A),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        foregroundColor: textColor,
         title: const Text(
           'TV Pairing',
-          style: TextStyle(color: Colors.white),
+          style: TextStyle(fontWeight: FontWeight.w600, letterSpacing: 0.5),
         ),
-        iconTheme: const IconThemeData(color: Colors.white),
-        elevation: 0,
+        iconTheme: const IconThemeData(color: _accentBlue),
       ),
-      body: SingleChildScrollView(
-        child: Padding(
+      body: SafeArea(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header
-              Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1A1A1A),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.tv, color: Colors.blue, size: 32),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Sign In on Your TV',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'Without entering your password',
-                            style: TextStyle(
-                              color: Colors.grey[400],
-                              fontSize: 14,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+              _buildHeaderCard(context),
               const SizedBox(height: 32),
-
-              // Instructions
-              const Text(
-                'How it works:',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 16),
-              _buildInstructionStep(
-                number: '1',
-                title: 'Generate Code',
-                description: 'Generate a unique code for your TV',
-              ),
-              const SizedBox(height: 12),
-              _buildInstructionStep(
-                number: '2',
-                title: 'Go to MaxStream TV',
-                description:
-                    'Open MaxStream on your TV and navigate to sign in',
-              ),
-              const SizedBox(height: 12),
-              _buildInstructionStep(
-                number: '3',
-                title: 'Enter Code',
-                description: 'Enter the generated code on your TV',
-              ),
+              _buildStepper(isDark),
               const SizedBox(height: 32),
-
-              // Code Generation Section
-              if (_generatedCode == null && _errorMessage == null)
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: _isLoading ? null : _generateTVCode,
-                    icon: _isLoading
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor:
-                                  AlwaysStoppedAnimation<Color>(Colors.white),
-                            ),
-                          )
-                        : const Icon(Icons.code),
-                    label: Text(
-                      _isLoading ? 'Generating...' : 'Generate TV Code',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blue,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                  ),
-                ),
-
-              // Code Display Section
-              if (_generatedCode != null)
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Your TV Code',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(24),
-                      decoration: BoxDecoration(
-                        color: Colors.black,
-                        border: Border.all(color: Colors.blue, width: 2),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Column(
-                        children: [
-                          Text(
-                            _generatedCode!,
-                            style: const TextStyle(
-                              color: Colors.blue,
-                              fontSize: 48,
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: 8,
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          Text(
-                            'Expires in 15 minutes',
-                            style: TextStyle(
-                              color: Colors.grey[500],
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: ElevatedButton.icon(
-                            onPressed: _copyToClipboard,
-                            icon: const Icon(Icons.copy),
-                            label: const Text('Copy Code'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF2A2A2A),
-                              padding:
-                                  const EdgeInsets.symmetric(vertical: 12),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: ElevatedButton.icon(
-                            onPressed: _generateNew,
-                            icon: const Icon(Icons.refresh),
-                            label: const Text('Generate New'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.blue,
-                              padding:
-                                  const EdgeInsets.symmetric(vertical: 12),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-
-              // Error Message
-              if (_errorMessage != null)
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Colors.red.withAlpha(25),
-                        border: Border.all(color: Colors.red),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        _errorMessage!,
-                        style:
-                            const TextStyle(color: Colors.red, fontSize: 14),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: _generateTVCode,
-                        icon: const Icon(Icons.refresh),
-                        label: const Text('Try Again'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blue,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+              _buildCodeSection(isDark),
+              const SizedBox(height: 32),
+              if (_errorMessage != null) _buildErrorState(isDark),
             ],
           ),
         ),
@@ -343,28 +131,138 @@ class _TVPairingScreenState extends State<TVPairingScreen> {
     );
   }
 
-  Widget _buildInstructionStep({
-    required String number,
+  Widget _buildHeaderCard(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textColor = isDark ? Colors.white : Colors.black87;
+    final subTextColor = isDark ? Colors.grey[400]! : Colors.grey[700]!;
+
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: isDark ? _cardDark : Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.3),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: _accentBlue.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(Icons.tv, color: _accentBlue, size: 36),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Sign In on Your TV',
+                  style: TextStyle(
+                    color: textColor,
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: -0.5,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Connect your phone to your TV without typing your password',
+                  style: TextStyle(
+                    color: subTextColor,
+                    fontSize: 14,
+                    height: 1.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStepper(bool isDark) {
+    final stepColor = isDark ? Colors.blue[900]! : Colors.blue[100]!;
+    final stepBg = isDark ? Colors.blue[800]! : Colors.blue[50]!;
+
+    return Column(
+      children: [
+        _stepIndicator(
+          number: 1,
+          title: 'Generate Code',
+          statusLabel: 'Tap to generate a unique code for your TV',
+          isCompleted: _generatedCode != null,
+          stepColor: stepColor,
+          stepBg: stepBg,
+        ),
+        const SizedBox(height: 8),
+        _stepIndicator(
+          number: 2,
+          title: 'Go to MaxStream TV',
+          statusLabel: 'Open MaxStream on your TV and navigate to sign in',
+          isCompleted: true,
+          stepColor: stepColor,
+          stepBg: stepBg,
+        ),
+        const SizedBox(height: 8),
+        _stepIndicator(
+          number: 3,
+          title: 'Enter Code',
+          statusLabel: 'Enter the generated code on your TV',
+          isCompleted: true,
+          stepColor: stepColor,
+          stepBg: stepBg,
+        ),
+      ],
+    );
+  }
+
+  Widget _stepIndicator({
+    required int number,
     required String title,
-    required String description,
+    required String statusLabel,
+    required bool isCompleted,
+    required Color stepColor,
+    required Color stepBg,
   }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textColor = isDark ? Colors.white : Colors.black87;
+    final subTextColor = isDark ? Colors.grey[400]! : Colors.grey[700]!;
+
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Container(
-          width: 40,
-          height: 40,
-          decoration: const BoxDecoration(
-            color: Colors.blue,
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            color: isCompleted ? stepColor : stepBg,
             shape: BoxShape.circle,
+            boxShadow: isCompleted
+                ? [
+                    BoxShadow(
+                      color: stepColor.withOpacity(0.4),
+                      blurRadius: 6,
+                      offset: const Offset(0, 2),
+                    ),
+                  ]
+                : null,
           ),
           child: Center(
             child: Text(
-              number,
-              style: const TextStyle(
-                color: Colors.white,
+              '$number',
+              style: TextStyle(
+                color: isCompleted ? Colors.white : (isDark ? Colors.blue[300]! : Colors.blue[600]!),
                 fontWeight: FontWeight.bold,
-                fontSize: 18,
+                fontSize: 16,
               ),
             ),
           ),
@@ -374,20 +272,261 @@ class _TVPairingScreenState extends State<TVPairingScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              Row(
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      color: isCompleted ? textColor : subTextColor,
+                      fontSize: 14,
+                      fontWeight: isCompleted ? FontWeight.bold : FontWeight.w500,
+                      height: 1.3,
+                    ),
+                  ),
+                  if (!isCompleted)
+                    const Padding(
+                      padding: EdgeInsets.only(left: 4),
+                      child: Text(
+                        '(pending)',
+                        style: TextStyle(
+                          color: Colors.orange,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 2),
               Text(
-                title,
+                statusLabel,
+                style: TextStyle(
+                  color: isCompleted
+                      ? _accentBlue
+                      : (isDark ? Colors.blue[300]! : Colors.blue[400]!),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCodeSection(bool isDark) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (_generatedCode == null && _errorMessage == null)
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _isLoading ? null : _generateTVCode,
+              icon: _isLoading
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    )
+                  : const Icon(Icons.code, color: Colors.white),
+              label: Text(
+                _isLoading ? 'Generating...' : 'Generate TV Code',
                 style: const TextStyle(
                   color: Colors.white,
-                  fontSize: 15,
+                  fontSize: 16,
                   fontWeight: FontWeight.bold,
                 ),
               ),
-              const SizedBox(height: 4),
-              Text(
-                description,
-                style: TextStyle(color: Colors.grey[400], fontSize: 13),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _accentBlue,
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                elevation: 2,
+              ),
+            ),
+          ),
+
+        const SizedBox(height: 24),
+
+        if (_generatedCode != null)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(32),
+            decoration: BoxDecoration(
+              color: isDark ? _cardDarkAlt : Colors.grey[50],
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: _accentBlue.withOpacity(0.3), width: 1),
+              boxShadow: [
+                BoxShadow(
+                  color: _accentBlue.withOpacity(0.15),
+                  blurRadius: 20,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Column(
+              children: [
+                Text(
+                  'Your TV Code',
+                  style: TextStyle(
+                    color: _accentBlue.withOpacity(0.7),
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 1,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  _generatedCode!,
+                  style: TextStyle(
+                    color: _accentBlue,
+                    fontSize: 42,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 6,
+                    shadows: [
+                      Shadow(
+                        color: _accentBlue.withOpacity(0.4),
+                        blurRadius: 12,
+                        offset: Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Expires in 15 minutes',
+                  style: TextStyle(
+                    color: isDark ? Colors.grey[400]! : Colors.grey[600]!,
+                    fontSize: 11,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+        const SizedBox(height: 24),
+
+        if (_generatedCode != null) ...[
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: _copyToClipboard,
+                  icon: const Icon(Icons.copy, color: Colors.white),
+                  label: const Text('Copy Code'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _buttonDark,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: _generateNew,
+                  icon: const Icon(Icons.refresh, color: Colors.white),
+                  label: const Text('Generate New'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _accentBlue,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
               ),
             ],
+          ),
+          const SizedBox(height: 24),
+        ],
+
+        if (_errorMessage != null) ...[
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: isDark
+                  ? Colors.red.withOpacity(0.1)
+                  : Colors.red.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(12),
+              border: const Border(
+                left: BorderSide(color: Colors.red, width: 3),
+              ),
+            ),
+            child: Text(
+              _errorMessage!,
+              style: TextStyle(
+                color: Colors.red[300] ?? Colors.red,
+                fontSize: 13,
+                height: 1.5,
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          ElevatedButton.icon(
+            onPressed: _generateTVCode,
+            icon: const Icon(Icons.refresh, color: Colors.white),
+            label: const Text('Try Again'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _accentBlue,
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildErrorState(bool isDark) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: isDark
+                ? Colors.red.withOpacity(0.1)
+                : Colors.red.withOpacity(0.05),
+            borderRadius: BorderRadius.circular(8),
+            border: const Border(
+              left: BorderSide(color: Colors.red, width: 3),
+            ),
+          ),
+          child: Text(
+            _errorMessage!,
+            style: TextStyle(
+              color: Colors.red[300] ?? Colors.red,
+              fontSize: 14,
+              height: 1.5,
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        ElevatedButton.icon(
+          onPressed: _generateTVCode,
+          icon: const Icon(Icons.refresh, color: Colors.white),
+          label: const Text('Try Again'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: _accentBlue,
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
           ),
         ),
       ],
