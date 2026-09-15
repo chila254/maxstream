@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'cloud_sync_service.dart';
+import 'profile_scope.dart';
 import 'user_scope.dart';
 
 class WatchHistoryService {
@@ -16,7 +17,7 @@ class WatchHistoryService {
   static final ValueNotifier<int> localHistoryRevision = ValueNotifier<int>(0);
 
   static String get _historyListKey =>
-      'watch_history_list_${UserScope.currentOwner}';
+      'watch_history_list_${UserScope.currentOwner}_${ProfileScope.currentProfileId}';
 
   static String getWatchHistoryKey(
     String tmdbId,
@@ -25,7 +26,7 @@ class WatchHistoryService {
     int episode,
   ) {
     final item = isMovie ? 'movie_$tmdbId' : 'tv_${tmdbId}_${season}_$episode';
-    return 'watch_history_${UserScope.currentOwner}_$item';
+    return 'watch_history_${UserScope.currentOwner}_${ProfileScope.currentProfileId}_$item';
   }
 
   static Map<String, dynamic>? _decodeMap(String? value) {

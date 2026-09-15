@@ -7,6 +7,8 @@ import 'package:flutter/foundation.dart';
 import '../database/db_helper.dart';
 import '../models/movie.dart';
 import '../models/subtitle_settings.dart';
+import 'profile_scope.dart';
+import 'profile_service.dart';
 import 'watch_history_service.dart';
 
 /// Syncs a user's watch history and watchlist between devices through
@@ -23,6 +25,7 @@ class CloudSyncService {
   static StreamSubscription<DatabaseEvent>? _watchlistSub;
   static StreamSubscription<DatabaseEvent>? _prefsSub;
   static StreamSubscription<DatabaseEvent>? _subtitlePrefsSub;
+  static StreamSubscription<DatabaseEvent>? _profilesSub;
 
   /// Bumped whenever synced watch history changes; screens listen to refresh.
   static final ValueNotifier<int> historyRevision = ValueNotifier<int>(0);
@@ -35,6 +38,9 @@ class CloudSyncService {
 
   /// Bumped whenever subtitle settings change.
   static final ValueNotifier<int> subtitlePrefsRevision = ValueNotifier<int>(0);
+
+  /// Bumped whenever profiles change (cross-device sync).
+  static final ValueNotifier<int> profilesRevision = ValueNotifier<int>(0);
 
   static String? get _uid => FirebaseAuth.instance.currentUser?.uid;
 
@@ -49,6 +55,9 @@ class CloudSyncService {
 
   static DatabaseReference _subtitlePrefsRef(String uid) =>
       _rtdb.ref('users/$uid/user_preferences/subtitle_settings');
+
+  static DatabaseReference _profilesRef(String uid) =>
+      _rtdb.ref('users/$uid/profiles');
 
   /// Deterministic doc id for a watch-history item. Keep in sync with
   /// WatchHistoryService.getWatchHistoryKey.
@@ -114,6 +123,11 @@ class CloudSyncService {
       onError: (Object e) =>
           debugPrint('CloudSync: subtitle prefs listener error: $e'),
     );
+    _profilesSub = _profilesRef(uid).onValue.listen(
+      _onProfilesEvent,
+      onError: (Object e) =>
+          debugPrint('CloudSync: profiles listener error: $e'),
+    );
   }
 
   /// Cancels the real-time subscriptions.
@@ -122,10 +136,12 @@ class CloudSyncService {
     _watchlistSub?.cancel();
     _prefsSub?.cancel();
     _subtitlePrefsSub?.cancel();
+    _profilesSub?.cancel();
     _historySub = null;
     _watchlistSub = null;
     _prefsSub = null;
     _subtitlePrefsSub = null;
+    _profilesSub = null;
     _listening = false;
   }
 
@@ -204,6 +220,13 @@ class CloudSyncService {
     final data = Map<String, dynamic>.from(snapshot.value as Map);
     unawaited(SubtitleSettings.saveFromJson(data));
     subtitlePrefsRevision.value++;
+  }
+
+  static void _onProfilesEvent(DatabaseEvent event) {
+    // When profiles change on another device, pull them locally.
+    // ProfileScope.refresh() is called so the UI picks up changes.
+    profilesRevision.value++;
+    unawaited(ProfileService.pullFromCloud().then((_) => ProfileScope.refresh()));
   }
 
   // ---------------------------------------------------------------------

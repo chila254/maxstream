@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'maxstream_main_screen.dart';
+import 'profile_select_screen.dart';
 import 'sign_in_screen.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -71,8 +71,9 @@ class _SplashScreenState extends State<SplashScreen>
           MaterialPageRoute(builder: (context) => const SignInScreen()),
         );
       } else {
+        // Signed in → profile selection (auto-skips if single profile)
         Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const MaxStreamMainScreen()),
+          MaterialPageRoute(builder: (_) => const ProfileSelectScreen()),
         );
       }
     } catch (e) {
