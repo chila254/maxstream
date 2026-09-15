@@ -95,7 +95,6 @@ fun HomeScreen(
 ) {
     val viewModel: HomeViewModel = viewModel()
     val trendingMovies  by viewModel.trendingMovies.observeAsState(emptyList())
-    val trendingSeries  by viewModel.trendingSeries.observeAsState(emptyList())
     val popularMovies   by viewModel.popularMovies.observeAsState(emptyList())
     val topRatedMovies  by viewModel.topRatedMovies.observeAsState(emptyList())
     val continueWatching by viewModel.continueWatching.observeAsState(emptyList())
@@ -120,11 +119,10 @@ fun HomeScreen(
     val rowNav = remember { RowNavState() }
 
     // Ordered list of visible rows — must mirror the LazyColumn item order.
-    val rows = remember(continueWatching, trendingMovies, trendingSeries, popularMovies, topRatedMovies, forYou, becauseYouWatched, comingSoon) {
+    val rows = remember(continueWatching, trendingMovies, popularMovies, topRatedMovies, forYou, becauseYouWatched, comingSoon) {
         buildList {
             if (continueWatching.isNotEmpty()) add(RowDesc("home:Continue Watching", continueWatching.size))
             if (trendingMovies.isNotEmpty()) add(RowDesc("home:Trending Movies", trendingMovies.size.coerceAtMost(15)))
-            if (trendingSeries.isNotEmpty()) add(RowDesc("home:Trending Series", trendingSeries.size.coerceAtMost(15)))
             if (forYou.isNotEmpty()) add(RowDesc("home:For You", forYou.size.coerceAtMost(15)))
             if (popularMovies.isNotEmpty()) add(RowDesc("home:Popular Movies", popularMovies.size.coerceAtMost(15)))
             if (topRatedMovies.isNotEmpty()) add(RowDesc("home:Top Rated", topRatedMovies.size.coerceAtMost(15)))
@@ -352,27 +350,6 @@ fun HomeScreen(
                                     items = forYou.take(15),
                                     navController = navController,
                                     rowId = "home:For You",
-                                    rowNav = rowNav,
-                                    rows = rows,
-                                    outerListState = outerListState,
-                                    onItemFocus = { mediaItem ->
-                                        pendingHeroItem = mediaItem
-                                        pendingHeroResume = false
-                                    },
-                                    onUpToHero = { runCatching { playFocusRequester.requestFocus() } },
-                                    onReturnToSidebar = onReturnToSidebar,
-                                    modifier = Modifier.padding(top = 20.dp),
-                                )
-                            }
-                        }
-
-                        if (trendingSeries.isNotEmpty()) {
-                            item {
-                                ContentRow(
-                                    title = stringResource(R.string.trending_series),
-                                    items = trendingSeries.take(15),
-                                    navController = navController,
-                                    rowId = "home:Trending Series",
                                     rowNav = rowNav,
                                     rows = rows,
                                     outerListState = outerListState,

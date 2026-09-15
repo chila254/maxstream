@@ -47,6 +47,19 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Brush
+import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Pets
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.RocketLaunch
+import androidx.compose.material.icons.filled.SportsEsports
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -468,17 +481,17 @@ private val ProfileSidebarColors = listOf(
 )
 
 private fun ProfileSidebarIcon(codePoint: Int): androidx.compose.ui.graphics.vector.ImageVector = when (codePoint) {
-    0xe4ff -> androidx.compose.material.icons.Icons.Filled.Person
-    0xe038 -> androidx.compose.material.icons.Icons.Filled.Movie
-    0xe30f -> androidx.compose.material.icons.Icons.Filled.SportsEsports
-    0xe301 -> androidx.compose.material.icons.Icons.Filled.MusicNote
-    0xe838 -> androidx.compose.material.icons.Icons.Filled.Star
-    0xe558 -> androidx.compose.material.icons.Icons.Filled.RocketLaunch
-    0xe06d -> androidx.compose.material.icons.Icons.Filled.AutoAwesome
-    0xe91a -> androidx.compose.material.icons.Icons.Filled.Pets
-    0xe3a8 -> androidx.compose.material.icons.Icons.Filled.Brush
-    0xe0e3 -> androidx.compose.material.icons.Icons.Filled.Psychology
-    0xe0ca -> androidx.compose.material.icons.Icons.Filled.Public
-    0xe537 -> androidx.compose.material.icons.Icons.Filled.Bolt
-    else -> androidx.compose.material.icons.Icons.Filled.Person
+    0xe4ff -> Icons.Filled.Person
+    0xe038 -> Icons.Filled.Movie
+    0xe30f -> Icons.Filled.SportsEsports
+    0xe301 -> Icons.Filled.MusicNote
+    0xe838 -> Icons.Filled.Star
+    0xe558 -> Icons.Filled.RocketLaunch
+    0xe06d -> Icons.Filled.AutoAwesome
+    0xe91a -> Icons.Filled.Pets
+    0xe3a8 -> Icons.Filled.Brush
+    0xe0e3 -> Icons.Filled.Psychology
+    0xe0ca -> Icons.Filled.Public
+    0xe537 -> Icons.Filled.Bolt
+    else -> Icons.Filled.Person
 }
