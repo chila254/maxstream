@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
@@ -229,5 +230,44 @@ class ProfileService {
       hash = ((hash << 5) - hash + pin.codeUnitAt(i)) & 0xFFFFFFFF;
     }
     return hash.toRadixString(16);
+  }
+
+  // ── Profile Picture (Base64 in RTDB) ──────────────────────────────
+
+  /// Save profile picture as Base64 in Firebase RTDB (free, no Storage needed).
+  static Future<String?> uploadProfilePicture(String imagePath) async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) throw Exception('User not authenticated');
+
+      final file = File(imagePath);
+      if (!file.existsSync()) throw Exception('File does not exist');
+
+      final bytes = await file.readAsBytes();
+      final base64Image = base64Encode(bytes);
+
+      await _rtdb.ref('users/${user.uid}/profile').update({
+        'profilePictureBase64': base64Image,
+        'email': user.email,
+        'displayName': user.displayName,
+        'updatedAt': ServerValue.timestamp,
+      });
+
+      // Cache locally
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('user_profile_picture', imagePath);
+
+      debugPrint('ProfileService: profile picture uploaded');
+      return base64Image;
+    } catch (e) {
+      debugPrint('ProfileService: upload failed: $e');
+      return null;
+    }
+  }
+
+  /// Get profile picture path (local file path, not base64).
+  static Future<String?> getProfilePicturePath() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('user_profile_picture');
   }
 }
