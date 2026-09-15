@@ -136,7 +136,7 @@ class RecommendationNotificationService {
       final dir = await getTemporaryDirectory();
       final file = '${dir.path}/maxstream_rec_$tmdbId.jpg';
       await Dio().download(
-        'https://image.tmdb.org/t/p/w780$posterPath',
+        'https://image.tmdb.org/t/p/original$posterPath',
         file,
       );
       if (File(file).existsSync()) return file;
