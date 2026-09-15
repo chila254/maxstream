@@ -257,8 +257,9 @@ object WatchEntryCompat {
 
     fun progressOf(tmdbId: Int, mediaType: String, season: Int, episode: Int): Float {
         val context = appContext ?: return 0f
+        val profileId = ProfileScope.activeProfileId(context)
         val prefs = context.getSharedPreferences("maxstream_tv_watch_progress", Context.MODE_PRIVATE)
-        val key = "progress:$tmdbId:${mediaType == "movie"}:$season:$episode"
+        val key = "progress:$profileId:$tmdbId:${mediaType == "movie"}:$season:$episode"
         val raw = prefs.getString(key, null) ?: return 0f
         return runCatching {
             val obj = JSONObject(raw)

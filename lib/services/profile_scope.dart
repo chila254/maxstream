@@ -14,6 +14,9 @@ class ProfileScope {
   static List<Profile> _profiles = [];
   static bool _initialized = false;
 
+  /// Called when the active profile changes (for cloud sync listener restart).
+  static void Function()? onProfileChanged;
+
   /// ValueNotifier that screens can listen to for profile changes.
   static final ValueNotifier<Profile?> activeProfile =
       ValueNotifier<Profile?>(null);
@@ -78,6 +81,7 @@ class ProfileScope {
     _activeProfile = match.first;
     await ProfileService.setActiveProfileId(profileId);
     activeProfile.value = _activeProfile;
+    onProfileChanged?.call();
   }
 
   /// Refresh profiles from storage (after create/edit/delete).

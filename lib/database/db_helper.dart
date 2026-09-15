@@ -5,6 +5,7 @@ import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import '../models/movie.dart';
 import '../services/cloud_sync_service.dart';
+import '../services/profile_scope.dart';
 import '../services/user_scope.dart';
 
 class DBHelper {
@@ -21,7 +22,7 @@ class DBHelper {
     final path = join(await getDatabasesPath(), 'watchlist.db');
     return openDatabase(
       path,
-      version: 10,
+      version: 11,
       onCreate: _createDb,
       onUpgrade: _upgradeDb,
     );
@@ -182,6 +183,41 @@ class DBHelper {
       );
       await db.execute('DROP TABLE watchlist_legacy');
     }
+    if (oldVersion < 11) {
+      // Add profileId column for per-profile watchlist isolation
+      await db.execute('ALTER TABLE watchlist ADD COLUMN profileId TEXT NOT NULL DEFAULT \'__default__\'');
+      // Rebuild with new primary key including profileId
+      await db.execute('ALTER TABLE watchlist RENAME TO watchlist_v10');
+      await db.execute('''
+        CREATE TABLE watchlist (
+          ownerId TEXT NOT NULL,
+          profileId TEXT NOT NULL DEFAULT '__default__',
+          id TEXT NOT NULL,
+          title TEXT,
+          description TEXT,
+          thumbnail TEXT,
+          videoUrl TEXT,
+          trailerUrl TEXT,
+          genres TEXT,
+          releaseDate TEXT,
+          year TEXT,
+          rating REAL,
+          mediaType TEXT NOT NULL,
+          isDownloaded INTEGER DEFAULT 0,
+          offlinePath TEXT,
+          PRIMARY KEY (ownerId, profileId, id, mediaType)
+        )
+      ''');
+      await db.rawInsert('''
+        INSERT INTO watchlist
+          (ownerId, profileId, id, title, description, thumbnail, videoUrl, trailerUrl,
+           genres, releaseDate, year, rating, mediaType, isDownloaded, offlinePath)
+        SELECT ownerId, profileId, id, title, description, thumbnail, videoUrl, trailerUrl,
+          genres, releaseDate, year, rating, mediaType, isDownloaded, offlinePath
+        FROM watchlist_v10
+      ''');
+      await db.execute('DROP TABLE watchlist_v10');
+    }
   }
 
   static Future<void> _createMediaDownloadsTable(Database db) async {
@@ -283,6 +319,7 @@ class DBHelper {
     final db = await database;
     await db.insert('watchlist', {
       'ownerId': UserScope.currentOwner,
+      'profileId': ProfileScope.currentProfileId,
       'id': movie.id,
       'title': movie.title,
       'description': movie.description,
@@ -314,8 +351,8 @@ class DBHelper {
         'rating': movie.rating,
         'mediaType': movie.mediaType,
       },
-      where: 'ownerId = ? AND id = ? AND mediaType = ?',
-      whereArgs: [UserScope.currentOwner, movie.id, movie.mediaType],
+      where: 'ownerId = ? AND profileId = ? AND id = ? AND mediaType = ?',
+      whereArgs: [UserScope.currentOwner, ProfileScope.currentProfileId, movie.id, movie.mediaType],
     );
   }
 
@@ -332,8 +369,8 @@ class DBHelper {
     final db = await database;
     await db.delete(
       'watchlist',
-      where: 'ownerId = ? AND id = ? AND mediaType = ?',
-      whereArgs: [UserScope.currentOwner, id.toString(), mediaType],
+      where: 'ownerId = ? AND profileId = ? AND id = ? AND mediaType = ?',
+      whereArgs: [UserScope.currentOwner, ProfileScope.currentProfileId, id.toString(), mediaType],
     );
   }
 
@@ -342,8 +379,8 @@ class DBHelper {
     final db = await database;
     final result = await db.query(
       'watchlist',
-      where: 'ownerId = ? AND id = ? AND mediaType = ?',
-      whereArgs: [UserScope.currentOwner, id.toString(), mediaType],
+      where: 'ownerId = ? AND profileId = ? AND id = ? AND mediaType = ?',
+      whereArgs: [UserScope.currentOwner, ProfileScope.currentProfileId, id.toString(), mediaType],
     );
     return result.isNotEmpty;
   }
@@ -355,8 +392,8 @@ class DBHelper {
     final db = await database;
     final result = await db.query(
       'watchlist',
-      where: 'ownerId = ?',
-      whereArgs: [UserScope.currentOwner],
+      where: 'ownerId = ? AND profileId = ?',
+      whereArgs: [UserScope.currentOwner, ProfileScope.currentProfileId],
       orderBy: orderBy,
     );
 
@@ -388,8 +425,8 @@ class DBHelper {
     final db = await database;
     final result = await db.query(
       'watchlist',
-      where: 'ownerId = ? AND isDownloaded = 1',
-      whereArgs: [UserScope.currentOwner],
+      where: 'ownerId = ? AND profileId = ? AND isDownloaded = 1',
+      whereArgs: [UserScope.currentOwner, ProfileScope.currentProfileId],
     );
 
     return result.map((json) {
@@ -434,8 +471,8 @@ class DBHelper {
     final db = await database;
     final result = await db.query(
       'watchlist',
-      where: 'ownerId = ? AND (title LIKE ? OR description LIKE ?)',
-      whereArgs: [UserScope.currentOwner, '%$keyword%', '%$keyword%'],
+      where: 'ownerId = ? AND profileId = ? AND (title LIKE ? OR description LIKE ?)',
+      whereArgs: [UserScope.currentOwner, ProfileScope.currentProfileId, '%$keyword%', '%$keyword%'],
     );
 
     return result.map((json) {

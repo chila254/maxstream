@@ -11,13 +11,17 @@ import com.maxstream.app.data.model.MediaItem
  */
 object WatchlistRepository {
     private const val PREFS = "maxstream_tv_watchlist"
-    private const val KEY_ITEMS = "items"
 
     private fun prefs(context: Context): SharedPreferences =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
+    private fun profileKey(context: Context): String {
+        val profileId = ProfileScope.activeProfileId(context)
+        return "items:$profileId"
+    }
+
     fun getAll(context: Context): List<MediaItem> {
-        val raw = prefs(context).getString(KEY_ITEMS, null) ?: return emptyList()
+        val raw = prefs(context).getString(profileKey(context), null) ?: return emptyList()
         return runCatching {
             val arr = org.json.JSONArray(raw)
             (0 until arr.length()).mapNotNull { i ->
@@ -61,7 +65,7 @@ object WatchlistRepository {
     private fun save(context: Context, items: List<MediaItem>) {
         val arr = org.json.JSONArray()
         items.forEach { arr.put(it.toJson()) }
-        prefs(context).edit().putString(KEY_ITEMS, arr.toString()).apply()
+        prefs(context).edit().putString(profileKey(context), arr.toString()).apply()
     }
 
     private fun MediaItem.toJson(): org.json.JSONObject {

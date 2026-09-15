@@ -3,6 +3,7 @@ package com.maxstream.app.data.repository
 import android.content.Context
 import com.maxstream.app.core.Constants
 import com.maxstream.app.data.local.SessionManager
+import com.maxstream.app.data.local.ProfileScope
 import com.maxstream.app.data.local.WatchProgressRepository
 import com.maxstream.app.data.local.WatchlistRepository
 import com.maxstream.app.data.model.MediaItem
@@ -132,6 +133,7 @@ object CloudSyncRepository {
     /** Pushes a watchlist entry to RTDB (upsert). */
     suspend fun pushWatchlist(context: Context, item: MediaItem) {
         val uid = SessionManager.uid(context)
+        val profileId = ProfileScope.activeProfileId(context)
         if (uid.isEmpty() || item.id == 0) return
         val key = watchlistKey(item.id.toString(), item.mediaType)
         val body = JSONObject().apply {
@@ -147,14 +149,15 @@ object CloudSyncRepository {
             put("mediaType", item.mediaType)
             put("country", "")
         }
-        putJson("/users/$uid/watchlist/$key", body, context)
+        putJson("/users/$uid/profiles/$profileId/watchlist/$key", body, context)
     }
 
     /** Deletes a watchlist entry from RTDB. */
     suspend fun deleteWatchlist(context: Context, id: String, mediaType: String) {
         val uid = SessionManager.uid(context)
+        val profileId = ProfileScope.activeProfileId(context)
         if (uid.isEmpty() || id.isEmpty()) return
-        deleteJson("/users/$uid/watchlist/${watchlistKey(id, mediaType)}", context)
+        deleteJson("/users/$uid/profiles/$profileId/watchlist/${watchlistKey(id, mediaType)}", context)
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -180,6 +183,7 @@ object CloudSyncRepository {
         forceWatched: Boolean = false,
     ) {
         val uid = SessionManager.uid(context)
+        val profileId = ProfileScope.activeProfileId(context)
         if (uid.isEmpty() || tmdbId.isEmpty()) return
         val percentage = if (durationSeconds > 0)
             (positionSeconds.toDouble() / durationSeconds * 100).coerceIn(0.0, 100.0)
@@ -201,7 +205,7 @@ object CloudSyncRepository {
         }
         val key = watchHistoryKey(tmdbId, isMovie, season, episode)
         android.util.Log.d("CloudSyncRepo", "pushWatchProgress: $key pos=${positionSeconds}s dur=${durationSeconds}s pct=$percentage%")
-        putJson("/users/$uid/watch_history/$key", body, context)
+        putJson("/users/$uid/profiles/$profileId/watch_history/$key", body, context)
     }
 
     /** Deletes watch progress from RTDB. */
@@ -213,9 +217,10 @@ object CloudSyncRepository {
         episode: Int,
     ) {
         val uid = SessionManager.uid(context)
+        val profileId = ProfileScope.activeProfileId(context)
         if (uid.isEmpty() || tmdbId.isEmpty()) return
         val key = watchHistoryKey(tmdbId, isMovie, season, episode)
-        deleteJson("/users/$uid/watch_history/$key", context)
+        deleteJson("/users/$uid/profiles/$profileId/watch_history/$key", context)
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -228,13 +233,14 @@ object CloudSyncRepository {
      * Returns which collections changed so screens can refresh. */
     suspend fun pullToDevice(context: Context): SyncChange {
         val uid = SessionManager.uid(context)
+        val profileId = ProfileScope.activeProfileId(context)
         if (uid.isEmpty() || auth(context).isEmpty()) return SyncChange(false, false)
 
         var historyChanged = false
         var watchlistChanged = false
 
         runCatching {
-            val historyJson = getJson("/users/$uid/watch_history", context)
+            val historyJson = getJson("/users/$uid/profiles/$profileId/watch_history", context)
             if (historyJson != null) {
                 val keys = historyJson.keys()
                 while (keys.hasNext()) {
@@ -270,7 +276,7 @@ object CloudSyncRepository {
         }
 
         runCatching {
-            val watchlistJson = getJson("/users/$uid/watchlist", context)
+            val watchlistJson = getJson("/users/$uid/profiles/$profileId/watchlist", context)
             val cloudKeys = mutableSetOf<String>()
             if (watchlistJson != null) {
                 val keys = watchlistJson.keys()

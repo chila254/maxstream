@@ -44,11 +44,11 @@ class CloudSyncService {
 
   static String? get _uid => FirebaseAuth.instance.currentUser?.uid;
 
-  static DatabaseReference _watchHistoryRef(String uid) =>
-      _rtdb.ref('users/$uid/watch_history');
+  static DatabaseReference _watchHistoryRef(String uid, String profileId) =>
+      _rtdb.ref('users/$uid/profiles/$profileId/watch_history');
 
-  static DatabaseReference _watchlistRef(String uid) =>
-      _rtdb.ref('users/$uid/watchlist');
+  static DatabaseReference _watchlistRef(String uid, String profileId) =>
+      _rtdb.ref('users/$uid/profiles/$profileId/watchlist');
 
   static DatabaseReference _prefsRef(String uid) =>
       _rtdb.ref('users/$uid/provider_preferences');
@@ -100,15 +100,18 @@ class CloudSyncService {
     final uid = _uid;
     if (uid == null || _listening) return;
     _listening = true;
+    // Register profile-change callback to restart listeners
+    ProfileScope.onProfileChanged = restartListeners;
     // Backfill any pre-existing local watchlist entries to the cloud as soon
     // as we're signed in, so other devices can pull them.
     unawaited(pushEntireWatchlist());
-    _historySub = _watchHistoryRef(uid).onValue.listen(
+    final profileId = ProfileScope.currentProfileId;
+    _historySub = _watchHistoryRef(uid, profileId).onValue.listen(
       _onHistoryEvent,
       onError: (Object e) =>
           debugPrint('CloudSync: history listener error: $e'),
     );
-    _watchlistSub = _watchlistRef(uid).onValue.listen(
+    _watchlistSub = _watchlistRef(uid, profileId).onValue.listen(
       _onWatchlistEvent,
       onError: (Object e) =>
           debugPrint('CloudSync: watchlist listener error: $e'),
@@ -143,6 +146,13 @@ class CloudSyncService {
     _subtitlePrefsSub = null;
     _profilesSub = null;
     _listening = false;
+    ProfileScope.onProfileChanged = null;
+  }
+
+  /// Restarts listeners for the current profile (call after profile switch).
+  static void restartListeners() {
+    stopListening();
+    startListening();
   }
 
   static void _onHistoryEvent(DatabaseEvent event) {
@@ -237,6 +247,7 @@ class CloudSyncService {
     final uid = _uid;
     final tmdbId = (item['tmdbId'] ?? '').toString();
     if (uid == null || tmdbId.isEmpty || tmdbId == '0') return;
+    final profileId = ProfileScope.currentProfileId;
     final key = watchHistoryKey(
       tmdbId,
       item['isMovie'] == true,
@@ -247,7 +258,7 @@ class CloudSyncService {
       // Always write the entry — even when isWatched=true.
       // The receiving platform imports it and the isWatched flag causes
       // getContinueWatching() to filter it out (no stale entries left behind).
-      await _watchHistoryRef(uid).child(key).set({
+      await _watchHistoryRef(uid, profileId).child(key).set({
         ...item,
         'updatedAt': ServerValue.timestamp,
       });
@@ -264,8 +275,9 @@ class CloudSyncService {
   ) async {
     final uid = _uid;
     if (uid == null || tmdbId.isEmpty) return;
+    final profileId = ProfileScope.currentProfileId;
     try {
-      await _watchHistoryRef(uid)
+      await _watchHistoryRef(uid, profileId)
           .child(watchHistoryKey(tmdbId, isMovie, season, episode))
           .remove();
     } catch (e) {
@@ -276,8 +288,9 @@ class CloudSyncService {
   static Future<void> pushWatchlist(Movie movie) async {
     final uid = _uid;
     if (uid == null || movie.id.isEmpty || movie.id == '0') return;
+    final profileId = ProfileScope.currentProfileId;
     try {
-      await _watchlistRef(uid).child(watchlistKey(movie.id, movie.mediaType)).set({
+      await _watchlistRef(uid, profileId).child(watchlistKey(movie.id, movie.mediaType)).set({
         'id': movie.id,
         'title': movie.title,
         'description': movie.description,
@@ -300,8 +313,9 @@ class CloudSyncService {
   static Future<void> deleteWatchlist(String id, String mediaType) async {
     final uid = _uid;
     if (uid == null || id.isEmpty) return;
+    final profileId = ProfileScope.currentProfileId;
     try {
-      await _watchlistRef(uid).child(watchlistKey(id, mediaType)).remove();
+      await _watchlistRef(uid, profileId).child(watchlistKey(id, mediaType)).remove();
     } catch (e) {
       debugPrint('CloudSync: watchlist delete failed: $e');
     }
@@ -368,7 +382,8 @@ class CloudSyncService {
     if (uid == null || _pullInProgress) return;
     _pullInProgress = true;
     try {
-      final historySnap = await _watchHistoryRef(uid).get();
+      final profileId = ProfileScope.currentProfileId;
+      final historySnap = await _watchHistoryRef(uid, profileId).get();
       if (historySnap.value != null) {
         final data = Map<String, dynamic>.from(historySnap.value as Map);
         for (final entry in data.entries) {
@@ -377,7 +392,7 @@ class CloudSyncService {
         }
       }
 
-      final watchlistSnap = await _watchlistRef(uid).get();
+      final watchlistSnap = await _watchlistRef(uid, profileId).get();
        if (watchlistSnap.value != null) {
         final data = Map<String, dynamic>.from(watchlistSnap.value as Map);
         final cloudKeys = <String>{};
