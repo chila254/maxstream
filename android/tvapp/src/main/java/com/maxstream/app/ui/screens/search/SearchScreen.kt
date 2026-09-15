@@ -269,6 +269,7 @@ fun SearchScreen(
                 .padding(end = 34.dp, top = 24.dp, bottom = 24.dp),
             contentPadding = PaddingValues(bottom = 56.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
+            overscrollEffect = null,
         ) {
             when {
                 isSearching -> item {
