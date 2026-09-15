@@ -17,18 +17,26 @@ import org.json.JSONObject
  */
 object WatchProgressRepository {
     private const val PREFS = "maxstream_tv_watch_progress"
-    private const val KEY_RECENT = "recent"
     private const val POSITION_SAVE_THRESHOLD_SECONDS = 30
+
+    /** Profile-scoped key for the "recently watched" list. */
+    private fun recentKey(context: Context): String {
+        val profileId = ProfileScope.activeProfileId(context)
+        return "recent:$profileId"
+    }
 
     private fun prefs(context: Context): SharedPreferences =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-    private fun progressKey(tmdbId: String, isMovie: Boolean, season: Int, episode: Int) =
-        "progress:$tmdbId:$isMovie:$season:$episode"
+    private fun progressKey(context: Context, tmdbId: String, isMovie: Boolean, season: Int, episode: Int): String {
+        val profileId = ProfileScope.activeProfileId(context)
+        return "progress:${profileId}:$tmdbId:$isMovie:$season:$episode"
+    }
 
     /** Resume position in seconds for the given title (0 when none). */
     fun loadPosition(context: Context, tmdbId: String, isMovie: Boolean, season: Int, episode: Int): Long {
-        val raw = prefs(context).getString(progressKey(tmdbId, isMovie, season, episode), null) ?: return 0L
+        val key = progressKey(context, tmdbId, isMovie, season, episode)
+        val raw = prefs(context).getString(key, null) ?: return 0L
         return runCatching { JSONObject(raw).optLong("position", 0L) }.getOrDefault(0L)
     }
 
@@ -68,7 +76,7 @@ object WatchProgressRepository {
                 positionSeconds * 100.0 / durationSeconds else 0.0)
             .put("isWatched", watched)
             .put("timestamp", System.currentTimeMillis())
-        prefs(context).edit().putString(progressKey(tmdbId, isMovie, season, episode), entry.toString()).apply()
+        prefs(context).edit().putString(progressKey(context, tmdbId, isMovie, season, episode), entry.toString()).apply()
         upsertRecent(context, entry)
     }
 
@@ -88,7 +96,7 @@ object WatchProgressRepository {
         seriesTitle: String = "",
         episodeName: String = "",
     ) {
-        val key = progressKey(tmdbId, isMovie, season, episode)
+        val key = progressKey(context, tmdbId, isMovie, season, episode)
         val existing = prefs(context).getString(key, null)
         val entry = runCatching { JSONObject(existing) }.getOrElse { JSONObject() }
             .put("tmdbId", tmdbId)
@@ -147,7 +155,7 @@ object WatchProgressRepository {
                 positionSeconds * 100.0 / durationSeconds else 0.0)
             .put("isWatched", isWatched)
             .put("timestamp", if (timestamp > 0L) timestamp else System.currentTimeMillis())
-        val key = progressKey(tmdbId, isMovie, season, episode)
+        val key = progressKey(context, tmdbId, isMovie, season, episode)
         val before = prefs(context).getString(key, null)
         if (before != null) {
             val existingTs = runCatching { JSONObject(before).optLong("timestamp", 0L) }.getOrDefault(0L)
@@ -166,7 +174,7 @@ object WatchProgressRepository {
 
     /** Clears the resume position (used when the user watches to the end). */
     fun clearPosition(context: Context, tmdbId: String, isMovie: Boolean, season: Int, episode: Int) {
-        prefs(context).edit().remove(progressKey(tmdbId, isMovie, season, episode)).apply()
+        prefs(context).edit().remove(progressKey(context, tmdbId, isMovie, season, episode)).apply()
     }
 
     /**
@@ -174,9 +182,9 @@ object WatchProgressRepository {
      * reconciliation so a title deleted on the phone disappears from the TV.
      */
     fun removeEntry(context: Context, tmdbId: String, isMovie: Boolean, season: Int, episode: Int) {
-        prefs(context).edit().remove(progressKey(tmdbId, isMovie, season, episode)).apply()
+        prefs(context).edit().remove(progressKey(context, tmdbId, isMovie, season, episode)).apply()
         val current = runCatching {
-            JSONArray(prefs(context).getString(KEY_RECENT, "[]"))
+            JSONArray(prefs(context).getString(recentKey(context), "[]"))
         }.getOrDefault(JSONArray())
         val key = if (isMovie) "$tmdbId:movie" else "$tmdbId:tv:$season:$episode"
         val filtered = JSONArray()
@@ -189,12 +197,12 @@ object WatchProgressRepository {
             }
             if (itemKey != key) filtered.put(item)
         }
-        prefs(context).edit().putString(KEY_RECENT, filtered.toString()).apply()
+        prefs(context).edit().putString(recentKey(context), filtered.toString()).apply()
     }
 
     /** Recently-watched entries, newest first, for the Home Continue Watching row. */
     fun recent(context: Context, limit: Int = 20): List<WatchEntry> {
-        val raw = prefs(context).getString(KEY_RECENT, null) ?: return emptyList()
+        val raw = prefs(context).getString(recentKey(context), null) ?: return emptyList()
         return runCatching {
             val arr = JSONArray(raw)
             (0 until arr.length()).mapNotNull { i ->
@@ -209,7 +217,7 @@ object WatchProgressRepository {
 
     private fun upsertRecent(context: Context, entry: JSONObject) {
         val current = runCatching {
-            JSONArray(prefs(context).getString(KEY_RECENT, "[]"))
+            JSONArray(prefs(context).getString(recentKey(context), "[]"))
         }.getOrDefault(JSONArray())
         // Same key as Dart's global history dedup: movies match on tmdbId only,
         // series on tmdbId+season+episode, so different episodes of a series
@@ -230,7 +238,7 @@ object WatchProgressRepository {
             if (itemKey != key) filtered.put(item)
         }
         filtered.put(entry)
-        prefs(context).edit().putString(KEY_RECENT, filtered.toString()).apply()
+        prefs(context).edit().putString(recentKey(context), filtered.toString()).apply()
     }
 }
 

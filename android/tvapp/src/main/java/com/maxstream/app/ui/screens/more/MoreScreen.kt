@@ -341,6 +341,7 @@ fun MoreScreen(
                 FilledTonalButton(
                     onClick = {
                         showSignOutConfirm = false
+                        com.maxstream.app.data.local.ProfileScope.clearAll(context)
                         SessionManager.signOut(context)
                         onSignOut()
                     },

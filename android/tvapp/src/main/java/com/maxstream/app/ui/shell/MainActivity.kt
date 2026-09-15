@@ -47,6 +47,7 @@ import androidx.navigation.compose.rememberNavController
 import com.maxstream.app.data.local.WatchEntryCompat
 import com.maxstream.app.ui.navigation.Screen
 import com.maxstream.app.ui.screens.auth.LoginScreen
+import com.maxstream.app.ui.screens.profile.ProfileSelectScreen
 import com.maxstream.app.ui.screens.details.DetailsScreen
 import com.maxstream.app.ui.screens.genre.GenreScreen
 import com.maxstream.app.ui.screens.home.HomeScreen
@@ -219,7 +220,7 @@ private fun TvAppRoot() {
                 val context = androidx.compose.ui.platform.LocalContext.current
                 SplashScreen(onComplete = {
                     val loggedIn = com.maxstream.app.data.local.SessionManager.isLoggedIn(context)
-                    val destination = if (loggedIn) Screen.Shell.route else Screen.Login.route
+                    val destination = if (loggedIn) Screen.ProfileSelect.route else Screen.Login.route
                     shellNavController.navigate(destination) {
                         popUpTo(Screen.Splash.route) { inclusive = true }
                     }
@@ -227,10 +228,19 @@ private fun TvAppRoot() {
             }
             composable(Screen.Login.route) {
                 LoginScreen(onLoginSuccess = {
-                    shellNavController.navigate(Screen.Shell.route) {
+                    shellNavController.navigate(Screen.ProfileSelect.route) {
                         popUpTo(Screen.Login.route) { inclusive = true }
                     }
                 })
+            }
+            composable(Screen.ProfileSelect.route) {
+                ProfileSelectScreen(
+                    onProfileSelected = {
+                        shellNavController.navigate(Screen.Shell.route) {
+                            popUpTo(Screen.ProfileSelect.route) { inclusive = true }
+                        }
+                    },
+                )
             }
             composable(Screen.Shell.route) {
                 TvShell(
