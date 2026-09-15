@@ -111,7 +111,7 @@ object ProfileRepository {
         val existing = ProfileScope.getCachedProfiles(context)
         if (existing.size >= 5) return null
 
-        val id = "p_${System.currentTimeMillis()}_${(System.currentTimeMillis() % 100000).toString().padLeft(5, '0')}"
+        val id = "p_${System.currentTimeMillis()}_${(System.currentTimeMillis() % 100000).toString().padStart(5, '0')}"
         val profile = ProfileData(
             id = id,
             name = name,
