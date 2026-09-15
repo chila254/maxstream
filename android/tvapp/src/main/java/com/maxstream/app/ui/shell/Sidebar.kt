@@ -27,6 +27,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -44,12 +45,16 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.maxstream.app.R
+import com.maxstream.app.data.local.ProfileData
+import com.maxstream.app.data.local.ProfileScope
+import com.maxstream.app.data.local.WatchlistRepository
 import kotlinx.coroutines.launch
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -95,6 +100,7 @@ fun Sidebar(
     onItemSelected: (Int) -> Unit,
     onReturnToContent: () -> Unit,
     onFocusEntered: () -> Unit = {},
+    onSwitchProfile: () -> Unit = {},
     active: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
@@ -111,9 +117,27 @@ fun Sidebar(
     // appear to do nothing. A plain computed value re-evaluates on every
     // recomposition, which is exactly what we need here.
     val isExpanded = focusedIndex >= 0 || active
+    val context = LocalContext.current
 
     val coroutineScope = rememberCoroutineScope()
     val listState = rememberLazyListState()
+
+    // Load profiles for the profile switcher
+    var profiles by remember { mutableStateOf(emptyList<ProfileData>()) }
+    var activeProfileId by remember { mutableStateOf("") }
+
+    LaunchedEffect(Unit) {
+        profiles = ProfileScope.getCachedProfiles(context)
+        activeProfileId = ProfileScope.activeProfileId(context)
+    }
+
+    // Refresh active profile when sidebar expands (after returning from profile select)
+    LaunchedEffect(isExpanded) {
+        if (isExpanded) {
+            activeProfileId = ProfileScope.activeProfileId(context)
+            profiles = ProfileScope.getCachedProfiles(context)
+        }
+    }
 
     // When [active] changes from false → true, request focus on the
     // selected item until it actually gains focus. Mirrors Dart's
@@ -178,22 +202,85 @@ fun Sidebar(
             ),
         contentAlignment = Alignment.Center,
     ) {
-        // Logo pinned at top
-        Box(
+        // Profile switcher at top (replaces logo when expanded)
+        Column(
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .padding(top = 24.dp)
-                .size(40.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(Color.Black),
-            contentAlignment = Alignment.Center,
+                .padding(top = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Icon(
-                painter = painterResource(R.drawable.maxstream_logo),
-                contentDescription = "MaxStream",
-                tint = Color.Unspecified,
-                modifier = Modifier.size(32.dp),
-            )
+            if (isExpanded && profiles.isNotEmpty()) {
+                // Expanded: show profile list
+                Text(
+                    text = "Switch Profile",
+                    color = Color.White.copy(alpha = 0.5f),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.W500,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+                profiles.forEach { profile ->
+                    val isActive = profile.id == activeProfileId
+                    val profileColors = ProfileSidebarColors[profile.colorIndex % ProfileSidebarColors.size]
+                    Row(
+                        modifier = Modifier
+                            .width(196.dp)
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(if (isActive) Color(0x38FFFFFF) else Color.Transparent)
+                            .clickable {
+                                ProfileScope.setActiveProfileId(context, profile.id)
+                                activeProfileId = profile.id
+                                onSwitchProfile()
+                            }
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(28.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(profileColors),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                imageVector = ProfileSidebarIcon(profile.iconCodePoint),
+                                contentDescription = profile.name,
+                                tint = Color.White,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = profile.name,
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = if (isActive) FontWeight.W600 else FontWeight.W400,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (isActive) {
+                            Text("✓", color = Color(0xFFE50914), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    Spacer(Modifier.height(2.dp))
+                }
+            } else {
+                // Collapsed: show logo
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color.Black),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.maxstream_logo),
+                        contentDescription = "MaxStream",
+                        tint = Color.Unspecified,
+                        modifier = Modifier.size(32.dp),
+                    )
+                }
+            }
         }
 
         // Nav items in a LazyColumn for scroll support
@@ -367,4 +454,31 @@ private fun SidebarPillItem(
             }
         }
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Profile sidebar helpers (matches ProfileSelectScreen palette)
+// ─────────────────────────────────────────────────────────────────────────────
+
+private val ProfileSidebarColors = listOf(
+    Color(0xFFE50914), Color(0xFF6366F1), Color(0xFF8B5CF6),
+    Color(0xFFEC4899), Color(0xFFF59E0B), Color(0xFF10B981),
+    Color(0xFF06B6D4), Color(0xFF3B82F6), Color(0xFFEF4444),
+    Color(0xFF14B8A6), Color(0xFFF97316), Color(0xFFA855F7),
+)
+
+private fun ProfileSidebarIcon(codePoint: Int): androidx.compose.ui.graphics.vector.ImageVector = when (codePoint) {
+    0xe4ff -> androidx.compose.material.icons.Icons.Filled.Person
+    0xe038 -> androidx.compose.material.icons.Icons.Filled.Movie
+    0xe30f -> androidx.compose.material.icons.Icons.Filled.SportsEsports
+    0xe301 -> androidx.compose.material.icons.Icons.Filled.MusicNote
+    0xe838 -> androidx.compose.material.icons.Icons.Filled.Star
+    0xe558 -> androidx.compose.material.icons.Icons.Filled.RocketLaunch
+    0xe06d -> androidx.compose.material.icons.Icons.Filled.AutoAwesome
+    0xe91a -> androidx.compose.material.icons.Icons.Filled.Pets
+    0xe3a8 -> androidx.compose.material.icons.Icons.Filled.Brush
+    0xe0e3 -> androidx.compose.material.icons.Icons.Filled.Psychology
+    0xe0ca -> androidx.compose.material.icons.Icons.Filled.Public
+    0xe537 -> androidx.compose.material.icons.Icons.Filled.Bolt
+    else -> androidx.compose.material.icons.Icons.Filled.Person
 }

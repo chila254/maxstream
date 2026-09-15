@@ -340,12 +340,14 @@ private fun TvShell(
             onItemSelected  = { index -> appState.selectTab(index) },
             onReturnToContent = {
                 appState.updateFocusOnSidebar(false)
-                // Mirrors Dart's _focusContent(): move focus off the pill so the
-                // sidebar collapses, then bump the tick so the active screen
-                // re-seeds its own (last) focus instead of parking on the box.
                 requestContentFocus()
             },
             onFocusEntered  = { appState.updateFocusOnSidebar(true) },
+            onSwitchProfile = {
+                shellNavController.navigate(Screen.ProfileSelect.route) {
+                    popUpTo(Screen.Shell.route) { inclusive = true }
+                }
+            },
             active          = appState.focusOnSidebar,
         )
 

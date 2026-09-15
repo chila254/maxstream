@@ -44,8 +44,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -129,11 +131,12 @@ fun ProfileSelectScreen(
         isLoading = false
     }
 
-    // Fetch hero content — movies + series
+    // Fetch hero content — movies + series (IO thread for blocking OkHttp calls)
     LaunchedEffect(Unit) {
         try {
-            val trendingMovies = tmdb.trendingMovies()
-            val trendingSeries = tmdb.trendingSeries()
+            val (trendingMovies, trendingSeries) = withContext(Dispatchers.IO) {
+                Pair(tmdb.trendingMovies(), tmdb.trendingSeries())
+            }
             val items = mutableListOf<HeroItem>()
 
             for (m in trendingMovies) {
@@ -429,8 +432,8 @@ private fun ProfileCard(
             Spacer(Modifier.height(4.dp))
             Text(
                 text = "MENU to delete",
-                color = Color.White.copy(alpha = 0.35f),
-                fontSize = 10.sp,
+                color = Color.White.copy(alpha = 0.6f),
+                fontSize = 11.sp,
             )
         }
     }
