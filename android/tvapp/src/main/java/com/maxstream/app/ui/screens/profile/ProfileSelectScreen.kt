@@ -80,6 +80,13 @@ import com.maxstream.app.ui.theme.Primary
 private const val HERO_CYCLE_MS = 5000L
 private const val HERO_CROSSFADE_MS = 800
 
+private data class HeroItem(
+    val backdropUrl: String,
+    val title: String,
+    val subtitle: String,
+    val isSeries: Boolean,
+)
+
 /**
  * TV profile selection screen — Netflix-style with auto-rotating hero background
  * showing trending movies and series. Profile cards overlay on top with a dark
@@ -99,7 +106,7 @@ fun ProfileSelectScreen(
     var deleteTarget by remember { mutableStateOf<ProfileData?>(null) }
 
     // Hero carousel state
-    var heroItems by remember { mutableStateOf(emptyList<MediaItem>()) }
+    var heroItems by remember { mutableStateOf(emptyList<HeroItem>()) }
     var heroIndex by remember { mutableIntStateOf(0) }
     var heroVisible by remember { mutableStateOf(true) }
 
@@ -108,14 +115,12 @@ fun ProfileSelectScreen(
         val cloudProfiles = ProfileRepository.pullProfiles(context)
         profiles = cloudProfiles
 
-        // Auto-select if single profile
         if (cloudProfiles.size == 1) {
             ProfileScope.setActiveProfileId(context, cloudProfiles.first().id)
             onProfileSelected()
             return@LaunchedEffect
         }
 
-        // Auto-select if only cached profile
         if (ProfileScope.autoSelectIfSingle(context)) {
             onProfileSelected()
             return@LaunchedEffect
@@ -124,16 +129,37 @@ fun ProfileSelectScreen(
         isLoading = false
     }
 
-    // Fetch hero content in background
+    // Fetch hero content — movies + series
     LaunchedEffect(Unit) {
         try {
-            val trending = tmdb.trendingMovies()
-            val onAir = tmdb.onTheAirSeries()
-            val combined = (trending + onAir)
-                .filter { !it.backdropPath.isNullOrBlank() }
-                .shuffled()
-                .take(10)
-            heroItems = combined
+            val trendingMovies = tmdb.trendingMovies()
+            val trendingSeries = tmdb.trendingSeries()
+            val items = mutableListOf<HeroItem>()
+
+            for (m in trendingMovies) {
+                val bp = m.backdropPath
+                if (bp.isNullOrBlank()) continue
+                val year = m.releaseDate.take(4)
+                items.add(HeroItem(
+                    backdropUrl = "${Constants.TMDB_IMAGE_BASE}/w1280$bp",
+                    title = m.title,
+                    subtitle = if (year.length >= 4) "Movie · $year" else "Movie",
+                    isSeries = false,
+                ))
+            }
+
+            for (s in trendingSeries) {
+                val bp = s.backdropPath
+                if (bp.isNullOrBlank()) continue
+                items.add(HeroItem(
+                    backdropUrl = "${Constants.TMDB_IMAGE_BASE}/w1280$bp",
+                    title = s.title,
+                    subtitle = "Series",
+                    isSeries = true,
+                ))
+            }
+
+            heroItems = items.shuffled().take(12)
         } catch (_: Exception) {}
     }
 
@@ -142,7 +168,6 @@ fun ProfileSelectScreen(
         if (heroItems.size < 2) return@LaunchedEffect
         while (true) {
             delay(HERO_CYCLE_MS)
-            // Crossfade: fade out, swap, fade in
             heroVisible = false
             delay(HERO_CROSSFADE_MS.toLong())
             heroIndex = (heroIndex + 1) % heroItems.size
@@ -162,9 +187,8 @@ fun ProfileSelectScreen(
         // Hero background image
         if (heroItems.isNotEmpty()) {
             val item = heroItems[heroIndex % heroItems.size]
-            val backdropUrl = "${Constants.TMDB_IMAGE_BASE}/w1280${item.backdropPath}"
             AsyncImage(
-                model = backdropUrl,
+                model = item.backdropUrl,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
@@ -173,16 +197,17 @@ fun ProfileSelectScreen(
             )
         }
 
-        // Dark gradient overlay for readability
+        // Dark gradient overlay
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
-                            Color.Black.copy(alpha = 0.3f),
-                            Color.Black.copy(alpha = 0.7f),
-                            Color.Black.copy(alpha = 0.95f),
+                            Color.Black.copy(alpha = 0.2f),
+                            Color.Black.copy(alpha = 0.5f),
+                            Color.Black.copy(alpha = 0.85f),
+                            Color.Black,
                         ),
                     ),
                 ),
@@ -205,57 +230,94 @@ fun ProfileSelectScreen(
             }
         } else {
             Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = 60.dp),
-                verticalArrangement = Arrangement.Center,
             ) {
-                Text(
-                    text = "Who's watching?",
-                    color = Color.White,
-                    fontSize = 36.sp,
-                    fontWeight = FontWeight.Bold,
-                )
+                Spacer(Modifier.height(60.dp))
 
-                Spacer(Modifier.height(48.dp))
-
-                // Profile grid — 3 columns max, D-pad navigable
-                val columns = profiles.size.coerceAtMost(3).coerceAtLeast(1)
-                val rows = if (profiles.isEmpty()) 0 else (profiles.size + columns - 1) / columns
-
-                for (row in 0 until rows) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(32.dp, Alignment.CenterHorizontally),
-                        modifier = Modifier.padding(bottom = 24.dp),
-                    ) {
-                        for (col in 0 until columns) {
-                            val index = row * columns + col
-                            if (index < profiles.size) {
-                                ProfileCard(
-                                    profile = profiles[index],
-                                    isFocused = focusedIndex == index,
-                                    onFocused = { focusedIndex = index },
-                                    onClick = {
-                                        ProfileScope.setActiveProfileId(context, profiles[index].id)
-                                        onProfileSelected()
-                                    },
-                                    onDelete = { deleteTarget = profiles[index] },
-                                )
-                            } else {
-                                Spacer(Modifier.size(120.dp))
-                            }
-                        }
+                // Hero info overlay — title + subtitle + branding
+                if (heroItems.isNotEmpty()) {
+                    val item = heroItems[heroIndex % heroItems.size]
+                    Column {
+                        Text(
+                            text = "MaxStream",
+                            color = Color(0xFFE50914),
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.5.sp,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            text = item.title,
+                            color = Color.White,
+                            fontSize = 22.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 2,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = item.subtitle,
+                            color = Color.White.copy(alpha = 0.7f),
+                            fontSize = 14.sp,
+                        )
                     }
                 }
 
-                Spacer(Modifier.height(24.dp))
+                Spacer(Modifier.weight(1f))
 
-                Text(
-                    text = "Press OK to select a profile",
-                    color = Color.White.copy(alpha = 0.4f),
-                    fontSize = 14.sp,
-                )
+                // Profile grid centered
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        text = "Who's watching?",
+                        color = Color.White,
+                        fontSize = 36.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+
+                    Spacer(Modifier.height(48.dp))
+
+                    val columns = profiles.size.coerceAtMost(3).coerceAtLeast(1)
+                    val rows = if (profiles.isEmpty()) 0 else (profiles.size + columns - 1) / columns
+
+                    for (row in 0 until rows) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(32.dp, Alignment.CenterHorizontally),
+                            modifier = Modifier.padding(bottom = 24.dp),
+                        ) {
+                            for (col in 0 until columns) {
+                                val index = row * columns + col
+                                if (index < profiles.size) {
+                                    ProfileCard(
+                                        profile = profiles[index],
+                                        isFocused = focusedIndex == index,
+                                        onFocused = { focusedIndex = index },
+                                        onClick = {
+                                            ProfileScope.setActiveProfileId(context, profiles[index].id)
+                                            onProfileSelected()
+                                        },
+                                        onDelete = { deleteTarget = profiles[index] },
+                                    )
+                                } else {
+                                    Spacer(Modifier.size(120.dp))
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(Modifier.height(24.dp))
+
+                    Text(
+                        text = "Press OK to select a profile",
+                        color = Color.White.copy(alpha = 0.4f),
+                        fontSize = 14.sp,
+                    )
+                }
+
+                Spacer(Modifier.height(60.dp))
             }
         }
     }
@@ -392,17 +454,17 @@ private val ProfileColors = listOf(
 
 /** Map Flutter icon codePoints to Compose Material Icons (same icons, cross-platform). */
 private fun profileIconFor(codePoint: Int): ImageVector = when (codePoint) {
-    0xe4ff -> Icons.Filled.Person            // person
-    0xe038 -> Icons.Filled.Movie             // movie
-    0xe30f -> Icons.Filled.SportsEsports     // sports_esports
-    0xe301 -> Icons.Filled.MusicNote         // music_note
-    0xe838 -> Icons.Filled.Star              // star
-    0xe558 -> Icons.Filled.RocketLaunch      // rocket_launch
-    0xe06d -> Icons.Filled.AutoAwesome       // auto_awesome
-    0xe91a -> Icons.Filled.Pets              // pets
-    0xe3a8 -> Icons.Filled.Brush             // brush
-    0xe0e3 -> Icons.Filled.Psychology        // psychology
-    0xe0ca -> Icons.Filled.Public            // public
-    0xe537 -> Icons.Filled.Bolt              // bolt
-    else -> Icons.Filled.Person              // fallback
+    0xe4ff -> Icons.Filled.Person
+    0xe038 -> Icons.Filled.Movie
+    0xe30f -> Icons.Filled.SportsEsports
+    0xe301 -> Icons.Filled.MusicNote
+    0xe838 -> Icons.Filled.Star
+    0xe558 -> Icons.Filled.RocketLaunch
+    0xe06d -> Icons.Filled.AutoAwesome
+    0xe91a -> Icons.Filled.Pets
+    0xe3a8 -> Icons.Filled.Brush
+    0xe0e3 -> Icons.Filled.Psychology
+    0xe0ca -> Icons.Filled.Public
+    0xe537 -> Icons.Filled.Bolt
+    else -> Icons.Filled.Person
 }

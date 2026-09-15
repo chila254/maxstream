@@ -12,10 +12,21 @@ import 'profile_create_screen.dart';
 const _heroCycleDuration = Duration(seconds: 5);
 const _heroCrossfadeDuration = Duration(milliseconds: 800);
 
+class _HeroItem {
+  final String imageUrl;
+  final String title;
+  final String subtitle;
+  final bool isSeries;
+
+  const _HeroItem({
+    required this.imageUrl,
+    required this.title,
+    required this.subtitle,
+    required this.isSeries,
+  });
+}
+
 class ProfileSelectScreen extends StatefulWidget {
-  /// When true (default), auto-selects single profiles and navigates to
-  /// MaxStreamMainScreen. When false (profile switcher mode), just pops
-  /// with the selected profile ID.
   final bool isLaunchScreen;
 
   const ProfileSelectScreen({super.key, this.isLaunchScreen = true});
@@ -30,7 +41,7 @@ class _ProfileSelectScreenState extends State<ProfileSelectScreen> {
   bool _navigated = false;
 
   // Hero carousel state
-  List<String> _heroImages = [];
+  List<_HeroItem> _heroItems = [];
   int _heroIndex = 0;
   bool _heroVisible = true;
   Timer? _heroTimer;
@@ -58,7 +69,6 @@ class _ProfileSelectScreenState extends State<ProfileSelectScreen> {
       _isLoading = false;
     });
 
-    // Launch screen: auto-select single profile
     if (widget.isLaunchScreen && profiles.length == 1 && !_navigated) {
       _navigated = true;
       await ProfileScope.selectProfile(profiles.first.id);
@@ -68,34 +78,68 @@ class _ProfileSelectScreenState extends State<ProfileSelectScreen> {
 
   Future<void> _loadHeroContent() async {
     try {
-      final trending = await TmdbApiService.fetchTrendingMovies();
-      final upcoming = await TmdbApiService.fetchUpcomingSeries();
-      final combined = [...trending, ...upcoming]
-          .where((item) => item['backdrop_path'] != null)
-          .toList()
-        ..shuffle();
+      final results = await Future.wait([
+        TmdbApiService.fetchTrendingMovies(),
+        TmdbApiService.fetchTrendingSeries(),
+      ]);
+      final movies = results[0];
+      final series = results[1];
+
+      final items = <_HeroItem>[];
+
+      for (final m in movies) {
+        final backdrop = m['backdrop_path'];
+        if (backdrop == null) continue;
+        items.add(_HeroItem(
+          imageUrl: 'https://image.tmdb.org/t/p/w1280$backdrop',
+          title: m['title']?.toString() ?? '',
+          subtitle: _movieSubtitle(m),
+          isSeries: false,
+        ));
+      }
+
+      for (final s in series) {
+        final backdrop = s['backdrop_path'];
+        if (backdrop == null) continue;
+        items.add(_HeroItem(
+          imageUrl: 'https://image.tmdb.org/t/p/w1280$backdrop',
+          title: s['name']?.toString() ?? '',
+          subtitle: _seriesSubtitle(s),
+          isSeries: true,
+        ));
+      }
+
+      items.shuffle();
       if (!mounted) return;
-      final images = combined
-          .take(10)
-          .map((item) => 'https://image.tmdb.org/t/p/w1280${item['backdrop_path']}')
-          .toList();
-      setState(() => _heroImages = images);
+      setState(() => _heroItems = items.take(12).toList());
       _startHeroCycle();
     } catch (_) {}
   }
 
+  String _movieSubtitle(Map<String, dynamic> m) {
+    final year = (m['release_date'] ?? '').toString().substring(0, 4);
+    if (year.length >= 4) return 'Movie · $year';
+    return 'Movie';
+  }
+
+  String _seriesSubtitle(Map<String, dynamic> s) {
+    final seasons = s['number_of_seasons'];
+    if (seasons != null && seasons is int && seasons > 0) {
+      return 'Series · Season $seasons';
+    }
+    return 'Series';
+  }
+
   void _startHeroCycle() {
     _heroTimer?.cancel();
-    if (_heroImages.length < 2) return;
+    if (_heroItems.length < 2) return;
     _heroTimer = Timer.periodic(_heroCycleDuration, (_) {
       if (!mounted) return;
-      setState(() {
-        _heroVisible = false;
-      });
+      setState(() => _heroVisible = false);
       Future.delayed(_heroCrossfadeDuration, () {
         if (!mounted) return;
         setState(() {
-          _heroIndex = (_heroIndex + 1) % _heroImages.length;
+          _heroIndex = (_heroIndex + 1) % _heroItems.length;
           _heroVisible = true;
         });
       });
@@ -187,19 +231,25 @@ class _ProfileSelectScreenState extends State<ProfileSelectScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final heroItem = _heroItems.isNotEmpty
+        ? _heroItems[_heroIndex % _heroItems.length]
+        : null;
+
     return Scaffold(
       backgroundColor: Colors.black,
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // Hero background
-          if (_heroImages.isNotEmpty)
+          // Hero background — use w780 for crisp display on tablets
+          if (heroItem != null)
             AnimatedOpacity(
               opacity: _heroVisible ? 1.0 : 0.0,
               duration: _heroCrossfadeDuration,
               child: Image.network(
-                _heroImages[_heroIndex % _heroImages.length],
+                heroItem.imageUrl,
                 fit: BoxFit.cover,
+                width: double.infinity,
+                height: double.infinity,
                 errorBuilder: (_, __, ___) => const SizedBox(),
               ),
             ),
@@ -211,10 +261,12 @@ class _ProfileSelectScreenState extends State<ProfileSelectScreen> {
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [
-                  Colors.black.withValues(alpha: 0.3),
-                  Colors.black.withValues(alpha: 0.7),
-                  Colors.black.withValues(alpha: 0.95),
+                  Colors.black.withValues(alpha: 0.2),
+                  Colors.black.withValues(alpha: 0.5),
+                  Colors.black.withValues(alpha: 0.85),
+                  Colors.black,
                 ],
+                stops: const [0.0, 0.3, 0.7, 1.0],
               ),
             ),
           ),
@@ -224,6 +276,52 @@ class _ProfileSelectScreenState extends State<ProfileSelectScreen> {
             child: Column(
               children: [
                 const SizedBox(height: 40),
+
+                // Hero info overlay — title, subtitle, branding
+                if (heroItem != null)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // MaxStream branding
+                        Text(
+                          'MaxStream',
+                          style: TextStyle(
+                            color: Colors.red.shade600,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 1.5,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        // Title
+                        Text(
+                          heroItem.title,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 22,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 4),
+                        // Subtype + season info
+                        Text(
+                          heroItem.subtitle,
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.7),
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                const Spacer(),
+
+                // Logo
                 Image.asset(
                   'assets/images/maxstream_logo.png',
                   width: 70,
@@ -233,7 +331,8 @@ class _ProfileSelectScreenState extends State<ProfileSelectScreen> {
                     color: Colors.red,
                   ),
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 16),
+
                 const Text(
                   "Who's watching?",
                   style: TextStyle(
@@ -242,7 +341,9 @@ class _ProfileSelectScreenState extends State<ProfileSelectScreen> {
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                const SizedBox(height: 32),
+                const SizedBox(height: 24),
+
+                // Profile grid
                 Expanded(
                   child: _isLoading
                       ? const Center(
