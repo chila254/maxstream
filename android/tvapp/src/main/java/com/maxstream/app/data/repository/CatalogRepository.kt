@@ -50,4 +50,20 @@ class CatalogRepository(private val api: TmdbApi) {
 
     suspend fun catalogByGenre(genreId: Int, type: String, page: Int = 1): List<com.maxstream.app.data.model.MediaItem> =
         withContext(Dispatchers.IO) { api.discover(type, genreId, page) }
+
+    suspend fun upcomingMovies(page: Int = 1): List<MediaItem> = withContext(Dispatchers.IO) {
+        api.upcomingMovies(page)
+    }
+
+    suspend fun onTheAirSeries(page: Int = 1): List<MediaItem> = withContext(Dispatchers.IO) {
+        api.onTheAirSeries(page)
+    }
+
+    suspend fun movieRecommendations(id: Int, page: Int = 1): List<MediaItem> = withContext(Dispatchers.IO) {
+        api.movieRecommendations(id, page)
+    }
+
+    suspend fun seriesRecommendations(id: Int, page: Int = 1): List<MediaItem> = withContext(Dispatchers.IO) {
+        api.seriesRecommendations(id, page)
+    }
 }

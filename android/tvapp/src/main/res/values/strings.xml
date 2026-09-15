@@ -15,4 +15,7 @@
     <string name="trending_series">Trending Series</string>
     <string name="popular_movies">Popular Movies</string>
     <string name="top_rated">Top Rated</string>
+    <string name="for_you">For You</string>
+    <string name="because_you_watched">Because You Watched %s</string>
+    <string name="coming_soon">Coming Soon</string>
 </resources>

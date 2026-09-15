@@ -23,6 +23,9 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     private val _topRatedMovies = MutableLiveData<List<MediaItem>>(emptyList())
     private val _topRatedSeries = MutableLiveData<List<MediaItem>>(emptyList())
     private val _continueWatching = MutableLiveData<List<MediaItem>>(emptyList())
+    private val _forYou = MutableLiveData<List<MediaItem>>(emptyList())
+    private val _becauseYouWatched = MutableLiveData<Pair<String, List<MediaItem>>>(null)
+    private val _comingSoon = MutableLiveData<List<MediaItem>>(emptyList())
     private val _loading = MutableLiveData(true)
     private val _error = MutableLiveData<String?>(null)
 
@@ -33,6 +36,9 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     val topRatedMovies: LiveData<List<MediaItem>> = _topRatedMovies
     val topRatedSeries: LiveData<List<MediaItem>> = _topRatedSeries
     val continueWatching: LiveData<List<MediaItem>> = _continueWatching
+    val forYou: LiveData<List<MediaItem>> = _forYou
+    val becauseYouWatched: LiveData<Pair<String, List<MediaItem>>> = _becauseYouWatched
+    val comingSoon: LiveData<List<MediaItem>> = _comingSoon
     val loading: LiveData<Boolean> = _loading
     val error: LiveData<String?> = _error
 
@@ -45,19 +51,19 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         _loading.value = true
         _error.value = null
         viewModelScope.launch {
-            // Pull the phone's watch progress/watchlist into local storage so
-            // Continue Watching reflects what was watched on the phone.
-            // Never let sync failure block catalogue loading.
             try { CloudSyncRepository.pullToDevice(getApplication()) } catch (_: Exception) {}
-            // Fetch all catalogue rows in parallel; a single TMDB failure must
-            // not blank the whole home screen (previously sequential without
-            // per-row catch left every list empty on the first exception).
+
             val trendingMoviesDef = async { runCatching { repo.trendingMovies() }.getOrNull() ?: emptyList() }
             val trendingSeriesDef = async { runCatching { repo.trendingSeries() }.getOrNull() ?: emptyList() }
             val popularMoviesDef = async { runCatching { repo.popularMovies() }.getOrNull() ?: emptyList() }
             val popularSeriesDef = async { runCatching { repo.popularSeries() }.getOrNull() ?: emptyList() }
             val topRatedMoviesDef = async { runCatching { repo.topRatedMovies() }.getOrNull() ?: emptyList() }
             val topRatedSeriesDef = async { runCatching { repo.topRatedSeries() }.getOrNull() ?: emptyList() }
+            val comingSoonDef = async {
+                val movies = runCatching { repo.upcomingMovies() }.getOrNull() ?: emptyList()
+                val series = runCatching { repo.onTheAirSeries() }.getOrNull() ?: emptyList()
+                (movies + series).sortedByDescending { it.releaseDate }.take(15)
+            }
             try {
                 _trendingMovies.value = trendingMoviesDef.await()
                 _trendingSeries.value = trendingSeriesDef.await()
@@ -65,20 +71,22 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                 _popularSeries.value = popularSeriesDef.await()
                 _topRatedMovies.value = topRatedMoviesDef.await()
                 _topRatedSeries.value = topRatedSeriesDef.await()
+                _comingSoon.value = comingSoonDef.await()
             } catch (e: Exception) {
                 _error.value = e.message
             }
-            // Continue Watching row: locally persisted watch progress, newest
-            // first, filtered like the phone (drop barely-started, watched and
-            // >= 90% items — mirrors WatchHistoryService.getContinueWatching).
+
             _continueWatching.value = runCatching {
                 WatchProgressRepository
                     .recent(getApplication(), limit = 20)
                     .filter { entry -> entry.isVisibleInContinueWatching() }
                     .map { it.toMediaItem() }
             }.getOrDefault(emptyList())
+
+            // Personalized recommendations based on watch history
+            loadPersonalizedRecommendations()
+
             _loading.value = false
-            // Surface empty catalogue as error so UI can show retry instead of black.
             if (_trendingMovies.value.isNullOrEmpty() && _trendingSeries.value.isNullOrEmpty() &&
                 _popularMovies.value.isNullOrEmpty() && _topRatedMovies.value.isNullOrEmpty()
             ) {
@@ -87,12 +95,78 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /**
-     * Re-reads locally-synced progress for Continue Watching. Inbound cloud
-     * changes are mirrored by [CloudSyncCoordinator] (which also pulls on
-     * [loadAll]); this only re-reads local storage so it is cheap and safe to
-     * call on tab visibility + every revision bump.
-     */
+    private suspend fun loadPersonalizedRecommendations() {
+        val history = WatchProgressRepository.recent(getApplication(), limit = 50)
+        if (history.isEmpty()) {
+            // No history: show trending as "For You" fallback
+            val fallback = _trendingMovies.value.orEmpty().shuffled().take(10) +
+                _trendingSeries.value.orEmpty().shuffled().take(10)
+            _forYou.value = fallback.shuffled().take(15)
+            return
+        }
+
+        // Calculate top genres from watch history (same algorithm as Dart RecommendationService)
+        val genreWeights = mutableMapOf<Int, Double>()
+        val seen = mutableSetOf<String>()
+        for (entry in history) {
+            val key = "${entry.tmdbId}:${entry.isMovie}"
+            if (key in seen) continue
+            seen.add(key)
+
+            val weight = when {
+                entry.isWatched -> 2.0
+                entry.progress > 0.5f -> 1.5
+                else -> 1.0
+            }
+
+            // Fetch genre IDs from TMDB details for this item
+            val genreIds = try {
+                val details = if (entry.isMovie) {
+                    repo.movieDetails(entry.tmdbId.toIntOrNull() ?: 0)
+                } else {
+                    repo.seriesDetails(entry.tmdbId.toIntOrNull() ?: 0)
+                }
+                val genres = details.optJSONArray("genres") ?: org.json.JSONArray()
+                (0 until genres.length()).mapNotNull { genres.optJSONObject(it)?.optInt("id") }
+            } catch (_: Exception) {
+                emptyList()
+            }
+
+            for (gid in genreIds) {
+                genreWeights[gid] = (genreWeights[gid] ?: 0.0) + weight
+            }
+        }
+
+        val topGenres = genreWeights.entries.sortedByDescending { it.value }.take(3).map { it.key }
+        if (topGenres.isEmpty()) {
+            _forYou.value = _trendingMovies.value.orEmpty().shuffled().take(15)
+            return
+        }
+
+        // "For You" — content from top genres
+        val forYouItems = mutableListOf<MediaItem>()
+        for (gid in topGenres.take(2)) {
+            val items = runCatching { repo.catalogByGenre(gid, "movie") }.getOrNull()?.take(5) ?: emptyList()
+            forYouItems.addAll(items)
+            val tvItems = runCatching { repo.catalogByGenre(gid, "tv") }.getOrNull()?.take(5) ?: emptyList()
+            forYouItems.addAll(tvItems)
+        }
+        _forYou.value = forYouItems.shuffled().take(15)
+
+        // "Because You Watched {title}" — TMDB recommendations for most recent watch
+        val mostRecent = history.first()
+        val recentId = mostRecent.tmdbId.toIntOrNull() ?: return
+        val recs = try {
+            if (mostRecent.isMovie) repo.movieRecommendations(recentId)
+            else repo.seriesRecommendations(recentId)
+        } catch (_: Exception) {
+            emptyList()
+        }
+        if (recs.isNotEmpty()) {
+            _becauseYouWatched.value = mostRecent.displayTitle to recs.take(15)
+        }
+    }
+
     @SuppressLint("NullSafeMutableLiveData")
     fun refreshSynced() {
         _continueWatching.value = WatchProgressRepository

@@ -106,7 +106,7 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
         _youtubeController = YoutubePlayerController(
           initialVideoId: videoId,
           flags: const YoutubePlayerFlags(
-            autoPlay: false,
+            autoPlay: true,
             mute: false,
             enableCaption: true,
           ),

@@ -179,7 +179,7 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
           initialVideoId: videoId,
           flags: const YoutubePlayerFlags(
             autoPlay: true,
-            mute: true,
+            mute: false,
             enableCaption: true,
           ),
         );

@@ -50,6 +50,18 @@ class TmdbApi(
     suspend fun topRatedSeries(page: Int = 1): List<com.maxstream.app.data.model.MediaItem> =
         list("/tv/top_rated", page, "tv")
 
+    suspend fun upcomingMovies(page: Int = 1): List<com.maxstream.app.data.model.MediaItem> =
+        list("/movie/upcoming", page, "movie")
+
+    suspend fun onTheAirSeries(page: Int = 1): List<com.maxstream.app.data.model.MediaItem> =
+        list("/tv/on_the_air", page, "tv")
+
+    suspend fun movieRecommendations(id: Int, page: Int = 1): List<com.maxstream.app.data.model.MediaItem> =
+        parseResults(get("/movie/$id/recommendations", mapOf("page" to page.toString())), "movie")
+
+    suspend fun seriesRecommendations(id: Int, page: Int = 1): List<com.maxstream.app.data.model.MediaItem> =
+        parseResults(get("/tv/$id/recommendations", mapOf("page" to page.toString())), "tv")
+
     suspend fun search(query: String, page: Int = 1): List<com.maxstream.app.data.model.MediaItem> {
         if (query.isBlank()) return emptyList()
         val json = get("/search/multi", mapOf("query" to query, "page" to page.toString()))

@@ -99,6 +99,9 @@ fun HomeScreen(
     val popularMovies   by viewModel.popularMovies.observeAsState(emptyList())
     val topRatedMovies  by viewModel.topRatedMovies.observeAsState(emptyList())
     val continueWatching by viewModel.continueWatching.observeAsState(emptyList())
+    val forYou by viewModel.forYou.observeAsState(emptyList())
+    val becauseYouWatched by viewModel.becauseYouWatched.observeAsState(null)
+    val comingSoon by viewModel.comingSoon.observeAsState(emptyList())
 
     var heroItem   by remember { mutableStateOf<MediaItem?>(null) }
     var heroType   by remember { mutableStateOf("movie") }
@@ -117,13 +120,17 @@ fun HomeScreen(
     val rowNav = remember { RowNavState() }
 
     // Ordered list of visible rows — must mirror the LazyColumn item order.
-    val rows = remember(continueWatching, trendingMovies, trendingSeries, popularMovies, topRatedMovies) {
+    val rows = remember(continueWatching, trendingMovies, trendingSeries, popularMovies, topRatedMovies, forYou, becauseYouWatched, comingSoon) {
         buildList {
             if (continueWatching.isNotEmpty()) add(RowDesc("home:Continue Watching", continueWatching.size))
             if (trendingMovies.isNotEmpty()) add(RowDesc("home:Trending Movies", trendingMovies.size.coerceAtMost(15)))
             if (trendingSeries.isNotEmpty()) add(RowDesc("home:Trending Series", trendingSeries.size.coerceAtMost(15)))
+            if (forYou.isNotEmpty()) add(RowDesc("home:For You", forYou.size.coerceAtMost(15)))
             if (popularMovies.isNotEmpty()) add(RowDesc("home:Popular Movies", popularMovies.size.coerceAtMost(15)))
             if (topRatedMovies.isNotEmpty()) add(RowDesc("home:Top Rated", topRatedMovies.size.coerceAtMost(15)))
+            val byw = becauseYouWatched
+            if (byw != null) add(RowDesc("home:Because You Watched", byw.second.size.coerceAtMost(15)))
+            if (comingSoon.isNotEmpty()) add(RowDesc("home:Coming Soon", comingSoon.size.coerceAtMost(15)))
         }
     }
     rowNav.setRows(rows)
@@ -338,6 +345,27 @@ fun HomeScreen(
                             }
                         }
 
+                        if (forYou.isNotEmpty()) {
+                            item {
+                                ContentRow(
+                                    title = stringResource(R.string.for_you),
+                                    items = forYou.take(15),
+                                    navController = navController,
+                                    rowId = "home:For You",
+                                    rowNav = rowNav,
+                                    rows = rows,
+                                    outerListState = outerListState,
+                                    onItemFocus = { mediaItem ->
+                                        pendingHeroItem = mediaItem
+                                        pendingHeroResume = false
+                                    },
+                                    onUpToHero = { runCatching { playFocusRequester.requestFocus() } },
+                                    onReturnToSidebar = onReturnToSidebar,
+                                    modifier = Modifier.padding(top = 20.dp),
+                                )
+                            }
+                        }
+
                         if (trendingSeries.isNotEmpty()) {
                             item {
                                 ContentRow(
@@ -387,6 +415,49 @@ fun HomeScreen(
                                     items = topRatedMovies.take(15),
                                     navController = navController,
                                     rowId = "home:Top Rated",
+                                    rowNav = rowNav,
+                                    rows = rows,
+                                    outerListState = outerListState,
+                                    onItemFocus = { mediaItem ->
+                                        pendingHeroItem = mediaItem
+                                        pendingHeroResume = false
+                                    },
+                                    onUpToHero = { runCatching { playFocusRequester.requestFocus() } },
+                                    onReturnToSidebar = onReturnToSidebar,
+                                    modifier = Modifier.padding(top = 20.dp),
+                                )
+                            }
+                        }
+
+                        val byw = becauseYouWatched
+                        if (byw != null) {
+                            item {
+                                ContentRow(
+                                    title = stringResource(R.string.because_you_watched, byw.first),
+                                    items = byw.second.take(15),
+                                    navController = navController,
+                                    rowId = "home:Because You Watched",
+                                    rowNav = rowNav,
+                                    rows = rows,
+                                    outerListState = outerListState,
+                                    onItemFocus = { mediaItem ->
+                                        pendingHeroItem = mediaItem
+                                        pendingHeroResume = false
+                                    },
+                                    onUpToHero = { runCatching { playFocusRequester.requestFocus() } },
+                                    onReturnToSidebar = onReturnToSidebar,
+                                    modifier = Modifier.padding(top = 20.dp),
+                                )
+                            }
+                        }
+
+                        if (comingSoon.isNotEmpty()) {
+                            item {
+                                ContentRow(
+                                    title = stringResource(R.string.coming_soon),
+                                    items = comingSoon.take(15),
+                                    navController = navController,
+                                    rowId = "home:Coming Soon",
                                     rowNav = rowNav,
                                     rows = rows,
                                     outerListState = outerListState,

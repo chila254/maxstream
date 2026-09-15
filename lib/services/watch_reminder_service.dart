@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dio/dio.dart';
 import 'dart:io';
 
@@ -13,7 +14,7 @@ class WatchReminderService {
 
   /// Get all show IDs the user has set reminders for.
   static Future<Set<int>> getRemindedShowIds() async {
-    final prefs = await _prefs;
+    final prefs = await _prefs();
     final stored = prefs.getStringList(_remindersKey) ?? [];
     return stored.map((id) => int.tryParse(id)).whereType<int>().toSet();
   }
@@ -32,7 +33,7 @@ class WatchReminderService {
     required int lastKnownSeason,
     required int lastKnownEpisode,
   }) async {
-    final prefs = await _prefs;
+    final prefs = await _prefs();
     final stored = prefs.getStringList(_remindersKey) ?? [];
     final ids = stored.map((id) => int.tryParse(id)).whereType<int>().toSet();
 
@@ -61,7 +62,7 @@ class WatchReminderService {
 
   /// Check all reminded shows for new episodes and send notifications.
   static Future<void> checkForNewEpisodes() async {
-    final prefs = await _prefs;
+    final prefs = await _prefs();
     final ids = await getRemindedShowIds();
     if (ids.isEmpty) return;
 
@@ -106,19 +107,16 @@ class WatchReminderService {
 
     // Check for new episodes in current season
     if (currentSeason > 0) {
-      final seasonDetails = await TmdbApiService.getSeasonDetails(showId, currentSeason);
-      if (seasonDetails != null) {
-        final episodes = seasonDetails['episodes'] as List<dynamic>? ?? [];
-        final currentEpisodeCount = episodes.length;
-        if (currentEpisodeCount > lastKnownEpisode && lastKnownEpisode > 0) {
-          await _sendNotification(
-            showId: showId,
-            title: title,
-            posterPath: posterPath,
-            message: 'New episode available! Season $currentSeason now has $currentEpisodeCount episodes.',
-          );
-          await prefs.setInt('reminder_${showId}_episode', currentEpisodeCount);
-        }
+      final episodes = await TmdbApiService.getSeasonEpisodes(showId, currentSeason);
+      final currentEpisodeCount = episodes.length;
+      if (currentEpisodeCount > lastKnownEpisode && lastKnownEpisode > 0) {
+        await _sendNotification(
+          showId: showId,
+          title: title,
+          posterPath: posterPath,
+          message: 'New episode available! Season $currentSeason now has $currentEpisodeCount episodes.',
+        );
+        await prefs.setInt('reminder_${showId}_episode', currentEpisodeCount);
       }
     }
   }
@@ -209,8 +207,7 @@ class WatchReminderService {
     }
   }
 
-  static Future<dynamic> _prefs async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs;
+  static Future<SharedPreferences> _prefs() async {
+    return await SharedPreferences.getInstance();
   }
 }
