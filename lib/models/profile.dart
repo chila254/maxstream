@@ -61,7 +61,10 @@ class ProfileAvatar {
   ];
 
   Color get color => palette[colorIndex % palette.length];
-  IconData get icon => kProfileIcons[iconCodePoint] ?? Icons.person;
+  IconData get icon => icons.firstWhere(
+        (i) => i.codePoint == iconCodePoint,
+        orElse: () => Icons.person,
+      );
 
   Map<String, dynamic> toJson() => {
         'colorIndex': colorIndex,

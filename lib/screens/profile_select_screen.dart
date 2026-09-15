@@ -7,7 +7,12 @@ import 'maxstream_main_screen.dart';
 import 'profile_create_screen.dart';
 
 class ProfileSelectScreen extends StatefulWidget {
-  const ProfileSelectScreen({super.key});
+  /// When true (default), auto-selects single profiles and navigates to
+  /// MaxStreamMainScreen. When false (profile switcher mode), just pops
+  /// with the selected profile ID.
+  final bool isLaunchScreen;
+
+  const ProfileSelectScreen({super.key, this.isLaunchScreen = true});
 
   @override
   State<ProfileSelectScreen> createState() => _ProfileSelectScreenState();
@@ -34,8 +39,8 @@ class _ProfileSelectScreenState extends State<ProfileSelectScreen> {
       _isLoading = false;
     });
 
-    // Single profile: skip selection screen
-    if (profiles.length == 1 && !_navigated) {
+    // Launch screen: auto-select single profile
+    if (widget.isLaunchScreen && profiles.length == 1 && !_navigated) {
       _navigated = true;
       await ProfileScope.selectProfile(profiles.first.id);
       _goToMain();
@@ -43,8 +48,7 @@ class _ProfileSelectScreenState extends State<ProfileSelectScreen> {
   }
 
   void _goToMain() {
-    if (!mounted || _navigated) return;
-    _navigated = true;
+    if (!mounted) return;
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(builder: (_) => const MaxStreamMainScreen()),
     );
@@ -52,7 +56,12 @@ class _ProfileSelectScreenState extends State<ProfileSelectScreen> {
 
   void _selectProfile(Profile profile) async {
     await ProfileScope.selectProfile(profile.id);
-    _goToMain();
+    if (widget.isLaunchScreen) {
+      _goToMain();
+    } else {
+      // Switcher mode: just pop back
+      if (mounted) Navigator.pop(context);
+    }
   }
 
   void _editProfile(Profile profile) async {
