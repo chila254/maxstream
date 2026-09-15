@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/device_code_service.dart';
 
-const Color _accentBlue = Color(0xFF0066FF);
+const Color _accentRed = Color(0xFFE50914);
 const Color _darkBackground = Color(0xFF0D0D0D);
 const Color _cardDark = Color(0xFF161616);
 const Color _cardDarkAlt = Color(0xFF1A1A1A);
@@ -109,7 +109,7 @@ class _TVPairingScreenState extends State<TVPairingScreen> {
           'TV Pairing',
           style: TextStyle(fontWeight: FontWeight.w600, letterSpacing: 0.5),
         ),
-        iconTheme: const IconThemeData(color: _accentBlue),
+        iconTheme: const IconThemeData(color: _accentRed),
       ),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -154,10 +154,10 @@ class _TVPairingScreenState extends State<TVPairingScreen> {
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: _accentBlue.withOpacity(0.15),
+              color: _accentRed.withOpacity(0.15),
               borderRadius: BorderRadius.circular(10),
             ),
-            child: const Icon(Icons.tv, color: _accentBlue, size: 36),
+            child: const Icon(Icons.tv, color: _accentRed, size: 36),
           ),
           const SizedBox(width: 16),
           Expanded(
@@ -191,8 +191,8 @@ class _TVPairingScreenState extends State<TVPairingScreen> {
   }
 
   Widget _buildStepper(bool isDark) {
-    final stepColor = isDark ? Colors.blue[900]! : Colors.blue[100]!;
-    final stepBg = isDark ? Colors.blue[800]! : Colors.blue[50]!;
+    final stepColor = isDark ? Colors.red[900]! : Colors.red[100]!;
+    final stepBg = isDark ? Colors.red[800]! : Colors.red[50]!;
 
     return Column(
       children: [
@@ -260,7 +260,7 @@ class _TVPairingScreenState extends State<TVPairingScreen> {
             child: Text(
               '$number',
               style: TextStyle(
-                color: isCompleted ? Colors.white : (isDark ? Colors.blue[300]! : Colors.blue[600]!),
+                color: isCompleted ? Colors.white : (isDark ? Colors.red[300]! : Colors.red[600]!),
                 fontWeight: FontWeight.bold,
                 fontSize: 16,
               ),
@@ -302,8 +302,8 @@ class _TVPairingScreenState extends State<TVPairingScreen> {
                 statusLabel,
                 style: TextStyle(
                   color: isCompleted
-                      ? _accentBlue
-                      : (isDark ? Colors.blue[300]! : Colors.blue[400]!),
+                      ? _accentRed
+                      : (isDark ? Colors.red[300]! : Colors.red[400]!),
                   fontSize: 11,
                   fontWeight: FontWeight.w600,
                   letterSpacing: 0.5,
@@ -344,7 +344,7 @@ class _TVPairingScreenState extends State<TVPairingScreen> {
                 ),
               ),
               style: ElevatedButton.styleFrom(
-                backgroundColor: _accentBlue,
+                backgroundColor: _accentRed,
                 padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(16),
@@ -363,10 +363,10 @@ class _TVPairingScreenState extends State<TVPairingScreen> {
             decoration: BoxDecoration(
               color: isDark ? _cardDarkAlt : Colors.grey[50],
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: _accentBlue.withOpacity(0.3), width: 1),
+              border: Border.all(color: _accentRed.withOpacity(0.3), width: 1),
               boxShadow: [
                 BoxShadow(
-                  color: _accentBlue.withOpacity(0.15),
+                  color: _accentRed.withOpacity(0.15),
                   blurRadius: 20,
                   offset: const Offset(0, 8),
                 ),
@@ -377,7 +377,7 @@ class _TVPairingScreenState extends State<TVPairingScreen> {
                 Text(
                   'Your TV Code',
                   style: TextStyle(
-                    color: _accentBlue.withOpacity(0.7),
+                    color: _accentRed.withOpacity(0.7),
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
                     letterSpacing: 1,
@@ -387,13 +387,13 @@ class _TVPairingScreenState extends State<TVPairingScreen> {
                 Text(
                   _generatedCode!,
                   style: TextStyle(
-                    color: _accentBlue,
+                    color: _accentRed,
                     fontSize: 42,
                     fontWeight: FontWeight.bold,
                     letterSpacing: 6,
                     shadows: [
                       Shadow(
-                        color: _accentBlue.withOpacity(0.4),
+                        color: _accentRed.withOpacity(0.4),
                         blurRadius: 12,
                         offset: Offset(0, 4),
                       ),
@@ -438,7 +438,7 @@ class _TVPairingScreenState extends State<TVPairingScreen> {
                   icon: const Icon(Icons.refresh, color: Colors.white),
                   label: const Text('Generate New'),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: _accentBlue,
+                    backgroundColor: _accentRed,
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
@@ -479,7 +479,7 @@ class _TVPairingScreenState extends State<TVPairingScreen> {
             icon: const Icon(Icons.refresh, color: Colors.white),
             label: const Text('Try Again'),
             style: ElevatedButton.styleFrom(
-              backgroundColor: _accentBlue,
+              backgroundColor: _accentRed,
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
@@ -522,7 +522,7 @@ class _TVPairingScreenState extends State<TVPairingScreen> {
           icon: const Icon(Icons.refresh, color: Colors.white),
           label: const Text('Try Again'),
           style: ElevatedButton.styleFrom(
-            backgroundColor: _accentBlue,
+            backgroundColor: _accentRed,
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),

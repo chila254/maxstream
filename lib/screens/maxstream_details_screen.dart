@@ -8,6 +8,7 @@ import '../services/direct_m3u8_service.dart';
 import '../services/media_download_manager.dart';
 import '../services/tmdb_api_service.dart';
 import '../services/watch_history_service.dart';
+import '../services/watch_reminder_service.dart';
 import '../widgets/app_network_image.dart';
 import '../widgets/video_player_screen.dart';
 
@@ -38,6 +39,7 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
   late ScrollController _scrollController;
   late final MediaDownloadManager _downloadManager;
   Map<String, dynamic>? _watchProgress;
+  bool _isReminded = false;
 
   @override
   void initState() {
@@ -49,6 +51,7 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
     _loadDetails();
     _checkDownloadStatus();
     _loadWatchProgress();
+    _checkReminderStatus();
   }
 
   void _onSyncedWatchlist() {
@@ -83,6 +86,52 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
       setState(() {
         _isMovieDownloaded = isDownloaded && activeTask == null;
       });
+    }
+  }
+
+  Future<void> _checkReminderStatus() async {
+    if (widget.mediaType != 'tv') return;
+    final reminded = await WatchReminderService.isReminded(int.parse(widget.item.id));
+    if (mounted) setState(() => _isReminded = reminded);
+  }
+
+  Future<void> _toggleReminder() async {
+    final showId = int.parse(widget.item.id);
+    final title = widget.item.title;
+    final posterPath = widget.item.thumbnail ?? '';
+
+    // Get current season/episode count from details
+    int lastSeason = details?['number_of_seasons'] as int? ?? 1;
+    int lastEpisode = 0;
+    if (lastSeason > 0 && details?['seasons'] != null) {
+      final seasons = details!['seasons'] as List<dynamic>;
+      final currentSeason = seasons.lastWhere(
+        (s) => (s['season_number'] as int? ?? 0) > 0,
+        orElse: () => seasons.isNotEmpty ? seasons.last : null,
+      );
+      if (currentSeason != null) {
+        lastSeason = currentSeason['season_number'] as int? ?? lastSeason;
+        lastEpisode = currentSeason['episode_count'] as int? ?? 0;
+      }
+    }
+
+    final newState = await WatchReminderService.toggleReminder(
+      showId: showId,
+      title: title,
+      posterPath: posterPath,
+      lastKnownSeason: lastSeason,
+      lastKnownEpisode: lastEpisode,
+    );
+
+    if (mounted) {
+      setState(() => _isReminded = newState);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(newState ? 'Reminder set for new episodes' : 'Reminder removed'),
+          backgroundColor: newState ? Colors.green : Colors.grey[800],
+          duration: const Duration(seconds: 2),
+        ),
+      );
     }
   }
 
@@ -588,6 +637,34 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
                               ),
                             ),
                           ),
+                          if (widget.mediaType == 'tv') ...[
+                            const SizedBox(height: 8),
+                            SizedBox(
+                              width: double.infinity,
+                              height: 40,
+                              child: OutlinedButton.icon(
+                                onPressed: _toggleReminder,
+                                icon: Icon(
+                                  _isReminded ? Icons.notifications_active : Icons.notifications_none,
+                                  color: _isReminded ? Colors.red : Colors.white70,
+                                  size: 18,
+                                ),
+                                label: Text(
+                                  _isReminded ? 'Reminded' : 'Remind Me',
+                                  style: TextStyle(
+                                    color: _isReminded ? Colors.red : Colors.white70,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                                style: OutlinedButton.styleFrom(
+                                  side: BorderSide(
+                                    color: _isReminded ? Colors.red : Colors.white24,
+                                  ),
+                                  padding: const EdgeInsets.symmetric(vertical: 8),
+                                ),
+                              ),
+                            ),
+                          ],
                           if (widget.mediaType == 'movie') ...[
                             const SizedBox(height: 8),
                             if (isCurrentlyDownloading)
