@@ -114,7 +114,21 @@ fun ProfileSelectScreen(
 
     // Load profiles from cloud
     LaunchedEffect(Unit) {
-        val cloudProfiles = ProfileRepository.pullProfiles(context)
+        var cloudProfiles = ProfileRepository.pullProfiles(context)
+
+        // New account: no profiles exist — create a default one
+        if (cloudProfiles.isEmpty()) {
+            val default = ProfileRepository.createProfile(
+                context = context,
+                name = "Profile 1",
+                colorIndex = 0,
+                iconCodePoint = 0xe4ff, // person
+            )
+            if (default != null) {
+                cloudProfiles = listOf(default)
+            }
+        }
+
         profiles = cloudProfiles
 
         if (cloudProfiles.size == 1) {

@@ -101,7 +101,7 @@ class ProfileScope {
     _activeProfile = null;
     _profiles = [];
     _initialized = false;
-    await ProfileService.clearActiveProfile();
+    await ProfileService.clearAllProfileData();
     activeProfile.value = null;
     profiles.value = [];
   }

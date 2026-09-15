@@ -60,6 +60,14 @@ class ProfileService {
     await prefs.remove(_activeProfileKey);
   }
 
+  /// Clears ALL profile data from local storage (called on sign-out).
+  static Future<void> clearAllProfileData() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_profilesKey);
+    await prefs.remove(_activeProfileKey);
+    await prefs.remove('user_profile_picture');
+  }
+
   // ── CRUD ───────────────────────────────────────────────────────────
 
   static Future<List<Profile>> getProfiles() async {

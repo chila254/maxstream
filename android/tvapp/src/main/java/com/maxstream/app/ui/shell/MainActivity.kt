@@ -45,6 +45,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.maxstream.app.data.local.WatchEntryCompat
+import com.maxstream.app.data.local.ProfileScope
 import com.maxstream.app.ui.navigation.Screen
 import com.maxstream.app.ui.screens.auth.LoginScreen
 import com.maxstream.app.ui.screens.profile.ProfileSelectScreen
@@ -415,11 +416,7 @@ private fun TvShell(
                     navController      = deepNavController,
                     onReturnToSidebar  = { appState.updateFocusOnSidebar(true) },
                     onSignOut = {
-                        // Navigate on the UNDERLAY nav graph (Login/Shell live
-                        // there), not the overlay deepNavController — the latter
-                        // only knows DeepRoot/Details/Player, so pointing it at
-                        // Screen.Login threw IllegalArgumentException and closed
-                        // the app.
+                        ProfileScope.clearAll(context)
                         shellNavController.navigate(Screen.Login.route) {
                             popUpTo(Screen.Shell.route) { inclusive = true }
                         }

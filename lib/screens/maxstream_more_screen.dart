@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../services/user_service.dart';
 import '../services/auth_service.dart';
 import '../services/biometric_service.dart';
+import '../services/profile_scope.dart';
 import '../screens/sign_in_screen.dart';
 import '../screens/profile_settings_screen.dart';
 import '../screens/streaming_provider_settings_screen.dart';
@@ -379,6 +380,7 @@ class _MaxStreamMoreScreenState extends State<MaxStreamMoreScreen> {
             onPressed: () async {
               Navigator.pop(context);
               try {
+                await ProfileScope.clear();
                 await AuthService.signOut();
                 if (mounted) {
                   Navigator.pushAndRemoveUntil(
