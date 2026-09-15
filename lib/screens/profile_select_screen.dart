@@ -1,10 +1,16 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../models/profile.dart';
 import '../services/profile_scope.dart';
 import '../services/profile_service.dart';
+import '../services/tmdb_api_service.dart';
 import 'maxstream_main_screen.dart';
 import 'profile_create_screen.dart';
+
+const _heroCycleDuration = Duration(seconds: 5);
+const _heroCrossfadeDuration = Duration(milliseconds: 800);
 
 class ProfileSelectScreen extends StatefulWidget {
   /// When true (default), auto-selects single profiles and navigates to
@@ -23,10 +29,23 @@ class _ProfileSelectScreenState extends State<ProfileSelectScreen> {
   bool _isLoading = true;
   bool _navigated = false;
 
+  // Hero carousel state
+  List<String> _heroImages = [];
+  int _heroIndex = 0;
+  bool _heroVisible = true;
+  Timer? _heroTimer;
+
   @override
   void initState() {
     super.initState();
     _loadProfiles();
+    _loadHeroContent();
+  }
+
+  @override
+  void dispose() {
+    _heroTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadProfiles() async {
@@ -47,6 +66,42 @@ class _ProfileSelectScreenState extends State<ProfileSelectScreen> {
     }
   }
 
+  Future<void> _loadHeroContent() async {
+    try {
+      final trending = await TmdbApiService.fetchTrendingMovies();
+      final upcoming = await TmdbApiService.fetchUpcomingSeries();
+      final combined = [...trending, ...upcoming]
+          .where((item) => item['backdrop_path'] != null)
+          .toList()
+        ..shuffle();
+      if (!mounted) return;
+      final images = combined
+          .take(10)
+          .map((item) => 'https://image.tmdb.org/t/p/w1280${item['backdrop_path']}')
+          .toList();
+      setState(() => _heroImages = images);
+      _startHeroCycle();
+    } catch (_) {}
+  }
+
+  void _startHeroCycle() {
+    _heroTimer?.cancel();
+    if (_heroImages.length < 2) return;
+    _heroTimer = Timer.periodic(_heroCycleDuration, (_) {
+      if (!mounted) return;
+      setState(() {
+        _heroVisible = false;
+      });
+      Future.delayed(_heroCrossfadeDuration, () {
+        if (!mounted) return;
+        setState(() {
+          _heroIndex = (_heroIndex + 1) % _heroImages.length;
+          _heroVisible = true;
+        });
+      });
+    });
+  }
+
   void _goToMain() {
     if (!mounted) return;
     Navigator.of(context).pushReplacement(
@@ -59,7 +114,6 @@ class _ProfileSelectScreenState extends State<ProfileSelectScreen> {
     if (widget.isLaunchScreen) {
       _goToMain();
     } else {
-      // Switcher mode: just pop back
       if (mounted) Navigator.pop(context);
     }
   }
@@ -135,38 +189,71 @@ class _ProfileSelectScreenState extends State<ProfileSelectScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-      body: SafeArea(
-        child: Column(
-          children: [
-            const SizedBox(height: 60),
-            Image.asset(
-              'assets/images/maxstream_logo.png',
-              width: 80,
-              errorBuilder: (_, __, ___) => const Icon(
-                Icons.play_circle_fill,
-                size: 80,
-                color: Colors.red,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          // Hero background
+          if (_heroImages.isNotEmpty)
+            AnimatedOpacity(
+              opacity: _heroVisible ? 1.0 : 0.0,
+              duration: _heroCrossfadeDuration,
+              child: Image.network(
+                _heroImages[_heroIndex % _heroImages.length],
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => const SizedBox(),
               ),
             ),
-            const SizedBox(height: 24),
-            const Text(
-              "Who's watching?",
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 28,
-                fontWeight: FontWeight.bold,
+
+          // Dark gradient overlay
+          Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.black.withValues(alpha: 0.3),
+                  Colors.black.withValues(alpha: 0.7),
+                  Colors.black.withValues(alpha: 0.95),
+                ],
               ),
             ),
-            const SizedBox(height: 40),
-            Expanded(
-              child: _isLoading
-                  ? const Center(
-                      child: CircularProgressIndicator(color: Colors.red),
-                    )
-                  : _buildProfileGrid(),
+          ),
+
+          // Content
+          SafeArea(
+            child: Column(
+              children: [
+                const SizedBox(height: 40),
+                Image.asset(
+                  'assets/images/maxstream_logo.png',
+                  width: 70,
+                  errorBuilder: (_, __, ___) => const Icon(
+                    Icons.play_circle_fill,
+                    size: 70,
+                    color: Colors.red,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                const Text(
+                  "Who's watching?",
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 28,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 32),
+                Expanded(
+                  child: _isLoading
+                      ? const Center(
+                          child: CircularProgressIndicator(color: Colors.red),
+                        )
+                      : _buildProfileGrid(),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -219,7 +306,6 @@ class _ProfileSelectScreenState extends State<ProfileSelectScreen> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Material 3 avatar circle
           Container(
             width: 100,
             height: 100,

@@ -4,6 +4,7 @@ import '../widgets/app_shimmer.dart';
 import '../models/movie.dart';
 import '../database/db_helper.dart';
 import '../services/cloud_sync_service.dart';
+import '../services/profile_scope.dart';
 import '../services/tmdb_api_service.dart';
 import '../utils/tmdb_list_utils.dart';
 import '../services/watch_history_service.dart';
@@ -39,6 +40,8 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
   void initState() {
     super.initState();
     CloudSyncService.historyRevision.addListener(_onSyncedHistory);
+    CloudSyncService.watchlistRevision.addListener(_onSyncedHistory);
+    ProfileScope.activeProfile.addListener(_onProfileChanged);
     _loadContent();
   }
 
@@ -46,9 +49,15 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
     if (mounted) _loadContinueWatching();
   }
 
+  void _onProfileChanged() {
+    if (mounted) _loadContent();
+  }
+
   @override
   void dispose() {
     CloudSyncService.historyRevision.removeListener(_onSyncedHistory);
+    CloudSyncService.watchlistRevision.removeListener(_onSyncedHistory);
+    ProfileScope.activeProfile.removeListener(_onProfileChanged);
     super.dispose();
   }
 
