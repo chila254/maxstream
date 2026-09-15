@@ -1,6 +1,23 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 
+/// All supported profile icons as const entries — used by the tree-shake
+/// icon build pass which requires every IconData to be a const expression.
+const Map<int, IconData> kProfileIcons = {
+  0xe4ff: Icons.person,
+  0xe038: Icons.movie,
+  0xe30f: Icons.sports_esports,
+  0xe301: Icons.music_note,
+  0xe838: Icons.star,
+  0xe558: Icons.rocket_launch,
+  0xe06d: Icons.auto_awesome,
+  0xe91a: Icons.pets,
+  0xe3a8: Icons.brush,
+  0xe0e3: Icons.psychology,
+  0xe0ca: Icons.public,
+  0xe537: Icons.bolt,
+};
+
 /// Material 3 profile avatar: a color from a preset palette + a Material icon.
 class ProfileAvatar {
   final int colorIndex;
@@ -44,7 +61,7 @@ class ProfileAvatar {
   ];
 
   Color get color => palette[colorIndex % palette.length];
-  IconData get icon => IconData(iconCodePoint, fontFamily: 'MaterialIcons');
+  IconData get icon => kProfileIcons[iconCodePoint] ?? Icons.person;
 
   Map<String, dynamic> toJson() => {
         'colorIndex': colorIndex,

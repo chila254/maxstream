@@ -82,7 +82,7 @@ class _ProfileCreateScreenState extends State<ProfileCreateScreen> {
   @override
   Widget build(BuildContext context) {
     final previewColor = ProfileAvatar.palette[_selectedColorIndex];
-    final previewIcon = IconData(_selectedIconCodePoint, fontFamily: 'MaterialIcons');
+    final previewIcon = kProfileIcons[_selectedIconCodePoint] ?? Icons.person;
 
     return Scaffold(
       backgroundColor: Colors.black,
