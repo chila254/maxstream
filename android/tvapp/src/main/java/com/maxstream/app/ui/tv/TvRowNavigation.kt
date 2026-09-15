@@ -121,10 +121,10 @@ class RowNavState {
         val rowState = rowStates[rowId]
 
         if (!outerListState.isItemFullyVisible(rowIndex)) {
-            runCatching { outerListState.scrollToItem(rowIndex) }
+            runCatching { outerListState.animateScrollToItem(rowIndex) }
         }
         if (rowState != null && !rowState.isItemFullyVisible(index)) {
-            runCatching { rowState.scrollToItem(index) }
+            runCatching { rowState.animateScrollToItem(index) }
         }
 
         // requestFocus() is a silent no-op (returns Unit) while the node is not

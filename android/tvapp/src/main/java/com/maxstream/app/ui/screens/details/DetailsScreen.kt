@@ -456,10 +456,10 @@ private fun TvCinematicDetailsView(
         // Snapping via scrollToItem on every move — even between fully-visible
         // tiles — jumped the rows back and forth on LEFT/RIGHT (the "bounce").
         if (!outerListState.isItemFullyVisible(itemIndex)) {
-            runCatching { outerListState.scrollToItem(itemIndex) }
+            runCatching { outerListState.animateScrollToItem(itemIndex) }
         }
         if (rowState != null && !rowState.isItemFullyVisible(index)) {
-            runCatching { rowState.scrollToItem(index) }
+            runCatching { rowState.animateScrollToItem(index) }
         }
         // requestFocus() is a silent no-op (returns Unit) while the node is not
         // attached — no success value to test. The tile is composed once
@@ -483,7 +483,7 @@ private fun TvCinematicDetailsView(
     fun focusHero() {
         launchFocus {
             if (!outerListState.isItemFullyVisible(0)) {
-                runCatching { outerListState.scrollToItem(0) }
+                runCatching { outerListState.animateScrollToItem(0) }
             }
             // Hero is LazyColumn item 0 — composed once visible, so a single
             // requestFocus() lands (it no-ops silently while unattached).
