@@ -46,6 +46,24 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
   bool _isListening = false;
   Timer? _voiceDebounce;
 
+  // Content filters
+  int? _filterGenreId;
+  String? _filterGenreName;
+  int? _filterYearFrom;
+  int? _filterYearTo;
+  double? _filterRatingMin;
+  bool _filtersActive = false;
+  static const Map<int, String> _genreMap = {
+    28: 'Action', 12: 'Adventure', 16: 'Animation', 35: 'Comedy',
+    80: 'Crime', 99: 'Documentary', 18: 'Drama', 10751: 'Family',
+    14: 'Fantasy', 36: 'History', 27: 'Horror', 10402: 'Music',
+    9648: 'Mystery', 10749: 'Romance', 878: 'Sci-Fi', 10770: 'TV Movie',
+    53: 'Thriller', 10752: 'War', 37: 'Western',
+    10759: 'Action & Adventure', 10762: 'Kids', 10763: 'News',
+    10764: 'Reality', 10765: 'Sci-Fi & Fantasy', 10766: 'Soap',
+    10767: 'Talk', 10768: 'War & Politics',
+  };
+
   @override
   void initState() {
     super.initState();
@@ -243,7 +261,7 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
           final results = await TmdbApiService.searchAll(trimmedQuery);
           if (!mounted || generation != _searchGeneration) return;
           setState(() {
-            searchResults = results;
+            searchResults = _applyFilters(results);
             actorResults = results
                 .where((item) => item['media_type'] == 'person')
                 .toList();
@@ -253,7 +271,7 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
           final results = await TmdbApiService.searchMovies(trimmedQuery);
           if (!mounted || generation != _searchGeneration) return;
           setState(() {
-            searchResults = results;
+            searchResults = _applyFilters(results);
             actorResults = [];
           });
           break;
@@ -261,7 +279,7 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
           final results = await TmdbApiService.searchSeries(trimmedQuery);
           if (!mounted || generation != _searchGeneration) return;
           setState(() {
-            searchResults = results;
+            searchResults = _applyFilters(results);
             actorResults = [];
           });
           break;
@@ -281,6 +299,243 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
         setState(() => isLoading = false);
       }
     }
+  }
+
+  List<Map<String, dynamic>> _applyFilters(List<Map<String, dynamic>> items) {
+    return items.where((item) {
+      if (item['media_type'] == 'person') return true;
+      if (_filterGenreId != null) {
+        final genreIds = (item['genre_ids'] as List<dynamic>?)?.cast<int>() ?? [];
+        if (!genreIds.contains(_filterGenreId)) return false;
+      }
+      if (_filterYearFrom != null || _filterYearTo != null) {
+        final dateStr = (item['release_date'] ?? item['first_air_date'] ?? '') as String;
+        if (dateStr.length >= 4) {
+          final year = int.tryParse(dateStr.substring(0, 4));
+          if (year != null) {
+            if (_filterYearFrom != null && year < _filterYearFrom!) return false;
+            if (_filterYearTo != null && year > _filterYearTo!) return false;
+          }
+        }
+      }
+      if (_filterRatingMin != null) {
+        final rating = (item['vote_average'] ?? 0).toDouble();
+        if (rating < _filterRatingMin!) return false;
+      }
+      return true;
+    }).toList();
+  }
+
+  void _showFilterSheet() {
+    final temp = {
+      'genreId': _filterGenreId,
+      'genreName': _filterGenreName,
+      'yearFrom': _filterYearFrom,
+      'yearTo': _filterYearTo,
+      'rating': _filterRatingMin,
+    };
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1A1A1A),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setSheetState) {
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40, height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[700],
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text('Filters', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w800)),
+                      ),
+                      if (_filtersActive)
+                        TextButton(
+                          onPressed: () {
+                            setSheetState(() {
+                              temp['genreId'] = null;
+                              temp['genreName'] = null;
+                              temp['yearFrom'] = null;
+                              temp['yearTo'] = null;
+                              temp['rating'] = null;
+                            });
+                          },
+                          child: const Text('Clear All', style: TextStyle(color: Colors.red, fontSize: 13)),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  const Text('Genre', style: TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    height: 40,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      children: [
+                        _buildGenreChip(setSheetState, temp, null, null),
+                        ..._genreMap.entries.map((e) =>
+                          _buildGenreChip(setSheetState, temp, e.key, e.value)),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  const Text('Release Year', style: TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildYearField('From', temp['yearFrom'] as int?, (v) {
+                          setSheetState(() => temp['yearFrom'] = v);
+                        }),
+                      ),
+                      const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 12),
+                        child: Text('–', style: TextStyle(color: Colors.grey, fontSize: 18)),
+                      ),
+                      Expanded(
+                        child: _buildYearField('To', temp['yearTo'] as int?, (v) {
+                          setSheetState(() => temp['yearTo'] = v);
+                        }),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
+                    children: [
+                      const Text('Min Rating', style: TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w600)),
+                      const Spacer(),
+                      if (temp['rating'] != null)
+                        Text('${(temp['rating'] as double).toStringAsFixed(1)}+', style: const TextStyle(color: Colors.red, fontSize: 13, fontWeight: FontWeight.w600)),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  SliderTheme(
+                    data: SliderThemeData(
+                      activeTrackColor: Colors.red,
+                      inactiveTrackColor: Colors.grey[800],
+                      thumbColor: Colors.red,
+                      overlayColor: Colors.red.withValues(alpha: 0.2),
+                    ),
+                    child: Slider(
+                      value: (temp['rating'] as double?) ?? 0,
+                      min: 0,
+                      max: 10,
+                      divisions: 20,
+                      onChanged: (v) {
+                        setSheetState(() => temp['rating'] = v == 0 ? null : v);
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      onPressed: () {
+                        Navigator.pop(ctx);
+                        setState(() {
+                          _filterGenreId = temp['genreId'] as int?;
+                          _filterGenreName = temp['genreName'] as String?;
+                          _filterYearFrom = temp['yearFrom'] as int?;
+                          _filterYearTo = temp['yearTo'] as int?;
+                          _filterRatingMin = temp['rating'] as double?;
+                          _filtersActive = _filterGenreId != null || _filterYearFrom != null || _filterYearTo != null || _filterRatingMin != null;
+                        });
+                        if (_searchController.text.trim().length >= 2) {
+                          _performSearch(_searchController.text);
+                        }
+                      },
+                      child: const Text('Apply Filters', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildGenreChip(StateSetter setSheetState, Map<String, dynamic> temp,
+      int? genreId, String? genreName) {
+    final selected = temp['genreId'] == genreId;
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: GestureDetector(
+        onTap: () {
+          setSheetState(() {
+            if (genreId == null || temp['genreId'] == genreId) {
+              temp['genreId'] = null;
+              temp['genreName'] = null;
+            } else {
+              temp['genreId'] = genreId;
+              temp['genreName'] = genreName;
+            }
+          });
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          decoration: BoxDecoration(
+            color: selected ? Colors.red : const Color(0xFF2A2A2A),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: selected ? Colors.red : Colors.white.withValues(alpha: 0.1),
+            ),
+          ),
+          child: Text(
+            genreName ?? 'All',
+            style: TextStyle(
+              color: selected ? Colors.white : Colors.grey[400],
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildYearField(String hint, int? value, Function(int?) onChanged) {
+    return TextFormField(
+      keyboardType: TextInputType.number,
+      style: const TextStyle(color: Colors.white, fontSize: 14),
+      initialValue: value?.toString() ?? '',
+      decoration: InputDecoration(
+        hintText: hint,
+        hintStyle: TextStyle(color: Colors.grey[600], fontSize: 13),
+        filled: true,
+        fillColor: const Color(0xFF2A2A2A),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide.none,
+        ),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      ),
+      onChanged: (v) {
+        onChanged(int.tryParse(v));
+      },
+    );
   }
 
   @override
@@ -585,6 +840,27 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
                 ),
                 splashRadius: 18,
                 tooltip: _isListening ? 'Stop listening' : 'Voice search',
+                padding: const EdgeInsets.all(8),
+                constraints: const BoxConstraints(),
+              ),
+            ),
+            // Filter button
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              margin: const EdgeInsets.only(right: 6),
+              decoration: BoxDecoration(
+                color: _filtersActive ? Colors.red : Colors.white.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: IconButton(
+                onPressed: _showFilterSheet,
+                icon: Icon(
+                  Icons.tune_rounded,
+                  color: _filtersActive ? Colors.white : Colors.grey[300],
+                  size: 18,
+                ),
+                splashRadius: 18,
+                tooltip: 'Filters',
                 padding: const EdgeInsets.all(8),
                 constraints: const BoxConstraints(),
               ),

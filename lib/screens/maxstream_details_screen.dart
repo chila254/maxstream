@@ -129,8 +129,8 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
         _youtubeController = YoutubePlayerController(
           initialVideoId: videoId,
           flags: const YoutubePlayerFlags(
-            autoPlay: false,
-            mute: false,
+            autoPlay: true,
+            mute: true,
             enableCaption: true,
           ),
         );
@@ -786,9 +786,7 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
                     playedColor: Colors.red,
                     handleColor: Colors.redAccent,
                   ),
-                  onReady: () {
-                    _youtubeController?.pause();
-                  },
+                  onReady: () {},
                 ),
               ),
             ),
