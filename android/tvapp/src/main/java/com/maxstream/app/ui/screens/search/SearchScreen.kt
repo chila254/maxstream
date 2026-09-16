@@ -54,6 +54,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import androidx.compose.ui.platform.LocalContext
 
 private const val COLUMNS = 5
 
@@ -77,6 +78,7 @@ fun SearchScreen(
     restoreFocusKey: Int = 0,
 ) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     // ── State ──────────────────────────────────────────────────────────────
     var query       by remember { mutableStateOf("") }

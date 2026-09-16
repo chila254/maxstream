@@ -262,8 +262,8 @@ private fun TvAppRoot() {
                         // reseed (which requests the hero). Bumping the tick is
                         // enough: each screen reseeds its content focus on
                         // (isVisible, focusKey), stealing focus off the sidebar
-                        // pill so the sidebar collapses.
                     },
+                    onContentFocusTick     = { contentFocusTick++ },
                 )
             }
         }
@@ -331,6 +331,7 @@ private fun TvShell(
     contentFocusTick: Int,
     deepNavReturnTick: Int,
     requestContentFocus: () -> Unit,
+    onContentFocusTick: () -> Unit = {},
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
 
@@ -349,7 +350,7 @@ private fun TvShell(
             onSwitchProfile = {
                 // Just reload content — don't navigate to ProfileSelect
                 // (sidebar dropdown already sets the active profile)
-                contentFocusTick++
+                onContentFocusTick()
             },
             active          = appState.focusOnSidebar,
         )
