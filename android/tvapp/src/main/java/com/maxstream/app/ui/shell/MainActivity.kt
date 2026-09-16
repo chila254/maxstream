@@ -332,6 +332,8 @@ private fun TvShell(
     deepNavReturnTick: Int,
     requestContentFocus: () -> Unit,
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+
     Row(modifier = Modifier.fillMaxSize()) {
 
         // ── Sidebar ────────────────────────────────────────────────────────

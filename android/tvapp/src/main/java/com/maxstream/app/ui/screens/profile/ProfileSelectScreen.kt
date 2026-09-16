@@ -73,6 +73,7 @@ import coil.compose.AsyncImage
 import com.maxstream.app.core.Constants
 import com.maxstream.app.data.local.ProfileData
 import com.maxstream.app.data.local.ProfileScope
+import com.maxstream.app.data.local.SessionManager
 import com.maxstream.app.data.model.MediaItem
 import com.maxstream.app.data.remote.TmdbApi
 import com.maxstream.app.data.repository.ProfileRepository
@@ -116,11 +117,14 @@ fun ProfileSelectScreen(
     LaunchedEffect(Unit) {
         var cloudProfiles = ProfileRepository.pullProfiles(context)
 
-        // New account: no profiles exist — create a default one
+        // New account: no profiles exist — create a default one with account name
         if (cloudProfiles.isEmpty()) {
+            val email = SessionManager.email(context)
+            val displayName = email.substringBefore("@").ifEmpty { "Profile 1" }
+                .replaceFirstChar { it.uppercase() }
             val default = ProfileRepository.createProfile(
                 context = context,
-                name = "Profile 1",
+                name = displayName,
                 colorIndex = 0,
                 iconCodePoint = 0xe4ff, // person
             )

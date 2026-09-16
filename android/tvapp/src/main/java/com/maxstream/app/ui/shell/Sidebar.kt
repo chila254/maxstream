@@ -23,6 +23,9 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.MenuDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -60,6 +63,7 @@ import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.RocketLaunch
 import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -223,27 +227,18 @@ fun Sidebar(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             if (isExpanded && profiles.isNotEmpty()) {
-                // Expanded: show profile list
-                Text(
-                    text = "Switch Profile",
-                    color = Color.White.copy(alpha = 0.5f),
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.W500,
-                    modifier = Modifier.padding(bottom = 8.dp),
-                )
-                profiles.forEach { profile ->
-                    val isActive = profile.id == activeProfileId
-                    val profileColors = ProfileSidebarColors[profile.colorIndex % ProfileSidebarColors.size]
+                var showDropdown by remember { mutableStateOf(false) }
+                val activeProfile = profiles.find { it.id == activeProfileId } ?: profiles.first()
+                val activeColors = ProfileSidebarColors[activeProfile.colorIndex % ProfileSidebarColors.size]
+
+                // Active profile row — opens dropdown
+                Box {
                     Row(
                         modifier = Modifier
                             .width(196.dp)
                             .clip(RoundedCornerShape(20.dp))
-                            .background(if (isActive) Color(0x38FFFFFF) else Color.Transparent)
-                            .clickable {
-                                ProfileScope.setActiveProfileId(context, profile.id)
-                                activeProfileId = profile.id
-                                onSwitchProfile()
-                            }
+                            .background(Color(0x38FFFFFF))
+                            .clickable { showDropdown = true }
                             .padding(horizontal = 10.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -251,31 +246,94 @@ fun Sidebar(
                             modifier = Modifier
                                 .size(28.dp)
                                 .clip(RoundedCornerShape(14.dp))
-                                .background(profileColors),
+                                .background(activeColors),
                             contentAlignment = Alignment.Center,
                         ) {
                             Icon(
-                                imageVector = ProfileSidebarIcon(profile.iconCodePoint),
-                                contentDescription = profile.name,
+                                imageVector = ProfileSidebarIcon(activeProfile.iconCodePoint),
+                                contentDescription = activeProfile.name,
                                 tint = Color.White,
                                 modifier = Modifier.size(16.dp),
                             )
                         }
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            text = profile.name,
+                            text = activeProfile.name,
                             color = Color.White,
                             fontSize = 13.sp,
-                            fontWeight = if (isActive) FontWeight.W600 else FontWeight.W400,
+                            fontWeight = FontWeight.W600,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f),
                         )
-                        if (isActive) {
-                            Text("✓", color = Color(0xFFE50914), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        Icon(
+                            imageVector = Icons.Filled.ArrowDropDown,
+                            contentDescription = "Switch profile",
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+
+                    // Dropdown popup with all profiles
+                    DropdownMenu(
+                        expanded = showDropdown,
+                        onDismissRequest = { showDropdown = false },
+                        modifier = Modifier
+                            .width(200.dp)
+                            .background(Color(0xFF1A1A1A)),
+                    ) {
+                        Text(
+                            text = "Switch Profile",
+                            color = Color.White.copy(alpha = 0.5f),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.W500,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                        )
+                        profiles.forEach { profile ->
+                            val isActive = profile.id == activeProfileId
+                            val pColor = ProfileSidebarColors[profile.colorIndex % ProfileSidebarColors.size]
+                            DropdownMenuItem(
+                                text = {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(24.dp)
+                                                .clip(RoundedCornerShape(12.dp))
+                                                .background(pColor),
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            Icon(
+                                                imageVector = ProfileSidebarIcon(profile.iconCodePoint),
+                                                contentDescription = profile.name,
+                                                tint = Color.White,
+                                                modifier = Modifier.size(14.dp),
+                                            )
+                                        }
+                                        Spacer(Modifier.width(10.dp))
+                                        Text(
+                                            text = profile.name,
+                                            color = Color.White,
+                                            fontSize = 13.sp,
+                                            fontWeight = if (isActive) FontWeight.W600 else FontWeight.W400,
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                        if (isActive) {
+                                            Text("✓", color = Color(0xFFE50914), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                },
+                                onClick = {
+                                    showDropdown = false
+                                    ProfileScope.setActiveProfileId(context, profile.id)
+                                    activeProfileId = profile.id
+                                    onSwitchProfile()
+                                },
+                                colors = MenuDefaults.itemColors(
+                                    textColor = Color.White,
+                                ),
+                            )
                         }
                     }
-                    Spacer(Modifier.height(2.dp))
                 }
             } else {
                 // Collapsed: show logo
