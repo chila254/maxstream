@@ -38,7 +38,6 @@ class ProfileSelectScreen extends StatefulWidget {
 class _ProfileSelectScreenState extends State<ProfileSelectScreen> {
   List<Profile> _profiles = [];
   bool _isLoading = true;
-  bool _navigated = false;
 
   // Hero carousel state
   List<_HeroItem> _heroItems = [];
@@ -68,12 +67,6 @@ class _ProfileSelectScreenState extends State<ProfileSelectScreen> {
       _profiles = profiles;
       _isLoading = false;
     });
-
-    if (widget.isLaunchScreen && profiles.length == 1 && !_navigated) {
-      _navigated = true;
-      await ProfileScope.selectProfile(profiles.first.id);
-      _goToMain();
-    }
   }
 
   Future<void> _loadHeroContent() async {

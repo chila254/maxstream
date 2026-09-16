@@ -139,6 +139,9 @@ fun Sidebar(
     val coroutineScope = rememberCoroutineScope()
     val listState = rememberLazyListState()
 
+    // Focus requester for the profile switcher row (top of sidebar)
+    val profileSwitcherFocusRequester = remember { FocusRequester() }
+
     // Load profiles for the profile switcher
     var profiles by remember { mutableStateOf(emptyList<ProfileData>()) }
     var activeProfileId by remember { mutableStateOf("") }
@@ -228,6 +231,7 @@ fun Sidebar(
         ) {
             if (isExpanded && profiles.isNotEmpty()) {
                 var showDropdown by remember { mutableStateOf(false) }
+                var isProfileFocused by remember { mutableStateOf(false) }
                 val activeProfile = profiles.find { it.id == activeProfileId } ?: profiles.first()
                 val activeColors = ProfileSidebarColors[activeProfile.colorIndex % ProfileSidebarColors.size]
 
@@ -237,7 +241,29 @@ fun Sidebar(
                         modifier = Modifier
                             .width(196.dp)
                             .clip(RoundedCornerShape(20.dp))
-                            .background(Color(0x38FFFFFF))
+                            .background(if (isProfileFocused) Color(0x38FFFFFF) else Color(0x20FFFFFF))
+                            .border(
+                                width = if (isProfileFocused) 2.dp else 0.dp,
+                                color = if (isProfileFocused) Color.White else Color.Transparent,
+                                shape = RoundedCornerShape(20.dp),
+                            )
+                            .focusRequester(profileSwitcherFocusRequester)
+                            .onFocusChanged { state -> isProfileFocused = state.hasFocus }
+                            .onKeyEvent { event ->
+                                if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                                when (event.key) {
+                                    Key.DirectionDown -> {
+                                        // Move focus to first sidebar pill
+                                        runCatching { focusRequesters.firstOrNull()?.requestFocus() }
+                                        true
+                                    }
+                                    Key.Enter, Key.DirectionCenter -> {
+                                        showDropdown = true
+                                        true
+                                    }
+                                    else -> false
+                                }
+                            }
                             .clickable { showDropdown = true }
                             .padding(horizontal = 10.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -393,6 +419,7 @@ fun Sidebar(
                     },
                     onMoveUp = {
                         if (index > 0) runCatching { focusRequesters[index - 1].requestFocus() }
+                        else runCatching { profileSwitcherFocusRequester.requestFocus() }
                     },
                     onMoveDown = {
                         if (index < NAV_ENTRIES.lastIndex) runCatching { focusRequesters[index + 1].requestFocus() }

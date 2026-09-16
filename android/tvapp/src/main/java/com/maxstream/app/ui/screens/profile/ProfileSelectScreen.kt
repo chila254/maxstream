@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.RocketLaunch
 import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -108,6 +109,12 @@ fun ProfileSelectScreen(
     var focusedIndex by remember { mutableIntStateOf(-1) }
     var deleteTarget by remember { mutableStateOf<ProfileData?>(null) }
 
+    // Create profile state
+    var showCreateDialog by remember { mutableStateOf(false) }
+    var createName by remember { mutableStateOf("") }
+    var createColorIndex by remember { mutableIntStateOf(0) }
+    var createIconIndex by remember { mutableIntStateOf(0) }
+
     // Hero carousel state
     var heroItems by remember { mutableStateOf(emptyList<HeroItem>()) }
     var heroIndex by remember { mutableIntStateOf(0) }
@@ -134,18 +141,6 @@ fun ProfileSelectScreen(
         }
 
         profiles = cloudProfiles
-
-        if (cloudProfiles.size == 1) {
-            ProfileScope.setActiveProfileId(context, cloudProfiles.first().id)
-            onProfileSelected()
-            return@LaunchedEffect
-        }
-
-        if (ProfileScope.autoSelectIfSingle(context)) {
-            onProfileSelected()
-            return@LaunchedEffect
-        }
-
         isLoading = false
     }
 
@@ -301,8 +296,9 @@ fun ProfileSelectScreen(
 
                     Spacer(Modifier.height(48.dp))
 
-                    val columns = profiles.size.coerceAtMost(3).coerceAtLeast(1)
-                    val rows = if (profiles.isEmpty()) 0 else (profiles.size + columns - 1) / columns
+                    val columns = (profiles.size + 1).coerceAtMost(3).coerceAtLeast(1)
+                    val totalItems = profiles.size + 1 // +1 for create button
+                    val rows = if (totalItems == 0) 0 else (totalItems + columns - 1) / columns
 
                     for (row in 0 until rows) {
                         Row(
@@ -321,6 +317,13 @@ fun ProfileSelectScreen(
                                             onProfileSelected()
                                         },
                                         onDelete = { deleteTarget = profiles[index] },
+                                    )
+                                } else if (index == profiles.size && profiles.size < 5) {
+                                    // Create Profile card
+                                    CreateProfileCard(
+                                        isFocused = focusedIndex == index,
+                                        onFocused = { focusedIndex = index },
+                                        onClick = { showCreateDialog = true },
                                     )
                                 } else {
                                     Spacer(Modifier.size(120.dp))
@@ -341,6 +344,119 @@ fun ProfileSelectScreen(
                 Spacer(Modifier.height(60.dp))
             }
         }
+    }
+
+    // Create profile dialog
+    if (showCreateDialog) {
+        val profileColors = listOf(
+            Color(0xFFE50914), Color(0xFF6366F1), Color(0xFF8B5CF6),
+            Color(0xFFEC4899), Color(0xFFF59E0B), Color(0xFF10B981),
+        )
+        val profileIcons = listOf(
+            0xe4ff, 0xe038, 0xe30f, 0xe301, 0xe838, 0xe558, 0xe06d, 0xe91a,
+        )
+        AlertDialog(
+            onDismissRequest = { showCreateDialog = false },
+            title = { Text("Create Profile", color = Color.White) },
+            text = {
+                Column {
+                    Text("Name", color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp)
+                    Spacer(Modifier.height(8.dp))
+                    androidx.compose.material3.OutlinedTextField(
+                        value = createName,
+                        onValueChange = { createName = it },
+                        placeholder = { Text("Enter name", color = Color.White.copy(alpha = 0.4f)) },
+                        textStyle = androidx.compose.ui.text.TextStyle(color = Color.White),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    Text("Color", color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp)
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        profileColors.forEachIndexed { idx, color ->
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(CircleShape)
+                                    .background(color)
+                                    .border(
+                                        width = if (createColorIndex == idx) 3.dp else 0.dp,
+                                        color = Color.White,
+                                        shape = CircleShape,
+                                    )
+                                    .focusable()
+                                    .onKeyEvent { event ->
+                                        if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionCenter) {
+                                            createColorIndex = idx; true
+                                        } else false
+                                    }
+                                    .padding(0.dp),
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(16.dp))
+                    Text("Icon", color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp)
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        profileIcons.forEachIndexed { idx, codePoint ->
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(CircleShape)
+                                    .background(profileColors[createColorIndex % profileColors.size].copy(alpha = 0.5f))
+                                    .border(
+                                        width = if (createIconIndex == idx) 3.dp else 0.dp,
+                                        color = Color.White,
+                                        shape = CircleShape,
+                                    )
+                                    .focusable()
+                                    .onKeyEvent { event ->
+                                        if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionCenter) {
+                                            createIconIndex = idx; true
+                                        } else false
+                                    },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    imageVector = profileIconFor(codePoint),
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (createName.isNotBlank()) {
+                        scope.launch {
+                            ProfileRepository.createProfile(
+                                context = context,
+                                name = createName.trim(),
+                                colorIndex = createColorIndex,
+                                iconCodePoint = profileIcons[createIconIndex],
+                            )
+                            profiles = ProfileScope.getCachedProfiles(context)
+                            showCreateDialog = false
+                            createName = ""
+                            createColorIndex = 0
+                            createIconIndex = 0
+                        }
+                    }
+                }) {
+                    Text("Create", color = Color(0xFFE50914))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCreateDialog = false }) {
+                    Text("Cancel", color = Color.White)
+                }
+            },
+            containerColor = Color(0xFF1C1C1E),
+        )
     }
 
     // Delete confirmation dialog
@@ -454,6 +570,61 @@ private fun ProfileCard(
                 fontSize = 11.sp,
             )
         }
+    }
+}
+
+@Composable
+private fun CreateProfileCard(
+    isFocused: Boolean,
+    onFocused: () -> Unit,
+    onClick: () -> Unit,
+) {
+    val focusRequester = remember { FocusRequester() }
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .focusRequester(focusRequester)
+            .onFocusChanged { if (it.hasFocus) onFocused() }
+            .focusable()
+            .onKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionCenter) {
+                    onClick(); true
+                } else false
+            }
+            .padding(8.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(100.dp)
+                .clip(CircleShape)
+                .background(Color(0xFF333333))
+                .border(
+                    width = if (isFocused) 3.dp else 0.dp,
+                    color = if (isFocused) Color.White else Color.Transparent,
+                    shape = CircleShape,
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = Icons.Filled.PersonAdd,
+                contentDescription = "Create Profile",
+                tint = Color.White.copy(alpha = 0.7f),
+                modifier = Modifier.size(44.dp),
+            )
+        }
+
+        Spacer(Modifier.height(8.dp))
+
+        Text(
+            text = "Add Profile",
+            color = Color.White,
+            fontSize = 16.sp,
+            fontWeight = if (isFocused) FontWeight.Bold else FontWeight.Normal,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            modifier = Modifier.width(120.dp),
+        )
     }
 }
 
