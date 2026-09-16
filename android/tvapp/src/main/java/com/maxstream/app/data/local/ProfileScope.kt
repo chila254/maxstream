@@ -2,6 +2,7 @@ package com.maxstream.app.data.local
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.compose.runtime.mutableIntStateOf
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -19,6 +20,9 @@ object ProfileScope {
     private const val KEY_ACTIVE_PROFILE_ID = "active_profile_id"
     private const val KEY_PROFILES_JSON = "profiles_json"
 
+    /** Bumped whenever the active profile changes — UI observes this to reload. */
+    val profileRevision = mutableIntStateOf(0)
+
     private fun prefs(context: Context): SharedPreferences =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
@@ -30,6 +34,14 @@ object ProfileScope {
 
     fun setActiveProfileId(context: Context, id: String) {
         prefs(context).edit().putString(KEY_ACTIVE_PROFILE_ID, id).apply()
+        profileRevision.intValue++
+    }
+
+    /** Returns the active ProfileData, or null if none selected. */
+    fun activeProfile(context: Context): ProfileData? {
+        val id = activeProfileId(context)
+        if (id.isEmpty()) return null
+        return getCachedProfiles(context).find { it.id == id }
     }
 
     fun clearActiveProfile(context: Context) {

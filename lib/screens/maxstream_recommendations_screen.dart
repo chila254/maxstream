@@ -8,6 +8,7 @@ import '../services/cloud_sync_service.dart';
 import '../services/recommendation_service.dart';
 import '../services/tmdb_api_service.dart';
 import '../services/watch_history_service.dart';
+import '../utils/kids_filter.dart';
 import '../widgets/profile_menu_button.dart';
 import 'maxstream_details_screen.dart';
 import 'maxstream_series_screen.dart';
@@ -112,7 +113,7 @@ class _MaxStreamRecommendationsScreenState
           ...topGenres.map((g) => _safeRec(() => RecommendationService.getByGenre(g))),
       ]);
 
-      _forYou = results[0];
+      _forYou = filterForKids(results[0]);
       _becauseYouWatched = results[1];
 
       if (_hasHistory) {
@@ -126,7 +127,7 @@ class _MaxStreamRecommendationsScreenState
         _genreIdByName = {};
         for (int i = 0; i < topGenres.length; i++) {
           final name = allGenres[topGenres[i]] ?? 'Genre ${topGenres[i]}';
-          _byGenre[name] = (2 + i < results.length) ? results[2 + i] : [];
+          _byGenre[name] = filterForKids((2 + i < results.length) ? results[2 + i] : []);
           _genreIdByName[topGenres[i]] = name;
           _genrePage[name] = 1;
         }
@@ -143,7 +144,7 @@ class _MaxStreamRecommendationsScreenState
     try {
       _forYouPage++;
       final more = await RecommendationService.getForYou(page: _forYouPage);
-      if (mounted) setState(() => _forYou = [..._forYou, ...more]);
+      if (mounted) setState(() => _forYou = [..._forYou, ...filterForKids(more)]);
     } catch (_) {}
     if (mounted) setState(() => _loadingMoreForYou = false);
   }

@@ -77,6 +77,8 @@ import com.maxstream.app.data.remote.formatReleaseDate
 import com.maxstream.app.data.remote.isAirDateReleased
 import com.maxstream.app.data.remote.isReleased
 import com.maxstream.app.di.Modules
+import com.maxstream.app.util.isKidFriendly
+import com.maxstream.app.util.isKidsProfile
 import com.maxstream.app.ui.navigation.Screen
 import com.maxstream.app.ui.theme.Background
 import com.maxstream.app.ui.tv.isItemFullyVisible
@@ -175,9 +177,12 @@ fun DetailsScreen(
             // Recommendations / similar
             val recsArr = (json.optJSONObject("recommendations")
                 ?: json.optJSONObject("similar"))?.optJSONArray("results")
-            val recs = if (recsArr != null) {
+            val rawRecs = if (recsArr != null) {
                 MediaItem.fromJsonList(recsArr, if (isTv) "tv" else "movie").take(12)
             } else emptyList()
+            val recs = if (isKidsProfile(context)) {
+                rawRecs.filter { isKidFriendly(it.genreIds) }
+            } else rawRecs
 
             // Seasons (TV only)
             val seasons = if (isTv) {

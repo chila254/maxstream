@@ -42,6 +42,8 @@ import androidx.navigation.NavController
 import com.maxstream.app.R
 import com.maxstream.app.data.model.MediaItem
 import com.maxstream.app.di.Modules
+import com.maxstream.app.util.isKidFriendly
+import com.maxstream.app.util.isKidsProfile
 import com.maxstream.app.ui.components.ContentCard
 import com.maxstream.app.ui.components.TvKeyboard
 import com.maxstream.app.ui.navigation.Screen
@@ -157,8 +159,11 @@ fun SearchScreen(
             isSearching = true; searchError = null
             try {
                 val results = Modules.catalogRepository.search(query.trim())
-                movieResults  = results.filter { it.mediaType == "movie" }
-                seriesResults = results.filter { it.mediaType == "tv" }
+                val filtered = if (isKidsProfile(context)) {
+                    results.filter { isKidFriendly(it.genreIds) }
+                } else results
+                movieResults  = filtered.filter { it.mediaType == "movie" }
+                seriesResults = filtered.filter { it.mediaType == "tv" }
             } catch (e: Exception) {
                 searchError = e.message
                 movieResults = emptyList(); seriesResults = emptyList()

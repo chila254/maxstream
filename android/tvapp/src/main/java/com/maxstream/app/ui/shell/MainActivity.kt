@@ -347,9 +347,9 @@ private fun TvShell(
             },
             onFocusEntered  = { appState.updateFocusOnSidebar(true) },
             onSwitchProfile = {
-                shellNavController.navigate(Screen.ProfileSelect.route) {
-                    popUpTo(Screen.Shell.route) { inclusive = true }
-                }
+                // Just reload content — don't navigate to ProfileSelect
+                // (sidebar dropdown already sets the active profile)
+                contentFocusTick++
             },
             active          = appState.focusOnSidebar,
         )

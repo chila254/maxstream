@@ -118,6 +118,7 @@ fun ProfileSelectScreen(
     var createName by remember { mutableStateOf("") }
     var createColorIndex by remember { mutableIntStateOf(0) }
     var createIconIndex by remember { mutableIntStateOf(0) }
+    var createIsKids by remember { mutableStateOf(false) }
 
     // Request focus when focusedIndex changes via D-pad navigation
     LaunchedEffect(focusedIndex) {
@@ -465,6 +466,39 @@ fun ProfileSelectScreen(
                             }
                         }
                     }
+                    Spacer(Modifier.height(16.dp))
+                    // Kids profile toggle
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { createIsKids = !createIsKids }
+                            .padding(vertical = 8.dp),
+                    ) {
+                        Text(
+                            "Kids Profile",
+                            color = Color.White,
+                            fontSize = 14.sp,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Box(
+                            modifier = Modifier
+                                .size(44.dp, 24.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(if (createIsKids) Color(0xFF10B981) else Color(0xFF555555))
+                                .clickable { createIsKids = !createIsKids },
+                            contentAlignment = if (createIsKids) Alignment.CenterEnd else Alignment.CenterStart,
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(20.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White)
+                                    .padding(2.dp),
+                            )
+                        }
+                    }
                 }
             },
             confirmButton = {
@@ -476,12 +510,14 @@ fun ProfileSelectScreen(
                                 name = createName.trim(),
                                 colorIndex = createColorIndex,
                                 iconCodePoint = profileIcons[createIconIndex],
+                                isKids = createIsKids,
                             )
                             profiles = ProfileScope.getCachedProfiles(context)
                             showCreateDialog = false
                             createName = ""
                             createColorIndex = 0
                             createIconIndex = 0
+                            createIsKids = false
                         }
                     }
                 }) {

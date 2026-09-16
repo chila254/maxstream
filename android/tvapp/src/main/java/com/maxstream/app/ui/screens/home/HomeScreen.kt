@@ -70,6 +70,7 @@ import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import com.maxstream.app.R
 import com.maxstream.app.data.local.WatchEntryCompat
+import com.maxstream.app.data.local.ProfileScope
 import com.maxstream.app.data.model.MediaItem
 import com.maxstream.app.ui.components.ContentCard
 import com.maxstream.app.ui.navigation.Screen
@@ -230,6 +231,11 @@ fun HomeScreen(
         .collectAsState()
     LaunchedEffect(isVisible, historyRevision) {
         if (isVisible) viewModel.refreshSynced()
+    }
+    // Reload all content when the active profile changes (sidebar switch)
+    val profileRevision by ProfileScope.profileRevision
+    LaunchedEffect(isVisible, profileRevision) {
+        if (isVisible && profileRevision > 0) viewModel.loadAll()
     }
     LaunchedEffect(isVisible) {
         while (isVisible && coroutineContext.isActive) {

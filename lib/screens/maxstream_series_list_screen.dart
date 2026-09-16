@@ -4,6 +4,7 @@ import '../widgets/app_shimmer.dart';
 import '../models/movie.dart';
 import '../services/tmdb_api_service.dart';
 import '../utils/tmdb_list_utils.dart';
+import '../utils/kids_filter.dart';
 import '../widgets/series_hero_banner.dart';
 import '../widgets/profile_menu_button.dart';
 import 'maxstream_series_screen.dart';
@@ -1149,7 +1150,7 @@ class _FullListScreenState extends State<_FullListScreen> {
       }
 
       setState(() {
-        _allItems = initialItems;
+        _allItems = filterForKids(initialItems);
         _isLoading = false;
       });
     } catch (e) {
@@ -1201,7 +1202,7 @@ class _FullListScreenState extends State<_FullListScreen> {
       }
 
       if (!mounted) return;
-      final merged = uniqueTmdbItems(_allItems, newItems, widget.mediaType);
+      final merged = uniqueTmdbItems(_allItems, filterForKids(newItems), widget.mediaType);
       setState(() {
         _hasMore = merged.length > _allItems.length;
         _allItems = merged;

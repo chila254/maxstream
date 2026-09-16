@@ -10,6 +10,8 @@ import com.maxstream.app.data.local.WatchProgressRepository
 import com.maxstream.app.data.model.MediaItem
 import com.maxstream.app.data.repository.CloudSyncRepository
 import com.maxstream.app.di.Modules
+import com.maxstream.app.util.isKidFriendly
+import com.maxstream.app.util.isKidsProfile
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 
@@ -28,6 +30,12 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     private val _comingSoon = MutableLiveData<List<MediaItem>>(emptyList())
     private val _loading = MutableLiveData(true)
     private val _error = MutableLiveData<String?>(null)
+
+    /** Filter list to kid-friendly content when active profile is kids. */
+    private fun filterKids(items: List<MediaItem>): List<MediaItem> {
+        if (!isKidsProfile(getApplication())) return items
+        return items.filter { isKidFriendly(it.genreIds) }
+    }
 
     val trendingMovies: LiveData<List<MediaItem>> = _trendingMovies
     val trendingSeries: LiveData<List<MediaItem>> = _trendingSeries
@@ -65,13 +73,13 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                 (movies + series).sortedByDescending { it.releaseDate }.take(15)
             }
             try {
-                _trendingMovies.value = trendingMoviesDef.await()
-                _trendingSeries.value = trendingSeriesDef.await()
-                _popularMovies.value = popularMoviesDef.await()
-                _popularSeries.value = popularSeriesDef.await()
-                _topRatedMovies.value = topRatedMoviesDef.await()
-                _topRatedSeries.value = topRatedSeriesDef.await()
-                _comingSoon.value = comingSoonDef.await()
+                _trendingMovies.value = filterKids(trendingMoviesDef.await())
+                _trendingSeries.value = filterKids(trendingSeriesDef.await())
+                _popularMovies.value = filterKids(popularMoviesDef.await())
+                _popularSeries.value = filterKids(popularSeriesDef.await())
+                _topRatedMovies.value = filterKids(topRatedMoviesDef.await())
+                _topRatedSeries.value = filterKids(topRatedSeriesDef.await())
+                _comingSoon.value = filterKids(comingSoonDef.await())
             } catch (e: Exception) {
                 _error.value = e.message
             }
@@ -147,9 +155,9 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         val forYouItems = mutableListOf<MediaItem>()
         for (gid in topGenres.take(2)) {
             val items = runCatching { repo.catalogByGenre(gid, "movie") }.getOrNull()?.take(5) ?: emptyList()
-            forYouItems.addAll(items)
+            forYouItems.addAll(filterKids(items))
             val tvItems = runCatching { repo.catalogByGenre(gid, "tv") }.getOrNull()?.take(5) ?: emptyList()
-            forYouItems.addAll(tvItems)
+            forYouItems.addAll(filterKids(tvItems))
         }
         _forYou.value = forYouItems.shuffled().take(15)
 
@@ -163,7 +171,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             emptyList()
         }
         if (recs.isNotEmpty()) {
-            _becauseYouWatched.value = mostRecent.displayTitle to recs.take(15)
+            _becauseYouWatched.value = mostRecent.displayTitle to filterKids(recs).take(15)
         }
     }
 

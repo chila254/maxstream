@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import '../widgets/app_shimmer.dart';
 import '../models/movie.dart';
 import '../database/db_helper.dart';
+import '../utils/kids_filter.dart';
 import '../services/cloud_sync_service.dart';
 import '../services/profile_scope.dart';
 import '../services/tmdb_api_service.dart';
@@ -106,13 +107,17 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
       // Watchlist upcoming episodes (already formatted)
       final watchlistUpcoming = results[6] as List<Map<String, dynamic>>;
       final mergedUpcoming = [...upcomingMv, ...upcomingTv, ...watchlistUpcoming]..shuffle();
+
+      // Kids profile: filter to only kid-friendly content
+      final filter = isKidsProfile ? filterForKids : (List<Map<String, dynamic>> l) => l;
+
       setState(() {
-        trendingMovies = results[0] as List<Map<String, dynamic>>;
-        popularMovies = results[1] as List<Map<String, dynamic>>;
-        topRatedMovies = results[2] as List<Map<String, dynamic>>;
-        upcomingContent = mergedUpcoming;
+        trendingMovies = filter(results[0] as List<Map<String, dynamic>>);
+        popularMovies = filter(results[1] as List<Map<String, dynamic>>);
+        topRatedMovies = filter(results[2] as List<Map<String, dynamic>>);
+        upcomingContent = filter(mergedUpcoming);
         continueWatching = (results[5] as List<Map<String, dynamic>>).take(10).toList();
-        nowPlaying = results[7] as List<Map<String, dynamic>>;
+        nowPlaying = filter(results[7] as List<Map<String, dynamic>>);
         genres = results[8] as List<Map<String, dynamic>>;
       });
     } catch (e) {
@@ -1415,7 +1420,7 @@ class _FullListScreenState extends State<_FullListScreen> {
 
       if (!mounted) return;
       setState(() {
-        _allItems = initialItems;
+        _allItems = filterForKids(initialItems);
         _isLoading = false;
       });
     } catch (e) {
@@ -1482,7 +1487,7 @@ class _FullListScreenState extends State<_FullListScreen> {
       }
 
       if (!mounted) return;
-      final merged = uniqueTmdbItems(_allItems, newItems, widget.mediaType);
+      final merged = uniqueTmdbItems(_allItems, filterForKids(newItems), widget.mediaType);
       setState(() {
         _hasMore = merged.length > _allItems.length;
         _allItems = merged;

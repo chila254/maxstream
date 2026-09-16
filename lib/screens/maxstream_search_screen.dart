@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import '../models/movie.dart';
 import '../services/tmdb_api_service.dart';
+import '../utils/kids_filter.dart';
 import '../widgets/custom_loading_widget.dart';
 import '../widgets/profile_menu_button.dart';
 import 'maxstream_details_screen.dart';
@@ -219,8 +220,8 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
         TmdbApiService.fetchPopularSeries().catchError((_) => <Map<String, dynamic>>[]),
       ]);
       if (!mounted) return;
-      final trending = [...results[0], ...results[1]]..shuffle();
-      final popular = [...results[2], ...results[3]]..shuffle();
+      final trending = filterForKids([...results[0], ...results[1]])..shuffle();
+      final popular = filterForKids([...results[2], ...results[3]])..shuffle();
       setState(() {
         topSearched = trending.take(10).toList();
         mostWatched = popular.take(10).toList();
@@ -304,6 +305,11 @@ class _MaxStreamSearchScreenState extends State<MaxStreamSearchScreen>
   List<Map<String, dynamic>> _applyFilters(List<Map<String, dynamic>> items) {
     return items.where((item) {
       if (item['media_type'] == 'person') return true;
+      // Kids profile: only show kid-friendly content
+      if (isKidsProfile && item['media_type'] != 'person') {
+        final genreIds = (item['genre_ids'] as List<dynamic>?)?.cast<int>() ?? [];
+        if (!genreIds.contains(16) && !genreIds.contains(10751)) return false;
+      }
       if (_filterGenreId != null) {
         final genreIds = (item['genre_ids'] as List<dynamic>?)?.cast<int>() ?? [];
         if (!genreIds.contains(_filterGenreId)) return false;
