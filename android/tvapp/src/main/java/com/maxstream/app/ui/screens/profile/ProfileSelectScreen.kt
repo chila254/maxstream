@@ -107,6 +107,10 @@ fun ProfileSelectScreen(
     var profiles by remember { mutableStateOf(emptyList<ProfileData>()) }
     var isLoading by remember { mutableStateOf(true) }
     var focusedIndex by remember { mutableIntStateOf(-1) }
+
+    // Focus requesters for each card in the grid
+    val maxCards = 6 // 5 profiles + 1 create button
+    val cardFocusRequesters = remember { List(maxCards) { FocusRequester() } }
     var deleteTarget by remember { mutableStateOf<ProfileData?>(null) }
 
     // Create profile state
@@ -114,6 +118,14 @@ fun ProfileSelectScreen(
     var createName by remember { mutableStateOf("") }
     var createColorIndex by remember { mutableIntStateOf(0) }
     var createIconIndex by remember { mutableIntStateOf(0) }
+
+    // Request focus when focusedIndex changes via D-pad navigation
+    LaunchedEffect(focusedIndex) {
+        if (focusedIndex >= 0 && focusedIndex < maxCards) {
+            kotlinx.coroutines.delay(50)
+            runCatching { cardFocusRequesters[focusedIndex].requestFocus() }
+        }
+    }
 
     // Hero carousel state
     var heroItems by remember { mutableStateOf(emptyList<HeroItem>()) }
@@ -297,7 +309,7 @@ fun ProfileSelectScreen(
                     Spacer(Modifier.height(48.dp))
 
                     val columns = (profiles.size + 1).coerceAtMost(3).coerceAtLeast(1)
-                    val totalItems = profiles.size + 1 // +1 for create button
+                    val totalItems = profiles.size + if (profiles.size < 5) 1 else 0
                     val rows = if (totalItems == 0) 0 else (totalItems + columns - 1) / columns
 
                     for (row in 0 until rows) {
@@ -317,6 +329,21 @@ fun ProfileSelectScreen(
                                             onProfileSelected()
                                         },
                                         onDelete = { deleteTarget = profiles[index] },
+                                        focusRequester = cardFocusRequesters[index],
+                                        onMoveUp = {
+                                            val target = index - columns
+                                            if (target >= 0) focusedIndex = target
+                                        },
+                                        onMoveDown = {
+                                            val target = index + columns
+                                            if (target < totalItems) focusedIndex = target
+                                        },
+                                        onMoveLeft = {
+                                            if (col > 0) focusedIndex = index - 1
+                                        },
+                                        onMoveRight = {
+                                            if (col < columns - 1 && index + 1 < totalItems) focusedIndex = index + 1
+                                        },
                                     )
                                 } else if (index == profiles.size && profiles.size < 5) {
                                     // Create Profile card
@@ -324,6 +351,17 @@ fun ProfileSelectScreen(
                                         isFocused = focusedIndex == index,
                                         onFocused = { focusedIndex = index },
                                         onClick = { showCreateDialog = true },
+                                        focusRequester = cardFocusRequesters[index],
+                                        onMoveUp = {
+                                            val target = index - columns
+                                            if (target >= 0) focusedIndex = target
+                                        },
+                                        onMoveLeft = {
+                                            if (col > 0) focusedIndex = index - 1
+                                        },
+                                        onMoveRight = {
+                                            if (col < columns - 1 && index + 1 < totalItems) focusedIndex = index + 1
+                                        },
                                     )
                                 } else {
                                     Spacer(Modifier.size(120.dp))
@@ -493,8 +531,12 @@ private fun ProfileCard(
     onFocused: () -> Unit,
     onClick: () -> Unit,
     onDelete: () -> Unit = {},
+    focusRequester: FocusRequester = remember { FocusRequester() },
+    onMoveUp: () -> Unit = {},
+    onMoveDown: () -> Unit = {},
+    onMoveLeft: () -> Unit = {},
+    onMoveRight: () -> Unit = {},
 ) {
-    val focusRequester = remember { FocusRequester() }
     val colors = ProfileColors[profile.colorIndex % ProfileColors.size]
     val icon = profileIconFor(profile.iconCodePoint)
     var showDeleteHint by remember { mutableStateOf(false) }
@@ -514,6 +556,10 @@ private fun ProfileCard(
                 if (event.type == KeyEventType.KeyDown) {
                     when (event.key) {
                         Key.DirectionCenter -> { onClick(); true }
+                        Key.DirectionUp -> { onMoveUp(); true }
+                        Key.DirectionDown -> { onMoveDown(); true }
+                        Key.DirectionLeft -> { onMoveLeft(); true }
+                        Key.DirectionRight -> { onMoveRight(); true }
                         Key.Menu -> { onDelete(); true }
                         else -> false
                     }
@@ -578,8 +624,11 @@ private fun CreateProfileCard(
     isFocused: Boolean,
     onFocused: () -> Unit,
     onClick: () -> Unit,
+    focusRequester: FocusRequester = remember { FocusRequester() },
+    onMoveUp: () -> Unit = {},
+    onMoveLeft: () -> Unit = {},
+    onMoveRight: () -> Unit = {},
 ) {
-    val focusRequester = remember { FocusRequester() }
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,

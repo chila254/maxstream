@@ -350,9 +350,11 @@ fun Sidebar(
                                 },
                                 onClick = {
                                     showDropdown = false
-                                    ProfileScope.setActiveProfileId(context, profile.id)
-                                    activeProfileId = profile.id
-                                    onSwitchProfile()
+                                    if (!isActive) {
+                                        ProfileScope.setActiveProfileId(context, profile.id)
+                                        activeProfileId = profile.id
+                                        onSwitchProfile()
+                                    }
                                 },
                                 colors = MenuDefaults.itemColors(
                                     textColor = Color.White,
