@@ -4,6 +4,7 @@ import 'package:flutter_chrome_cast/media.dart';
 import 'package:flutter_chrome_cast/session.dart';
 import 'package:flutter_chrome_cast/discovery.dart';
 import 'package:flutter_chrome_cast/entities.dart';
+import 'package:flutter_chrome_cast/common.dart';
 
 /// Google Cast service for streaming to Chromecast devices.
 class CastService {

@@ -79,6 +79,7 @@ import com.maxstream.app.ui.tv.RowDesc
 import com.maxstream.app.ui.tv.RowNavState
 import com.maxstream.app.ui.viewmodel.HomeViewModel
 import com.maxstream.app.util.KidsTheme
+import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.isActive
@@ -115,6 +116,7 @@ fun HomeScreen(
     val playFocusRequester    = remember { FocusRequester() }
     val detailsFocusRequester = remember { FocusRequester() }
     val coroutineScope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     // D-pad navigation across the content rows (shared with every ContentRow).
     val outerListState = rememberLazyListState()
@@ -479,6 +481,7 @@ private fun HeroSection(
     onArrowDown: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
     val heroKey = item?.let { "${it.id}:$mediaType" } ?: "empty"
 
     AnimatedContent(
@@ -812,6 +815,7 @@ private fun ContinueWatchingCard(
     onFocusChanged: (Boolean) -> Unit,
     onKeyEvent: (KeyEvent) -> Boolean,
 ) {
+    val context = LocalContext.current
     val scale by androidx.compose.animation.core.animateFloatAsState(
         targetValue = if (isFocused) 1.02f else 1f,
         animationSpec = tween(180),
