@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../database/db_helper.dart';
 import '../services/media_download_manager.dart';
 import '../services/profile_scope.dart';
+import '../screens/downloads_settings_screen.dart';
 import '../widgets/app_network_image.dart';
 import '../widgets/app_shimmer.dart';
 import '../widgets/video_player_screen.dart';
@@ -243,7 +244,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                 ),
                 SizedBox(height: 6),
                 Text(
-                  'Use the download button inside the video player.',
+                  'Tap the download button on a movie or series details page.',
                   style: TextStyle(color: Colors.white54),
                 ),
               ],
@@ -293,6 +294,19 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
         backgroundColor: const Color(0xFF1A1A1A),
         title: const Text('Downloads'),
         actions: [
+          IconButton(
+            tooltip: 'Download Settings',
+            onPressed: () {
+              if (!mounted) return;
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const DownloadsSettingsScreen(),
+                ),
+              );
+            },
+            icon: const Icon(Icons.settings),
+          ),
           IconButton(
             tooltip: 'Refresh',
             onPressed: _loadDownloads,

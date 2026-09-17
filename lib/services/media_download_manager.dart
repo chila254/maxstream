@@ -11,6 +11,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import '../database/db_helper.dart';
 import 'direct_m3u8_service.dart';
 import 'download_service_bridge.dart';
+import 'downloads_settings_service.dart';
 import 'media_download_service.dart';
 import 'notification_service.dart';
 import 'profile_scope.dart';
@@ -213,6 +214,7 @@ class MediaDownloadManager extends ChangeNotifier {
     _initialized = false;
     _active.clear();
     _initialized = true;
+    await DownloadsSettingsService.refreshCache();
     await _loadPendingDownloads();
     _completionVersion++;
     notifyListeners();
@@ -455,6 +457,10 @@ class MediaDownloadManager extends ChangeNotifier {
     int episodeNumber = 1,
     int? maxVariantHeightPixels,
   }) async {
+    // Use quality setting from DownloadsSettingsService as default
+    final effectiveMaxHeight =
+        maxVariantHeightPixels ??
+        DownloadsSettingsService.maxVariantHeightPixels;
     final lookupTitle = resolverTitle ?? title;
     final stream = isMovie
         ? await DirectM3u8Service.fetchMovieStreamUrl(
@@ -494,7 +500,7 @@ class MediaDownloadManager extends ChangeNotifier {
       seriesId: isMovie ? null : mediaId,
       seasonNumber: isMovie ? null : seasonNumber,
       episodeNumber: isMovie ? null : episodeNumber,
-      maxVariantHeightPixels: maxVariantHeightPixels,
+      maxVariantHeightPixels: effectiveMaxHeight,
       subtitles: (stream['subtitles'] as List? ?? const [])
           .whereType<Map>()
           .map(
@@ -771,6 +777,14 @@ class MediaDownloadManager extends ChangeNotifier {
     if (_active.containsKey(downloadKey)) return;
     if (!StreamSecurity.isSafeNetworkUrl(url)) {
       throw const FormatException('Unsafe media URL');
+    }
+    // Check storage limit
+    final currentUsage = await DBHelper.getDownloadStorageUsage();
+    if (DownloadsSettingsService.wouldExceedLimit(currentUsage, 0)) {
+      throw StateError(
+        'Storage limit reached (${DownloadsSettingsService.storageLimitGb.toInt()} GB). '
+        'Go to Download Settings to adjust the limit or clear old downloads.',
+      );
     }
     headers = StreamSecurity.sanitizeHeaders(headers);
     subtitles = subtitles
