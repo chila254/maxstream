@@ -75,7 +75,7 @@ class StreamExtractor(private val context: Context) {
         // extractors run one-at-a-time and get a shorter cap to keep the
         // overall resolve time sane.
         private const val HTTP_SERVER_TIMEOUT_MS = 18_000L
-        private const val WEBVIEW_SERVER_TIMEOUT_MS = 18_000L
+        private const val WEBVIEW_SERVER_TIMEOUT_MS = 12_000L
         private const val ALL_SERVERS_TOTAL_TIMEOUT_MS = 75_000L
         private const val PRIMARY_TIMEOUT_MS = 45_000L
     }
@@ -232,10 +232,10 @@ class StreamExtractor(private val context: Context) {
 
     private val serverProviders: List<ServerProvider> by lazy {
         listOf(
-            VidukiServerProvider(),
             StaticTmdbProvider(),
             VidrockServerProvider(),
             PrimeSrcServerProvider(),
+            VidukiServerProvider(),
         )
     }
 
@@ -537,7 +537,7 @@ class StreamExtractor(private val context: Context) {
                 Log.w(tag, "No extractor for ${server.name}")
                 return null
             }
-            if (isLowRamDevice() && extractor.usesWebView && extractor.name != "VidLink" && extractor.name != "Viduki") {
+            if (isLowRamDevice() && extractor.usesWebView && extractor.name != "VidLink") {
                 Log.w(tag, "Skipping WebView extractor ${extractor.name} on low-RAM device")
                 return null
             }
