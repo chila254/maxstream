@@ -4,6 +4,7 @@ import '../widgets/app_shimmer.dart';
 import '../models/movie.dart';
 import '../database/db_helper.dart';
 import '../utils/kids_filter.dart';
+import '../utils/kids_theme.dart';
 import '../services/cloud_sync_service.dart';
 import '../services/profile_scope.dart';
 import '../services/tmdb_api_service.dart';
@@ -179,7 +180,7 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF121212),
+      backgroundColor: KidsTheme.background,
       body: RefreshIndicator(
         onRefresh: _loadContent,
         child: isLoading
@@ -226,7 +227,7 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
         slivers: [
           SliverAppBar(
             floating: true,
-            backgroundColor: const Color(0xFF1A1A1A),
+            backgroundColor: KidsTheme.surface,
             title: Row(
               children: [
                 Container(
@@ -356,7 +357,7 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
   Widget _buildAppBar() {
     return SliverAppBar(
       floating: true,
-      backgroundColor: const Color(0xFF1A1A1A),
+      backgroundColor: KidsTheme.surface,
       title: Row(
         children: [
           Container(
@@ -668,9 +669,9 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
                   onPressed: () {
                     _showFullList(title, mediaType);
                   },
-                  child: const Text(
+                  child: Text(
                     'See All',
-                    style: TextStyle(color: Colors.red, fontSize: 14),
+                    style: TextStyle(color: KidsTheme.primary, fontSize: 14),
                   ),
                 ),
               ],
@@ -740,9 +741,9 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
                       ),
                     );
                   },
-                  child: const Text(
+                  child: Text(
                     'See All',
-                    style: TextStyle(color: Colors.red, fontSize: 14),
+                    style: TextStyle(color: KidsTheme.primary, fontSize: 14),
                   ),
                 ),
               ],
@@ -854,7 +855,7 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
                         vertical: 3,
                       ),
                       decoration: BoxDecoration(
-                        color: isTv ? Colors.teal : Colors.red,
+                        color: isTv ? Colors.teal : KidsTheme.primary,
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: Text(
@@ -1130,7 +1131,7 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
                       padding: const EdgeInsets.symmetric(
                           horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
-                        color: Colors.red,
+                        color: KidsTheme.primary,
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: Text(
@@ -1282,14 +1283,14 @@ class _GenreMoviesScreenState extends State<_GenreMoviesScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF121212),
+      backgroundColor: KidsTheme.background,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF1A1A1A),
+        backgroundColor: KidsTheme.surface,
         title: Text(widget.genreName, style: const TextStyle(color: Colors.white)),
         iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: Colors.red))
+          ? Center(child: CircularProgressIndicator(color: KidsTheme.primary))
           : _movies.isEmpty
               ? const Center(
                   child: Text(
@@ -1503,9 +1504,9 @@ class _FullListScreenState extends State<_FullListScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF121212),
+      backgroundColor: KidsTheme.background,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF1A1A1A),
+        backgroundColor: KidsTheme.surface,
         title: Text(widget.title, style: const TextStyle(color: Colors.white)),
         iconTheme: const IconThemeData(color: Colors.white),
       ),
@@ -1924,7 +1925,7 @@ class _ComingSoonFullListScreenState extends State<_ComingSoonFullListScreen> {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
                       decoration: BoxDecoration(
-                        color: isTv ? Colors.teal : Colors.red,
+                        color: isTv ? Colors.teal : KidsTheme.primary,
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: Text(
@@ -2074,7 +2075,7 @@ class _ComingSoonFullListScreenState extends State<_ComingSoonFullListScreen> {
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
                       decoration: BoxDecoration(
-                        color: isTv ? Colors.teal : Colors.red,
+                        color: isTv ? Colors.teal : KidsTheme.primary,
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: Text(typeLabel, style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold)),
@@ -2143,9 +2144,9 @@ class _ComingSoonFullListScreenState extends State<_ComingSoonFullListScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF121212),
+      backgroundColor: KidsTheme.background,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF1A1A1A),
+        backgroundColor: KidsTheme.surface,
         title: const Text('Coming Soon', style: TextStyle(color: Colors.white)),
         iconTheme: const IconThemeData(color: Colors.white),
       ),

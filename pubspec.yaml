@@ -51,6 +51,7 @@ dependencies:
   firebase_crashlytics: ^4.3.10
   speech_to_text: ^7.4.0
   audio_service: ^0.18.17
+  flutter_chrome_cast: ^1.4.8
 
 dev_dependencies:
   flutter_test:

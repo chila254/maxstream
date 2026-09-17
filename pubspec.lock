@@ -257,6 +257,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "5.0.3"
+  fading_edge_scrollview:
+    dependency: transitive
+    description:
+      name: fading_edge_scrollview
+      sha256: "1f84fe3ea8e251d00d5735e27502a6a250e4aa3d3b330d3fdcb475af741464ef"
+      url: "https://pub.dev"
+    source: hosted
+    version: "4.1.1"
   fake_async:
     dependency: transitive
     description:
@@ -422,6 +430,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.4.2"
+  flutter_chrome_cast:
+    dependency: "direct main"
+    description:
+      name: flutter_chrome_cast
+      sha256: e6f769ffd30be0ac79cab00cb82c9db3956ffc718c5199f75cd5e53d2be86976
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.4.8"
   flutter_inappwebview:
     dependency: "direct main"
     description:
@@ -616,6 +632,14 @@ packages:
     description: flutter
     source: sdk
     version: "0.0.0"
+  get:
+    dependency: transitive
+    description:
+      name: get
+      sha256: "5ed34a7925b85336e15d472cc4cfe7d9ebf4ab8e8b9f688585bf6b50f4c3d79a"
+      url: "https://pub.dev"
+    source: hosted
+    version: "4.7.3"
   glassmorphism:
     dependency: "direct main"
     description:
@@ -928,6 +952,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.5.1"
+  marquee:
+    dependency: transitive
+    description:
+      name: marquee
+      sha256: a87e7e80c5d21434f90ad92add9f820cf68be374b226404fe881d2bba7be0862
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.3.0"
   matcher:
     dependency: transitive
     description:

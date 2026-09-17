@@ -4,7 +4,9 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:local_auth/local_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../utils/kids_theme.dart';
 import 'maxstream_home_screen.dart';
 import 'maxstream_search_screen.dart';
 import 'maxstream_series_list_screen.dart';
@@ -116,13 +118,56 @@ class _MaxStreamMainScreenState extends State<MaxStreamMainScreen> {
     final biometricEnabled = prefs.getBool('biometric_lock') ?? false;
     if (!biometricEnabled || !mounted) return;
     final isAvailable = await BiometricService.canUseBiometric();
-    if (!isAvailable || !mounted) return;
+    if (!isAvailable || !mounted) {
+      // Biometrics no longer available, disable the setting
+      await prefs.setBool('biometric_lock', false);
+      return;
+    }
+
+    // Prompt with a proper dialog instead of just authenticating silently
+    final biometrics = await BiometricService.getAvailableBiometrics();
+    String reason = 'Unlock MaxStream';
+    if (biometrics.contains(BiometricType.face)) {
+      reason = 'Scan your face to unlock MaxStream';
+    } else if (biometrics.contains(BiometricType.fingerprint)) {
+      reason = 'Scan your fingerprint to unlock MaxStream';
+    }
+
     final authenticated = await BiometricService.authenticate(
-      reason: 'Unlock MaxStream',
-      biometricOnly: false,
+      reason: reason,
+      biometricOnly: false, // Allow PIN fallback
     );
+
     if (!authenticated && mounted) {
-      SystemNavigator.pop();
+      // Show dialog before closing
+      await showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: const Color(0xFF1A1A1A),
+          title: const Text('Authentication Required', style: TextStyle(color: Colors.white)),
+          content: const Text(
+            'You must authenticate to use MaxStream. Would you like to try again or exit?',
+            style: TextStyle(color: Colors.grey),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(ctx).pop();
+                SystemNavigator.pop();
+              },
+              child: const Text('Exit', style: TextStyle(color: Colors.red)),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.of(ctx).pop();
+                _checkBiometricLock(); // Retry
+              },
+              child: const Text('Retry', style: TextStyle(color: Colors.green)),
+            ),
+          ],
+        ),
+      );
     }
   }
 
@@ -257,14 +302,14 @@ class _MaxStreamMainScreenState extends State<MaxStreamMainScreen> {
                     ),
                     decoration: BoxDecoration(
                       color: isSelected
-                          ? Colors.red.withValues(alpha: 0.2)
+                          ? KidsTheme.navSelected.withValues(alpha: 0.2)
                           : Colors.transparent,
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Icon(
                       icons[i],
                       size: 22,
-                      color: isSelected ? Colors.red : Colors.grey[400],
+                      color: isSelected ? KidsTheme.navSelected : KidsTheme.navUnselected,
                     ),
                   ),
                 );

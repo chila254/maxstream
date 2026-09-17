@@ -78,6 +78,7 @@ import com.maxstream.app.ui.theme.Background
 import com.maxstream.app.ui.tv.RowDesc
 import com.maxstream.app.ui.tv.RowNavState
 import com.maxstream.app.ui.viewmodel.HomeViewModel
+import com.maxstream.app.util.KidsTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.isActive
@@ -247,7 +248,7 @@ fun HomeScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Background)
+            .background(KidsTheme.background(context))
     ) {
         AnimatedVisibility(
             visible = isEntryVisible,
@@ -602,7 +603,7 @@ private fun HeroSection(
                             },
                         shape = RoundedCornerShape(28.dp),
                         colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFFE50914)
+                            containerColor = KidsTheme.primary(context)
                         ),
                     ) {
                         androidx.compose.material3.Icon(
@@ -901,7 +902,7 @@ private fun ContinueWatchingCard(
                             modifier = Modifier
                                 .fillMaxWidth(progress.coerceIn(0f, 1f))
                                 .fillMaxSize()
-                                .background(Color(0xFFE50914))
+                                .background(KidsTheme.primary(context))
                         )
                     }
                 }
@@ -928,7 +929,7 @@ private fun ContinueWatchingCard(
                         append("S${item.season}  E${item.episode}")
                         if (episodeName.isNotEmpty()) append("  ·  $episodeName")
                     },
-                    color = if (isFocused) Color(0xFFE50914) else Color.White.copy(alpha = 0.7f),
+                    color = if (isFocused) KidsTheme.primary(context) else Color.White.copy(alpha = 0.7f),
                     fontSize = if (isFocused) 12.sp else 11.sp,
                     fontWeight = if (isFocused) FontWeight.Bold else FontWeight.Normal,
                     maxLines = 1,

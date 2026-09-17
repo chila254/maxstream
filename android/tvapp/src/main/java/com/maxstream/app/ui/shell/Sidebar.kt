@@ -72,6 +72,7 @@ import com.maxstream.app.R
 import com.maxstream.app.data.local.ProfileData
 import com.maxstream.app.data.local.ProfileScope
 import com.maxstream.app.data.local.WatchlistRepository
+import com.maxstream.app.util.KidsTheme
 import kotlinx.coroutines.launch
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -212,7 +213,7 @@ fun Sidebar(
             .fillMaxHeight()
             .background(
                 Brush.verticalGradient(
-                    colors = listOf(Color(0xFF1A1A1A), Color(0xFF111111))
+                    colors = listOf(KidsTheme.surface(context), KidsTheme.background(context))
                 )
             )
             .border(
@@ -344,7 +345,7 @@ fun Sidebar(
                                             modifier = Modifier.weight(1f),
                                         )
                                         if (isActive) {
-                                            Text("✓", color = Color(0xFFE50914), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                            Text("✓", color = KidsTheme.navSelected(context), fontSize = 13.sp, fontWeight = FontWeight.Bold)
                                         }
                                     }
                                 },

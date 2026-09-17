@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:video_player/video_player.dart';
 import '../database/db_helper.dart';
+import '../services/cast_service.dart';
 import '../services/direct_m3u8_service.dart';
 import '../services/media_download_manager.dart';
 import '../services/media_session_handler.dart';
@@ -193,6 +194,76 @@ class _StablePlayerControlsState extends State<_StablePlayerControls> {
     _restartHideTimer();
   }
 
+  void _showCastDialog(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1A1A1A),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => Container(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Row(
+              children: [
+                Icon(Icons.cast, color: Colors.white, size: 24),
+                SizedBox(width: 12),
+                Text(
+                  'Cast to Device',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.05),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.info_outline, color: Colors.grey, size: 20),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'Make sure your Chromecast is on the same Wi-Fi network, then tap the Cast icon in your browser or use the Google Home app.',
+                      style: TextStyle(color: Colors.grey, fontSize: 13),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () => Navigator.pop(ctx),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                child: const Text(
+                  'Done',
+                  style: TextStyle(color: Colors.white),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _seekBy(Duration offset) {
     final value = widget.controller.value;
     var target = value.position + offset;
@@ -319,6 +390,21 @@ class _StablePlayerControlsState extends State<_StablePlayerControls> {
                               Icons.picture_in_picture_alt,
                               color: Colors.white,
                             ),
+                          ),
+                          // Cast button
+                          ValueListenableBuilder<bool>(
+                            valueListenable: ValueNotifier(CastService.instance.isCastAvailable),
+                            builder: (context, isAvailable, _) {
+                              if (!isAvailable) return const SizedBox.shrink();
+                              return IconButton(
+                                tooltip: 'Cast to TV',
+                                onPressed: () => _showCastDialog(context),
+                                icon: const Icon(
+                                  Icons.cast,
+                                  color: Colors.white,
+                                ),
+                              );
+                            },
                           ),
                           if (widget.mediaTitle.isNotEmpty)
                             Flexible(
@@ -642,6 +728,8 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     });
     // Re-load subtitle settings when cloud sync delivers changes from another device
     CloudSyncService.subtitlePrefsRevision.addListener(_onSubtitlePrefsChanged);
+    // Initialize Chromecast
+    CastService.instance.initialize();
 
     // Check if we're restoring from miniplayer
     final miniplayer = MiniplayerService.instance;
@@ -1463,11 +1551,18 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         }
       }
       // Available (playable) servers first, failed (re-fetchable) ones last.
+      // Viduki servers are prioritized at the top since they consistently return streams.
       final servers = byIdentity.values.toList()
         ..sort((a, b) {
           final aOk = (a['url']?.toString() ?? '').isNotEmpty ? 0 : 1;
           final bOk = (b['url']?.toString() ?? '').isNotEmpty ? 0 : 1;
-          return aOk - bOk;
+          if (aOk != bOk) return aOk - bOk;
+          // Among available servers, Viduki first
+          final aName = (a['server']?.toString() ?? a['source']?.toString() ?? '').toLowerCase();
+          final bName = (b['server']?.toString() ?? b['source']?.toString() ?? '').toLowerCase();
+          final aIsViduki = aName.contains('viduki') ? 0 : 1;
+          final bIsViduki = bName.contains('viduki') ? 0 : 1;
+          return aIsViduki - bIsViduki;
         });
       _availableServers = servers;
       _serversLoading = false;

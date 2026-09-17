@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:local_auth/local_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/user_service.dart';
 import '../services/auth_service.dart';
@@ -7,6 +8,7 @@ import '../services/biometric_service.dart';
 import '../services/profile_scope.dart';
 import '../screens/sign_in_screen.dart';
 import '../screens/profile_settings_screen.dart';
+import '../screens/profile_select_screen.dart';
 import '../screens/streaming_provider_settings_screen.dart';
 import '../screens/tv_pairing_screen.dart';
 import '../screens/maxstream_about_screen.dart';
@@ -97,7 +99,93 @@ class _MaxStreamMoreScreenState extends State<MaxStreamMoreScreen> {
               _userEmail,
               style: const TextStyle(color: Colors.grey, fontSize: 14),
             ),
+          const SizedBox(height: 16),
+          _buildProfileChip(),
         ],
+      ),
+    );
+  }
+
+  Widget _buildProfileChip() {
+    final profile = ProfileScope.activeProfile.value;
+    final isKids = ProfileScope.isKidsProfile;
+    final profileName = ProfileScope.currentProfileName;
+
+    return GestureDetector(
+      onTap: () {
+        if (!mounted) return;
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => const ProfileSelectScreen(isLaunchScreen: false),
+          ),
+        );
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          color: isKids
+              ? const Color(0xFF132A42).withValues(alpha: 0.6)
+              : Colors.white.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isKids
+                ? const Color(0xFF10B981).withValues(alpha: 0.3)
+                : Colors.white.withValues(alpha: 0.1),
+            width: 1,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(
+                color: isKids
+                    ? const Color(0xFF10B981)
+                    : (profile?.avatar.color ?? Colors.red),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                profile?.avatar.icon ?? Icons.person,
+                color: Colors.white,
+                size: 18,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  profileName,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                if (isKids)
+                  const Text(
+                    'Kids Profile',
+                    style: TextStyle(
+                      color: Color(0xFF10B981),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(width: 8),
+            Icon(
+              Icons.chevron_right,
+              color: Colors.grey[500],
+              size: 18,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -297,27 +385,74 @@ class _MaxStreamMoreScreenState extends State<MaxStreamMoreScreen> {
             fontWeight: FontWeight.w500,
           ),
         ),
+        subtitle: Text(
+          _biometricEnabled ? 'Tap to disable' : 'Tap to enable (requires authentication)',
+          style: TextStyle(color: Colors.grey[500], fontSize: 12),
+        ),
         trailing: Switch(
           value: _biometricEnabled,
           onChanged: (value) async {
             if (value) {
+              // Check if biometric is available
               final available = await BiometricService.canUseBiometric();
               if (!available) {
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
-                      content: Text('Biometric authentication not available on this device'),
+                      content: Text('Biometric authentication not available. Please set up a screen lock on your device first.'),
                       backgroundColor: Colors.red,
                     ),
                   );
                 }
                 return;
               }
+
+              // Prompt user to authenticate to verify they can use biometrics
+              final biometrics = await BiometricService.getAvailableBiometrics();
+              String reason = 'Authenticate to enable biometric lock';
+              if (biometrics.contains(BiometricType.face)) {
+                reason = 'Scan your face to enable biometric lock';
+              } else if (biometrics.contains(BiometricType.fingerprint)) {
+                reason = 'Scan your fingerprint to enable biometric lock';
+              }
+
+              final authenticated = await BiometricService.authenticate(
+                reason: reason,
+                biometricOnly: false, // Allow PIN/password fallback
+              );
+
+              if (!authenticated) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Authentication failed. Biometric lock not enabled.'),
+                      backgroundColor: Colors.orange,
+                    ),
+                  );
+                }
+                return;
+              }
             }
+
             final prefs = await SharedPreferences.getInstance();
             if (mounted) {
               setState(() => _biometricEnabled = value);
               await prefs.setBool('biometric_lock', value);
+              if (value) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Biometric lock enabled. You will be prompted on next app launch.'),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Biometric lock disabled.'),
+                    backgroundColor: Colors.grey,
+                  ),
+                );
+              }
             }
           },
           activeColor: Colors.green,

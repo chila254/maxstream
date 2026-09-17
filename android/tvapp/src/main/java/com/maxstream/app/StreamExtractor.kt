@@ -70,7 +70,7 @@ class StreamExtractor(private val context: Context) {
 
     companion object {
         private const val HTTP_SERVER_TIMEOUT_MS = 18_000L
-        private const val WEBVIEW_SERVER_TIMEOUT_MS = 12_000L
+        private const val WEBVIEW_SERVER_TIMEOUT_MS = 18_000L
         private const val ALL_SERVERS_TOTAL_TIMEOUT_MS = 75_000L
     }
 
@@ -221,10 +221,10 @@ class StreamExtractor(private val context: Context) {
 
     private val serverProviders: List<ServerProvider> by lazy {
         listOf(
+            VidukiServerProvider(),
             StaticTmdbProvider(),
             VidrockServerProvider(),
             PrimeSrcServerProvider(),
-            VidukiServerProvider(),
         )
     }
 
@@ -346,21 +346,28 @@ class StreamExtractor(private val context: Context) {
         val servers = buildServerList(media)
         val httpSlots = Semaphore(4)
         val webViewSlots = Semaphore(1)
-        val collected = CopyOnWriteArrayList<StreamResult>()
+        val collected = CopyOnWriteArrayList<Map<String, Any>>()
         val jobs = servers.map { server ->
             async(Dispatchers.IO) {
                 val webView = isWebViewServer(server)
                 val slots = if (webView) webViewSlots else httpSlots
                 slots.withPermit {
                     val timeout = if (webView) WEBVIEW_SERVER_TIMEOUT_MS else HTTP_SERVER_TIMEOUT_MS
-                    withTimeoutOrNull(timeout) {
+                    val attempt = withTimeoutOrNull(timeout) {
                         try {
-                            extractServer(server)?.let(collected::add)
+                            val stream = extractServer(server)
+                            if (stream != null) {
+                                stream.toMap() + mapOf("available" to true)
+                            } else {
+                                failedServerMap(server, "No playable stream extracted")
+                            }
                         } catch (error: Throwable) {
                             if (error is CancellationException) throw error
                             Log.w(tag, "Alternative server ${server.name} failed: ${error.message}")
+                            failedServerMap(server, error.message ?: "Unknown error")
                         }
-                    }
+                    } ?: failedServerMap(server, "Timed out")
+                    collected.add(attempt)
                 }
             }
         }
@@ -368,7 +375,25 @@ class StreamExtractor(private val context: Context) {
             jobs.forEach { it.join() }
         }
         jobs.forEach { it.cancel() }
-        collected.distinctBy { it.url }.map(StreamResult::toMap)
+        val attempts = collected.toList()
+        val byName = LinkedHashMap<String, MutableList<Map<String, Any>>>()
+        attempts.forEach { attempt ->
+            val name = attempt["server"]?.toString() ?: return@forEach
+            byName.getOrPut(name) { mutableListOf() }.add(attempt)
+        }
+        val result = mutableListOf<Map<String, Any>>()
+        val seenUrls = mutableSetOf<String>()
+        for ((_, entries) in byName) {
+            val success = entries.firstOrNull { it["available"] == true }
+            if (success != null) {
+                val url = success["url"]?.toString().orEmpty()
+                if (url.isEmpty() || !seenUrls.add(url)) continue
+                result.add(success)
+            } else {
+                result.add(entries.last())
+            }
+        }
+        result
     }
 
     private var cachedServerListKey: String? = null
@@ -448,6 +473,20 @@ class StreamExtractor(private val context: Context) {
     private fun isWebViewServer(server: StreamServer): Boolean =
         extractorRegistry.firstOrNull { it.supports(server) }?.usesWebView == true
 
+    private fun failedServerMap(server: StreamServer, error: String): Map<String, Any> = mapOf(
+        "url" to "",
+        "source" to server.name,
+        "server" to server.name,
+        "type" to "",
+        "headers" to emptyMap<String, String>(),
+        "referer" to "",
+        "qualities" to emptyList<Map<String, Any>>(),
+        "subtitles" to emptyList<Map<String, Any>>(),
+        "separateAudio" to false,
+        "available" to false,
+        "error" to error,
+    )
+
     private suspend fun extractServer(initialServer: StreamServer): StreamResult? {
         var server = initialServer
         val visited = mutableSetOf<String>()
@@ -468,7 +507,7 @@ class StreamExtractor(private val context: Context) {
                 Log.w(tag, "No extractor for ${server.name}")
                 return null
             }
-            if (isLowRamDevice() && extractor.usesWebView && extractor.name != "VidLink") {
+            if (isLowRamDevice() && extractor.usesWebView && extractor.name != "VidLink" && extractor.name != "Viduki") {
                 Log.w(tag, "Skipping WebView extractor ${extractor.name} on low-RAM device")
                 return null
             }
