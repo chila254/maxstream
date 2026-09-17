@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
@@ -22,7 +23,7 @@ class DBHelper {
     final path = join(await getDatabasesPath(), 'watchlist.db');
     return openDatabase(
       path,
-      version: 11,
+      version: 12,
       onCreate: _createDb,
       onUpgrade: _upgradeDb,
     );
@@ -185,7 +186,9 @@ class DBHelper {
     }
     if (oldVersion < 11) {
       // Add profileId column for per-profile watchlist isolation
-      await db.execute('ALTER TABLE watchlist ADD COLUMN profileId TEXT NOT NULL DEFAULT \'__default__\'');
+      await db.execute(
+        'ALTER TABLE watchlist ADD COLUMN profileId TEXT NOT NULL DEFAULT \'__default__\'',
+      );
       // Rebuild with new primary key including profileId
       await db.execute('ALTER TABLE watchlist RENAME TO watchlist_v10');
       await db.execute('''
@@ -218,12 +221,23 @@ class DBHelper {
       ''');
       await db.execute('DROP TABLE watchlist_v10');
     }
+    if (oldVersion < 12) {
+      // Add ownerId and profileId columns for per-profile download isolation
+      await db.execute(
+        'ALTER TABLE media_downloads ADD COLUMN ownerId TEXT NOT NULL DEFAULT \'\'',
+      );
+      await db.execute(
+        'ALTER TABLE media_downloads ADD COLUMN profileId TEXT NOT NULL DEFAULT \'__default__\'',
+      );
+    }
   }
 
   static Future<void> _createMediaDownloadsTable(Database db) async {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS media_downloads (
         downloadKey TEXT PRIMARY KEY,
+        ownerId TEXT NOT NULL,
+        profileId TEXT NOT NULL DEFAULT '__default__',
         mediaId TEXT NOT NULL,
         mediaType TEXT NOT NULL,
         seriesId TEXT,
@@ -255,6 +269,8 @@ class DBHelper {
     final db = await database;
     await db.insert('media_downloads', {
       'downloadKey': downloadKey,
+      'ownerId': UserScope.currentOwner,
+      'profileId': ProfileScope.currentProfileId,
       'mediaId': mediaId,
       'mediaType': mediaType,
       'seriesId': seriesId,
@@ -270,13 +286,19 @@ class DBHelper {
 
   static Future<List<Map<String, dynamic>>> getMediaDownloads({
     String? mediaType,
+    String? profileId,
   }) async {
     if (kIsWeb) return const [];
     final db = await database;
+    final effectiveProfileId = profileId ?? ProfileScope.currentProfileId;
     final downloads = await db.query(
       'media_downloads',
-      where: mediaType == null ? null : 'mediaType = ?',
-      whereArgs: mediaType == null ? null : [mediaType],
+      where: profileId == null
+          ? 'profileId = ?'
+          : 'profileId = ? AND mediaType = ?',
+      whereArgs: profileId == null
+          ? [effectiveProfileId]
+          : [effectiveProfileId, mediaType],
       orderBy: 'downloadDate DESC',
     );
     return downloads.map((download) {
@@ -297,8 +319,48 @@ class DBHelper {
     final db = await database;
     await db.delete(
       'media_downloads',
-      where: 'downloadKey = ?',
-      whereArgs: [downloadKey],
+      where: 'downloadKey = ? AND profileId = ?',
+      whereArgs: [downloadKey, ProfileScope.currentProfileId],
+    );
+  }
+
+  static Future<int> getDownloadStorageUsage() async {
+    if (kIsWeb) return 0;
+    final downloads = await getMediaDownloads();
+    int totalBytes = 0;
+    for (final download in downloads) {
+      final path = download['localPath']?.toString() ?? '';
+      if (path.isNotEmpty) {
+        try {
+          final file = File(path);
+          if (await file.exists()) {
+            totalBytes += await file.length();
+          }
+        } catch (_) {}
+      }
+    }
+    return totalBytes;
+  }
+
+  static Future<void> clearAllDownloads() async {
+    if (kIsWeb) return;
+    final downloads = await getMediaDownloads();
+    for (final download in downloads) {
+      final path = download['localPath']?.toString() ?? '';
+      if (path.isNotEmpty) {
+        try {
+          final file = File(path);
+          if (await file.exists()) {
+            await file.parent.delete(recursive: true);
+          }
+        } catch (_) {}
+      }
+    }
+    final db = await database;
+    await db.delete(
+      'media_downloads',
+      where: 'profileId = ?',
+      whereArgs: [ProfileScope.currentProfileId],
     );
   }
 
@@ -352,7 +414,12 @@ class DBHelper {
         'mediaType': movie.mediaType,
       },
       where: 'ownerId = ? AND profileId = ? AND id = ? AND mediaType = ?',
-      whereArgs: [UserScope.currentOwner, ProfileScope.currentProfileId, movie.id, movie.mediaType],
+      whereArgs: [
+        UserScope.currentOwner,
+        ProfileScope.currentProfileId,
+        movie.id,
+        movie.mediaType,
+      ],
     );
   }
 
@@ -370,7 +437,12 @@ class DBHelper {
     await db.delete(
       'watchlist',
       where: 'ownerId = ? AND profileId = ? AND id = ? AND mediaType = ?',
-      whereArgs: [UserScope.currentOwner, ProfileScope.currentProfileId, id.toString(), mediaType],
+      whereArgs: [
+        UserScope.currentOwner,
+        ProfileScope.currentProfileId,
+        id.toString(),
+        mediaType,
+      ],
     );
   }
 
@@ -380,7 +452,12 @@ class DBHelper {
     final result = await db.query(
       'watchlist',
       where: 'ownerId = ? AND profileId = ? AND id = ? AND mediaType = ?',
-      whereArgs: [UserScope.currentOwner, ProfileScope.currentProfileId, id.toString(), mediaType],
+      whereArgs: [
+        UserScope.currentOwner,
+        ProfileScope.currentProfileId,
+        id.toString(),
+        mediaType,
+      ],
     );
     return result.isNotEmpty;
   }
@@ -471,8 +548,14 @@ class DBHelper {
     final db = await database;
     final result = await db.query(
       'watchlist',
-      where: 'ownerId = ? AND profileId = ? AND (title LIKE ? OR description LIKE ?)',
-      whereArgs: [UserScope.currentOwner, ProfileScope.currentProfileId, '%$keyword%', '%$keyword%'],
+      where:
+          'ownerId = ? AND profileId = ? AND (title LIKE ? OR description LIKE ?)',
+      whereArgs: [
+        UserScope.currentOwner,
+        ProfileScope.currentProfileId,
+        '%$keyword%',
+        '%$keyword%',
+      ],
     );
 
     return result.map((json) {
@@ -656,14 +739,23 @@ class DBHelper {
     // Resolve providerName if not supplied
     String? resolvedName = providerName;
     if (resolvedName == null || resolvedName.isEmpty) {
-      final existing = await db.query('provider_preferences', where: 'providerId = ?', whereArgs: [providerId], limit: 1);
-      if (existing.isNotEmpty) resolvedName = existing.first['providerName']?.toString();
+      final existing = await db.query(
+        'provider_preferences',
+        where: 'providerId = ?',
+        whereArgs: [providerId],
+        limit: 1,
+      );
+      if (existing.isNotEmpty)
+        resolvedName = existing.first['providerName']?.toString();
       resolvedName ??= _knownProviderName(providerId);
     }
 
     final count = await db.update(
       'provider_preferences',
-      {'isPreferred': isPreferred ? 1 : 0, if (resolvedName != null) 'providerName': resolvedName},
+      {
+        'isPreferred': isPreferred ? 1 : 0,
+        if (resolvedName != null) 'providerName': resolvedName,
+      },
       where: 'providerId = ?',
       whereArgs: [providerId],
     );
@@ -676,12 +768,28 @@ class DBHelper {
       });
     }
     if (pushToCloud) {
-      unawaited(CloudSyncService.pushProviderPreference(providerId, resolvedName ?? '', isPreferred));
+      unawaited(
+        CloudSyncService.pushProviderPreference(
+          providerId,
+          resolvedName ?? '',
+          isPreferred,
+        ),
+      );
     }
   }
 
   static String? _knownProviderName(int id) {
-    const map = {8: 'Netflix', 9: 'Prime Video', 337: 'Disney+', 15: 'Hulu', 350: 'Apple TV', 1899: 'HBO Max', 386: 'Peacock', 582: 'Paramount+', 526: 'AMC+'};
+    const map = {
+      8: 'Netflix',
+      9: 'Prime Video',
+      337: 'Disney+',
+      15: 'Hulu',
+      350: 'Apple TV',
+      1899: 'HBO Max',
+      386: 'Peacock',
+      582: 'Paramount+',
+      526: 'AMC+',
+    };
     return map[id];
   }
 

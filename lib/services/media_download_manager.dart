@@ -13,6 +13,7 @@ import 'direct_m3u8_service.dart';
 import 'download_service_bridge.dart';
 import 'media_download_service.dart';
 import 'notification_service.dart';
+import 'profile_scope.dart';
 import 'stream_security.dart';
 
 class ActiveMediaDownload {
@@ -158,8 +159,11 @@ class MediaDownloadManager extends ChangeNotifier {
   MediaDownloadManager._();
 
   static final MediaDownloadManager instance = MediaDownloadManager._();
-  static const _pendingDownloadsKey = 'pending_media_downloads';
+  static const _pendingDownloadsKeyPrefix = 'pending_media_downloads_';
   static const int maxSubtitleBytes = 5 * 1024 * 1024;
+
+  static String get _pendingDownloadsKey =>
+      '$_pendingDownloadsKeyPrefix${ProfileScope.currentProfileId}';
 
   final Map<String, ActiveMediaDownload> _active = {};
   int _completionVersion = 0;
@@ -174,13 +178,22 @@ class MediaDownloadManager extends ChangeNotifier {
   Future<void> initialize() async {
     if (_initialized) return;
     _initialized = true;
+    await _loadPendingDownloads();
+  }
+
+  Future<void> _loadPendingDownloads() async {
     final preferences = await SharedPreferences.getInstance();
     final encoded = preferences.getString(_pendingDownloadsKey);
-    if (encoded == null || encoded.isEmpty) return;
+    if (encoded == null || encoded.isEmpty) {
+      _active.clear();
+      notifyListeners();
+      return;
+    }
     try {
       final decoded = jsonDecode(encoded);
       if (decoded is! List) throw const FormatException('Invalid downloads');
       final pending = decoded;
+      _active.clear();
       for (final value in pending.whereType<Map>()) {
         final task = ActiveMediaDownload.fromJson(
           value.map((key, value) => MapEntry(key.toString(), value)),
@@ -194,6 +207,15 @@ class MediaDownloadManager extends ChangeNotifier {
     } on FormatException {
       await preferences.remove(_pendingDownloadsKey);
     }
+  }
+
+  Future<void> onProfileChanged() async {
+    _initialized = false;
+    _active.clear();
+    _initialized = true;
+    await _loadPendingDownloads();
+    _completionVersion++;
+    notifyListeners();
   }
 
   Future<void> _persistActiveDownloads() async {
@@ -550,8 +572,7 @@ class MediaDownloadManager extends ChangeNotifier {
             _active.containsKey(downloadKey)) {
           completed++;
           _seasonCompleted = completed;
-          _seasonStatus =
-              'S${seasonNumber}E$episodeNumber already downloaded';
+          _seasonStatus = 'S${seasonNumber}E$episodeNumber already downloaded';
           notifyListeners();
           continue;
         }
@@ -687,9 +708,8 @@ class MediaDownloadManager extends ChangeNotifier {
     if (available.isEmpty) return null;
     if (preferredServer != null && preferredServer.isNotEmpty) {
       for (final stream in available) {
-        final identity = stream['server']?.toString() ??
-            stream['source']?.toString() ??
-            '';
+        final identity =
+            stream['server']?.toString() ?? stream['source']?.toString() ?? '';
         if (identity == preferredServer) return stream;
       }
     }
@@ -973,8 +993,9 @@ class MediaDownloadManager extends ChangeNotifier {
       return '';
     }
     final parts = <String>[];
-    for (final line in const LineSplitter()
-        .convert(utf8.decode(playlistResponse.bodyBytes, allowMalformed: true))) {
+    for (final line in const LineSplitter().convert(
+      utf8.decode(playlistResponse.bodyBytes, allowMalformed: true),
+    )) {
       final trimmed = line.trim();
       if (trimmed.isEmpty || trimmed.startsWith('#')) continue;
       final segmentUri = playlistUri.resolve(trimmed);
@@ -1003,10 +1024,8 @@ class MediaDownloadManager extends ChangeNotifier {
 
   String _sniffSubtitleExtension(String text) {
     final trimmed = text.trimLeft();
-    if (trimmed.startsWith('{' ) || trimmed.startsWith('[')) return '.json';
-    if (trimmed.contains('[Script Info]') ||
-        trimmed.contains('[V4')
-    ) {
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) return '.json';
+    if (trimmed.contains('[Script Info]') || trimmed.contains('[V4')) {
       return '.ass';
     }
     if (trimmed.startsWith('<')) return '.ttml';

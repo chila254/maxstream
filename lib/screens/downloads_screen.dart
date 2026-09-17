@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../database/db_helper.dart';
 import '../services/media_download_manager.dart';
+import '../services/profile_scope.dart';
 import '../widgets/app_network_image.dart';
 import '../widgets/app_shimmer.dart';
 import '../widgets/video_player_screen.dart';
@@ -28,13 +29,20 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
     super.initState();
     _completionVersion = _downloadManager.completionVersion;
     _downloadManager.addListener(_handleDownloadManagerChanged);
+    ProfileScope.activeProfile.addListener(_handleProfileChanged);
     _loadDownloads();
   }
 
   @override
   void dispose() {
     _downloadManager.removeListener(_handleDownloadManagerChanged);
+    ProfileScope.activeProfile.removeListener(_handleProfileChanged);
     super.dispose();
+  }
+
+  void _handleProfileChanged() {
+    _downloadManager.onProfileChanged();
+    _loadDownloads();
   }
 
   void _handleDownloadManagerChanged() {
@@ -192,12 +200,17 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
       final total = bytes.whereType<int>().fold<int>(0, (a, b) => a + b);
       if (total == 0) return '';
       if (total < 1024 * 1024) return '${(total / 1024).toStringAsFixed(0)} KB';
-      if (total < 1024 * 1024 * 1024) return '${(total / (1024 * 1024)).toStringAsFixed(1)} MB';
+      if (total < 1024 * 1024 * 1024)
+        return '${(total / (1024 * 1024)).toStringAsFixed(1)} MB';
       return '${(total / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
     }
 
-    final activeTotal = totalSizeLabel(_downloadManager.activeDownloads.map((d) => d.totalBytes));
-    final downloadedMoviesSize = totalSizeLabel(movies.map((m) => m['totalBytes'] as int? ?? m['fileSize'] as int?));
+    final activeTotal = totalSizeLabel(
+      _downloadManager.activeDownloads.map((d) => d.totalBytes),
+    );
+    final downloadedMoviesSize = totalSizeLabel(
+      movies.map((m) => m['totalBytes'] as int? ?? m['fileSize'] as int?),
+    );
     // series total from episodes' file sizes if available
 
     final body = _loading && _downloadManager.activeDownloads.isEmpty
@@ -210,7 +223,10 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
               itemBuilder: (_, __) => Container(
                 height: 88,
                 margin: const EdgeInsets.only(bottom: 12),
-                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
             ),
           )
@@ -238,14 +254,13 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
             child: ListView(
               padding: const EdgeInsets.all(16),
               children: [
+                _buildProfileIndicator(),
                 if (_downloadManager.activeDownloads.isNotEmpty) ...[
                   _sectionTitle(
                     'Downloading${activeTotal.isNotEmpty ? ' • $activeTotal' : ''}',
                     _downloadManager.activeDownloads.length,
                   ),
-                  ..._downloadManager.activeDownloads.map(
-                    _activeDownloadTile,
-                  ),
+                  ..._downloadManager.activeDownloads.map(_activeDownloadTile),
                   const SizedBox(height: 20),
                 ],
                 if (_downloads.isNotEmpty)
@@ -254,7 +269,9 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                     _downloads.length,
                   ),
                 if (movies.isNotEmpty) ...[
-                  _subsectionTitle('Movies${downloadedMoviesSize.isNotEmpty ? ' • $downloadedMoviesSize' : ''}'),
+                  _subsectionTitle(
+                    'Movies${downloadedMoviesSize.isNotEmpty ? ' • $downloadedMoviesSize' : ''}',
+                  ),
                   ...movies.map(_downloadTile),
                   const SizedBox(height: 20),
                 ],
@@ -267,10 +284,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
           );
 
     if (widget.embedded) {
-      return RefreshIndicator(
-        onRefresh: _loadDownloads,
-        child: body,
-      );
+      return RefreshIndicator(onRefresh: _loadDownloads, child: body);
     }
 
     return Scaffold(
@@ -420,11 +434,14 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
       // Add active downloads for this series if any
       final sid = first['seriesId']?.toString() ?? first['mediaId'].toString();
       for (final d in _downloadManager.activeDownloads) {
-        if (d.seriesId?.toString() == sid && d.totalBytes != null) total += d.totalBytes!;
+        if (d.seriesId?.toString() == sid && d.totalBytes != null)
+          total += d.totalBytes!;
       }
       if (total == 0) return '';
-      if (total < 1024 * 1024) return ' • ${(total / 1024).toStringAsFixed(0)} KB';
-      if (total < 1024 * 1024 * 1024) return ' • ${(total / (1024 * 1024)).toStringAsFixed(1)} MB';
+      if (total < 1024 * 1024)
+        return ' • ${(total / 1024).toStringAsFixed(0)} KB';
+      if (total < 1024 * 1024 * 1024)
+        return ' • ${(total / (1024 * 1024)).toStringAsFixed(1)} MB';
       return ' • ${(total / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
     }
 
@@ -455,6 +472,77 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
             children: entry.value.map(_downloadTile).toList(),
           );
         }).toList(),
+      ),
+    );
+  }
+
+  Widget _buildProfileIndicator() {
+    final profile = ProfileScope.activeProfile.value;
+    final isKids = ProfileScope.isKidsProfile;
+    final profileName = ProfileScope.currentProfileName;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      decoration: BoxDecoration(
+        color: isKids
+            ? const Color(0xFF132A42).withValues(alpha: 0.6)
+            : Colors.white.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isKids
+              ? const Color(0xFF10B981).withValues(alpha: 0.3)
+              : Colors.white.withValues(alpha: 0.1),
+          width: 1,
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              color: isKids
+                  ? const Color(0xFF10B981)
+                  : (profile?.avatar.color ?? Colors.red),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              profile?.avatar.icon ?? Icons.person,
+              color: Colors.white,
+              size: 18,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  profileName,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                if (isKids)
+                  const Text(
+                    'Kids Profile',
+                    style: TextStyle(
+                      color: Color(0xFF10B981),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          Text(
+            '${_downloads.length} downloads',
+            style: TextStyle(color: Colors.grey[500], fontSize: 12),
+          ),
+        ],
       ),
     );
   }

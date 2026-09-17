@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import '../database/db_helper.dart';
 import '../models/movie.dart';
 import '../models/subtitle_settings.dart';
+import 'media_download_manager.dart';
 import 'profile_scope.dart';
 import 'profile_service.dart';
 import 'watch_history_service.dart';
@@ -70,8 +71,7 @@ class CloudSyncService {
     return isMovie ? 'movie_$tmdbId' : 'tv_${tmdbId}_${season}_$episode';
   }
 
-  static String watchlistKey(String id, String mediaType) =>
-      '${id}_$mediaType';
+  static String watchlistKey(String id, String mediaType) => '${id}_$mediaType';
 
   // ---------------------------------------------------------------------
   // Real-time listener
@@ -101,7 +101,10 @@ class CloudSyncService {
     if (uid == null || _listening) return;
     _listening = true;
     // Register profile-change callback to restart listeners
-    ProfileScope.onProfileChanged = restartListeners;
+    ProfileScope.onProfileChanged = () {
+      restartListeners();
+      MediaDownloadManager.instance.onProfileChanged();
+    };
     // Backfill any pre-existing local watchlist entries to the cloud as soon
     // as we're signed in, so other devices can pull them.
     unawaited(pushEntireWatchlist());
@@ -118,8 +121,7 @@ class CloudSyncService {
     );
     _prefsSub = _prefsRef(uid).onValue.listen(
       _onPrefsEvent,
-      onError: (Object e) =>
-          debugPrint('CloudSync: prefs listener error: $e'),
+      onError: (Object e) => debugPrint('CloudSync: prefs listener error: $e'),
     );
     _subtitlePrefsSub = _subtitlePrefsRef(uid).onValue.listen(
       _onSubtitlePrefsEvent,
@@ -164,9 +166,7 @@ class CloudSyncService {
       final value = Map<String, dynamic>.from(entry.value as Map);
       final tmdbId = (value['tmdbId'] ?? '').toString();
       if (tmdbId.isEmpty) continue;
-      unawaited(
-        WatchHistoryService.importWatchProgress(value),
-      );
+      unawaited(WatchHistoryService.importWatchProgress(value));
     }
     historyRevision.value++;
   }
@@ -219,7 +219,9 @@ class CloudSyncService {
       final pid = (value['providerId'] as num?)?.toInt();
       if (pid == null) continue;
       final isPref = value['isPreferred'] == true || value['isPreferred'] == 1;
-      unawaited(DBHelper.setProviderPreference(pid, isPref, pushToCloud: false));
+      unawaited(
+        DBHelper.setProviderPreference(pid, isPref, pushToCloud: false),
+      );
     }
     prefsRevision.value++;
   }
@@ -236,7 +238,9 @@ class CloudSyncService {
     // When profiles change on another device, pull them locally.
     // ProfileScope.refresh() is called so the UI picks up changes.
     profilesRevision.value++;
-    unawaited(ProfileService.pullFromCloud().then((_) => ProfileScope.refresh()));
+    unawaited(
+      ProfileService.pullFromCloud().then((_) => ProfileScope.refresh()),
+    );
   }
 
   // ---------------------------------------------------------------------
@@ -258,10 +262,10 @@ class CloudSyncService {
       // Always write the entry — even when isWatched=true.
       // The receiving platform imports it and the isWatched flag causes
       // getContinueWatching() to filter it out (no stale entries left behind).
-      await _watchHistoryRef(uid, profileId).child(key).set({
-        ...item,
-        'updatedAt': ServerValue.timestamp,
-      });
+      await _watchHistoryRef(
+        uid,
+        profileId,
+      ).child(key).set({...item, 'updatedAt': ServerValue.timestamp});
     } catch (e) {
       debugPrint('CloudSync: watch progress push failed: $e');
     }
@@ -277,9 +281,10 @@ class CloudSyncService {
     if (uid == null || tmdbId.isEmpty) return;
     final profileId = ProfileScope.currentProfileId;
     try {
-      await _watchHistoryRef(uid, profileId)
-          .child(watchHistoryKey(tmdbId, isMovie, season, episode))
-          .remove();
+      await _watchHistoryRef(
+        uid,
+        profileId,
+      ).child(watchHistoryKey(tmdbId, isMovie, season, episode)).remove();
     } catch (e) {
       debugPrint('CloudSync: watch progress delete failed: $e');
     }
@@ -290,7 +295,10 @@ class CloudSyncService {
     if (uid == null || movie.id.isEmpty || movie.id == '0') return;
     final profileId = ProfileScope.currentProfileId;
     try {
-      await _watchlistRef(uid, profileId).child(watchlistKey(movie.id, movie.mediaType)).set({
+      await _watchlistRef(
+        uid,
+        profileId,
+      ).child(watchlistKey(movie.id, movie.mediaType)).set({
         'id': movie.id,
         'title': movie.title,
         'description': movie.description,
@@ -315,13 +323,20 @@ class CloudSyncService {
     if (uid == null || id.isEmpty) return;
     final profileId = ProfileScope.currentProfileId;
     try {
-      await _watchlistRef(uid, profileId).child(watchlistKey(id, mediaType)).remove();
+      await _watchlistRef(
+        uid,
+        profileId,
+      ).child(watchlistKey(id, mediaType)).remove();
     } catch (e) {
       debugPrint('CloudSync: watchlist delete failed: $e');
     }
   }
 
-  static Future<void> pushProviderPreference(int providerId, String providerName, bool isPreferred) async {
+  static Future<void> pushProviderPreference(
+    int providerId,
+    String providerName,
+    bool isPreferred,
+  ) async {
     final uid = _uid;
     if (uid == null) return;
     try {
@@ -362,10 +377,9 @@ class CloudSyncService {
     if (uid == null) return;
     try {
       final settings = await SubtitleSettings.load();
-      await _subtitlePrefsRef(uid).set({
-        ...settings.toJson(),
-        'updatedAt': ServerValue.timestamp,
-      });
+      await _subtitlePrefsRef(
+        uid,
+      ).set({...settings.toJson(), 'updatedAt': ServerValue.timestamp});
     } catch (e) {
       debugPrint('CloudSync: subtitle prefs push failed: $e');
     }
@@ -393,7 +407,7 @@ class CloudSyncService {
       }
 
       final watchlistSnap = await _watchlistRef(uid, profileId).get();
-       if (watchlistSnap.value != null) {
+      if (watchlistSnap.value != null) {
         final data = Map<String, dynamic>.from(watchlistSnap.value as Map);
         final cloudKeys = <String>{};
         for (final entry in data.entries) {
@@ -424,7 +438,8 @@ class CloudSyncService {
           final value = Map<String, dynamic>.from(entry.value as Map);
           final pid = (value['providerId'] as num?)?.toInt();
           if (pid == null) continue;
-          final isPref = value['isPreferred'] == true || value['isPreferred'] == 1;
+          final isPref =
+              value['isPreferred'] == true || value['isPreferred'] == 1;
           await DBHelper.setProviderPreference(pid, isPref, pushToCloud: false);
         }
       }
@@ -446,9 +461,9 @@ class CloudSyncService {
     final genres = rawGenres is List
         ? rawGenres.map((g) => g.toString()).toList()
         : (rawGenres?.toString() ?? '')
-            .split(',')
-            .where((g) => g.isNotEmpty)
-            .toList();
+              .split(',')
+              .where((g) => g.isNotEmpty)
+              .toList();
     return Movie(
       id: (data['id'] ?? '').toString(),
       title: data['title']?.toString() ?? '',

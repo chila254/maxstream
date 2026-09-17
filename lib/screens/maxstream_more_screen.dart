@@ -15,6 +15,7 @@ import '../screens/maxstream_about_screen.dart';
 import '../screens/provider_health_screen.dart';
 import '../screens/updates_screen.dart';
 import '../screens/subtitle_settings_screen.dart';
+import '../screens/downloads_settings_screen.dart';
 
 import '../widgets/profile_avatar.dart';
 
@@ -42,7 +43,10 @@ class _MaxStreamMoreScreenState extends State<MaxStreamMoreScreen> {
 
   Future<void> _loadBiometricPreference() async {
     final prefs = await SharedPreferences.getInstance();
-    if (mounted) setState(() => _biometricEnabled = prefs.getBool('biometric_lock') ?? false);
+    if (mounted)
+      setState(
+        () => _biometricEnabled = prefs.getBool('biometric_lock') ?? false,
+      );
   }
 
   void _loadUserInfo() async {
@@ -117,7 +121,8 @@ class _MaxStreamMoreScreenState extends State<MaxStreamMoreScreen> {
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => const ProfileSelectScreen(isLaunchScreen: false),
+            builder: (context) =>
+                const ProfileSelectScreen(isLaunchScreen: false),
           ),
         );
       },
@@ -179,11 +184,7 @@ class _MaxStreamMoreScreenState extends State<MaxStreamMoreScreen> {
               ],
             ),
             const SizedBox(width: 8),
-            Icon(
-              Icons.chevron_right,
-              color: Colors.grey[500],
-              size: 18,
-            ),
+            Icon(Icons.chevron_right, color: Colors.grey[500], size: 18),
           ],
         ),
       ),
@@ -206,6 +207,19 @@ class _MaxStreamMoreScreenState extends State<MaxStreamMoreScreen> {
               context,
               MaterialPageRoute(
                 builder: (context) => const SubtitleSettingsScreen(),
+              ),
+            );
+          },
+        ),
+        _buildMenuItem(
+          icon: Icons.download,
+          title: 'Download Settings',
+          onTap: () {
+            if (!mounted) return;
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const DownloadsSettingsScreen(),
               ),
             );
           },
@@ -305,9 +319,7 @@ class _MaxStreamMoreScreenState extends State<MaxStreamMoreScreen> {
             if (!mounted) return;
             Navigator.push(
               context,
-              MaterialPageRoute(
-                builder: (context) => const UpdatesScreen(),
-              ),
+              MaterialPageRoute(builder: (context) => const UpdatesScreen()),
             );
           },
         ),
@@ -380,13 +392,12 @@ class _MaxStreamMoreScreenState extends State<MaxStreamMoreScreen> {
         leading: const Icon(Icons.fingerprint, color: Colors.white),
         title: const Text(
           'Biometric Lock',
-          style: TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.w500,
-          ),
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
         ),
         subtitle: Text(
-          _biometricEnabled ? 'Tap to disable' : 'Tap to enable (requires authentication)',
+          _biometricEnabled
+              ? 'Tap to disable'
+              : 'Tap to enable (requires authentication)',
           style: TextStyle(color: Colors.grey[500], fontSize: 12),
         ),
         trailing: Switch(
@@ -399,7 +410,9 @@ class _MaxStreamMoreScreenState extends State<MaxStreamMoreScreen> {
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
-                      content: Text('Biometric authentication not available. Please set up a screen lock on your device first.'),
+                      content: Text(
+                        'Biometric authentication not available. Please set up a screen lock on your device first.',
+                      ),
                       backgroundColor: Colors.red,
                     ),
                   );
@@ -408,7 +421,8 @@ class _MaxStreamMoreScreenState extends State<MaxStreamMoreScreen> {
               }
 
               // Prompt user to authenticate to verify they can use biometrics
-              final biometrics = await BiometricService.getAvailableBiometrics();
+              final biometrics =
+                  await BiometricService.getAvailableBiometrics();
               String reason = 'Authenticate to enable biometric lock';
               if (biometrics.contains(BiometricType.face)) {
                 reason = 'Scan your face to enable biometric lock';
@@ -425,7 +439,9 @@ class _MaxStreamMoreScreenState extends State<MaxStreamMoreScreen> {
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
-                      content: Text('Authentication failed. Biometric lock not enabled.'),
+                      content: Text(
+                        'Authentication failed. Biometric lock not enabled.',
+                      ),
                       backgroundColor: Colors.orange,
                     ),
                   );
@@ -441,7 +457,9 @@ class _MaxStreamMoreScreenState extends State<MaxStreamMoreScreen> {
               if (value) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
-                    content: Text('Biometric lock enabled. You will be prompted on next app launch.'),
+                    content: Text(
+                      'Biometric lock enabled. You will be prompted on next app launch.',
+                    ),
                     backgroundColor: Colors.green,
                   ),
                 );
