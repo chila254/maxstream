@@ -160,6 +160,10 @@ class CloudSyncService {
   static void _onHistoryEvent(DatabaseEvent event) {
     final snapshot = event.snapshot;
     if (snapshot.value == null) return;
+    // Guard: capture the profile ID at the time this event was received.
+    // If it differs from the current profile (profile switched mid-listener),
+    // discard the event to prevent cross-profile data contamination.
+    final profileId = ProfileScope.currentProfileId;
     final data = Map<String, dynamic>.from(snapshot.value as Map);
 
     for (final entry in data.entries) {
@@ -168,7 +172,10 @@ class CloudSyncService {
       if (tmdbId.isEmpty) continue;
       unawaited(WatchHistoryService.importWatchProgress(value));
     }
-    historyRevision.value++;
+    // Only bump revision if profile hasn't changed during import.
+    if (ProfileScope.currentProfileId == profileId) {
+      historyRevision.value++;
+    }
   }
 
   static void _onWatchlistEvent(DatabaseEvent event) {
@@ -398,6 +405,8 @@ class CloudSyncService {
     try {
       final profileId = ProfileScope.currentProfileId;
       final historySnap = await _watchHistoryRef(uid, profileId).get();
+      // Guard: if profile changed during the async fetch, abort.
+      if (ProfileScope.currentProfileId != profileId) return;
       if (historySnap.value != null) {
         final data = Map<String, dynamic>.from(historySnap.value as Map);
         for (final entry in data.entries) {
@@ -407,6 +416,8 @@ class CloudSyncService {
       }
 
       final watchlistSnap = await _watchlistRef(uid, profileId).get();
+      // Guard: if profile changed during the async fetch, abort.
+      if (ProfileScope.currentProfileId != profileId) return;
       if (watchlistSnap.value != null) {
         final data = Map<String, dynamic>.from(watchlistSnap.value as Map);
         final cloudKeys = <String>{};

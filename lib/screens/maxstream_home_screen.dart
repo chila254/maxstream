@@ -6,6 +6,7 @@ import '../database/db_helper.dart';
 import '../utils/kids_filter.dart';
 import '../utils/kids_theme.dart';
 import '../services/cloud_sync_service.dart';
+import '../services/miniplayer_service.dart';
 import '../services/profile_scope.dart';
 import '../services/tmdb_api_service.dart';
 import '../utils/tmdb_list_utils.dart';
@@ -38,6 +39,12 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
   List<Map<String, dynamic>> nowPlaying = [];
   List<Map<String, dynamic>> genres = [];
 
+  /// Monotonically increasing counter to discard stale load results.
+  int _loadGeneration = 0;
+
+  /// Profile ID captured at the start of a load to detect profile switches mid-load.
+  String _loadProfileId = '';
+
   @override
   void initState() {
     super.initState();
@@ -48,10 +55,17 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
   }
 
   void _onSyncedHistory() {
-    if (mounted) _loadContinueWatching();
+    if (!mounted) return;
+    // Guard: only reload if the active profile hasn't changed since last load.
+    if (_loadProfileId.isNotEmpty &&
+        _loadProfileId != ProfileScope.currentProfileId)
+      return;
+    _loadContinueWatching();
   }
 
   void _onProfileChanged() {
+    // Stop miniplayer on profile switch to prevent background playback across profiles.
+    MiniplayerService.instance.close();
     if (mounted) _loadContent();
   }
 
@@ -74,6 +88,8 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
   }
 
   Future<void> _loadContent() async {
+    final generation = ++_loadGeneration;
+    _loadProfileId = ProfileScope.currentProfileId;
     if (mounted) setState(() => isLoading = true);
 
     try {
@@ -84,16 +100,19 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
         _safeList(() => TmdbApiService.fetchTopRatedMovies()),
         _safeList(() => TmdbApiService.fetchUpcomingMovies()),
         _safeList(() => TmdbApiService.fetchUpcomingSeries()),
-        syncFuture.then((_) => WatchHistoryService.getContinueWatching())
+        syncFuture
+            .then((_) => WatchHistoryService.getContinueWatching())
             .catchError((_) => <Map<String, dynamic>>[]),
         _safeList(() => _loadWatchlistUpcoming()),
         _safeList(() => TmdbApiService.fetchNowPlayingMovies()),
         _safeList(() => TmdbApiService.fetchGenreList()),
       ]);
 
-      if (!mounted) return;
-      final upcomingMv =
-          TmdbApiService.filterUnreleased(results[3] as List<Map<String, dynamic>>);
+      // Discard stale results if profile changed or a newer load started.
+      if (!mounted || generation != _loadGeneration) return;
+      final upcomingMv = TmdbApiService.filterUnreleased(
+        results[3] as List<Map<String, dynamic>>,
+      );
       final upcomingTv = TmdbApiService.filterUnreleased(
         results[4] as List<Map<String, dynamic>>,
         dateField: 'first_air_date',
@@ -107,17 +126,25 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
       }
       // Watchlist upcoming episodes (already formatted)
       final watchlistUpcoming = results[6] as List<Map<String, dynamic>>;
-      final mergedUpcoming = [...upcomingMv, ...upcomingTv, ...watchlistUpcoming]..shuffle();
+      final mergedUpcoming = [
+        ...upcomingMv,
+        ...upcomingTv,
+        ...watchlistUpcoming,
+      ]..shuffle();
 
       // Kids profile: filter to only kid-friendly content
-      final filter = isKidsProfile ? filterForKids : (List<Map<String, dynamic>> l) => l;
+      final filter = isKidsProfile
+          ? filterForKids
+          : (List<Map<String, dynamic>> l) => l;
 
       setState(() {
         trendingMovies = filter(results[0] as List<Map<String, dynamic>>);
         popularMovies = filter(results[1] as List<Map<String, dynamic>>);
         topRatedMovies = filter(results[2] as List<Map<String, dynamic>>);
         upcomingContent = filter(mergedUpcoming);
-        continueWatching = (results[5] as List<Map<String, dynamic>>).take(10).toList();
+        continueWatching = (results[5] as List<Map<String, dynamic>>)
+            .take(10)
+            .toList();
         nowPlaying = filter(results[7] as List<Map<String, dynamic>>);
         genres = results[8] as List<Map<String, dynamic>>;
       });
@@ -139,7 +166,9 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
       // Limit to 8 series to avoid too many API calls
       for (final item in tvItems.take(8)) {
         try {
-          final details = await TmdbApiService.getSeriesDetails(int.parse(item.id));
+          final details = await TmdbApiService.getSeriesDetails(
+            int.parse(item.id),
+          );
           if (details == null) continue;
           final nextAir = details['next_episode_to_air'];
           if (nextAir == null || nextAir is! Map) continue;
@@ -153,10 +182,19 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
             'id': item.id,
             'title': item.title,
             'name': item.title,
-            'poster_path': item.thumbnail.replaceFirst(RegExp(r'^https?://image\.tmdb\.org/t/p/w\d+'), ''),
+            'poster_path': item.thumbnail.replaceFirst(
+              RegExp(r'^https?://image\.tmdb\.org/t/p/w\d+'),
+              '',
+            ),
             'backdrop_path': item.backdrop.isNotEmpty
-                ? item.backdrop.replaceFirst(RegExp(r'^https?://image\.tmdb\.org/t/p/w\d+'), '')
-                : item.thumbnail.replaceFirst(RegExp(r'^https?://image\.tmdb\.org/t/p/w\d+'), ''),
+                ? item.backdrop.replaceFirst(
+                    RegExp(r'^https?://image\.tmdb\.org/t/p/w\d+'),
+                    '',
+                  )
+                : item.thumbnail.replaceFirst(
+                    RegExp(r'^https?://image\.tmdb\.org/t/p/w\d+'),
+                    '',
+                  ),
             'vote_average': item.rating,
             'overview': item.description,
             'media_type': 'tv',
@@ -189,7 +227,9 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
                 physics: const ClampingScrollPhysics(),
                 slivers: [
                   _buildAppBar(),
-                  SliverToBoxAdapter(child: HeroBanner(onPlayerReturn: _loadContinueWatching)),
+                  SliverToBoxAdapter(
+                    child: HeroBanner(onPlayerReturn: _loadContinueWatching),
+                  ),
                   SliverToBoxAdapter(
                     child: ContinueWatchingSection(
                       continueWatching: continueWatching,
@@ -197,7 +237,8 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
                     ),
                   ),
                   SliverToBoxAdapter(child: _buildProvidersSection()),
-                  if (genres.isNotEmpty) SliverToBoxAdapter(child: _buildGenresSection()),
+                  if (genres.isNotEmpty)
+                    SliverToBoxAdapter(child: _buildGenresSection()),
                   _buildSection('Trending Movies', trendingMovies, 'movie'),
                   _buildSection('Popular Movies', popularMovies, 'movie'),
                   _buildSection('Top Rated Movies', topRatedMovies, 'movie'),
@@ -210,10 +251,13 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
   }
 
   Future<void> _loadContinueWatching() async {
+    final profileId = ProfileScope.currentProfileId;
     // Pull TV watches first so Haven S4E9 mid-watch appears immediately
     try {
       await CloudSyncService.pullToDevice();
     } catch (_) {}
+    // Guard: if profile changed during pull, abort.
+    if (!mounted || profileId != ProfileScope.currentProfileId) return;
     final history = await WatchHistoryService.getContinueWatching();
     if (!mounted) return;
     setState(() => continueWatching = history.take(10).toList());
@@ -368,10 +412,7 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
               borderRadius: BorderRadius.circular(8),
             ),
             clipBehavior: Clip.antiAlias,
-            child: Image.asset(
-              'assets/images/app_icon.png',
-              fit: BoxFit.cover,
-            ),
+            child: Image.asset('assets/images/app_icon.png', fit: BoxFit.cover),
           ),
           const SizedBox(width: 10),
           const Text(
@@ -385,10 +426,7 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
         ],
       ),
       actions: const [
-        Padding(
-          padding: EdgeInsets.only(right: 8),
-          child: ProfileMenuButton(),
-        ),
+        Padding(padding: EdgeInsets.only(right: 8), child: ProfileMenuButton()),
       ],
     );
   }
@@ -474,66 +512,56 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
                   padding: EdgeInsets.only(
                     right: index == providers.length - 1 ? 0 : 12,
                   ),
-                    child: GestureDetector(
-                      onTap: () {
-                        HapticFeedback.lightImpact();
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => ProviderContentScreen(
-                              providerId: provider.id,
-                              providerName: provider.name,
-                              providerColor: provider.color,
+                  child: GestureDetector(
+                    onTap: () {
+                      HapticFeedback.lightImpact();
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => ProviderContentScreen(
+                            providerId: provider.id,
+                            providerName: provider.name,
+                            providerColor: provider.color,
+                          ),
+                        ),
+                      );
+                    },
+                    child: SizedBox(
+                      width: 94,
+                      height: 112,
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        curve: Curves.easeInOut,
+                        decoration: BoxDecoration(
+                          color: provider.color,
+                          borderRadius: BorderRadius.circular(12),
+                          boxShadow: [
+                            BoxShadow(
+                              color: provider.color.withValues(alpha: 0.5),
+                              blurRadius: 8,
+                              offset: const Offset(0, 4),
                             ),
-                          ),
-                        );
-                      },
-                      child: SizedBox(
-                        width: 94,
-                        height: 112,
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 200),
-                          curve: Curves.easeInOut,
-                          decoration: BoxDecoration(
-                            color: provider.color,
-                            borderRadius: BorderRadius.circular(12),
-                            boxShadow: [
-                              BoxShadow(
-                                color: provider.color.withValues(alpha: 0.5),
-                                blurRadius: 8,
-                                offset: const Offset(0, 4),
+                          ],
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 12,
+                        ),
+                        child: Column(
+                          children: [
+                            Container(
+                              width: 44,
+                              height: 44,
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.2),
+                                borderRadius: BorderRadius.circular(8),
                               ),
-                            ],
-                          ),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 12,
-                          ),
-                          child: Column(
-                            children: [
-                              Container(
-                                width: 44,
-                                height: 44,
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withValues(alpha: 0.2),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: provider.logoPath != null
-                                    ? AppNetworkImage(
-                                        url: 'https://image.tmdb.org/t/p/w92${provider.logoPath}',
-                                        fit: BoxFit.contain,
-                                        errorWidget: Center(
-                                          child: Text(
-                                            provider.name.substring(0, 1),
-                                            style: const TextStyle(
-                                              color: Colors.white,
-                                              fontWeight: FontWeight.bold,
-                                              fontSize: 20,
-                                            ),
-                                          ),
-                                        ),
-                                      )
-                                    : Center(
+                              child: provider.logoPath != null
+                                  ? AppNetworkImage(
+                                      url:
+                                          'https://image.tmdb.org/t/p/w92${provider.logoPath}',
+                                      fit: BoxFit.contain,
+                                      errorWidget: Center(
                                         child: Text(
                                           provider.name.substring(0, 1),
                                           style: const TextStyle(
@@ -543,24 +571,35 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
                                           ),
                                         ),
                                       ),
+                                    )
+                                  : Center(
+                                      child: Text(
+                                        provider.name.substring(0, 1),
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 20,
+                                        ),
+                                      ),
+                                    ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              provider.name,
+                              textAlign: TextAlign.center,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w500,
                               ),
-                              const SizedBox(height: 8),
-                              Text(
-                                provider.name,
-                                textAlign: TextAlign.center,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ],
-                          ),
+                            ),
+                          ],
                         ),
                       ),
                     ),
+                  ),
                 );
               }),
             ),
@@ -603,10 +642,8 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (context) => _GenreMoviesScreen(
-                            genreId: id,
-                            genreName: name,
-                          ),
+                          builder: (context) =>
+                              _GenreMoviesScreen(genreId: id, genreName: name),
                         ),
                       );
                     },
@@ -771,9 +808,8 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
     final posterPath = item['poster_path'];
     final backdropPath = item['backdrop_path'];
     final rating = (item['vote_average'] as num?)?.toDouble();
-    final releaseDate = (item['release_date'] ?? item['first_air_date'])
-            ?.toString() ??
-        '';
+    final releaseDate =
+        (item['release_date'] ?? item['first_air_date'])?.toString() ?? '';
     final overview = item['overview']?.toString() ?? '';
     final isTv = item['media_type'] == 'tv';
     final typeLabel = isTv ? 'TV' : 'MOVIE';
@@ -874,7 +910,9 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
                         vertical: 4,
                       ),
                       decoration: BoxDecoration(
-                        color: isWatchlistUpcoming ? Colors.amber.shade700 : Colors.purple.shade700,
+                        color: isWatchlistUpcoming
+                            ? Colors.amber.shade700
+                            : Colors.purple.shade700,
                         borderRadius: BorderRadius.circular(6),
                       ),
                       child: Text(
@@ -907,11 +945,7 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(
-                          Icons.star,
-                          color: Colors.amber,
-                          size: 12,
-                        ),
+                        const Icon(Icons.star, color: Colors.amber, size: 12),
                         const SizedBox(width: 3),
                         Text(
                           rating.toStringAsFixed(1),
@@ -970,15 +1004,21 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
                       Row(
                         children: [
                           Icon(
-                            isWatchlistUpcoming ? Icons.access_time : Icons.calendar_today,
-                            color: isWatchlistUpcoming ? Colors.amberAccent : Colors.purpleAccent,
+                            isWatchlistUpcoming
+                                ? Icons.access_time
+                                : Icons.calendar_today,
+                            color: isWatchlistUpcoming
+                                ? Colors.amberAccent
+                                : Colors.purpleAccent,
                             size: 11,
                           ),
                           const SizedBox(width: 4),
                           Text(
                             _formatReleaseDate(releaseDate),
                             style: TextStyle(
-                              color: isWatchlistUpcoming ? Colors.amberAccent : Colors.purpleAccent,
+                              color: isWatchlistUpcoming
+                                  ? Colors.amberAccent
+                                  : Colors.purpleAccent,
                               fontSize: 11,
                               fontWeight: FontWeight.w500,
                             ),
@@ -1042,8 +1082,18 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
     try {
       final parsed = DateTime.parse(date);
       final months = [
-        'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+        'Jan',
+        'Feb',
+        'Mar',
+        'Apr',
+        'May',
+        'Jun',
+        'Jul',
+        'Aug',
+        'Sep',
+        'Oct',
+        'Nov',
+        'Dec',
       ];
       return '${months[parsed.month - 1]} ${parsed.day}, ${parsed.year}';
     } catch (_) {
@@ -1113,23 +1163,25 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
                           height: 200,
                           decoration: BoxDecoration(
                             gradient: LinearGradient(
-                              colors: [
-                                Colors.grey[850]!,
-                                Colors.grey[900]!,
-                              ],
+                              colors: [Colors.grey[850]!, Colors.grey[900]!],
                               begin: Alignment.topLeft,
                               end: Alignment.bottomRight,
                             ),
                           ),
-                          child: const Icon(Icons.movie,
-                              color: Colors.grey, size: 40),
+                          child: const Icon(
+                            Icons.movie,
+                            color: Colors.grey,
+                            size: 40,
+                          ),
                         ),
                   Positioned(
                     top: 6,
                     left: 6,
                     child: Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 6, vertical: 2),
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
                       decoration: BoxDecoration(
                         color: KidsTheme.primary,
                         borderRadius: BorderRadius.circular(4),
@@ -1150,7 +1202,9 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
                       right: 6,
                       child: Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 5, vertical: 2),
+                          horizontal: 5,
+                          vertical: 2,
+                        ),
                         decoration: BoxDecoration(
                           color: Colors.black.withValues(alpha: 0.75),
                           borderRadius: BorderRadius.circular(4),
@@ -1158,8 +1212,11 @@ class _MaxStreamHomeScreenState extends State<MaxStreamHomeScreen> {
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(Icons.star,
-                                color: Colors.amber, size: 10),
+                            const Icon(
+                              Icons.star,
+                              color: Colors.amber,
+                              size: 10,
+                            ),
                             const SizedBox(width: 2),
                             Text(
                               rating.toStringAsFixed(1),
@@ -1286,77 +1343,86 @@ class _GenreMoviesScreenState extends State<_GenreMoviesScreen> {
       backgroundColor: KidsTheme.background,
       appBar: AppBar(
         backgroundColor: KidsTheme.surface,
-        title: Text(widget.genreName, style: const TextStyle(color: Colors.white)),
+        title: Text(
+          widget.genreName,
+          style: const TextStyle(color: Colors.white),
+        ),
         iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: _isLoading
           ? Center(child: CircularProgressIndicator(color: KidsTheme.primary))
           : _movies.isEmpty
-              ? const Center(
-                  child: Text(
-                    'No movies found',
-                    style: TextStyle(color: Colors.grey, fontSize: 16),
-                  ),
-                )
-              : GridView.builder(
-                  physics: const ClampingScrollPhysics(),
-                  padding: const EdgeInsets.all(12),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 3,
-                    crossAxisSpacing: 10,
-                    mainAxisSpacing: 10,
-                    childAspectRatio: 0.6,
-                  ),
-                  itemCount: _movies.length,
-                  itemBuilder: (context, index) {
-                    final item = _movies[index];
-                    return GestureDetector(
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => MaxStreamDetailsScreen(
-                              item: Movie.fromJson(item),
-                              mediaType: 'movie',
-                            ),
-                          ),
-                        );
-                      },
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(8),
-                              child: item['poster_path'] != null
-                                  ? AppNetworkImage(
-                                      url: TmdbApiService.getPosterUrl(item['poster_path']),
-                                      width: double.infinity,
-                                      fit: BoxFit.cover,
-                                    )
-                                  : Container(
-                                      width: double.infinity,
-                                      color: Colors.grey[800],
-                                      child: const Icon(Icons.movie, color: Colors.grey, size: 40),
-                                    ),
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            item['title'] ?? item['name'] ?? 'Unknown',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w500,
-                            ),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ],
+          ? const Center(
+              child: Text(
+                'No movies found',
+                style: TextStyle(color: Colors.grey, fontSize: 16),
+              ),
+            )
+          : GridView.builder(
+              physics: const ClampingScrollPhysics(),
+              padding: const EdgeInsets.all(12),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 3,
+                crossAxisSpacing: 10,
+                mainAxisSpacing: 10,
+                childAspectRatio: 0.6,
+              ),
+              itemCount: _movies.length,
+              itemBuilder: (context, index) {
+                final item = _movies[index];
+                return GestureDetector(
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => MaxStreamDetailsScreen(
+                          item: Movie.fromJson(item),
+                          mediaType: 'movie',
+                        ),
                       ),
                     );
                   },
-                ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: item['poster_path'] != null
+                              ? AppNetworkImage(
+                                  url: TmdbApiService.getPosterUrl(
+                                    item['poster_path'],
+                                  ),
+                                  width: double.infinity,
+                                  fit: BoxFit.cover,
+                                )
+                              : Container(
+                                  width: double.infinity,
+                                  color: Colors.grey[800],
+                                  child: const Icon(
+                                    Icons.movie,
+                                    color: Colors.grey,
+                                    size: 40,
+                                  ),
+                                ),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        item['title'] ?? item['name'] ?? 'Unknown',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
     );
   }
 }
@@ -1488,7 +1554,11 @@ class _FullListScreenState extends State<_FullListScreen> {
       }
 
       if (!mounted) return;
-      final merged = uniqueTmdbItems(_allItems, filterForKids(newItems), widget.mediaType);
+      final merged = uniqueTmdbItems(
+        _allItems,
+        filterForKids(newItems),
+        widget.mediaType,
+      );
       setState(() {
         _hasMore = merged.length > _allItems.length;
         _allItems = merged;
@@ -1639,7 +1709,8 @@ class _ComingSoonFullListScreen extends StatefulWidget {
   const _ComingSoonFullListScreen();
 
   @override
-  State<_ComingSoonFullListScreen> createState() => _ComingSoonFullListScreenState();
+  State<_ComingSoonFullListScreen> createState() =>
+      _ComingSoonFullListScreenState();
 }
 
 class _ComingSoonFullListScreenState extends State<_ComingSoonFullListScreen> {
@@ -1675,7 +1746,11 @@ class _ComingSoonFullListScreenState extends State<_ComingSoonFullListScreen> {
   }
 
   String _getReleaseDate(Map<String, dynamic> item) {
-    return (item['_nextAirDate'] ?? item['release_date'] ?? item['first_air_date'])?.toString() ?? '';
+    return (item['_nextAirDate'] ??
+                item['release_date'] ??
+                item['first_air_date'])
+            ?.toString() ??
+        '';
   }
 
   int _dateSort(Map<String, dynamic> a, Map<String, dynamic> b) {
@@ -1700,7 +1775,9 @@ class _ComingSoonFullListScreenState extends State<_ComingSoonFullListScreen> {
       if (tvItems.isEmpty) return const [];
       final futures = tvItems.take(12).map((item) async {
         try {
-          final details = await TmdbApiService.getSeriesDetails(int.parse(item.id));
+          final details = await TmdbApiService.getSeriesDetails(
+            int.parse(item.id),
+          );
           if (details == null) return null;
           final nextAir = details['next_episode_to_air'];
           if (nextAir == null || nextAir is! Map) return null;
@@ -1712,10 +1789,19 @@ class _ComingSoonFullListScreenState extends State<_ComingSoonFullListScreen> {
             'id': item.id,
             'title': item.title,
             'name': item.title,
-            'poster_path': item.thumbnail.replaceFirst(RegExp(r'^https?://image\.tmdb\.org/t/p/w\d+'), ''),
+            'poster_path': item.thumbnail.replaceFirst(
+              RegExp(r'^https?://image\.tmdb\.org/t/p/w\d+'),
+              '',
+            ),
             'backdrop_path': item.backdrop.isNotEmpty
-                ? item.backdrop.replaceFirst(RegExp(r'^https?://image\.tmdb\.org/t/p/w\d+'), '')
-                : item.thumbnail.replaceFirst(RegExp(r'^https?://image\.tmdb\.org/t/p/w\d+'), ''),
+                ? item.backdrop.replaceFirst(
+                    RegExp(r'^https?://image\.tmdb\.org/t/p/w\d+'),
+                    '',
+                  )
+                : item.thumbnail.replaceFirst(
+                    RegExp(r'^https?://image\.tmdb\.org/t/p/w\d+'),
+                    '',
+                  ),
             'vote_average': item.rating,
             'overview': item.description,
             'media_type': 'tv',
@@ -1750,13 +1836,19 @@ class _ComingSoonFullListScreenState extends State<_ComingSoonFullListScreen> {
       final seriesRaw = results[2] as List<Map<String, dynamic>>;
       final movies = TmdbApiService.filterUnreleased(moviesRaw);
       for (final m in movies) m['media_type'] = 'movie';
-      final series = TmdbApiService.filterUnreleased(seriesRaw, dateField: 'first_air_date');
+      final series = TmdbApiService.filterUnreleased(
+        seriesRaw,
+        dateField: 'first_air_date',
+      );
       for (final s in series) s['media_type'] = 'tv';
       final merged = [...watchlistUpcoming, ...movies, ...series];
       merged.sort(_dateSort);
       final deduped = <String, Map<String, dynamic>>{};
       for (final item in merged) {
-        deduped.putIfAbsent(tmdbItemKey(item, item['media_type'] ?? 'movie'), () => item);
+        deduped.putIfAbsent(
+          tmdbItemKey(item, item['media_type'] ?? 'movie'),
+          () => item,
+        );
       }
       if (!mounted) return;
       setState(() {
@@ -1785,7 +1877,10 @@ class _ComingSoonFullListScreenState extends State<_ComingSoonFullListScreen> {
       final seriesRaw = results[1] as List<Map<String, dynamic>>;
       final movies = TmdbApiService.filterUnreleased(moviesRaw);
       for (final m in movies) m['media_type'] = 'movie';
-      final series = TmdbApiService.filterUnreleased(seriesRaw, dateField: 'first_air_date');
+      final series = TmdbApiService.filterUnreleased(
+        seriesRaw,
+        dateField: 'first_air_date',
+      );
       for (final s in series) s['media_type'] = 'tv';
       final newItems = [...movies, ...series];
       if (newItems.isEmpty) {
@@ -1844,7 +1939,20 @@ class _ComingSoonFullListScreenState extends State<_ComingSoonFullListScreen> {
     if (date.isEmpty) return '';
     try {
       final parsed = DateTime.parse(date);
-      const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      const months = [
+        'Jan',
+        'Feb',
+        'Mar',
+        'Apr',
+        'May',
+        'Jun',
+        'Jul',
+        'Aug',
+        'Sep',
+        'Oct',
+        'Nov',
+        'Dec',
+      ];
       return '${months[parsed.month - 1]} ${parsed.day}, ${parsed.year}';
     } catch (_) {
       return date;
@@ -1856,7 +1964,8 @@ class _ComingSoonFullListScreenState extends State<_ComingSoonFullListScreen> {
     final posterPath = item['poster_path'];
     final backdropPath = item['backdrop_path'];
     final rating = (item['vote_average'] as num?)?.toDouble();
-    final releaseDate = (item['release_date'] ?? item['first_air_date'])?.toString() ?? '';
+    final releaseDate =
+        (item['release_date'] ?? item['first_air_date'])?.toString() ?? '';
     final overview = item['overview']?.toString() ?? '';
     final isTv = item['media_type'] == 'tv';
     final typeLabel = isTv ? 'TV' : 'MOVIE';
@@ -1872,7 +1981,10 @@ class _ComingSoonFullListScreenState extends State<_ComingSoonFullListScreen> {
           MaterialPageRoute(
             builder: (context) => isTv
                 ? MaxStreamSeriesScreen(seriesItem: Movie.fromJson(item))
-                : MaxStreamDetailsScreen(item: Movie.fromJson(item), mediaType: 'movie'),
+                : MaxStreamDetailsScreen(
+                    item: Movie.fromJson(item),
+                    mediaType: 'movie',
+                  ),
           ),
         );
       },
@@ -1897,7 +2009,10 @@ class _ComingSoonFullListScreenState extends State<_ComingSoonFullListScreen> {
                     gradient: LinearGradient(
                       begin: Alignment.topCenter,
                       end: Alignment.bottomCenter,
-                      colors: [Colors.transparent, Colors.black.withValues(alpha: 0.9)],
+                      colors: [
+                        Colors.transparent,
+                        Colors.black.withValues(alpha: 0.9),
+                      ],
                       stops: const [0.3, 1.0],
                     ),
                   ),
@@ -1923,26 +2038,43 @@ class _ComingSoonFullListScreenState extends State<_ComingSoonFullListScreen> {
                 child: Row(
                   children: [
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 3,
+                      ),
                       decoration: BoxDecoration(
                         color: isTv ? Colors.teal : KidsTheme.primary,
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: Text(
                         typeLabel,
-                        style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ),
                     const SizedBox(width: 4),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
                       decoration: BoxDecoration(
-                        color: isWatchlistUpcoming ? Colors.amber.shade700 : Colors.purple.shade700,
+                        color: isWatchlistUpcoming
+                            ? Colors.amber.shade700
+                            : Colors.purple.shade700,
                         borderRadius: BorderRadius.circular(6),
                       ),
                       child: Text(
                         isWatchlistUpcoming ? 'IN YOUR WATCHLIST' : 'UPCOMING',
-                        style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold, letterSpacing: 0.5),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.5,
+                        ),
                       ),
                     ),
                   ],
@@ -1953,7 +2085,10 @@ class _ComingSoonFullListScreenState extends State<_ComingSoonFullListScreen> {
                   top: 10,
                   right: 10,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 3,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.black.withValues(alpha: 0.7),
                       borderRadius: BorderRadius.circular(6),
@@ -1963,7 +2098,14 @@ class _ComingSoonFullListScreenState extends State<_ComingSoonFullListScreen> {
                       children: [
                         const Icon(Icons.star, color: Colors.amber, size: 12),
                         const SizedBox(width: 3),
-                        Text(rating.toStringAsFixed(1), style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                        Text(
+                          rating.toStringAsFixed(1),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -1976,14 +2118,34 @@ class _ComingSoonFullListScreenState extends State<_ComingSoonFullListScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(name, style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold), maxLines: 2, overflow: TextOverflow.ellipsis),
+                    Text(
+                      name,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                     if (isWatchlistUpcoming && nextSeason != null) ...[
                       const SizedBox(height: 4),
                       Row(
                         children: [
-                          const Icon(Icons.tv, color: Colors.amberAccent, size: 11),
+                          const Icon(
+                            Icons.tv,
+                            color: Colors.amberAccent,
+                            size: 11,
+                          ),
                           const SizedBox(width: 4),
-                          Text('Season $nextSeason \u00b7 Episode $nextEpisode', style: const TextStyle(color: Colors.amberAccent, fontSize: 11, fontWeight: FontWeight.w600)),
+                          Text(
+                            'Season $nextSeason \u00b7 Episode $nextEpisode',
+                            style: const TextStyle(
+                              color: Colors.amberAccent,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
                         ],
                       ),
                     ],
@@ -1991,15 +2153,40 @@ class _ComingSoonFullListScreenState extends State<_ComingSoonFullListScreen> {
                       const SizedBox(height: 4),
                       Row(
                         children: [
-                          Icon(isWatchlistUpcoming ? Icons.access_time : Icons.calendar_today, color: isWatchlistUpcoming ? Colors.amberAccent : Colors.purpleAccent, size: 11),
+                          Icon(
+                            isWatchlistUpcoming
+                                ? Icons.access_time
+                                : Icons.calendar_today,
+                            color: isWatchlistUpcoming
+                                ? Colors.amberAccent
+                                : Colors.purpleAccent,
+                            size: 11,
+                          ),
                           const SizedBox(width: 4),
-                          Text(_formatReleaseDate(releaseDate), style: TextStyle(color: isWatchlistUpcoming ? Colors.amberAccent : Colors.purpleAccent, fontSize: 11, fontWeight: FontWeight.w500)),
+                          Text(
+                            _formatReleaseDate(releaseDate),
+                            style: TextStyle(
+                              color: isWatchlistUpcoming
+                                  ? Colors.amberAccent
+                                  : Colors.purpleAccent,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
                         ],
                       ),
                     ],
                     if (overview.isNotEmpty) ...[
                       const SizedBox(height: 4),
-                      Text(overview, style: const TextStyle(color: Colors.white54, fontSize: 11), maxLines: 2, overflow: TextOverflow.ellipsis),
+                      Text(
+                        overview,
+                        style: const TextStyle(
+                          color: Colors.white54,
+                          fontSize: 11,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ],
                   ],
                 ),
@@ -2016,7 +2203,8 @@ class _ComingSoonFullListScreenState extends State<_ComingSoonFullListScreen> {
     final posterPath = item['poster_path'];
     final backdropPath = item['backdrop_path'];
     final rating = (item['vote_average'] as num?)?.toDouble();
-    final releaseDate = (item['release_date'] ?? item['first_air_date'])?.toString() ?? '';
+    final releaseDate =
+        (item['release_date'] ?? item['first_air_date'])?.toString() ?? '';
     final overview = item['overview']?.toString() ?? '';
     final isTv = item['media_type'] == 'tv';
     final typeLabel = isTv ? 'TV' : 'MOVIE';
@@ -2032,7 +2220,10 @@ class _ComingSoonFullListScreenState extends State<_ComingSoonFullListScreen> {
           MaterialPageRoute(
             builder: (context) => isTv
                 ? MaxStreamSeriesScreen(seriesItem: Movie.fromJson(item))
-                : MaxStreamDetailsScreen(item: Movie.fromJson(item), mediaType: 'movie'),
+                : MaxStreamDetailsScreen(
+                    item: Movie.fromJson(item),
+                    mediaType: 'movie',
+                  ),
           ),
         );
       },
@@ -2052,18 +2243,21 @@ class _ComingSoonFullListScreenState extends State<_ComingSoonFullListScreen> {
                           errorWidget: _posterFallback(posterPath),
                         )
                       : (posterPath != null
-                          ? AppNetworkImage(
-                              url: TmdbApiService.getPosterUrl(posterPath),
-                              fit: BoxFit.cover,
-                            )
-                          : _posterFallback(posterPath)),
+                            ? AppNetworkImage(
+                                url: TmdbApiService.getPosterUrl(posterPath),
+                                fit: BoxFit.cover,
+                              )
+                            : _posterFallback(posterPath)),
                   Positioned.fill(
                     child: Container(
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           begin: Alignment.topCenter,
                           end: Alignment.bottomCenter,
-                          colors: [Colors.transparent, Colors.black.withValues(alpha: 0.85)],
+                          colors: [
+                            Colors.transparent,
+                            Colors.black.withValues(alpha: 0.85),
+                          ],
                           stops: const [0.5, 1.0],
                         ),
                       ),
@@ -2073,24 +2267,46 @@ class _ComingSoonFullListScreenState extends State<_ComingSoonFullListScreen> {
                     top: 6,
                     left: 6,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 5,
+                        vertical: 2,
+                      ),
                       decoration: BoxDecoration(
                         color: isTv ? Colors.teal : KidsTheme.primary,
                         borderRadius: BorderRadius.circular(4),
                       ),
-                      child: Text(typeLabel, style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold)),
+                      child: Text(
+                        typeLabel,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 8,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ),
                   ),
                   Positioned(
                     top: 6,
                     right: 6,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 4,
+                        vertical: 2,
+                      ),
                       decoration: BoxDecoration(
-                        color: isWatchlistUpcoming ? Colors.amber.shade700 : Colors.purple.shade700,
+                        color: isWatchlistUpcoming
+                            ? Colors.amber.shade700
+                            : Colors.purple.shade700,
                         borderRadius: BorderRadius.circular(4),
                       ),
-                      child: Text(isWatchlistUpcoming ? 'WATCHLIST' : 'UPCOMING', style: const TextStyle(color: Colors.white, fontSize: 7, fontWeight: FontWeight.bold)),
+                      child: Text(
+                        isWatchlistUpcoming ? 'WATCHLIST' : 'UPCOMING',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 7,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ),
                   ),
                   if (rating != null && rating > 0)
@@ -2098,14 +2314,31 @@ class _ComingSoonFullListScreenState extends State<_ComingSoonFullListScreen> {
                       bottom: 6,
                       right: 6,
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                        decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.7), borderRadius: BorderRadius.circular(4)),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 4,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.7),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(Icons.star, color: Colors.amber, size: 9),
+                            const Icon(
+                              Icons.star,
+                              color: Colors.amber,
+                              size: 9,
+                            ),
                             const SizedBox(width: 2),
-                            Text(rating.toStringAsFixed(1), style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)),
+                            Text(
+                              rating.toStringAsFixed(1),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 9,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -2129,13 +2362,44 @@ class _ComingSoonFullListScreenState extends State<_ComingSoonFullListScreen> {
             ),
           ),
           const SizedBox(height: 6),
-          Text(name, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w500), maxLines: 2, overflow: TextOverflow.ellipsis),
+          Text(
+            name,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 11,
+              fontWeight: FontWeight.w500,
+            ),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
           if (isWatchlistUpcoming && nextSeason != null)
-            Text('S$nextSeason · E$nextEpisode', style: const TextStyle(color: Colors.amberAccent, fontSize: 9, fontWeight: FontWeight.w600)),
+            Text(
+              'S$nextSeason · E$nextEpisode',
+              style: const TextStyle(
+                color: Colors.amberAccent,
+                fontSize: 9,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           if (releaseDate.isNotEmpty)
-            Text(_formatReleaseDate(releaseDate), style: TextStyle(color: isWatchlistUpcoming ? Colors.amberAccent : Colors.purpleAccent, fontSize: 9), maxLines: 1, overflow: TextOverflow.ellipsis),
+            Text(
+              _formatReleaseDate(releaseDate),
+              style: TextStyle(
+                color: isWatchlistUpcoming
+                    ? Colors.amberAccent
+                    : Colors.purpleAccent,
+                fontSize: 9,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
           if (overview.isNotEmpty)
-            Text(overview, style: const TextStyle(color: Colors.white54, fontSize: 9), maxLines: 2, overflow: TextOverflow.ellipsis),
+            Text(
+              overview,
+              style: const TextStyle(color: Colors.white54, fontSize: 9),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
         ],
       ),
     );
@@ -2151,32 +2415,36 @@ class _ComingSoonFullListScreenState extends State<_ComingSoonFullListScreen> {
         iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: Column(
-              children: [
-                Expanded(
-                  child: GridView.builder(
-                    controller: _scrollController,
-                    physics: const ClampingScrollPhysics(),
-                    padding: const EdgeInsets.all(16),
-                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 3,
-                      crossAxisSpacing: 12,
-                      mainAxisSpacing: 12,
-                      childAspectRatio: 0.52,
-                    ),
-                    itemCount: _items.length,
-                    itemBuilder: (context, index) {
-                      final item = _items[index];
-                      return _buildComingSoonGridCard(item);
-                    },
-                  ),
-                ),
-                if (_isLoading || _isLoadingMore)
-                  const Padding(
-                    padding: EdgeInsets.all(16.0),
-                    child: CustomLoadingWidget(size: 30, color: Color(0xFFE50914), style: LoadingStyle.dots),
-                  ),
-              ],
+        children: [
+          Expanded(
+            child: GridView.builder(
+              controller: _scrollController,
+              physics: const ClampingScrollPhysics(),
+              padding: const EdgeInsets.all(16),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 3,
+                crossAxisSpacing: 12,
+                mainAxisSpacing: 12,
+                childAspectRatio: 0.52,
+              ),
+              itemCount: _items.length,
+              itemBuilder: (context, index) {
+                final item = _items[index];
+                return _buildComingSoonGridCard(item);
+              },
             ),
+          ),
+          if (_isLoading || _isLoadingMore)
+            const Padding(
+              padding: EdgeInsets.all(16.0),
+              child: CustomLoadingWidget(
+                size: 30,
+                color: Color(0xFFE50914),
+                style: LoadingStyle.dots,
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

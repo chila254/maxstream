@@ -106,7 +106,7 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
         _youtubeController = YoutubePlayerController(
           initialVideoId: videoId,
           flags: const YoutubePlayerFlags(
-            autoPlay: true,
+            autoPlay: false,
             mute: false,
             enableCaption: true,
           ),
@@ -358,13 +358,15 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
             seriesId: widget.seriesItem.id,
             seasonNumber: season,
             episodeNumber: episode.episodeNumber,
-            maxVariantHeightPixels:
-                int.tryParse(selectedStream['maxVariantHeight']?.toString() ?? ''),
+            maxVariantHeightPixels: int.tryParse(
+              selectedStream['maxVariantHeight']?.toString() ?? '',
+            ),
             subtitles: (selectedStream['subtitles'] as List? ?? const [])
                 .whereType<Map>()
                 .map(
-                  (track) =>
-                      track.map((key, value) => MapEntry(key.toString(), value)),
+                  (track) => track.map(
+                    (key, value) => MapEntry(key.toString(), value),
+                  ),
                 )
                 .toList(),
           );
@@ -411,7 +413,9 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
   }
 
   Future<void> _downloadCurrentSeason() async {
-    final releasedEpisodes = currentEpisodes.where((e) => e.isReleased).toList();
+    final releasedEpisodes = currentEpisodes
+        .where((e) => e.isReleased)
+        .toList();
     if (_downloadManager.seasonDownloading || releasedEpisodes.isEmpty) return;
     final season = seasons[selectedSeasonIndex].seasonNumber;
     final unreleasedCount = currentEpisodes.length - releasedEpisodes.length;
@@ -498,14 +502,18 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
     final allHistory = await WatchHistoryService.getWatchHistory();
     if (!mounted) return;
 
-    final matches = allHistory
-        .where((item) =>
-            item['tmdbId']?.toString() == widget.seriesItem.id &&
-            item['isMovie'] == false &&
-            item['isWatched'] != true)
-        .toList()
-      ..sort(
-          (a, b) => (b['timestamp'] ?? 0).compareTo(a['timestamp'] ?? 0));
+    final matches =
+        allHistory
+            .where(
+              (item) =>
+                  item['tmdbId']?.toString() == widget.seriesItem.id &&
+                  item['isMovie'] == false &&
+                  item['isWatched'] != true,
+            )
+            .toList()
+          ..sort(
+            (a, b) => (b['timestamp'] ?? 0).compareTo(a['timestamp'] ?? 0),
+          );
 
     if (matches.isNotEmpty) {
       final first = matches.first;
@@ -525,8 +533,7 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
   Widget _buildContinueWatching() {
     final position = (_watchProgress!['position'] as num?)?.toInt() ?? 0;
     final duration = (_watchProgress!['duration'] as num?)?.toInt() ?? 1;
-    final progress =
-        duration > 0 ? (position / duration).clamp(0.0, 1.0) : 0.0;
+    final progress = duration > 0 ? (position / duration).clamp(0.0, 1.0) : 0.0;
     final percent = (progress * 100).round();
     final remaining = duration - position;
     final remainingMin = (remaining / 60).round();
@@ -562,8 +569,7 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
           children: [
             Row(
               children: [
-                const Icon(Icons.play_circle_fill,
-                    color: Colors.red, size: 20),
+                const Icon(Icons.play_circle_fill, color: Colors.red, size: 20),
                 const SizedBox(width: 8),
                 const Text(
                   'Continue Watching',
@@ -576,18 +582,14 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
                 const Spacer(),
                 Text(
                   '$percent%',
-                  style:
-                      const TextStyle(color: Colors.grey, fontSize: 13),
+                  style: const TextStyle(color: Colors.grey, fontSize: 13),
                 ),
               ],
             ),
             const SizedBox(height: 6),
             Text(
               'S$season E$episode${epTitle.isNotEmpty ? ' - $epTitle' : ''}',
-              style: TextStyle(
-                color: Colors.grey[400],
-                fontSize: 13,
-              ),
+              style: TextStyle(color: Colors.grey[400], fontSize: 13),
             ),
             const SizedBox(height: 10),
             ClipRRect(
@@ -595,16 +597,14 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
               child: LinearProgressIndicator(
                 value: progress,
                 backgroundColor: Colors.grey[800],
-                valueColor:
-                    const AlwaysStoppedAnimation<Color>(Colors.red),
+                valueColor: const AlwaysStoppedAnimation<Color>(Colors.red),
                 minHeight: 4,
               ),
             ),
             const SizedBox(height: 8),
             Text(
               '$remainingMin min remaining',
-              style:
-                  const TextStyle(color: Colors.grey, fontSize: 12),
+              style: const TextStyle(color: Colors.grey, fontSize: 12),
             ),
           ],
         ),
@@ -634,8 +634,18 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
     try {
       final parsed = DateTime.parse(date);
       const months = [
-        'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+        'Jan',
+        'Feb',
+        'Mar',
+        'Apr',
+        'May',
+        'Jun',
+        'Jul',
+        'Aug',
+        'Sep',
+        'Oct',
+        'Nov',
+        'Dec',
       ];
       return '${months[parsed.month - 1]} ${parsed.day}, ${parsed.year}';
     } catch (e) {
@@ -1151,8 +1161,8 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
                 ),
               ),
               TextButton.icon(
-                onPressed: seasonActive ||
-                        !currentEpisodes.any((e) => e.isReleased)
+                onPressed:
+                    seasonActive || !currentEpisodes.any((e) => e.isReleased)
                     ? null
                     : _downloadCurrentSeason,
                 icon: seasonActive
@@ -1172,8 +1182,7 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
             ],
           ),
         ),
-        if (seasonActive &&
-            _downloadManager.seasonDownloadStatus.isNotEmpty)
+        if (seasonActive && _downloadManager.seasonDownloadStatus.isNotEmpty)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Container(
@@ -1236,7 +1245,9 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
                         _loadSeasonEpisodes(season.seasonNumber);
                       }
                     },
-                    selectedColor: season.isReleased ? Colors.red : Colors.grey[700],
+                    selectedColor: season.isReleased
+                        ? Colors.red
+                        : Colors.grey[700],
                     backgroundColor: const Color(0xFF2A2A2A),
                     labelStyle: TextStyle(
                       color: isSelected ? Colors.white : Colors.grey,
@@ -1309,21 +1320,18 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
                           left: Radius.circular(8),
                         ),
                         child: AppNetworkImage(
-                          url: 'https://image.tmdb.org/t/p/w300${episode.stillPath}',
+                          url:
+                              'https://image.tmdb.org/t/p/w300${episode.stillPath}',
                           fit: BoxFit.cover,
                         ),
                       )
                     : isReleased
-                        ? const Icon(
-                            Icons.play_circle_outline,
-                            color: Colors.white54,
-                            size: 40,
-                          )
-                        : Icon(
-                            Icons.schedule,
-                            color: Colors.grey[600],
-                            size: 40,
-                          ),
+                    ? const Icon(
+                        Icons.play_circle_outline,
+                        color: Colors.white54,
+                        size: 40,
+                      )
+                    : Icon(Icons.schedule, color: Colors.grey[600], size: 40),
               ),
               Expanded(
                 child: Padding(
@@ -1754,11 +1762,7 @@ class _EpisodeQualitySheetState extends State<_EpisodeQualitySheet> {
                 padding: const EdgeInsets.all(20),
                 child: Column(
                   children: [
-                    const Icon(
-                      Icons.cloud_off,
-                      color: Colors.grey,
-                      size: 32,
-                    ),
+                    const Icon(Icons.cloud_off, color: Colors.grey, size: 32),
                     const SizedBox(height: 8),
                     const Text(
                       'No servers available',
@@ -1790,7 +1794,8 @@ class _EpisodeQualitySheetState extends State<_EpisodeQualitySheet> {
                   final server = _availableStreams[serverIdx];
                   final source = server['source']?.toString() ?? 'Server';
                   final qualities = server['qualities'];
-                  final hasQualities = qualities is List && qualities.isNotEmpty;
+                  final hasQualities =
+                      qualities is List && qualities.isNotEmpty;
                   final isServerSelected = _selectedServerIndex == serverIdx;
 
                   return Padding(
@@ -1888,11 +1893,15 @@ class _EpisodeQualitySheetState extends State<_EpisodeQualitySheet> {
                                 0;
                             final isQSelected =
                                 (_selectedQualityIndex ?? 0) == qIdx;
-                            final subtitle =
-                                height > 0 ? '${height}p' : 'Adaptive bitrate';
+                            final subtitle = height > 0
+                                ? '${height}p'
+                                : 'Adaptive bitrate';
 
                             return Padding(
-                              padding: const EdgeInsets.only(left: 12, bottom: 4),
+                              padding: const EdgeInsets.only(
+                                left: 12,
+                                bottom: 4,
+                              ),
                               child: GestureDetector(
                                 onTap: () {
                                   setState(() {
@@ -2049,11 +2058,7 @@ class _EpisodeQualitySheetState extends State<_EpisodeQualitySheet> {
                 size: 20,
               )
             else
-              const Icon(
-                Icons.radio_button_off,
-                color: Colors.grey,
-                size: 20,
-              ),
+              const Icon(Icons.radio_button_off, color: Colors.grey, size: 20),
           ],
         ),
       ),
@@ -2126,8 +2131,8 @@ class _SeasonQualitySheetState extends State<_SeasonQualitySheet> {
   void _start() {
     if (_selectedServerIndex != null &&
         _selectedServerIndex! < _availableStreams.length) {
-      final source =
-          _availableStreams[_selectedServerIndex!]['source']?.toString();
+      final source = _availableStreams[_selectedServerIndex!]['source']
+          ?.toString();
       Navigator.pop(context, {'server': source});
     } else {
       Navigator.pop(context, null);
@@ -2210,11 +2215,7 @@ class _SeasonQualitySheetState extends State<_SeasonQualitySheet> {
                 ),
                 child: Row(
                   children: [
-                    const Icon(
-                      Icons.auto_awesome,
-                      color: Colors.red,
-                      size: 24,
-                    ),
+                    const Icon(Icons.auto_awesome, color: Colors.red, size: 24),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Column(
@@ -2299,8 +2300,7 @@ class _SeasonQualitySheetState extends State<_SeasonQualitySheet> {
                             children: [
                               Icon(
                                 Icons.dns,
-                                color:
-                                    isSelected ? Colors.red : Colors.grey,
+                                color: isSelected ? Colors.red : Colors.grey,
                                 size: 20,
                               ),
                               const SizedBox(width: 10),

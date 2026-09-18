@@ -91,7 +91,9 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
 
   Future<void> _checkReminderStatus() async {
     if (widget.mediaType != 'tv') return;
-    final reminded = await WatchReminderService.isReminded(int.parse(widget.item.id));
+    final reminded = await WatchReminderService.isReminded(
+      int.parse(widget.item.id),
+    );
     if (mounted) setState(() => _isReminded = reminded);
   }
 
@@ -127,7 +129,9 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
       setState(() => _isReminded = newState);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(newState ? 'Reminder set for new episodes' : 'Reminder removed'),
+          content: Text(
+            newState ? 'Reminder set for new episodes' : 'Reminder removed',
+          ),
           backgroundColor: newState ? Colors.green : Colors.grey[800],
           duration: const Duration(seconds: 2),
         ),
@@ -178,7 +182,7 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
         _youtubeController = YoutubePlayerController(
           initialVideoId: videoId,
           flags: const YoutubePlayerFlags(
-            autoPlay: true,
+            autoPlay: false,
             mute: false,
             enableCaption: true,
           ),
@@ -353,13 +357,15 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
             title: widget.item.title,
             resolverTitle: widget.item.title,
             thumbnail: widget.item.thumbnail,
-            maxVariantHeightPixels:
-                int.tryParse(selectedStream['maxVariantHeight']?.toString() ?? ''),
+            maxVariantHeightPixels: int.tryParse(
+              selectedStream['maxVariantHeight']?.toString() ?? '',
+            ),
             subtitles: (selectedStream['subtitles'] as List? ?? const [])
                 .whereType<Map>()
                 .map(
-                  (track) =>
-                      track.map((key, value) => MapEntry(key.toString(), value)),
+                  (track) => track.map(
+                    (key, value) => MapEntry(key.toString(), value),
+                  ),
                 )
                 .toList(),
           );
@@ -420,8 +426,7 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           buildDetailsSection(),
-                          if (_watchProgress != null)
-                            _buildContinueWatching(),
+                          if (_watchProgress != null) _buildContinueWatching(),
                           if (cast.isNotEmpty) buildCastSection(),
                           if (recommendations.isNotEmpty)
                             buildRecommendationsSection(),
@@ -645,22 +650,32 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
                               child: OutlinedButton.icon(
                                 onPressed: _toggleReminder,
                                 icon: Icon(
-                                  _isReminded ? Icons.notifications_active : Icons.notifications_none,
-                                  color: _isReminded ? Colors.red : Colors.white70,
+                                  _isReminded
+                                      ? Icons.notifications_active
+                                      : Icons.notifications_none,
+                                  color: _isReminded
+                                      ? Colors.red
+                                      : Colors.white70,
                                   size: 18,
                                 ),
                                 label: Text(
                                   _isReminded ? 'Reminded' : 'Remind Me',
                                   style: TextStyle(
-                                    color: _isReminded ? Colors.red : Colors.white70,
+                                    color: _isReminded
+                                        ? Colors.red
+                                        : Colors.white70,
                                     fontSize: 14,
                                   ),
                                 ),
                                 style: OutlinedButton.styleFrom(
                                   side: BorderSide(
-                                    color: _isReminded ? Colors.red : Colors.white24,
+                                    color: _isReminded
+                                        ? Colors.red
+                                        : Colors.white24,
                                   ),
-                                  padding: const EdgeInsets.symmetric(vertical: 8),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 8,
+                                  ),
                                 ),
                               ),
                             ),
@@ -863,7 +878,9 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
                     playedColor: Colors.red,
                     handleColor: Colors.redAccent,
                   ),
-                  onReady: () {},
+                  onReady: () {
+                    _youtubeController?.pause();
+                  },
                 ),
               ),
             ),
@@ -1464,11 +1481,7 @@ class _QualitySelectionSheetState extends State<_QualitySelectionSheet> {
                 padding: const EdgeInsets.all(20),
                 child: Column(
                   children: [
-                    const Icon(
-                      Icons.cloud_off,
-                      color: Colors.grey,
-                      size: 32,
-                    ),
+                    const Icon(Icons.cloud_off, color: Colors.grey, size: 32),
                     const SizedBox(height: 8),
                     const Text(
                       'No servers available',
@@ -1498,13 +1511,11 @@ class _QualitySelectionSheetState extends State<_QualitySelectionSheet> {
                 itemCount: _availableStreams.length,
                 itemBuilder: (context, serverIdx) {
                   final server = _availableStreams[serverIdx];
-                  final source =
-                      server['source']?.toString() ?? 'Server';
+                  final source = server['source']?.toString() ?? 'Server';
                   final qualities = server['qualities'];
                   final hasQualities =
                       qualities is List && qualities.isNotEmpty;
-                  final isServerSelected =
-                      _selectedServerIndex == serverIdx;
+                  final isServerSelected = _selectedServerIndex == serverIdx;
 
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 8),
@@ -1595,8 +1606,7 @@ class _QualitySelectionSheetState extends State<_QualitySelectionSheet> {
                             final q = raw is Map
                                 ? raw.map((k, v) => MapEntry(k.toString(), v))
                                 : <String, dynamic>{};
-                            final label =
-                                q['label']?.toString() ?? 'Auto';
+                            final label = q['label']?.toString() ?? 'Auto';
                             final height =
                                 int.tryParse(q['height']?.toString() ?? '') ??
                                 0;
@@ -1767,11 +1777,7 @@ class _QualitySelectionSheetState extends State<_QualitySelectionSheet> {
                 size: 20,
               )
             else
-              const Icon(
-                Icons.radio_button_off,
-                color: Colors.grey,
-                size: 20,
-              ),
+              const Icon(Icons.radio_button_off, color: Colors.grey, size: 20),
           ],
         ),
       ),
