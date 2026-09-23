@@ -7,7 +7,6 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -37,9 +36,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -52,39 +51,63 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.maxstream.app.data.repository.DesktopRepository
+import com.maxstream.app.data.cloud.AppSession
+import com.maxstream.app.data.cloud.CloudSync
+import com.maxstream.app.data.model.PlayRequest
+import com.maxstream.app.data.repository.MovieSection
+import com.maxstream.app.data.repository.SeriesSection
+import com.maxstream.app.data.repository.TmdbRepository
 import com.maxstream.app.ui.navigation.AppRoute
 import com.maxstream.app.ui.screens.DetailsScreen
 import com.maxstream.app.ui.screens.HomeScreen
-import com.maxstream.app.ui.screens.CatalogScreen
+import com.maxstream.app.ui.screens.MoviesScreen
+import com.maxstream.app.ui.screens.PlayerScreen
+import com.maxstream.app.ui.screens.SeriesScreen
 import com.maxstream.app.ui.screens.SettingsScreen
+import com.maxstream.app.ui.screens.WatchlistScreen
 import com.maxstream.app.ui.theme.DesktopTheme
+
+private val repository = TmdbRepository
 
 @Composable
 fun Shell() {
     var route by remember { mutableStateOf<AppRoute>(AppRoute.Home) }
+    var playerBackTo by remember { mutableStateOf<AppRoute>(AppRoute.Home) }
     var query by remember { mutableStateOf("") }
     // null = follow the OS; explicit true/false = user override (Settings).
-    var darkOverride by remember { mutableStateOf<Boolean?>(false) }
+    var darkOverride by remember { mutableStateOf<Boolean?>(null) }
 
-    DesktopTheme(useDarkTheme = darkOverride ?: false) {
+    val useDark = darkOverride ?: false
+
+    // Pull cloud watch history whenever the signed-in state changes.
+    LaunchedEffect(AppSession.isSignedIn) {
+        if (AppSession.isSignedIn) {
+            CloudSync.syncWatchHistory()
+        }
+    }
+
+    DesktopTheme(useDarkTheme = useDark) {
+        if (route is AppRoute.Player) {
+            val player = route as AppRoute.Player
+            PlayerScreen(
+                request = player.request,
+                repository = repository,
+                onBack = { route = playerBackTo },
+            )
+            return@DesktopTheme
+        }
         Row(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
             NavRail(
                 current = route,
                 onSelect = { route = it },
-                useDarkTheme = darkOverride ?: false,
+                useDarkTheme = useDark,
                 onToggleTheme = { darkOverride = it },
             )
             Column(Modifier.weight(1f).fillMaxHeight()) {
                 TitleBar(
                     route = route,
                     query = query,
-                    onQueryChange = {
-                        query = it
-                        if (route is AppRoute.Home) {
-                            // keep Home visible while typing so results render
-                        }
-                    },
+                    onQueryChange = { query = it },
                 )
                 Spacer(Modifier.height(1.dp).fillMaxWidth().background(MaterialTheme.colorScheme.outlineVariant))
                 AnimatedContent(
@@ -95,28 +118,46 @@ fun Shell() {
                 ) { target ->
                     when (target) {
                         is AppRoute.Home -> HomeScreen(
-                            repository = DesktopRepository,
+                            repository = repository,
                             query = query,
-                            onOpen = { route = AppRoute.Detail(it.id, it.id + query) },
+                            onOpen = { route = AppRoute.Detail(it.id, it.mediaType, it.id) },
+                            onPlay = { m ->
+                                playerBackTo = route
+                                route = AppRoute.Player(PlayRequest(m.id, m.mediaType, m.title))
+                            },
+                            onSeeAllMovies = { section -> route = AppRoute.Movies(section) },
+                            onSeeAllSeries = { section -> route = AppRoute.Series(section) },
                         )
-                        is AppRoute.Movies -> CatalogScreen("movie", "Movies", repository = DesktopRepository) {
-                            route = AppRoute.Detail(it.id)
-                        }
-                        is AppRoute.Series -> CatalogScreen("tv", "Series", repository = DesktopRepository) {
-                            route = AppRoute.Detail(it.id)
-                        }
-                        is AppRoute.Watchlist -> CatalogScreen("watchlist", "Watchlist", repository = DesktopRepository) {
-                            route = AppRoute.Detail(it.id)
-                        }
+                        is AppRoute.Movies -> MoviesScreen(
+                            repository = repository,
+                            initialSection = target.initialSection,
+                            onOpen = { route = AppRoute.Detail(it.id, it.mediaType, it.id) },
+                        )
+                        is AppRoute.Series -> SeriesScreen(
+                            repository = repository,
+                            initialSection = target.initialSection,
+                            onOpen = { route = AppRoute.Detail(it.id, it.mediaType, it.id) },
+                        )
+                        is AppRoute.Watchlist -> WatchlistScreen(
+                            repository = repository,
+                            isSignedIn = AppSession.isSignedIn,
+                            onOpen = { route = AppRoute.Detail(it.id, it.mediaType, it.id) },
+                        )
                         is AppRoute.Settings -> SettingsScreen(
-                            useDarkTheme = darkOverride ?: false,
+                            useDarkTheme = useDark,
                             onThemeChange = { darkOverride = it },
                         )
                         is AppRoute.Detail -> DetailsScreen(
                             itemId = target.itemId,
-                            repository = DesktopRepository,
+                            mediaType = target.mediaType,
+                            repository = repository,
                             onBack = { route = AppRoute.Home },
+                            onPlay = { req: PlayRequest ->
+                                playerBackTo = route
+                                route = AppRoute.Player(req)
+                            },
                         )
+                        is AppRoute.Player -> Unit
                     }
                 }
             }
@@ -143,15 +184,16 @@ private fun NavRail(
 ) {
     val items = listOf(
         RailItem("Home", Icons.Default.Home, AppRoute.Home),
-        RailItem("Movies", Icons.Default.Movie, AppRoute.Movies),
-        RailItem("Series", Icons.Default.LiveTv, AppRoute.Series),
+        RailItem("Movies", Icons.Default.Movie, AppRoute.Movies()),
+        RailItem("Series", Icons.Default.LiveTv, AppRoute.Series()),
         RailItem("Watchlist", Icons.Default.Bookmark, AppRoute.Watchlist),
         RailItem("Settings", Icons.Default.Settings, AppRoute.Settings),
     )
     val selectedRoute = when (current) {
-        is AppRoute.Detail -> current as AppRoute
+        is AppRoute.Detail -> AppRoute.Home
         else -> current
     }
+    val user = AppSession.user
 
     Column(
         Modifier
@@ -236,8 +278,19 @@ private fun NavRail(
             }
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
-                Text("You", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Medium)
-                Text("Signed in locally", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    if (user != null) "You" else "Guest",
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                )
+                Text(
+                    if (user != null) user.email else "Not signed in",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
             }
             IconButton(onClick = { onToggleTheme(!useDarkTheme) }) {
                 val icon = if (useDarkTheme) Icons.Default.LightMode else Icons.Default.DarkMode
@@ -262,6 +315,7 @@ private fun TitleBar(
         is AppRoute.Watchlist -> "Watchlist"
         is AppRoute.Settings -> "Settings"
         is AppRoute.Detail -> "Details"
+        is AppRoute.Player -> "Player"
     }
     Row(
         verticalAlignment = Alignment.CenterVertically,

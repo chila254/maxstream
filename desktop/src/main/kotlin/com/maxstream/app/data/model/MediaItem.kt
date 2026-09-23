@@ -1,8 +1,12 @@
 package com.maxstream.app.data.model
 
-/** A catalog entry shared by the desktop UI. Independent from the TV/mobile
- *  models — the desktop client has its own data shape so a native backend can
- *  be wired in later without coupling to the TV app's Flutter-derived JSON. */
+import com.maxstream.app.core.AppConfig
+
+/**
+ * A catalog entry shared by the desktop UI. Maps 1:1 to a TMDB result object so
+ * the same metadata the mobile/TV apps render is used on Windows (title, poster,
+ * backdrop, rating, genres and release year).
+ */
 data class MediaItem(
     val id: String,
     val title: String,
@@ -13,7 +17,25 @@ data class MediaItem(
     val rating: Double = 0.0,
     /** 0.0..1.0 — how much the user has watched (Continue Watching). */
     val progress: Float = 0f,
+    val posterPath: String? = null,
+    val backdropPath: String? = null,
 ) {
     val displayYear: String get() = year?.toString() ?: ""
     val typeLabel: String get() = if (mediaType == "tv") "Series" else "Movie"
+    val posterUrl: String? get() = AppConfig.posterUrl(posterPath)
+    val backdropUrl: String? get() = AppConfig.backdropUrl(backdropPath)
 }
+
+/** Continue-watching entry: an item plus where playback stopped. */
+data class ContinueWatch(
+    val item: MediaItem,
+    val progress: Float,
+    val season: Int = 1,
+    val episode: Int = 1,
+)
+
+/** One named rail on the home screen (Trending, Popular, Top rated…). */
+data class HomeSection(
+    val title: String,
+    val items: List<MediaItem>,
+)
