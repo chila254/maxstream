@@ -1217,6 +1217,21 @@ fun PlayerScreen(
         }
     }
 
+    // Grab root focus the INSTANT this screen is pushed — before the stream
+    // even resolves. The Details screen is still mounted for the first few
+    // frames of the push transition; without this early request, focus (and
+    // the next OK press) can still land on the hidden Details tiles and
+    // "select another movie/episode". Stops as soon as exoPlayer exists, since
+    // the control-focus effect below then owns focus.
+    LaunchedEffect(Unit) {
+        var attempt = 0
+        while (attempt < 8 && exoPlayer == null) {
+            runCatching { rootFocusRequester.requestFocus() }
+            delay(70L)
+            attempt++
+        }
+    }
+
     // Rebuild the player after a memory-pressure release (and only then -
     // the initial load is driven by the itemId LaunchedEffect).
     LaunchedEffect(loading, exoPlayer) {
@@ -1801,6 +1816,10 @@ fun PlayerScreen(
                         false,
                     ) as PlayerView).also { view ->
                         view.player = exoPlayer
+                        // Keep the device awake at the View layer as well as the
+                        // window flag above — some TVs start the screensaver on
+                        // idle even with FLAG_KEEP_SCREEN_ON set.
+                        view.keepScreenOn = true
                         // Prevent the Android View from intercepting D-pad keys —
                         // Compose handles all navigation via onPreviewKeyEvent.
                         view.isFocusable = false

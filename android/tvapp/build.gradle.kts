@@ -7,6 +7,15 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose") version "2.2.20"
 }
 
+// Keep Kotlin's bytecode target in sync with compileOptions (Java 21), which
+// is otherwise left at the Kotlin/AGP default (17) and fails the build with
+// "Inconsistent JVM Target Compatibility".
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21)
+    }
+}
+
 // Apply Google Services plugin only for standard builds (has GOOGLE_SERVICES_JSON).
 // FOSS builds set -PstandardFirebase=false (or omit it) — Kotlin stubs handle compilation.
 val enableFirebase = project.findProperty("standardFirebase")?.toString()?.toBoolean() == true

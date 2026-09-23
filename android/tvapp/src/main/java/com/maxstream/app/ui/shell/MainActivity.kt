@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.maxstream.app.data.local.WatchEntryCompat
 import com.maxstream.app.data.local.ProfileScope
@@ -286,12 +287,20 @@ private fun TvAppRoot() {
                 Box(Modifier.fillMaxSize())
             }
             composable(Screen.Details.route) { backStackEntry ->
+                // `active` is false the moment the Player (or another Details) is
+                // pushed on top: the Hidden Details must stop receiving focus and
+                // D-pad/OK so pressing OK while playing can never activate a tile
+                // underneath (the "pressing OK selects another movie" bug).
+                val isActive =
+                    deepNavController.currentBackStackEntryAsState().value?.destination?.route ==
+                        backStackEntry.destination.route
                 val itemId = backStackEntry.arguments?.getString("itemId") ?: ""
                 val mediaType = backStackEntry.arguments?.getString("mediaType") ?: "movie"
                 DetailsScreen(
                     navController    = deepNavController,
                     itemId           = itemId,
                     mediaType        = mediaType,
+                    active           = isActive,
                     onReturnToSidebar = {
                         deepNavController.popBackStack()
                         appState.updateFocusOnSidebar(true)

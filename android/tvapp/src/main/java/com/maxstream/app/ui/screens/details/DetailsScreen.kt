@@ -45,6 +45,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
@@ -54,6 +55,7 @@ import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -112,25 +114,65 @@ private data class DetailsSection(val rowId: String, val itemIndex: Int, val cou
 // Entry point
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Process-wide memory of the last-opened details page, keyed by item id. When
+ * the Player is popped we re-enter DetailsScreen, which used to re-fetch
+ * everything over the network and reset focus to the Play button (the lazy
+ * "return to details" delay). Keeping the payload in memory makes the return
+ * instant and lets us restore the section/tile the user left before pressing
+ * Play. Cleared whenever a different item is opened so stale data never leaks.
+ */
+private object DetailsCache {
+    var key: String? = null
+    var state: DetailState? = null
+    var episodes: List<EpisodeRef> = emptyList()
+    var selectedSeason: Int = 1
+    var continueWatching: List<WatchEntryCompat.Entry> = emptyList()
+
+    // Focus restore target. null row => hero Play button.
+    var lastRowId: String? = null
+    var lastIndex: Int = 0
+
+    // Bumped every time the payload is stored / a cached return happens; the
+    // child view keys its focus-restore effect on this to re-run on each pop.
+    var generation: Int = 0
+
+    fun matches(id: String, mediaType: String): Boolean = key == "$mediaType:$id"
+
+    fun clear() {
+        key = null
+        state = null
+        episodes = emptyList()
+        selectedSeason = 1
+        continueWatching = emptyList()
+        lastRowId = null
+        lastIndex = 0
+    }
+}
+
 @Composable
 fun DetailsScreen(
     navController: NavController,
     itemId: String,
     mediaType: String = "movie",
+    active: Boolean = true,
     onReturnToSidebar: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var state        by remember { mutableStateOf<DetailState?>(null) }
-    var episodes     by remember { mutableStateOf<List<EpisodeRef>>(emptyList()) }
-    var selectedSeason by remember { mutableIntStateOf(1) }
+    // Seed state from the in-memory cache so returning from the Player is
+    // instant (no network round-trip) before LaunchedEffect refreshes it.
+    val hasCache = DetailsCache.matches(itemId, mediaType)
+    var state        by remember { mutableStateOf<DetailState?>(if (hasCache) DetailsCache.state else null) }
+    var episodes     by remember { mutableStateOf(if (hasCache) DetailsCache.episodes else emptyList()) }
+    var selectedSeason by remember { mutableIntStateOf(if (hasCache) DetailsCache.selectedSeason else 1) }
     var loadingEpisodes by remember { mutableStateOf(false) }
-    var loading      by remember { mutableStateOf(true) }
+    var loading      by remember { mutableStateOf(!hasCache) }
     var error        by remember { mutableStateOf<String?>(null) }
 
     // Continue-watching entries matching this item
-    var continueWatching by remember { mutableStateOf<List<WatchEntryCompat.Entry>>(emptyList()) }
+    var continueWatching by remember { mutableStateOf(if (hasCache) DetailsCache.continueWatching else emptyList<WatchEntryCompat.Entry>()) }
 
     val playFocusRequester      = remember { FocusRequester() }
     val watchlistFocusRequester = remember { FocusRequester() }
@@ -138,6 +180,24 @@ fun DetailsScreen(
     // ── Load detail + watchlist + continue-watching ────────────────────────
     LaunchedEffect(itemId, mediaType) {
         val id = itemId.toIntOrNull() ?: run { error = "Invalid ID"; loading = false; return@LaunchedEffect }
+        if (DetailsCache.matches(itemId, mediaType)) {
+            // Cached return (e.g. popped back from the Player): reuse the
+            // in-memory payload so the screen appears instantly. Only peek at
+            // the phone's watchlist/continue-watching state so quick changes
+            // still reflect without blocking on the network.
+            try { com.maxstream.app.data.repository.CloudSyncRepository.pullToDevice(context) } catch (_: Exception) {}
+            val st = DetailsCache.state
+            if (st != null) {
+                state = st.copy(isSaved = WatchlistRepository.isIn(context, st.item))
+                episodes = DetailsCache.episodes
+                selectedSeason = DetailsCache.selectedSeason
+                continueWatching = DetailsCache.continueWatching
+            }
+            loading = false
+            error = null
+            DetailsCache.generation++ // let the child view restore focus again
+            return@LaunchedEffect
+        }
         loading = true; error = null
         try {
             // Pull the phone's watchlist/progress so the save state and the
@@ -206,6 +266,14 @@ fun DetailsScreen(
                 episodes = Modules.catalogRepository.seasonEpisodes(id, selectedSeason)
                 loadingEpisodes = false
             }
+
+            // Remember this payload so a later return from the Player is instant.
+            DetailsCache.key = "$mediaType:$id"
+            DetailsCache.state = state
+            DetailsCache.episodes = episodes
+            DetailsCache.selectedSeason = selectedSeason
+            DetailsCache.continueWatching = continueWatching
+            DetailsCache.generation++
         } catch (e: Exception) {
             error = e.message
         } finally {
@@ -270,7 +338,22 @@ fun DetailsScreen(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(Background)) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Background)
+            // When this Details is NOT the top destination (the Player, or
+            // another Details, is on top), it must be non-focusable and swallow
+            // every key before it can reach a focused descendant — otherwise
+            // pressing OK while the video plays re-fires a hidden tile and
+            // "selects another movie/episode".
+            .then(
+                if (active) Modifier
+                else Modifier
+                    .focusProperties { canFocus = false }
+                    .onPreviewKeyEvent { true }
+            )
+    ) {
         when {
             loading -> CircularProgressIndicator(
                 color = com.maxstream.app.ui.theme.Primary,
@@ -296,6 +379,7 @@ fun DetailsScreen(
                         continueWatching = continueWatching,
                         playFocusRequester = playFocusRequester,
                         watchlistFocusRequester = watchlistFocusRequester,
+                        focusRestoreTick = DetailsCache.generation,
                         navController = navController,
                         onSeasonSelected = { n -> switchSeason(n) },
                         onWatchlistToggle = { toggleWatchlist() },
@@ -337,6 +421,7 @@ private fun TvCinematicDetailsView(
     continueWatching: List<WatchEntryCompat.Entry>,
     playFocusRequester: FocusRequester,
     watchlistFocusRequester: FocusRequester,
+    focusRestoreTick: Int,
     navController: NavController,
     onSeasonSelected: (Int) -> Unit,
     onWatchlistToggle: () -> Unit,
@@ -482,10 +567,13 @@ private fun TvCinematicDetailsView(
 
     fun focusSection(rowId: String) {
         val section = sections.firstOrNull { it.rowId == rowId } ?: return
+        DetailsCache.lastRowId = rowId
+        DetailsCache.lastIndex = 0
         launchFocus { focusTile(rowId, 0, section.itemIndex, section.count) }
     }
 
     fun focusHero() {
+        DetailsCache.lastRowId = null
         launchFocus {
             if (!outerListState.isItemFullyVisible(0)) {
                 runCatching { outerListState.animateScrollToItem(0) }
@@ -515,18 +603,43 @@ private fun TvCinematicDetailsView(
         if (event.type != KeyEventType.KeyDown) return false
         return when (event.key) {
             Key.DirectionLeft -> {
+                DetailsCache.lastRowId = rowId; DetailsCache.lastIndex = index
                 if (index > 0) launchFocus { focusTile(rowId, index - 1, itemIndex, count) }
                 else focusHero()
                 true
             }
             Key.DirectionRight -> {
+                DetailsCache.lastRowId = rowId; DetailsCache.lastIndex = index
                 if (index + 1 < count) launchFocus { focusTile(rowId, index + 1, itemIndex, count) }
                 true
             }
-            Key.DirectionUp -> { focusPrevSection(itemIndex); true }
-            Key.DirectionDown -> { focusNextSection(itemIndex); true }
+            Key.DirectionUp -> {
+                DetailsCache.lastRowId = rowId; DetailsCache.lastIndex = index
+                focusPrevSection(itemIndex); true
+            }
+            Key.DirectionDown -> {
+                DetailsCache.lastRowId = rowId; DetailsCache.lastIndex = index
+                focusNextSection(itemIndex); true
+            }
             Key.Back, Key.Escape -> { onReturnToSidebar(); true }
             else -> false
+        }
+    }
+
+    // Restore the spot the user left (hero Play button by default, otherwise
+    // the exact tile) whenever this view (re)enters — including on every pop
+    // back from the Player, via focusRestoreTick being bumped in DetailsCache.
+    LaunchedEffect(focusRestoreTick) {
+        val lastRow = DetailsCache.lastRowId
+        if (lastRow != null) {
+            val section = sections.firstOrNull { it.rowId == lastRow }
+            if (section != null) {
+                delay(80)
+                focusTile(lastRow, DetailsCache.lastIndex, section.itemIndex, section.count)
+            }
+        } else {
+            delay(100)
+            runCatching { playFocusRequester.requestFocus() }
         }
     }
 
@@ -636,7 +749,10 @@ private fun TvCinematicDetailsView(
                                 onKeyRight = { runCatching { watchlistFocusRequester.requestFocus() } },
                                 onKeyUp = { /* at top — consume */ },
                                 onKeyDown = { focusFirstSection() },
-                                onClick = { onPlay(if (isTv) episodes.firstOrNull() else null) },
+                                onClick = {
+                                DetailsCache.lastRowId = null
+                                onPlay(if (isTv) episodes.firstOrNull() else null)
+                            },
                             )
                             CinematicButton(
                                 label = if (state.isSaved) "In Watchlist" else "Watchlist",

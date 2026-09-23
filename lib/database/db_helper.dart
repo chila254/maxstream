@@ -33,6 +33,7 @@ class DBHelper {
     await db.execute('''
       CREATE TABLE watchlist (
         ownerId TEXT NOT NULL,
+        profileId TEXT NOT NULL DEFAULT '__default__',
         id TEXT NOT NULL,
         title TEXT,
         description TEXT,
@@ -46,7 +47,7 @@ class DBHelper {
         mediaType TEXT NOT NULL,
         isDownloaded INTEGER DEFAULT 0,
         offlinePath TEXT,
-        PRIMARY KEY (ownerId, id, mediaType)
+        PRIMARY KEY (ownerId, profileId, id, mediaType)
       )
     ''');
 
