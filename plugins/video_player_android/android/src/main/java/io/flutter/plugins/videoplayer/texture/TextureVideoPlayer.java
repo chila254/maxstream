@@ -57,7 +57,15 @@ public final class TextureVideoPlayer extends VideoPlayer implements SurfaceProd
               new DefaultRenderersFactory(context).setEnableDecoderFallback(true);
           ExoPlayer.Builder builder =
               new ExoPlayer.Builder(context, renderersFactory)
-                  .setMediaSourceFactory(asset.getMediaSourceFactory(context));
+                  .setMediaSourceFactory(asset.getMediaSourceFactory(context))
+                  // Tune buffer durations for smoother HLS streaming.
+                  // minBufferMs: 15s — start playing quickly after rebuffer.
+                  // maxBufferMs: 50s — keep a reasonable buffer ahead.
+                  // bufferForPlaybackMs: 2s — start playback once 2s buffered.
+                  // bufferForPlaybackAfterRebufferMs: 5s — after rebuffer, wait 5s.
+                  .setMinBufferMs(15000)
+                  .setMaxBufferMs(50000)
+                  .setBufferDurationsMs(15000, 50000, 2000, 5000);
           return builder.build();
         });
   }

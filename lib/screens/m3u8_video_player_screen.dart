@@ -393,7 +393,9 @@ class _StablePlayerControlsState extends State<_StablePlayerControls> {
                           ),
                           // Cast button
                           ValueListenableBuilder<bool>(
-                            valueListenable: ValueNotifier(CastService.instance.isCastAvailable),
+                            valueListenable: ValueNotifier(
+                              CastService.instance.isCastAvailable,
+                            ),
                             builder: (context, isAvailable, _) {
                               if (!isAvailable) return const SizedBox.shrink();
                               return IconButton(
@@ -664,6 +666,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   final ValueNotifier<List<Subtitle>> _activeSubtitles =
       ValueNotifier<List<Subtitle>>(const []);
   final ValueNotifier<String> _selectedSubtitle = ValueNotifier<String>('Off');
+
   /// URL of the currently selected subtitle track, used as a stable key
   /// to re-sync the display value when group names change after re-discovery.
   String? _selectedSubtitleUrl;
@@ -690,8 +693,10 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   Duration _lastStablePosition = Duration.zero;
   bool _recoveringPlayback = false;
 
-  Duration get _currentPosition => _videoPlayerController?.value.position ?? Duration.zero;
-  Duration get _currentDuration => _videoPlayerController?.value.duration ?? Duration.zero;
+  Duration get _currentPosition =>
+      _videoPlayerController?.value.position ?? Duration.zero;
+  Duration get _currentDuration =>
+      _videoPlayerController?.value.duration ?? Duration.zero;
   bool get _isPlayingNow => _videoPlayerController?.value.isPlaying ?? false;
   int _playbackRetryCount = 0;
   // Failure tracking is identity-based: re-discovery hands every server a new
@@ -733,7 +738,8 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
 
     // Check if we're restoring from miniplayer
     final miniplayer = MiniplayerService.instance;
-    if (miniplayer.isActive && miniplayer.tmdbId == widget.tmdbId &&
+    if (miniplayer.isActive &&
+        miniplayer.tmdbId == widget.tmdbId &&
         miniplayer.season == widget.season &&
         miniplayer.episode == widget.episode) {
       final restoredController = miniplayer.restore();
@@ -757,12 +763,10 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
             ? miniplayer.selectedSubtitleUrl
             : null;
         _activeSubtitles.value = miniplayer.activeSubtitleCues
-            .map((c) => Subtitle(
-                  index: 0,
-                  start: c.start,
-                  end: c.end,
-                  text: c.text,
-                ))
+            .map(
+              (c) =>
+                  Subtitle(index: 0, start: c.start, end: c.end, text: c.text),
+            )
             .toList();
         _subtitleTracks = _unionSubtitleTracks();
         _qualities = _parseQualities(miniplayer.qualitiesRaw);
@@ -808,7 +812,10 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     });
   }
 
-  String _sourceLabel(Map<String, dynamic>? stream, {String fallback = 'Server'}) {
+  String _sourceLabel(
+    Map<String, dynamic>? stream, {
+    String fallback = 'Server',
+  }) {
     final source = stream?['source']?.toString() ?? fallback;
     final method = stream?['method']?.toString();
     return method != null ? '$source ($method)' : source;
@@ -944,7 +951,9 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         _selectedSubtitleUrl = initialSubtitle?.url;
 
         final methodLabel = method != null ? ' ($method)' : '';
-        _showStatus('Stream found from $source$methodLabel! Initializing player...');
+        _showStatus(
+          'Stream found from $source$methodLabel! Initializing player...',
+        );
         var discoveredServers = false;
         // The native extractor already validated this exact stream with
         // OkHttp. Hand it straight to ExoPlayer instead of letting the
@@ -1412,11 +1421,12 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     final seen = <String>{};
     // The currently playing server's group goes first so its subtitles are
     // the easiest to reach; the rest follow in discovery order.
-    final servers = [..._availableServers]..sort((a, b) {
-      final aSelected = _serverIdentity(a) == _selectedServerKey ? 0 : 1;
-      final bSelected = _serverIdentity(b) == _selectedServerKey ? 0 : 1;
-      return aSelected - bSelected;
-    });
+    final servers = [..._availableServers]
+      ..sort((a, b) {
+        final aSelected = _serverIdentity(a) == _selectedServerKey ? 0 : 1;
+        final bSelected = _serverIdentity(b) == _selectedServerKey ? 0 : 1;
+        return aSelected - bSelected;
+      });
     for (final server in servers) {
       final source = server['source']?.toString() ?? 'Server';
       final route = server['server']?.toString() ?? source;
@@ -1509,13 +1519,11 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     // extraction/validation but must still be listed so the user can select
     // and re-fetch them. Dedupe by identity rather than URL so a failed
     // server doesn't collapse into one row.
-    final fresh = streams
-        .where((s) {
-          final key = _serverIdentity(s);
-          if (key.isEmpty) return false;
-          return seen.add(key);
-        })
-        .toList();
+    final fresh = streams.where((s) {
+      final key = _serverIdentity(s);
+      if (key.isEmpty) return false;
+      return seen.add(key);
+    }).toList();
     setState(() {
       final byIdentity = <String, Map<String, dynamic>>{};
       // Prefer the server row that has a playable URL; a failed row for the
@@ -1544,8 +1552,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         final key = _serverIdentity(playing);
         final existing = byIdentity[key];
         final playingHasUrl = (playing['url']?.toString() ?? '').isNotEmpty;
-        final existingHasUrl =
-            (existing?['url']?.toString() ?? '').isNotEmpty;
+        final existingHasUrl = (existing?['url']?.toString() ?? '').isNotEmpty;
         if (existing == null || (playingHasUrl && !existingHasUrl)) {
           byIdentity[key] = playing;
         }
@@ -1558,8 +1565,12 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
           final bOk = (b['url']?.toString() ?? '').isNotEmpty ? 0 : 1;
           if (aOk != bOk) return aOk - bOk;
           // Among available servers, Viduki first
-          final aName = (a['server']?.toString() ?? a['source']?.toString() ?? '').toLowerCase();
-          final bName = (b['server']?.toString() ?? b['source']?.toString() ?? '').toLowerCase();
+          final aName =
+              (a['server']?.toString() ?? a['source']?.toString() ?? '')
+                  .toLowerCase();
+          final bName =
+              (b['server']?.toString() ?? b['source']?.toString() ?? '')
+                  .toLowerCase();
           final aIsViduki = aName.contains('viduki') ? 0 : 1;
           final bIsViduki = bName.contains('viduki') ? 0 : 1;
           return aIsViduki - bIsViduki;
@@ -1614,12 +1625,17 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       Uri.parse(url),
       httpHeaders: headers,
       formatHint: isHls ? VideoFormat.hls : VideoFormat.other,
-      videoPlayerOptions: VideoPlayerOptions(backBufferDurationMs: 60000, allowBackgroundPlayback: true),
+      videoPlayerOptions: VideoPlayerOptions(
+        backBufferDurationMs: 60000,
+        allowBackgroundPlayback: true,
+      ),
     );
 
     try {
       _showStatus(
-        position == Duration.zero ? 'Loading video...' : 'Switching to $selectedQuality...',
+        position == Duration.zero
+            ? 'Loading video...'
+            : 'Switching to $selectedQuality...',
       );
       // Timeout after 30s - HLS playlists on slow/CDN can take >15s, and
       // 15s was causing working servers to be marked as failed with
@@ -1652,10 +1668,14 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     } catch (e) {
       debugPrint('M3U8VideoPlayer: init failed ($url): $e');
       if (e.toString().contains('Cannot add event after closing')) {
-        try { await controller.dispose(); } catch (_) {}
+        try {
+          await controller.dispose();
+        } catch (_) {}
         rethrow;
       }
-      try { await controller.dispose(); } catch (_) {}
+      try {
+        await controller.dispose();
+      } catch (_) {}
       rethrow;
     }
   }
@@ -1707,7 +1727,9 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     if (shouldRebuild) setState(() {});
     MediaSessionHandler.instance.updateMetadata(
       title: _currentTitle,
-      artist: widget.isMovie ? 'Movie' : 'S${_currentSeason.toString().padLeft(2, '0')}E${_currentEpisode.toString().padLeft(2, '0')}',
+      artist: widget.isMovie
+          ? 'Movie'
+          : 'S${_currentSeason.toString().padLeft(2, '0')}E${_currentEpisode.toString().padLeft(2, '0')}',
       artUri: _posterUrl.isNotEmpty ? _posterUrl : null,
     );
     MediaSessionHandler.instance.updatePlaybackState(
@@ -1773,7 +1795,9 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         // causing stuck at "Switching to Auto" (6x 15s validates).
         var switched = false;
         for (final server in candidates) {
-          _showStatus('Loading a working stream from ${_sourceLabel(server)}...');
+          _showStatus(
+            'Loading a working stream from ${_sourceLabel(server)}...',
+          );
           switched = await _tryPlayServer(
             server,
             position: _lastStablePosition,
@@ -1864,19 +1888,16 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
 
   void _startProgressSaving() {
     _progressTimer?.cancel();
-    _progressTimer = Timer.periodic(
-      const Duration(seconds: 15),
-      (_) {
-        _saveProgress();
-        final c = _videoPlayerController;
-        if (c != null && c.value.isInitialized) {
-          MediaSessionHandler.instance.updateProgress(
-            position: c.value.position,
-            duration: c.value.duration,
-          );
-        }
-      },
-    );
+    _progressTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      _saveProgress();
+      final c = _videoPlayerController;
+      if (c != null && c.value.isInitialized) {
+        MediaSessionHandler.instance.updateProgress(
+          position: c.value.position,
+          duration: c.value.duration,
+        );
+      }
+    });
   }
 
   Future<void> _saveProgress() async {
@@ -1943,16 +1964,14 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         selectedSubtitleValue: _selectedSubtitle.value,
         selectedSubtitleUrl: _selectedSubtitleUrl ?? '',
         activeSubtitleCues: _activeSubtitles.value
-            .map((s) => MiniSubtitleCue(
-                  start: s.start,
-                  end: s.end,
-                  text: s.text,
-                ))
+            .map(
+              (s) => MiniSubtitleCue(start: s.start, end: s.end, text: s.text),
+            )
             .toList(),
         qualitiesRaw: currentServer != null && currentServer.isNotEmpty
             ? (currentServer['qualities'] as List<dynamic>? ?? const [])
-                .whereType<Map<String, dynamic>>()
-                .toList()
+                  .whereType<Map<String, dynamic>>()
+                  .toList()
             : const [],
       );
     }
@@ -2023,13 +2042,13 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
                   selected
                       ? Icons.check_circle
                       : available
-                          ? Icons.play_circle_outline
-                          : Icons.refresh,
+                      ? Icons.play_circle_outline
+                      : Icons.refresh,
                   color: selected
                       ? Colors.red
                       : available
-                          ? Colors.white70
-                          : Colors.orangeAccent,
+                      ? Colors.white70
+                      : Colors.orangeAccent,
                 ),
                 title: Text(
                   source,
@@ -2038,10 +2057,10 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
                 subtitle: Text(
                   available
                       ? (method != null
-                          ? '$method · Server ${entry.key + 1}'
-                          : (server == source
-                              ? 'Server ${entry.key + 1}'
-                              : 'Via $server · Server ${entry.key + 1}'))
+                            ? '$method · Server ${entry.key + 1}'
+                            : (server == source
+                                  ? 'Server ${entry.key + 1}'
+                                  : 'Via $server · Server ${entry.key + 1}'))
                       : 'Unavailable · Tap to retry',
                   style: TextStyle(
                     color: available ? Colors.white54 : Colors.orangeAccent,
@@ -2093,10 +2112,13 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
           source: stream['source']?.toString() ?? 'Server',
           qualities: qualities,
           selectedQuality: selectedQuality,
-          isHls: stream['type'] == 'direct_m3u8' || url.toLowerCase().contains('.m3u8'),
+          isHls:
+              stream['type'] == 'direct_m3u8' ||
+              url.toLowerCase().contains('.m3u8'),
           position: position,
         );
-        if (ok && mounted) setState(() => _selectedServerKey = _serverIdentity(stream));
+        if (ok && mounted)
+          setState(() => _selectedServerKey = _serverIdentity(stream));
       } finally {
         if (mounted) setState(() => _isSwitchingServer = false);
       }
@@ -2336,7 +2358,10 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
                           overlayColor: Colors.red.withOpacity(0.2),
                         ),
                         child: Slider(
-                          value: _subtitleSettings.subtitleOffsetMs.clamp(-5000, 5000),
+                          value: _subtitleSettings.subtitleOffsetMs.clamp(
+                            -5000,
+                            5000,
+                          ),
                           min: -5000,
                           max: 5000,
                           divisions: 100,
@@ -2589,10 +2614,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       if (cueText.isEmpty) continue;
       parts.add(
         cueText.startsWith('WEBVTT')
-            ? cueText.replaceFirst(
-                  RegExp('^WEBVTT.*\$', multiLine: true),
-                  '',
-                )
+            ? cueText.replaceFirst(RegExp('^WEBVTT.*\$', multiLine: true), '')
             : cueText,
       );
     }
@@ -2622,7 +2644,9 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       segmentUrls.add(resolved.toString());
     }
     if (segmentUrls.isEmpty) {
-      throw const FormatException('HLS subtitle playlist contained no segments');
+      throw const FormatException(
+        'HLS subtitle playlist contained no segments',
+      );
     }
 
     final parts = <String>[];
@@ -3090,7 +3114,9 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   @override
   void dispose() {
     MediaDownloadManager.instance.removeListener(_handleDownloadChanged);
-    CloudSyncService.subtitlePrefsRevision.removeListener(_onSubtitlePrefsChanged);
+    CloudSyncService.subtitlePrefsRevision.removeListener(
+      _onSubtitlePrefsChanged,
+    );
     _selectedSubtitle.dispose();
     _activeSubtitles.dispose();
     _progressTimer?.cancel();
@@ -3115,6 +3141,16 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       overlays: SystemUiOverlay.values,
     );
     MediaSessionHandler.instance.notifyStopped();
+    // Clear MediaSession callbacks to prevent stale references from triggering playback.
+    final handler = MediaSessionHandler.instance.handler;
+    if (handler != null) {
+      handler.onPlay = null;
+      handler.onPause = null;
+      handler.onSkipPrevious = null;
+      handler.onSkipNext = null;
+      handler.onSeek = null;
+      handler.onStop = null;
+    }
     super.dispose();
   }
 
@@ -3142,7 +3178,9 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     double aspect = 16 / 9;
     if (controller != null) {
       size = controller.value.size;
-      aspect = controller.value.aspectRatio > 0 ? controller.value.aspectRatio : 16 / 9;
+      aspect = controller.value.aspectRatio > 0
+          ? controller.value.aspectRatio
+          : 16 / 9;
     }
     final videoWidth = size.width > 0 ? size.width : 1920.0;
     final videoHeight = size.height > 0 ? size.height : 1080.0;
@@ -3159,10 +3197,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     }
     final videoWidget = switch (_aspectRatioMode) {
       _AspectRatioMode.fit => Center(
-        child: AspectRatio(
-          aspectRatio: aspect,
-          child: innerPlayer,
-        ),
+        child: AspectRatio(aspectRatio: aspect, child: innerPlayer),
       ),
       _AspectRatioMode.stretch => SizedBox.expand(child: innerPlayer),
       _AspectRatioMode.zoom => ClipRect(
@@ -3170,7 +3205,11 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
           child: FittedBox(
             fit: BoxFit.cover,
             clipBehavior: Clip.hardEdge,
-            child: SizedBox(width: videoWidth, height: videoHeight, child: innerPlayer),
+            child: SizedBox(
+              width: videoWidth,
+              height: videoHeight,
+              child: innerPlayer,
+            ),
           ),
         ),
       ),
@@ -3270,29 +3309,56 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
               child: ValueListenableBuilder<List<Subtitle>>(
                 valueListenable: _activeSubtitles,
                 builder: (context, subtitles, _) {
-                  if (subtitles.isEmpty || _videoPlayerController == null) return const SizedBox.shrink();
+                  if (subtitles.isEmpty || _videoPlayerController == null)
+                    return const SizedBox.shrink();
                   return ValueListenableBuilder<VideoPlayerValue>(
                     valueListenable: _videoPlayerController!,
                     builder: (context, value, _) {
-                      final adjustedPosition = Duration(milliseconds: value.position.inMilliseconds + _subtitleSettings.subtitleOffsetMs.round());
-                      final cues = subtitles.where((cue) => adjustedPosition >= cue.start && adjustedPosition <= cue.end);
+                      final adjustedPosition = Duration(
+                        milliseconds:
+                            value.position.inMilliseconds +
+                            _subtitleSettings.subtitleOffsetMs.round(),
+                      );
+                      final cues = subtitles.where(
+                        (cue) =>
+                            adjustedPosition >= cue.start &&
+                            adjustedPosition <= cue.end,
+                      );
                       if (cues.isEmpty) return const SizedBox.shrink();
                       final ss = _subtitleSettings;
                       final bgOpacity = ss.backgroundOpacity;
                       final shadows = <Shadow>[];
                       if (ss.textShadow) {
-                        shadows.add(Shadow(color: ss.textShadowColorParsed, blurRadius: 3));
+                        shadows.add(
+                          Shadow(
+                            color: ss.textShadowColorParsed,
+                            blurRadius: 3,
+                          ),
+                        );
                       }
                       if (ss.edgeType == 'outline') {
-                        shadows.add(Shadow(color: ss.edgeColorParsed, blurRadius: 2));
+                        shadows.add(
+                          Shadow(color: ss.edgeColorParsed, blurRadius: 2),
+                        );
                       } else if (ss.edgeType == 'dropShadow') {
-                        shadows.add(Shadow(color: ss.edgeColorParsed, blurRadius: 4, offset: const Offset(1, 1)));
+                        shadows.add(
+                          Shadow(
+                            color: ss.edgeColorParsed,
+                            blurRadius: 4,
+                            offset: const Offset(1, 1),
+                          ),
+                        );
                       }
                       return Center(
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
                           decoration: BoxDecoration(
-                            color: ss.backgroundColorParsed.withValues(alpha: bgOpacity),
+                            color: ss.backgroundColorParsed.withValues(
+                              alpha: bgOpacity,
+                            ),
                             borderRadius: BorderRadius.circular(4),
                           ),
                           child: Text(
@@ -3300,9 +3366,15 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
                             textAlign: TextAlign.center,
                             style: TextStyle(
                               color: ss.textColorParsed,
-                              fontSize: (compactPlayer ? ss.fontSize - 2 : ss.fontSize).clamp(10, 32),
+                              fontSize:
+                                  (compactPlayer
+                                          ? ss.fontSize - 2
+                                          : ss.fontSize)
+                                      .clamp(10, 32),
                               fontWeight: FontWeight.w600,
-                              fontFamily: ss.fontFamily.isNotEmpty ? ss.fontFamily : null,
+                              fontFamily: ss.fontFamily.isNotEmpty
+                                  ? ss.fontFamily
+                                  : null,
                               shadows: shadows.isNotEmpty ? shadows : null,
                             ),
                           ),
@@ -3489,9 +3561,16 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
             if (_error != null && _error!.isNotEmpty)
               GestureDetector(
                 onTap: () {
-                  Clipboard.setData(ClipboardData(text: 'Error: $_error\nStatus: $_statusMessage'));
+                  Clipboard.setData(
+                    ClipboardData(
+                      text: 'Error: $_error\nStatus: $_statusMessage',
+                    ),
+                  );
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Error copied to clipboard'), duration: Duration(seconds: 1)),
+                    const SnackBar(
+                      content: Text('Error copied to clipboard'),
+                      duration: Duration(seconds: 1),
+                    ),
                   );
                 },
                 child: Container(
@@ -3504,7 +3583,11 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
                   ),
                   child: Text(
                     '$_error\nStatus: $_statusMessage',
-                    style: TextStyle(color: Colors.grey[400], fontSize: 11, fontFamily: 'monospace'),
+                    style: TextStyle(
+                      color: Colors.grey[400],
+                      fontSize: 11,
+                      fontFamily: 'monospace',
+                    ),
                     textAlign: TextAlign.left,
                   ),
                 ),
@@ -3522,7 +3605,9 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
               const SizedBox(height: 10),
               ..._availableServers.take(6).map((stream) {
                 final source =
-                    stream['source']?.toString() ?? stream['server']?.toString() ?? 'Server';
+                    stream['source']?.toString() ??
+                    stream['server']?.toString() ??
+                    'Server';
                 final selected = _serverIdentity(stream) == _selectedServerKey;
                 final url = stream['url']?.toString() ?? '';
                 final available = url.isNotEmpty;
@@ -3531,25 +3616,24 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
                   child: SizedBox(
                     width: double.infinity,
                     child: OutlinedButton.icon(
-                      onPressed: selected ||
-                              _isSwitchingServer ||
-                              _isRetryingServer
+                      onPressed:
+                          selected || _isSwitchingServer || _isRetryingServer
                           ? null
                           : available
-                              ? () => _switchServer(stream)
-                              : () => _retryServer(stream),
+                          ? () => _switchServer(stream)
+                          : () => _retryServer(stream),
                       icon: Icon(
                         selected
                             ? Icons.check_circle
                             : available
-                                ? Icons.play_circle_outline
-                                : Icons.refresh,
+                            ? Icons.play_circle_outline
+                            : Icons.refresh,
                         size: 18,
                         color: selected
                             ? Colors.red
                             : available
-                                ? Colors.white70
-                                : Colors.orangeAccent,
+                            ? Colors.white70
+                            : Colors.orangeAccent,
                       ),
                       label: Text(
                         available ? source : '$source · retry',

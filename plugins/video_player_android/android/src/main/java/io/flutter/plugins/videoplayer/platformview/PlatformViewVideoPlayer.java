@@ -56,7 +56,11 @@ public class PlatformViewVideoPlayer extends VideoPlayer {
               new DefaultRenderersFactory(context).setEnableDecoderFallback(true);
           ExoPlayer.Builder builder =
               new ExoPlayer.Builder(context, renderersFactory)
-                  .setMediaSourceFactory(asset.getMediaSourceFactory(context));
+                  .setMediaSourceFactory(asset.getMediaSourceFactory(context))
+                  // Tune buffer durations for smoother HLS streaming.
+                  .setMinBufferMs(15000)
+                  .setMaxBufferMs(50000)
+                  .setBufferDurationsMs(15000, 50000, 2000, 5000);
           return builder.build();
         });
   }

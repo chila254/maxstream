@@ -6,6 +6,7 @@ import '../models/movie.dart';
 import '../services/cloud_sync_service.dart';
 import '../services/direct_m3u8_service.dart';
 import '../services/media_download_manager.dart';
+import '../services/miniplayer_service.dart';
 import '../services/tmdb_api_service.dart';
 import '../services/watch_history_service.dart';
 import '../services/watch_reminder_service.dart';
@@ -327,6 +328,8 @@ class _MaxStreamDetailsScreenState extends State<MaxStreamDetailsScreen> {
 
   Future<void> _startDownload({Map<String, dynamic>? selectedStream}) async {
     if (_downloadingMovie) return;
+    // Stop any background playback before starting download.
+    MiniplayerService.instance.close();
     setState(() => _downloadingMovie = true);
     try {
       bool found;

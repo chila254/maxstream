@@ -6,6 +6,7 @@ import '../models/movie.dart';
 import '../models/series.dart';
 import '../services/media_download_manager.dart';
 import '../services/direct_m3u8_service.dart';
+import '../services/miniplayer_service.dart';
 import '../services/tmdb_api_service.dart';
 import '../services/watch_history_service.dart';
 import '../database/db_helper.dart';
@@ -322,6 +323,8 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
     final season = seasonNumber ?? seasons[selectedSeasonIndex].seasonNumber;
     final key = _episodeDownloadKey(season, episode.episodeNumber);
     if (_downloadingEpisodes.contains(key)) return true;
+    // Stop any background playback before starting download.
+    MiniplayerService.instance.close();
     if (mounted) setState(() => _downloadingEpisodes.add(key));
     try {
       bool found;
@@ -417,6 +420,8 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
         .where((e) => e.isReleased)
         .toList();
     if (_downloadManager.seasonDownloading || releasedEpisodes.isEmpty) return;
+    // Stop any background playback before starting download.
+    MiniplayerService.instance.close();
     final season = seasons[selectedSeasonIndex].seasonNumber;
     final unreleasedCount = currentEpisodes.length - releasedEpisodes.length;
     final confirmed = await showDialog<bool>(
