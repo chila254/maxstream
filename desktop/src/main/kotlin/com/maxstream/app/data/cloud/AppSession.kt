@@ -79,6 +79,29 @@ object AppSession {
         }
     }
 
+    /**
+     * Sends a Firebase password-reset email (mobile AuthService.resetPassword).
+     * POST {AUTH_BASE}:sendOobEmail with requestType PASSWORD_RESET.
+     */
+    suspend fun sendPasswordReset(email: String): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                if (email.isBlank() || !email.contains("@")) {
+                    throw IllegalArgumentException("Enter a valid email address")
+                }
+                val body = JSONObject()
+                    .put("requestType", "PASSWORD_RESET")
+                    .put("email", email.trim())
+                val url = "${AppConfig.FIREBASE_AUTH_BASE}:sendOobEmail?key=${AppConfig.FIREBASE_WEB_API_KEY}"
+                val (code, text) = post(url, body).use { r ->
+                    r.code to (r.body?.string().orEmpty())
+                }
+                if (code / 100 != 2) {
+                    throw IllegalArgumentException(firebaseErrorMessage(code, text, "Could not send reset email"))
+                }
+            }
+        }
+
     /** Returns a valid idToken, refreshing if near/expired. */
     suspend fun freshToken(): String? {
         val u = user ?: return null

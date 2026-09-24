@@ -37,6 +37,7 @@ import com.maxstream.app.data.model.MediaItem
 import com.maxstream.app.data.repository.MediaRepository
 import com.maxstream.app.data.repository.MovieSection
 import com.maxstream.app.data.repository.SeriesSection
+import com.maxstream.app.ui.components.EmptyState
 import kotlinx.coroutines.launch
 
 /**
@@ -108,31 +109,14 @@ fun WatchlistScreen(
         Spacer(Modifier.height(16.dp))
 
         if (items.isEmpty()) {
-            Box(
-                Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center,
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.widthIn(max = 380.dp)) {
-                    Icon(
-                        Icons.Default.Bookmark,
-                        null,
-                        tint = MaterialTheme.colorScheme.outline,
-                        modifier = Modifier.padding(bottom = 12.dp),
-                    )
-                    Text(
-                        if (isSignedIn) "Nothing on your watchlist yet."
-                        else "Sign in with your email, then add titles from any details page.",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 14.sp,
-                    )
-                    Spacer(Modifier.height(10.dp))
-                    Text(
-                        "Titles you save here are available on the phone and TV app too.",
-                        color = MaterialTheme.colorScheme.outline,
-                        fontSize = 12.sp,
-                    )
-                }
-            }
+            EmptyState(
+                title = if (isSignedIn) "Nothing on your watchlist yet." else "Sign in to start your watchlist",
+                message = if (isSignedIn)
+                    "Titles you save here are available on the phone and TV app too."
+                else
+                    "Sign in with your email, then add titles from any details page.",
+                icon = Icons.Default.Bookmark,
+            )
         } else {
             MediaBrowserGrid(items, onOpen = onOpen)
         }

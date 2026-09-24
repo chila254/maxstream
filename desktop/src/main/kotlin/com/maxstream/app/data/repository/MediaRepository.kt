@@ -33,6 +33,8 @@ interface MediaRepository {
     suspend fun search(query: String, page: Int = 1): List<MediaItem>
     suspend fun details(id: String, mediaType: String? = null): MediaDetails?
     suspend fun episodes(seriesId: String, season: Int): List<Episode>
+    /** Similar titles for the Details "More like this" rail (may be empty). */
+    suspend fun recommendations(id: String, mediaType: String?): List<MediaItem> = emptyList()
 
     // Cloud sync (watchlist + progress) — safe to call signed out.
     suspend fun watchlist(): List<MediaItem>

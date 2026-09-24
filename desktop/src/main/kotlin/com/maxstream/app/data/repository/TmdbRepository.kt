@@ -124,6 +124,14 @@ object TmdbRepository : MediaRepository {
         return runCatching { client.json("/movie/$id"); "movie" }.getOrElse { "tv" }
     }
 
+    override suspend fun recommendations(id: String, mediaType: String?): List<MediaItem> =
+        runCatching {
+            val type = mediaType ?: resolveType(id)
+            val path = if (type == "tv") "/tv/$id/recommendations" else "/movie/$id/recommendations"
+            client.genres(type)
+            client.array(path).map(client::parseMedia).filter { it.posterUrl != null }
+        }.getOrElse { emptyList() }
+
     override suspend fun episodes(seriesId: String, season: Int): List<Episode> = runCatching {
         // Season envelope uses "episodes" (not "results"), so arrayAt is required.
         client.arrayAt("/tv/$seriesId/season/$season", "episodes")

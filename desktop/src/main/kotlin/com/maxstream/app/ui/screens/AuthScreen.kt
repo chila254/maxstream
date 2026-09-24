@@ -5,6 +5,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -62,12 +63,13 @@ import kotlinx.coroutines.launch
  */
 @Composable
 fun AuthScreen(onSuccess: () -> Unit) {
-    var mode by remember { mutableStateOf(0) } // 0 = sign in, 1 = sign up
+    var mode by remember { mutableStateOf(0) } // 0 = sign in, 1 = sign up, 2 = forgot password
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var showPassword by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var notice by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
 
     var entered by remember { mutableStateOf(false) }
@@ -107,38 +109,53 @@ fun AuthScreen(onSuccess: () -> Unit) {
                 )
                 Spacer(Modifier.height(16.dp))
                 Text(
-                    if (mode == 0) "Welcome Back!" else "Create Account",
+                    when (mode) {
+                        1 -> "Create Account"
+                        2 -> "Reset Password"
+                        else -> "Welcome Back!"
+                    },
                     color = Color.White,
                     fontSize = 26.sp,
                     fontWeight = FontWeight.Bold,
                 )
                 Spacer(Modifier.height(16.dp))
 
-                TabRow(
-                    selectedTabIndex = mode,
-                    containerColor = Color.Transparent,
-                    contentColor = MaterialTheme.colorScheme.primary,
-                    indicator = {},
-                    divider = {},
-                ) {
-                    Tab(selected = mode == 0, onClick = { mode = 0; error = null }) {
-                        Text(
-                            "Sign In",
-                            color = if (mode == 0) Color.White else Color.White.copy(alpha = 0.55f),
-                            fontWeight = if (mode == 0) FontWeight.Bold else FontWeight.Normal,
-                            modifier = Modifier.padding(vertical = 10.dp),
-                        )
+                if (mode != 2) {
+                    TabRow(
+                        selectedTabIndex = mode,
+                        containerColor = Color.Transparent,
+                        contentColor = MaterialTheme.colorScheme.primary,
+                        indicator = {},
+                        divider = {},
+                    ) {
+                        Tab(selected = mode == 0, onClick = { mode = 0; error = null; notice = null }) {
+                            Text(
+                                "Sign In",
+                                color = if (mode == 0) Color.White else Color.White.copy(alpha = 0.55f),
+                                fontWeight = if (mode == 0) FontWeight.Bold else FontWeight.Normal,
+                                modifier = Modifier.padding(vertical = 10.dp),
+                            )
+                        }
+                        Tab(selected = mode == 1, onClick = { mode = 1; error = null; notice = null }) {
+                            Text(
+                                "Sign Up",
+                                color = if (mode == 1) Color.White else Color.White.copy(alpha = 0.55f),
+                                fontWeight = if (mode == 1) FontWeight.Bold else FontWeight.Normal,
+                                modifier = Modifier.padding(vertical = 10.dp),
+                            )
+                        }
                     }
-                    Tab(selected = mode == 1, onClick = { mode = 1; error = null }) {
-                        Text(
-                            "Sign Up",
-                            color = if (mode == 1) Color.White else Color.White.copy(alpha = 0.55f),
-                            fontWeight = if (mode == 1) FontWeight.Bold else FontWeight.Normal,
-                            modifier = Modifier.padding(vertical = 10.dp),
-                        )
-                    }
+                    Spacer(Modifier.height(14.dp))
+                } else {
+                    Text(
+                        "Enter your email and we'll send a reset link.",
+                        color = Color.White.copy(alpha = 0.7f),
+                        fontSize = 13.sp,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(14.dp))
                 }
-                Spacer(Modifier.height(14.dp))
 
                 if (busy) {
                     CircularProgressIndicator(color = Color.White, modifier = Modifier.size(36.dp))
@@ -153,31 +170,62 @@ fun AuthScreen(onSuccess: () -> Unit) {
                         colors = authFieldColors(),
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    Spacer(Modifier.height(12.dp))
-                    OutlinedTextField(
-                        value = password,
-                        onValueChange = { password = it },
-                        label = { Text("Password", color = Color.White) },
-                        singleLine = true,
-                        visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
-                        trailingIcon = {
-                            IconButton(onClick = { showPassword = !showPassword }) {
-                                Icon(
-                                    if (showPassword) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                    contentDescription = "Toggle password",
-                                    tint = Color.White,
+                    if (mode != 2) {
+                        Spacer(Modifier.height(12.dp))
+                        OutlinedTextField(
+                            value = password,
+                            onValueChange = { password = it },
+                            label = { Text("Password", color = Color.White) },
+                            singleLine = true,
+                            visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                            trailingIcon = {
+                                IconButton(onClick = { showPassword = !showPassword }) {
+                                    Icon(
+                                        if (showPassword) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                        contentDescription = "Toggle password",
+                                        tint = Color.White,
+                                    )
+                                }
+                            },
+                            textStyle = MaterialTheme.typography.bodyMedium.copy(color = Color.White),
+                            colors = authFieldColors(),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        if (mode == 0) {
+                            Spacer(Modifier.height(8.dp))
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End,
+                            ) {
+                                Text(
+                                    "Forgot password?",
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.clickable {
+                                        mode = 2
+                                        error = null
+                                        notice = null
+                                    },
                                 )
                             }
-                        },
-                        textStyle = MaterialTheme.typography.bodyMedium.copy(color = Color.White),
-                        colors = authFieldColors(),
-                        modifier = Modifier.fillMaxWidth(),
-                    )
+                        }
+                    }
                     if (error != null) {
                         Spacer(Modifier.height(10.dp))
                         Text(
                             error.orEmpty(),
                             color = Color(0xFFFF6B6B),
+                            fontSize = 13.sp,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    if (notice != null) {
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            notice.orEmpty(),
+                            color = Color(0xFF4ADE80),
                             fontSize = 13.sp,
                             textAlign = TextAlign.Center,
                             modifier = Modifier.fillMaxWidth(),
@@ -189,23 +237,35 @@ fun AuthScreen(onSuccess: () -> Unit) {
                         onClick = {
                             busy = true
                             error = null
+                            notice = null
                             scope.launch {
-                                val result = try {
-                                    if (mode == 0) {
-                                        AppSession.signIn(email, password)
-                                    } else {
-                                        AppSession.signUp(email, password)
+                                if (mode == 2) {
+                                    AppSession.sendPasswordReset(email)
+                                        .onSuccess {
+                                            notice = "Password reset email sent!"
+                                        }
+                                        .onFailure { e ->
+                                            error = e.message ?: "Could not send reset email."
+                                        }
+                                    busy = false
+                                } else {
+                                    val result = try {
+                                        if (mode == 0) {
+                                            AppSession.signIn(email, password)
+                                        } else {
+                                            AppSession.signUp(email, password)
+                                        }
+                                    } catch (e: Exception) {
+                                        Result.failure(e)
                                     }
-                                } catch (e: Exception) {
-                                    Result.failure(e)
+                                    result.onFailure { e ->
+                                        error = e.message
+                                            ?.takeIf { !it.startsWith("A JSON") && !it.contains("character") }
+                                            ?: "Could not reach MaxStream. Check your connection and try again."
+                                    }
+                                    busy = false
+                                    if (result.isSuccess) onSuccess()
                                 }
-                                result.onFailure { e ->
-                                    error = e.message
-                                        ?.takeIf { !it.startsWith("A JSON") && !it.contains("character") }
-                                        ?: "Could not reach MaxStream. Check your connection and try again."
-                                }
-                                busy = false
-                                if (result.isSuccess) onSuccess()
                             }
                         },
                         shape = RoundedCornerShape(10.dp),
@@ -213,7 +273,11 @@ fun AuthScreen(onSuccess: () -> Unit) {
                         modifier = Modifier.fillMaxWidth().height(48.dp),
                     ) {
                         Text(
-                            if (mode == 0) "Sign In" else "Create Account",
+                            when (mode) {
+                                1 -> "Create Account"
+                                2 -> "Send Reset Link"
+                                else -> "Sign In"
+                            },
                             fontWeight = FontWeight.Bold,
                             fontSize = 15.sp,
                         )
@@ -221,12 +285,20 @@ fun AuthScreen(onSuccess: () -> Unit) {
                     Spacer(Modifier.height(12.dp))
                     OutlinedButton(
                         enabled = !busy,
-                        onClick = { mode = if (mode == 0) 1 else 0; error = null },
+                        onClick = {
+                            error = null
+                            notice = null
+                            mode = if (mode == 2) 0 else if (mode == 0) 1 else 0
+                        },
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.fillMaxWidth().height(46.dp),
                     ) {
                         Text(
-                            if (mode == 0) "New to MaxStream? Sign Up" else "Already have an account? Sign In",
+                            when (mode) {
+                                1 -> "Already have an account? Sign In"
+                                2 -> "Back to Sign In"
+                                else -> "New to MaxStream? Sign Up"
+                            },
                             color = Color.White.copy(alpha = 0.85f),
                         )
                     }

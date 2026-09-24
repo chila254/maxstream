@@ -4,6 +4,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import com.maxstream.app.data.AppPrefs
 import com.maxstream.app.data.cloud.AppSession
 import com.maxstream.app.data.cloud.ProfileStore
 import com.maxstream.app.player.VlcRuntime
@@ -14,6 +15,7 @@ fun main() = application {
     runCatching { VlcRuntime.ensure() }
     AppSession.restore()
     ProfileStore.restoreLocal()
+    AppPrefs.restore()
     val windowState = rememberWindowState(width = 1320.dp, height = 840.dp)
     Window(
         onCloseRequest = ::exitApplication,

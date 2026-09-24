@@ -16,6 +16,8 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -38,18 +40,22 @@ import com.maxstream.app.data.model.MediaItem
 import com.maxstream.app.data.repository.MediaRepository
 import com.maxstream.app.data.repository.MovieSection
 import com.maxstream.app.data.repository.SeriesSection
+import com.maxstream.app.ui.components.EmptyState
 import com.maxstream.app.ui.components.HeroCard
 import com.maxstream.app.ui.components.PosterCard
+import com.maxstream.app.ui.components.RotatingHero
 import com.maxstream.app.ui.components.ScrollableColumn
 import com.maxstream.app.ui.components.ScrollableGrid
 import com.maxstream.app.ui.components.SectionRail
+import com.maxstream.app.ui.components.SkeletonBox
+import com.maxstream.app.ui.components.SkeletonRail
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 
 /**
  * Desktop home: hero billboard up top, then named rails (trending, popular,
  * top rated) exactly like the mobile/TV home — and search results in place of
- * the rails while a query is typed.
+ * the rails while a query is typed. Shows a skeleton while first load runs.
  */
 @Composable
 fun HomeScreen(
@@ -119,15 +125,48 @@ fun HomeScreen(
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.padding(bottom = 12.dp),
             )
-            MediaBrowserGrid(searchResults, onOpen = onOpen, onLoadMore = searchLoadMore, loading = searchLoading)
+            if (searchResults.isEmpty() && !searchLoading) {
+                EmptyState(
+                    title = "No matches",
+                    message = "Try a different title, genre, or year.",
+                    icon = Icons.Default.Search,
+                )
+            } else {
+                MediaBrowserGrid(searchResults, onOpen = onOpen, onLoadMore = searchLoadMore, loading = searchLoading)
+            }
         }
         return
     }
 
+    val loadingHome = sections.isEmpty()
     val hero = sections.firstOrNull()?.items?.firstOrNull()
 
     ScrollableColumn {
-        if (hero != null) {
+        if (loadingHome) {
+            Spacer(Modifier.height(20.dp))
+            SkeletonBox(width = 400.dp, height = 220.dp, modifier = Modifier.padding(horizontal = 20.dp))
+            Spacer(Modifier.height(24.dp))
+            SkeletonRail(modifier = Modifier.padding(horizontal = 20.dp))
+            Spacer(Modifier.height(20.dp))
+            SkeletonRail(modifier = Modifier.padding(horizontal = 20.dp))
+            return@ScrollableColumn
+        }
+
+        // Rotating full-bleed hero from trending movies + series (mobile parity).
+        val featured = remember(sections) {
+            (sections.firstOrNull { it.title.contains("Trending movies", true) }?.items.orEmpty() +
+                sections.firstOrNull { it.title.contains("Trending series", true) }?.items.orEmpty())
+                .filter { it.backdropUrl != null }
+                .take(5)
+        }
+        if (featured.isNotEmpty()) {
+            RotatingHero(
+                items = featured,
+                onPlay = onPlay,
+                onOpen = onOpen,
+            )
+            Spacer(Modifier.height(18.dp))
+        } else if (hero != null) {
             Spacer(Modifier.height(14.dp))
             HeroCard(
                 item = hero,

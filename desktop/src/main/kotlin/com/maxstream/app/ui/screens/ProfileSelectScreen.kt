@@ -29,7 +29,11 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -51,6 +55,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import coil3.compose.AsyncImage
 import com.maxstream.app.data.cloud.AppSession
 import com.maxstream.app.data.cloud.CloudSync
@@ -84,6 +89,8 @@ private data class HeroSlide(
  * Who's watching? — mirrors the mobile/TV profile gate: backdrop carousel,
  * centered title + profile grid, and add-profile tile. Selecting a profile
  * activates it, syncs cloud data for that profile, and continues into the shell.
+ * Long-press-free edit: hover a tile to reveal a pencil; the add tile opens a
+ * create dialog (name, kids, color) like mobile's profile_create_screen.
  */
 @Composable
 fun ProfileSelectScreen(onSelected: () -> Unit) {
@@ -91,6 +98,9 @@ fun ProfileSelectScreen(onSelected: () -> Unit) {
     val scope = rememberCoroutineScope()
     var heroes by remember { mutableStateOf<List<HeroSlide>>(emptyList()) }
     var heroIndex by remember { mutableIntStateOf(0) }
+    var editing by remember { mutableStateOf<UserProfile?>(null) }
+    var creating by remember { mutableStateOf(false) }
+    var manageError by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
         ProfileStore.refresh()
@@ -217,17 +227,10 @@ fun ProfileSelectScreen(onSelected: () -> Unit) {
                                                 onSelected()
                                             }
                                         },
+                                        onEdit = { editing = tile.profile },
                                     )
                                     Tile.Add -> AddProfileTile(
-                                        onClick = {
-                                            scope.launch {
-                                                ProfileStore.create(
-                                                    name = "Profile ${profiles.size + 1}",
-                                                    colorIndex = profiles.size % AvatarPalette.size,
-                                                    iconCodePoint = 0xe4ff,
-                                                )
-                                            }
-                                        },
+                                        onClick = { creating = true },
                                     )
                                 }
                             }
@@ -268,6 +271,68 @@ fun ProfileSelectScreen(onSelected: () -> Unit) {
                 )
             }
         }
+
+        if (creating) {
+            ProfileEditDialog(
+                profile = null,
+                onDismiss = { creating = false },
+                onError = { manageError = it },
+                onSave = { name, kids, colorIndex ->
+                    scope.launch {
+                        ProfileStore.create(
+                            name = name,
+                            colorIndex = colorIndex,
+                            iconCodePoint = 0xe4ff,
+                            isKids = kids,
+                        )
+                        creating = false
+                    }
+                },
+            )
+        }
+
+        editing?.let { target ->
+            ProfileEditDialog(
+                profile = target,
+                onDismiss = { editing = null },
+                onError = { manageError = it },
+                onSave = { name, kids, colorIndex ->
+                    scope.launch {
+                        ProfileStore.update(
+                            id = target.id,
+                            name = name,
+                            colorIndex = colorIndex,
+                            iconCodePoint = target.iconCodePoint,
+                            isKids = kids,
+                        )
+                        editing = null
+                    }
+                },
+                onDelete = {
+                    scope.launch {
+                        if (ProfileStore.profiles.size <= 1) {
+                            manageError = "You need at least one profile."
+                        } else {
+                            ProfileStore.delete(target.id)
+                            editing = null
+                        }
+                    }
+                },
+            )
+        }
+
+        manageError?.let { msg ->
+            Box(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 24.dp)
+                    .background(Color(0xCC1A1A1E), RoundedCornerShape(8.dp))
+                    .padding(horizontal = 16.dp, vertical = 10.dp)
+                    .clickable { manageError = null },
+            ) {
+                Text(msg, color = Color.White, fontSize = 13.sp)
+            }
+        }
     }
 }
 
@@ -277,7 +342,7 @@ private sealed interface Tile {
 }
 
 @Composable
-private fun ProfileTile(profile: UserProfile, onClick: () -> Unit) {
+private fun ProfileTile(profile: UserProfile, onClick: () -> Unit, onEdit: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
     val color = AvatarPalette[profile.colorIndex.mod(AvatarPalette.size)]
@@ -303,6 +368,19 @@ private fun ProfileTile(profile: UserProfile, onClick: () -> Unit) {
             contentAlignment = Alignment.Center,
         ) {
             Icon(icon, contentDescription = profile.name, tint = Color.White, modifier = Modifier.size(42.dp))
+            if (hovered) {
+                Box(
+                    Modifier
+                        .align(Alignment.BottomEnd)
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.75f))
+                        .clickable(onClick = onEdit),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text("✎", color = Color.White, fontSize = 14.sp)
+                }
+            }
         }
         Spacer(Modifier.height(10.dp))
         Text(
@@ -362,5 +440,136 @@ private fun AddProfileTile(onClick: () -> Unit) {
             fontSize = 14.sp,
             textAlign = TextAlign.Center,
         )
+    }
+}
+
+/**
+ * Create/edit profile dialog: name, kids toggle, avatar color — same fields as
+ * mobile's profile_create_screen / profile management bottom sheet.
+ */
+@Composable
+private fun ProfileEditDialog(
+    profile: UserProfile?,
+    onDismiss: () -> Unit,
+    onSave: (name: String, isKids: Boolean, colorIndex: Int) -> Unit,
+    onError: (String) -> Unit,
+    onDelete: (() -> Unit)? = null,
+) {
+    var name by remember(profile?.id) { mutableStateOf(profile?.name ?: "") }
+    var kids by remember(profile?.id) { mutableStateOf(profile?.isKids ?: false) }
+    var colorIndex by remember(profile?.id) { mutableStateOf(profile?.colorIndex ?: 0) }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            Modifier
+                .width(380.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color(0xFF1A1A1E))
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                if (profile == null) "Add Profile" else "Edit Profile",
+                color = Color.White,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+            )
+            Spacer(Modifier.height(18.dp))
+
+            Box(
+                Modifier
+                    .size(84.dp)
+                    .clip(CircleShape)
+                    .background(AvatarPalette[colorIndex.mod(AvatarPalette.size)]),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    AvatarIcons[0],
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(38.dp),
+                )
+            }
+            Spacer(Modifier.height(16.dp))
+
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                label = { Text("Profile name", color = Color.White.copy(alpha = 0.8f)) },
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyMedium.copy(color = Color.White),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = Color.White.copy(alpha = 0.35f),
+                    focusedLabelColor = MaterialTheme.colorScheme.primary,
+                    unfocusedLabelColor = Color.White.copy(alpha = 0.7f),
+                    cursorColor = Color.White,
+                    focusedContainerColor = Color.Transparent,
+                    unfocusedContainerColor = Color.Transparent,
+                ),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(14.dp))
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Kids profile", color = Color.White, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                Switch(checked = kids, onCheckedChange = { kids = it })
+            }
+            Spacer(Modifier.height(14.dp))
+
+            Text("Avatar color", color = Color.White.copy(alpha = 0.8f), fontSize = 13.sp, modifier = Modifier.fillMaxWidth())
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                AvatarPalette.forEachIndexed { index, color ->
+                    Box(
+                        Modifier
+                            .size(28.dp)
+                            .clip(CircleShape)
+                            .background(color)
+                            .border(
+                                if (index == colorIndex) 3.dp else 1.dp,
+                                if (index == colorIndex) Color.White else Color.White.copy(alpha = 0.25f),
+                                CircleShape,
+                            )
+                            .clickable { colorIndex = index },
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(22.dp))
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End),
+            ) {
+                if (onDelete != null && profile != null) {
+                    TextButton(onClick = onDelete) {
+                        Text("Delete", color = Color(0xFFFF6B6B))
+                    }
+                }
+                TextButton(onClick = onDismiss) {
+                    Text("Cancel", color = Color.White.copy(alpha = 0.7f))
+                }
+                val canSave = name.isNotBlank()
+                TextButton(
+                    enabled = canSave,
+                    onClick = {
+                        if (name.isBlank()) {
+                            onError("Enter a profile name.")
+                        } else {
+                            onSave(name.trim(), kids, colorIndex)
+                        }
+                    },
+                ) {
+                    Text(
+                        "Save",
+                        color = if (canSave) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.35f),
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+        }
     }
 }

@@ -113,6 +113,45 @@ object ProfileStore {
             profile
         }
 
+    /** Renames / recolors an existing profile (mobile ProfileService.updateProfile). */
+    suspend fun update(id: String, name: String, colorIndex: Int, iconCodePoint: Int, isKids: Boolean): UserProfile? =
+        withContext(Dispatchers.IO) {
+            val user = AppSession.user ?: return@withContext null
+            val existing = profiles.firstOrNull { it.id == id } ?: return@withContext null
+            val updated = existing.copy(
+                name = name.ifBlank { existing.name },
+                colorIndex = colorIndex,
+                iconCodePoint = iconCodePoint,
+                isKids = isKids,
+            )
+            runCatching {
+                val token = AppSession.freshToken() ?: return@runCatching
+                val url = "${AppConfig.FIREBASE_RTDB_URL}/users/${user.localId}/profiles/$id.json?auth=$token"
+                put(url, toJson(updated), token)
+            }
+            profiles = profiles.map { if (it.id == id) updated else it }
+            updated
+        }
+
+    /** Deletes a profile; refuses to remove the last remaining one. */
+    suspend fun delete(id: String): Boolean = withContext(Dispatchers.IO) {
+        val user = AppSession.user ?: return@withContext false
+        if (profiles.size <= 1) return@withContext false
+        runCatching {
+            val token = AppSession.freshToken()
+            if (token != null) {
+                val url = "${AppConfig.FIREBASE_RTDB_URL}/users/${user.localId}/profiles/$id.json?auth=$token"
+                delete(url, token)
+            }
+            val next = profiles.filterNot { it.id == id }
+            profiles = next
+            if (activeProfileId == id && next.isNotEmpty()) {
+                setActive(next.first().id)
+            }
+            true
+        }.getOrDefault(false)
+    }
+
     fun setActive(id: String) {
         activeProfileId = id
         persistActive(id)
@@ -157,6 +196,11 @@ object ProfileStore {
             .url(url)
             .put(body.toString().toRequestBody(jsonType.toMediaType()))
             .build()
+        http.newCall(request).execute().close()
+    }
+
+    private fun delete(url: String, token: String) {
+        val request = Request.Builder().url(url).delete().build()
         http.newCall(request).execute().close()
     }
 

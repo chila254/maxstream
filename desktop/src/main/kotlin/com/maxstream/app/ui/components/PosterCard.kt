@@ -1,5 +1,7 @@
 package com.maxstream.app.ui.components
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -19,23 +21,35 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -45,6 +59,8 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.maxstream.app.data.model.HomeSection
 import com.maxstream.app.data.model.MediaItem
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 val PosterPalette = listOf(
     Brush.linearGradient(listOf(Color(0xFF0E5A8A), Color(0xFF082D47))),
@@ -57,7 +73,7 @@ val PosterPalette = listOf(
 internal fun posterBrush(item: MediaItem): Brush =
     PosterPalette[item.id.hashCode().mod(PosterPalette.size)]
 
-/** Poster card for grids and rails. Fades in the TMDB poster over a gradient. */
+/** Poster card for grids and rails. Animated hover lift + type/quality badge. */
 @Composable
 fun PosterCard(
     item: MediaItem,
@@ -70,19 +86,38 @@ fun PosterCard(
     val hovered by interaction.collectIsHoveredAsState()
     val shape = RoundedCornerShape(8.dp)
     val showRating = item.rating > 0.0
+    val scale by animateFloatAsState(
+        targetValue = if (hovered) 1.06f else 1f,
+        animationSpec = tween(durationMillis = 180),
+        label = "posterScale",
+    )
+    val elevationDp by animateFloatAsState(
+        targetValue = if (hovered) 10f else 0f,
+        animationSpec = tween(durationMillis = 180),
+        label = "posterElevation",
+    )
 
     Column(
         Modifier
             .width(width)
-            .scale(if (hovered) 1.04f else 1f)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
             .clickable(interactionSource = interaction, indication = null, onClick = onClick),
     ) {
         Box(
             Modifier
                 .fillMaxWidth()
                 .aspectRatio(if (landscape) 16f / 9f else 0.7f)
+                .shadow(elevation = elevationDp.dp, shape = shape, clip = false)
                 .clip(shape)
-                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
+                .border(
+                    width = if (hovered) 2.dp else 1.dp,
+                    color = if (hovered) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.outlineVariant,
+                    shape = shape,
+                )
                 .background(posterBrush(item)),
             contentAlignment = Alignment.Center,
         ) {
@@ -100,6 +135,26 @@ fun PosterCard(
                 fontWeight = FontWeight.Bold,
                 color = Color.White.copy(alpha = 0.85f),
             )
+            // Type badge (MOVIE / SERIES) — top-right pill.
+            Box(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(8.dp)
+                    .background(
+                        if (item.mediaType == "tv") Color(0xFF6366F1).copy(alpha = 0.92f)
+                        else Color.Black.copy(alpha = 0.65f),
+                        RoundedCornerShape(4.dp),
+                    )
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
+            ) {
+                Text(
+                    if (item.mediaType == "tv") "SERIES" else "MOVIE",
+                    color = Color.White,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.6.sp,
+                )
+            }
             if (showRating) {
                 Box(
                     Modifier.align(Alignment.TopStart).padding(8.dp)
@@ -133,7 +188,7 @@ fun PosterCard(
             }
             if (hovered) {
                 Box(
-                    Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.25f)),
+                    Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.3f)),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
@@ -181,7 +236,11 @@ fun PosterCard(
     }
 }
 
-/** Horizontal rail: optional "See all" header + scrolling posters. */
+/**
+ * Horizontal rail: "See all" header, edge fade, and hover arrow paging —
+ * the same interaction pattern as the mobile/TV rails.
+ */
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 fun SectionRail(
     title: String,
@@ -192,12 +251,16 @@ fun SectionRail(
     itemKeys: List<String>? = null,
 ) {
     if (items.isEmpty()) return
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    var hovered by remember { mutableStateOf(false) }
+
     Column {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 20.dp, end = 16.dp),
+                .padding(start = 20.dp, end = 8.dp),
         ) {
             Text(
                 title,
@@ -206,31 +269,65 @@ fun SectionRail(
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.weight(1f),
             )
+            if (hovered) {
+                IconButton(
+                    onClick = {
+                        scope.launch { listState.animateScrollBy(-360f) }
+                    },
+                    modifier = Modifier.size(32.dp),
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                        contentDescription = "Scroll left",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                IconButton(
+                    onClick = {
+                        scope.launch { listState.animateScrollBy(360f) }
+                    },
+                    modifier = Modifier.size(32.dp),
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = "Scroll right",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
             if (onSeeAll != null) {
                 TextButton(onClick = onSeeAll) {
                     Text("See all", color = MaterialTheme.colorScheme.primary)
                 }
             }
         }
-        LazyRow(
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 20.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .onPointerEvent(PointerEventType.Enter) { hovered = true }
+                .onPointerEvent(PointerEventType.Exit) { hovered = false },
         ) {
-            items(
-                items = items.indices.toList(),
-                key = { i ->
-                    itemKeys?.getOrNull(i)
-                        ?: "${items[i].mediaType}:${items[i].id}"
-                },
-            ) { i ->
-                val item = items[i]
-                PosterCard(
-                    item = item,
-                    width = if (showProgress) 220.dp else 132.dp,
-                    showProgress = false,
-                    landscape = showProgress,
-                    onClick = { onOpen(item) },
-                )
+            LazyRow(
+                state = listState,
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 20.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                items(
+                    items = items.indices.toList(),
+                    key = { i ->
+                        itemKeys?.getOrNull(i)
+                            ?: "${items[i].mediaType}:${items[i].id}"
+                    },
+                ) { i ->
+                    val item = items[i]
+                    PosterCard(
+                        item = item,
+                        width = if (showProgress) 220.dp else 132.dp,
+                        showProgress = false,
+                        landscape = showProgress,
+                        onClick = { onOpen(item) },
+                    )
+                }
             }
         }
         Spacer(Modifier.height(10.dp))
@@ -248,17 +345,26 @@ fun HeroCard(
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
     val shape = RoundedCornerShape(16.dp)
+    val scale by animateFloatAsState(
+        targetValue = if (hovered) 1.015f else 1f,
+        animationSpec = tween(200),
+        label = "heroScale",
+    )
 
     Box(
         Modifier
             .fillMaxWidth()
             .height(260.dp)
             .padding(horizontal = 20.dp)
-            .scale(if (hovered) 1.01f else 1f),
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            },
     ) {
         Box(
             Modifier
                 .fillMaxSize()
+                .shadow(if (hovered) 14.dp else 4.dp, shape, clip = false)
                 .clip(shape)
                 .clickable(interactionSource = interaction, indication = null, onClick = onOpen)
                 .background(posterBrush(item)),
@@ -322,4 +428,5 @@ fun HeroCard(
         }
     }
 }
+
 

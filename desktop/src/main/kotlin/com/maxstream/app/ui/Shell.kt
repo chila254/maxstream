@@ -6,6 +6,8 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
@@ -72,6 +74,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.WindowPlacement
 import androidx.compose.ui.window.WindowState
 import androidx.compose.ui.window.rememberWindowState
+import com.maxstream.app.data.AppPrefs
 import com.maxstream.app.data.cloud.AppSession
 import com.maxstream.app.data.cloud.CloudSync
 import com.maxstream.app.data.cloud.ProfileStore
@@ -107,6 +110,13 @@ private sealed interface AppPhase {
     data object Main : AppPhase
 }
 
+/** Coarse depth for push vs pop slide direction (Details/Player deeper). */
+private fun AppRoute.depth(): Int = when (this) {
+    AppRoute.Home, is AppRoute.Movies, is AppRoute.Series, AppRoute.Watchlist, AppRoute.Settings -> 0
+    is AppRoute.Detail -> 1
+    is AppRoute.Player -> 2
+}
+
 @Composable
 fun Shell(windowState: WindowState = rememberWindowState()) {
     // Launch phases: splash → auth (if needed) → profile pick → main shell.
@@ -116,8 +126,8 @@ fun Shell(windowState: WindowState = rememberWindowState()) {
     var backStack by remember { mutableStateOf(listOf<AppRoute>(AppRoute.Home)) }
     val route = backStack.last()
     var query by remember { mutableStateOf("") }
-    // Dark is the MaxStream default; Settings can force light.
-    var darkOverride by remember { mutableStateOf(true) }
+    // Dark is the MaxStream default; Settings/sidebar can force light (persisted).
+    var darkOverride by remember { mutableStateOf(AppPrefs.darkTheme) }
     // Bumped when cloud watch history / profile changes so Home reloads CW.
     var syncRevision by remember { mutableIntStateOf(CloudSync.dataRevision) }
     val contentFocus = remember { FocusRequester() }
@@ -135,6 +145,11 @@ fun Shell(windowState: WindowState = rememberWindowState()) {
 
     fun back() {
         if (backStack.size > 1) backStack = backStack.dropLast(1)
+    }
+
+    fun replaceTop(next: AppRoute) {
+        if (backStack.size > 1) backStack = backStack.dropLast(1) + next
+        else backStack = listOf(next)
     }
 
     // Pull cloud watch history whenever the signed-in state changes.
@@ -204,9 +219,27 @@ fun Shell(windowState: WindowState = rememberWindowState()) {
                 windowState = windowState,
                 onPush = ::push,
                 onReplaceRoot = ::replaceRoot,
+                onReplaceTop = ::replaceTop,
                 onBack = ::back,
                 onQueryChange = { query = it },
-                onThemeChange = { darkOverride = it },
+                onThemeChange = {
+                    darkOverride = it
+                    AppPrefs.setDarkTheme(it)
+                },
+                onSignOut = {
+                    // Back to the auth gate; clear CW so the next user doesn't see it.
+                    phase = AppPhase.Auth
+                    replaceRoot(AppRoute.Home)
+                    query = ""
+                    syncRevision = CloudSync.dataRevision
+                },
+                onManageProfiles = {
+                    phase = AppPhase.Profile
+                    priorPlacement.value = WindowPlacement.Floating
+                    if (windowState.placement != WindowPlacement.Fullscreen) {
+                        windowState.placement = WindowPlacement.Floating
+                    }
+                },
                 onSwitchProfile = {
                     phase = AppPhase.Profile
                     priorPlacement.value = WindowPlacement.Floating
@@ -230,9 +263,12 @@ private fun MainShell(
     windowState: WindowState,
     onPush: (AppRoute) -> Unit,
     onReplaceRoot: (AppRoute) -> Unit,
+    onReplaceTop: (AppRoute) -> Unit,
     onBack: () -> Unit,
     onQueryChange: (String) -> Unit,
     onThemeChange: (Boolean) -> Unit,
+    onSignOut: () -> Unit,
+    onManageProfiles: () -> Unit,
     onSwitchProfile: () -> Unit,
 ) {
     fun push(next: AppRoute) {
@@ -288,12 +324,30 @@ private fun MainShell(
                     canGoBack = backStack.size > 1,
                     onBack = { back() },
                     query = query,
-                    onQueryChange = onQueryChange,
+                onQueryChange = {
+                    onQueryChange(it)
+                    // Typing from another top-level route jumps to Home results.
+                    if (it.isNotBlank() && route != AppRoute.Home && route !is AppRoute.Detail && route !is AppRoute.Player) {
+                        replaceRoot(AppRoute.Home)
+                    }
+                },
                 )
                 Spacer(Modifier.height(1.dp).fillMaxWidth().background(MaterialTheme.colorScheme.outlineVariant))
                 AnimatedContent(
                     targetState = route,
-                    transitionSpec = { fadeIn() togetherWith fadeOut() },
+                    transitionSpec = {
+                        // Push (deeper route) enters from right; pop enters from left.
+                        val forward = targetState.depth() > route.depth()
+                        if (forward) {
+                            slideInHorizontally(tween(240, easing = FastOutSlowInEasing)) { it / 4 } + fadeIn(tween(200)) togetherWith
+                                slideOutHorizontally(tween(240, easing = FastOutSlowInEasing)) { -it / 6 } + fadeOut(tween(160))
+                        } else if (targetState.depth() < route.depth()) {
+                            slideInHorizontally(tween(240, easing = FastOutSlowInEasing)) { -it / 6 } + fadeIn(tween(200)) togetherWith
+                                slideOutHorizontally(tween(240, easing = FastOutSlowInEasing)) { it / 4 } + fadeOut(tween(160))
+                        } else {
+                            fadeIn(tween(180)) togetherWith fadeOut(tween(140))
+                        }
+                    },
                     label = "routeContent",
                     modifier = Modifier.weight(1f).fillMaxWidth(),
                 ) { target ->
@@ -328,6 +382,8 @@ private fun MainShell(
                         is AppRoute.Settings -> SettingsScreen(
                             useDarkTheme = darkOverride,
                             onThemeChange = onThemeChange,
+                            onSignOut = onSignOut,
+                            onManageProfiles = onManageProfiles,
                         )
                         is AppRoute.Detail -> DetailsScreen(
                             itemId = target.itemId,
@@ -336,6 +392,10 @@ private fun MainShell(
                             onBack = { back() },
                             onPlay = { req: PlayRequest ->
                                 push(AppRoute.Player(req))
+                            },
+                            onOpen = { m ->
+                                // Replace current detail so Back returns to the previous screen.
+                                onReplaceTop(AppRoute.Detail(m.id, m.mediaType, m.id))
                             },
                         )
                         is AppRoute.Player -> Unit
@@ -450,7 +510,7 @@ val profile = ProfileStore.activeProfile
                     .fillMaxWidth()
                     .padding(horizontal = 10.dp)
                     .background(
-                        if (selected) MaterialTheme.colorScheme.primaryContainer
+                        if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
                         else Color.Transparent,
                         RoundedCornerShape(8.dp),
                     )
@@ -460,10 +520,20 @@ val profile = ProfileStore.activeProfile
                         else Modifier.padding(vertical = 12.dp),
                     ),
             ) {
+                if (selected) {
+                    // Red accent bar on the left of the selected rail item.
+                    Box(
+                        Modifier
+                            .width(3.dp)
+                            .height(18.dp)
+                            .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(2.dp)),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                }
                 Icon(
                     item.icon,
                     contentDescription = item.label,
-                    tint = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
+                    tint = if (selected) MaterialTheme.colorScheme.primary
                            else MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(22.dp),
                 )
@@ -471,7 +541,7 @@ val profile = ProfileStore.activeProfile
                     Spacer(Modifier.width(12.dp))
                     Text(
                         item.label,
-                        color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
+                        color = if (selected) MaterialTheme.colorScheme.primary
                                 else MaterialTheme.colorScheme.onSurface,
                         fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
                         fontSize = 14.sp,
@@ -483,7 +553,32 @@ val profile = ProfileStore.activeProfile
 
         Spacer(Modifier.weight(1f))
 
-        // Footer: profile chip (click → switch profile) + theme toggle when open
+        // Theme toggle is always visible (collapsed: icon-only row).
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = if (expanded) Arrangement.Start else Arrangement.Center,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onToggleTheme(!useDarkTheme) }
+                .padding(horizontal = if (expanded) 22.dp else 0.dp, vertical = 10.dp),
+        ) {
+            Icon(
+                if (useDarkTheme) Icons.Default.LightMode else Icons.Default.DarkMode,
+                contentDescription = "Toggle theme",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
+            )
+            if (expanded) {
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    if (useDarkTheme) "Light mode" else "Dark mode",
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+
+        // Footer: profile chip (click → switch profile) with palette avatar.
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = if (expanded) Arrangement.Start else Arrangement.Center,
@@ -491,11 +586,12 @@ val profile = ProfileStore.activeProfile
                 .fillMaxWidth()
                 .clickable { onSwitchProfile() }
                 .padding(horizontal = if (expanded) 12.dp else 0.dp, vertical = 8.dp),
-            ) {
+        ) {
+            val avatarColor = profileColor(profile?.colorIndex ?: 0)
             Box(
                 Modifier
                     .size(30.dp)
-                    .background(MaterialTheme.colorScheme.secondary, CircleShape),
+                    .background(avatarColor, CircleShape),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(Icons.Default.Person, null, tint = Color.White, modifier = Modifier.size(18.dp))
@@ -518,14 +614,19 @@ val profile = ProfileStore.activeProfile
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                IconButton(onClick = { onToggleTheme(!useDarkTheme) }) {
-                    val icon = if (useDarkTheme) Icons.Default.LightMode else Icons.Default.DarkMode
-                    Icon(icon, contentDescription = "Toggle theme",
-                        tint = MaterialTheme.colorScheme.onSurface)
-                }
             }
         }
     }
+}
+
+/** Same avatar palette order as ProfileSelectScreen / mobile ProfileAvatar. */
+private fun profileColor(index: Int): Color {
+    val palette = listOf(
+        0xFFE50914, 0xFF6366F1, 0xFF8B5CF6, 0xFFEC4899,
+        0xFFF59E0B, 0xFF10B981, 0xFF06B6D4, 0xFF3B82F6,
+        0xFFEF4444, 0xFF14B8A6, 0xFFF97316, 0xFFA855F7,
+    )
+    return Color(palette[index.mod(palette.size)])
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -568,10 +669,11 @@ private fun TitleBar(
             modifier = Modifier.padding(start = if (canGoBack) 0.dp else 8.dp),
         )
         Spacer(Modifier.weight(1f))
-        if (route == AppRoute.Home) {
+        // Search is available on every content route (Details keeps its title).
+        if (route !is AppRoute.Detail && route !is AppRoute.Player) {
             OutlinedTextField(
                 value = query,
-                onValueChange = onQueryChange,
+                onValueChange = { onQueryChange(it) },
                 placeholder = { Text("Search titles, genres…", color = MaterialTheme.colorScheme.outline) },
                 leadingIcon = { Icon(Icons.Default.Search, null) },
                 singleLine = true,

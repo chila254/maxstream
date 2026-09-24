@@ -81,6 +81,7 @@ fun DetailsScreen(
     repository: MediaRepository,
     onBack: () -> Unit,
     onPlay: (PlayRequest) -> Unit,
+    onOpen: (MediaItem) -> Unit = {},
 ) {
     val details by produceState<MediaDetails?>(null, itemId, mediaType) {
         value = repository.details(itemId, mediaType)
@@ -94,6 +95,9 @@ fun DetailsScreen(
     val episodes by produceState<List<Episode>>(emptyList(), itemId, seasonNumber) {
         val d = details
         if (d != null && d.item.mediaType == "tv") value = repository.episodes(itemId, seasonNumber)
+    }
+    val similar by produceState<List<MediaItem>>(emptyList(), itemId, mediaType) {
+        value = repository.recommendations(itemId, mediaType)
     }
 
     val current = details
@@ -515,6 +519,31 @@ fun DetailsScreen(
                                 )
                             }
                         }
+                    }
+                }
+            }
+
+            // ── More like this ───────────────────────────────────────────────
+            if (similar.isNotEmpty()) {
+                Spacer(Modifier.height(24.dp))
+                Text(
+                    "More like this",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(horizontal = 20.dp),
+                )
+                Spacer(Modifier.height(10.dp))
+                LazyRow(
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 20.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    items(similar, key = { "${it.mediaType}:${it.id}" }) { rec ->
+                        com.maxstream.app.ui.components.PosterCard(
+                            item = rec,
+                            width = 132.dp,
+                            onClick = { onOpen(rec) },
+                        )
                     }
                 }
             }

@@ -71,6 +71,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.awt.SwingPanel
 import androidx.compose.ui.window.WindowPlacement
 import androidx.compose.ui.window.WindowState
+import com.maxstream.app.data.AppPrefs
 import com.maxstream.app.data.WatchStateStore
 import com.maxstream.app.data.model.MediaItem
 import com.maxstream.app.data.model.PlayRequest
@@ -168,12 +169,23 @@ fun PlayerScreen(
         }
     }
 
+    /** Settings → Default quality: pick nearest matching rendition (or best). */
+    fun preferredQualityUrl(stream: ResolvedStream): String {
+        val qualities = stream.qualityMatch()
+        val target = AppPrefs.defaultQualityHeight()
+        if (target <= 0 || qualities.isEmpty()) return qualities.firstOrNull()?.url ?: stream.url
+        val exact = qualities.firstOrNull { it.height == target }
+        if (exact != null) return exact.url
+        return qualities.minByOrNull { kotlin.math.abs(it.height - target) }?.url
+            ?: qualities.firstOrNull()?.url
+            ?: stream.url
+    }
+
     val playStream: (Int) -> Unit = { index ->
         if (index in streams.indices) {
             selectedIndex = index
             val stream = streams[index]
-            val best = stream.qualityMatch().firstOrNull()
-            playUrl(best?.url ?: stream.url, stream)
+            playUrl(preferredQualityUrl(stream), stream)
         }
     }
 
