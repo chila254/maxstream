@@ -5,9 +5,12 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.maxstream.app.data.cloud.AppSession
+import com.maxstream.app.player.VlcRuntime
 import com.maxstream.app.ui.Shell
 
 fun main() = application {
+    // Extract the bundled VLC runtime (once) before any player is created.
+    runCatching { VlcRuntime.ensure() }
     AppSession.restore()
     Window(
         onCloseRequest = ::exitApplication,

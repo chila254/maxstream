@@ -74,3 +74,6 @@ dart_tv_reference
 .firebaserc
 skills-lock.json
 .jsonfirebasercerror.txt
+
+# Bundled VLC runtime (populated at build time by :desktop:syncVlcRuntime)
+desktop/src/main/resources/vlc/

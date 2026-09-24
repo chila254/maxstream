@@ -50,6 +50,65 @@ dependencies {
     implementation("io.coil-kt.coil3:coil-network-okhttp:3.2.0")
 }
 
+// Copies the local VLC runtime (libvlc + plugins) into the app resources so the
+// packaged app plays video without a separate VLC install. Overridable with
+//   gradlew :desktop:syncVlcRuntime -PvlcSource="D:\path\to\VLC"
+// Skips locale/skins/exes (translations & GUI — irrelevant to embedded playback).
+val vlcSourceDir = providers.gradleProperty("vlcSource")
+    .orElse("C:\\Program Files\\VideoLAN\\VLC")
+tasks.register<Sync>("syncVlcRuntime") {
+    group = "maxstream"
+    description = "Bundles the local VLC runtime (libvlc + plugins) into app resources."
+    val src = File(vlcSourceDir.get())
+    from(src) {
+        include("libvlc.dll", "libvlccore.dll")
+        include("plugins/**", "lua/**", "hrtfs/**")
+    }
+    into(layout.projectDirectory.dir("src/main/resources/vlc"))
+    doFirst {
+        if (!src.exists()) {
+            logger.warn("VLC source not found at $src — bundled player will be empty (app falls back to installed VLC).")
+        }
+    }
+    doLast {
+        val outDir = layout.projectDirectory.dir("src/main/resources/vlc").asFile
+        val core = File(src, "libvlc.dll")
+        File(outDir, "VERSION.txt").writeText(if (core.exists()) "${core.length()}:${core.lastModified()}" else "missing")
+        // Manifest of every bundled file so VlcRuntime can extract them from the JAR.
+        val names = outDir.walkTopDown()
+            .filter { it.isFile && it.name != "FILES.txt" }
+            .map { it.relativeTo(outDir).invariantSeparatorsPath }
+            .sorted()
+            .toList()
+        File(outDir, "FILES.txt").writeText(names.joinToString("\n"))
+        val pluginsMb = names.filter { it.startsWith("plugins/") }
+            .sumOf { File(outDir, it).length() } / (1024.0 * 1024.0)
+        println("syncVlcRuntime: bundled ${names.size} files (${ "%.1f".format(pluginsMb) } MB plugins) into resources/vlc")
+    }
+}
+// Ensure the bundle is refreshed before resources are packaged into the JAR/MSI.
+tasks.named("processResources") { dependsOn("syncVlcRuntime") }
+
+// ProGuard: shrinks + obfuscates the JVM code on the release build type. Build
+// with `packageReleaseMsi` (not `packageMsi`) to get the minified installer.
+compose.desktop {
+    application {
+        buildTypes {
+            release {
+                proguard {
+                    isEnabled.set(true)
+                    obfuscate.set(true)
+                    // Shrink (drop unused code) is on by default; code *optimization*
+                    // is off because vlcj/JNA/OkHttp rely on reflection.
+                    optimize.set(false)
+                    version.set("7.4.2")
+                    configurationFiles.from(project.files("proguard-rules.pro"))
+                }
+            }
+        }
+    }
+}
+
 // Promotes the packaged app to the user's Desktop (shortcut) and launches it.
 // Run after a successful `packageMsi` / manual MSI install:
 //   gradlew desktop:promoteAndLaunch
@@ -76,7 +135,6 @@ tasks.register<DefaultTask>("promoteAndLaunch") {
         proc.waitFor()
         if (proc.exitValue() != 0) throw GradleException("Shortcut script failed:\n$output")
         println("Shortcut placed on Desktop and app launched: $exe")
-        println("Shortcut placed on Desktop and app launched: $exe")
     }
 }
 
@@ -90,6 +148,11 @@ compose.desktop {
             packageVersion = "1.0.1"
             description = "MaxStream for Windows — desktop catalog & playback client"
             vendor = "MaxStream"
+            // Compose only auto-detects JDK modules from *dependencies*; our own
+            // PlayerScreen uses java.net.http.HttpClient (subtitle fetch), which
+            // would otherwise be missing from the jlink image and throw
+            // NoClassDefFoundError on Play. Add it explicitly.
+            modules("java.net.http")
             windows {
                 // Start Menu + Desktop/launch shortcuts so the app is easy to find.
                 menu = true

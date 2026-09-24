@@ -62,6 +62,21 @@ class TmdbClient {
         }
     }
 
+    /**
+     * Reads a top-level JSON array under [key] rather than the usual "results".
+     * TMDB's /tv/{id}/season/{n} envelope uses "episodes", so [array] would
+     * return an empty list there.
+     */
+    suspend fun arrayAt(path: String, key: String, vararg query: Pair<String, String>): List<JSONObject> {
+        val arr = json(path, *query).optJSONArray(key) ?: JSONArray()
+        return buildList {
+            for (i in 0 until arr.length()) {
+                val o = arr.opt(i)
+                if (o is JSONObject) add(o)
+            }
+        }
+    }
+
     /** {genreId to name} for a media type, cached after the first request. */
     suspend fun genres(type: String): Map<Int, String> {
         genreCache[type]?.let { return it }

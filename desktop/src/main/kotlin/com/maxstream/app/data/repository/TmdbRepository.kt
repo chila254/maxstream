@@ -53,26 +53,25 @@ object TmdbRepository : MediaRepository {
             )
         }
 
-    override suspend fun movies(section: MovieSection): List<MediaItem> = runCatching {
+    override suspend fun movies(section: MovieSection, page: Int): List<MediaItem> = runCatching {
         client.genres("movie")
-        client.array(section.endpoint).map(client::parseMedia)
-    }.getOrElse { SampleCatalog.movies(section) }
+        client.array(section.endpoint, "page" to page.toString()).map(client::parseMedia)
+    }.getOrElse { SampleCatalog.movies(section, page) }
 
-    override suspend fun series(section: SeriesSection): List<MediaItem> = runCatching {
+    override suspend fun series(section: SeriesSection, page: Int): List<MediaItem> = runCatching {
         client.genres("tv")
-        client.array(section.endpoint).map(client::parseMedia)
-    }.getOrElse { SampleCatalog.series(section) }
+        client.array(section.endpoint, "page" to page.toString()).map(client::parseMedia)
+    }.getOrElse { SampleCatalog.series(section, page) }
 
-    override suspend fun search(query: String): List<MediaItem> =
+    override suspend fun search(query: String, page: Int): List<MediaItem> =
         if (query.isBlank()) emptyList()
         else runCatching {
             client.genres("movie")
             client.genres("tv")
-            client.array("/search/multi", "query" to query, "page" to "1")
+            client.array("/search/multi", "query" to query, "page" to page.toString())
                 .filter { it.optString("media_type") == "movie" || it.optString("media_type") == "tv" }
-                .take(40)
                 .map(client::parseMedia)
-        }.getOrElse { SampleCatalog.search(query) }
+        }.getOrElse { SampleCatalog.search(query, page) }
 
     override suspend fun details(id: String, mediaType: String?): MediaDetails? {
         val type = mediaType ?: resolveType(id)
@@ -95,7 +94,9 @@ object TmdbRepository : MediaRepository {
     }
 
     override suspend fun episodes(seriesId: String, season: Int): List<Episode> = runCatching {
-        client.array("/tv/$seriesId/season/$season").map { client.parseEpisode(it, seriesId, season) }
+        // Season envelope uses "episodes" (not "results"), so arrayAt is required.
+        client.arrayAt("/tv/$seriesId/season/$season", "episodes")
+            .map { client.parseEpisode(it, seriesId, season) }
     }.getOrElse { SampleCatalog.episodes(seriesId, season) }
 
     // ── watchlist ────────────────────────────────────────────────────────────

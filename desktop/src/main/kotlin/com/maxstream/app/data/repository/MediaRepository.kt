@@ -28,9 +28,9 @@ enum class SeriesSection(val display: String, val endpoint: String) {
 interface MediaRepository {
     suspend fun homeSections(): List<HomeSection>
     suspend fun continueWatching(): List<ContinueWatch>
-    suspend fun movies(section: MovieSection): List<MediaItem>
-    suspend fun series(section: SeriesSection): List<MediaItem>
-    suspend fun search(query: String): List<MediaItem>
+    suspend fun movies(section: MovieSection, page: Int = 1): List<MediaItem>
+    suspend fun series(section: SeriesSection, page: Int = 1): List<MediaItem>
+    suspend fun search(query: String, page: Int = 1): List<MediaItem>
     suspend fun details(id: String, mediaType: String? = null): MediaDetails?
     suspend fun episodes(seriesId: String, season: Int): List<Episode>
 

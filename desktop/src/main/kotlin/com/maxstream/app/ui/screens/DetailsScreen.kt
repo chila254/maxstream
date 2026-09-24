@@ -20,7 +20,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
@@ -65,6 +64,7 @@ import com.maxstream.app.data.model.MediaItem
 import com.maxstream.app.data.model.PlayRequest
 import com.maxstream.app.data.repository.MediaRepository
 import com.maxstream.app.ui.components.posterBrush
+import com.maxstream.app.ui.components.ScrollableColumn
 import java.awt.Desktop
 import java.net.URI
 import kotlinx.coroutines.launch
@@ -121,7 +121,7 @@ fun DetailsScreen(
             )
         }
 
-        Column(Modifier.verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
+        ScrollableColumn(contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp)) {
             // ── Backdrop hero ────────────────────────────────────────────────
             Box(
                 Modifier

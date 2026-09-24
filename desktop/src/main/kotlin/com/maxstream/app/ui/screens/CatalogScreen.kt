@@ -20,10 +20,13 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -34,6 +37,7 @@ import com.maxstream.app.data.model.MediaItem
 import com.maxstream.app.data.repository.MediaRepository
 import com.maxstream.app.data.repository.MovieSection
 import com.maxstream.app.data.repository.SeriesSection
+import kotlinx.coroutines.launch
 
 /**
  * Movies screen with section tabs (Popular / Top rated / Upcoming) matching the
@@ -50,7 +54,10 @@ fun MoviesScreen(
         subtitleProvider = { "Browse the movietmdb catalog" },
         tabs = MovieSection.entries.map { TabSpec(it.display, it.name) },
         initialTab = initialSection.name,
-        load = { tabName -> repository.movies(MovieSection.valueOf(tabName)) },
+        load = { tabName, page ->
+            val section = MovieSection.entries.find { it.name == tabName } ?: MovieSection.POPULAR
+            repository.movies(section, page)
+        },
         onOpen = onOpen,
     )
 }
@@ -66,7 +73,10 @@ fun SeriesScreen(
         subtitleProvider = { "Browse the series catalog" },
         tabs = SeriesSection.entries.map { TabSpec(it.display, it.name) },
         initialTab = initialSection.name,
-        load = { tabName -> repository.series(SeriesSection.valueOf(tabName)) },
+        load = { tabName, page ->
+            val section = SeriesSection.entries.find { it.name == tabName } ?: SeriesSection.POPULAR
+            repository.series(section, page)
+        },
         onOpen = onOpen,
     )
 }
@@ -136,14 +146,51 @@ private fun SectionScreen(
     subtitleProvider: (String) -> String,
     tabs: List<TabSpec>,
     initialTab: String,
-    load: suspend (tabName: String) -> List<MediaItem>,
+    load: suspend (tabName: String, page: Int) -> List<MediaItem>,
     onOpen: (MediaItem) -> Unit,
 ) {
     var selectedTab by remember { mutableIntStateOf(tabs.indexOfFirst { it.key == initialTab }.coerceAtLeast(0)) }
+    val scope = rememberCoroutineScope()
+    var page by remember { mutableIntStateOf(1) }
+    var hasMore by remember { mutableStateOf(true) }
+    var loading by remember { mutableStateOf(false) }
+    var activeKey by remember { mutableStateOf("") }
+    var items by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
 
-    val items by produceState<List<MediaItem>>(emptyList(), selectedTab, tabs) {
-        value = load(tabs.getOrNull(selectedTab)?.key ?: tabs.first().key)
+    LaunchedEffect(selectedTab, tabs) {
+        val key = tabs.getOrNull(selectedTab)?.key ?: tabs.first().key
+        page = 1
+        hasMore = true
+        activeKey = key
+        loading = true
+        items = load(key, 1)
+        if (items.isEmpty()) hasMore = false
+        loading = false
     }
+
+    val loadMore: (() -> Unit)? =
+        if (hasMore && !loading) {
+            {
+                loading = true
+                scope.launch {
+                    val key = tabs.getOrNull(selectedTab)?.key ?: tabs.first().key
+                    if (key != activeKey) {
+                        loading = false
+                        return@launch
+                    }
+                    val nextPage = page + 1
+                    val next = load(key, nextPage)
+                    if (key != activeKey) {
+                        loading = false
+                        return@launch
+                    }
+                    page = nextPage
+                    items = items + next
+                    if (next.isEmpty()) hasMore = false
+                    loading = false
+                }
+            }
+        } else null
 
     Column(Modifier.fillMaxSize().padding(20.dp)) {
         Text(
@@ -190,7 +237,7 @@ private fun SectionScreen(
 
         Spacer(Modifier.height(16.dp))
 
-        MediaBrowserGrid(items, onOpen = onOpen)
+        MediaBrowserGrid(items, onOpen = onOpen, onLoadMore = loadMore, loading = loading)
     }
 }
 

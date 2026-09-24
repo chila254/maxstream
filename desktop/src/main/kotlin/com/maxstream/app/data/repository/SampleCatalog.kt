@@ -38,12 +38,15 @@ object SampleCatalog : MediaRepository {
 
     override suspend fun continueWatching(): List<ContinueWatch> = emptyList()
 
-    override suspend fun movies(section: MovieSection): List<MediaItem> = catalog.filter { it.mediaType == "movie" }
+    override suspend fun movies(section: MovieSection, page: Int): List<MediaItem> =
+        if (page <= 1) catalog.filter { it.mediaType == "movie" } else emptyList()
 
-    override suspend fun series(section: SeriesSection): List<MediaItem> = catalog.filter { it.mediaType == "tv" }
+    override suspend fun series(section: SeriesSection, page: Int): List<MediaItem> =
+        if (page <= 1) catalog.filter { it.mediaType == "tv" } else emptyList()
 
-    override suspend fun search(query: String): List<MediaItem> =
-        if (query.isBlank()) catalog
+    override suspend fun search(query: String, page: Int): List<MediaItem> =
+        if (page > 1) emptyList()
+        else if (query.isBlank()) catalog
         else catalog.filter { it.title.contains(query, ignoreCase = true) || it.genres.any { g -> g.contains(query, ignoreCase = true) } }
 
     override suspend fun details(id: String, mediaType: String?): MediaDetails? =
