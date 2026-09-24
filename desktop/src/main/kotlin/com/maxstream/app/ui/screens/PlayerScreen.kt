@@ -51,6 +51,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -81,6 +83,7 @@ import kotlinx.coroutines.withContext
  * on top. Playback state is pushed to the shared cloud sync store so progress
  * follows the user across phone/TV/Windows.
  */
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 fun PlayerScreen(
     request: PlayRequest,
@@ -104,6 +107,13 @@ fun PlayerScreen(
     var volume by remember { mutableIntStateOf(80) }
     var muted by remember { mutableStateOf(false) }
     var lastSaved by remember { mutableLongStateOf(0L) }
+    // Last time the mouse moved / user interacted — drives auto-hide.
+    var lastActivityAt by remember { mutableLongStateOf(System.currentTimeMillis()) }
+
+    fun revealControls() {
+        lastActivityAt = System.currentTimeMillis()
+        controlsVisible = true
+    }
 
     val resume = remember(request.itemId, request.season, request.episode) {
         WatchStateStore.resumeFor(request.itemId, request.season, request.episode)
@@ -193,12 +203,15 @@ fun PlayerScreen(
         }
     }
 
-    // ── Auto-hide the controls while playing (keep them up while loading) ──
+    // ── Auto-hide after idle mouse (reveal on move; keep up while loading) ──
     LaunchedEffect(controlsVisible, playing, loading) {
-        if (!controlsVisible) return@LaunchedEffect
-        if (loading) return@LaunchedEffect
-        delay(3500)
-        controlsVisible = false
+        if (!controlsVisible || loading) return@LaunchedEffect
+        while (controlsVisible && !loading) {
+            delay(200)
+            if (System.currentTimeMillis() - lastActivityAt >= 3500L) {
+                controlsVisible = false
+            }
+        }
     }
 
     DisposableEffect(Unit) {
@@ -220,10 +233,12 @@ fun PlayerScreen(
             update = {},
         )
 
-        // Click anywhere (away from controls) toggles the chrome.
+        // Mouse move anywhere over the video reveals the chrome; click toggles.
         Box(
             Modifier
                 .fillMaxSize()
+                .onPointerEvent(PointerEventType.Move) { revealControls() }
+                .onPointerEvent(PointerEventType.Enter) { revealControls() }
                 .clickable(
                     indication = null,
                     interactionSource = remember { MutableInteractionSource() },
@@ -233,7 +248,13 @@ fun PlayerScreen(
         // ── Top chrome: back + metadata ─────────────────────────────────────
         AnimatedVisibility(visible = controlsVisible) {
             Surface(color = Color.Transparent, modifier = Modifier.fillMaxWidth()) {
-                Box(Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.75f), Color.Transparent)))) {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.75f), Color.Transparent)))
+                        .onPointerEvent(PointerEventType.Move) { revealControls() }
+                        .onPointerEvent(PointerEventType.Enter) { revealControls() },
+                ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
@@ -265,7 +286,14 @@ fun PlayerScreen(
 
         // ── Bottom chrome: transport + menus ───────────────────────────────
         AnimatedVisibility(visible = controlsVisible, modifier = Modifier.align(Alignment.BottomCenter)) {
-            Column(Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.8f)))).padding(horizontal = 18.dp, vertical = 12.dp)) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.8f))))
+                    .onPointerEvent(PointerEventType.Move) { revealControls() }
+                    .onPointerEvent(PointerEventType.Enter) { revealControls() }
+                    .padding(horizontal = 18.dp, vertical = 12.dp),
+            ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = { controller.togglePlayPause() }) {
                         Icon(

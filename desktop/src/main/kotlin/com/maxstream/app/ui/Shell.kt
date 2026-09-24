@@ -11,6 +11,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -58,6 +59,8 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -222,6 +225,7 @@ private data class RailItem(
     val route: AppRoute,
 )
 
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 private fun NavRail(
     current: AppRoute,
@@ -236,10 +240,10 @@ private fun NavRail(
         RailItem("Watchlist", Icons.Default.Bookmark, AppRoute.Watchlist),
         RailItem("Settings", Icons.Default.Settings, AppRoute.Settings),
     )
-    // Manual pin: expanded stays open; collapsed stays collapsed.
-    var pinnedExpanded by remember { mutableStateOf(true) }
-    var hoverExpand by remember { mutableStateOf(false) }
-    val expanded = pinnedExpanded || hoverExpand
+    // Hover expands labels; chevron can pin the expanded state open.
+    var pinnedExpanded by remember { mutableStateOf(false) }
+    var railHovered by remember { mutableStateOf(false) }
+    val expanded = pinnedExpanded || railHovered
 
     val railWidth by animateDpAsState(
         targetValue = if (expanded) 232.dp else 76.dp,
@@ -257,14 +261,18 @@ private fun NavRail(
         Modifier
             .width(railWidth)
             .fillMaxHeight()
+            .onPointerEvent(PointerEventType.Enter) { railHovered = true }
+            .onPointerEvent(PointerEventType.Exit) { railHovered = false }
             .background(MaterialTheme.colorScheme.surfaceVariant)
             .padding(vertical = 12.dp),
     ) {
+        // Header: centered mark when collapsed; logo + title + pin when open.
         Row(
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = if (expanded) Arrangement.Start else Arrangement.Center,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+                .padding(horizontal = if (expanded) 12.dp else 0.dp, vertical = 8.dp),
         ) {
             // app_icon = installed-app mark (M only); maxstream_logo = wordmark splash.
             Image(
@@ -295,18 +303,6 @@ private fun NavRail(
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-            } else {
-                Spacer(Modifier.weight(1f))
-                IconButton(
-                    onClick = { pinnedExpanded = true },
-                    modifier = Modifier.size(32.dp),
-                ) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                        contentDescription = "Expand sidebar",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
             }
         }
 
@@ -316,8 +312,7 @@ private fun NavRail(
             val selected = selectedRoute == item.route
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = if (expanded) androidx.compose.foundation.layout.Arrangement.Start
-                    else androidx.compose.foundation.layout.Arrangement.Center,
+                horizontalArrangement = if (expanded) Arrangement.Start else Arrangement.Center,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 10.dp)
@@ -327,14 +322,17 @@ private fun NavRail(
                         RoundedCornerShape(8.dp),
                     )
                     .clickable { onSelectRoot(item.route) }
-                    .padding(horizontal = if (expanded) 12.dp else 0.dp, vertical = 10.dp),
+                    .then(
+                        if (expanded) Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
+                        else Modifier.padding(vertical = 12.dp),
+                    ),
             ) {
                 Icon(
                     item.icon,
                     contentDescription = item.label,
                     tint = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(20.dp),
+                    modifier = Modifier.size(22.dp),
                 )
                 if (expanded) {
                     Spacer(Modifier.width(12.dp))
@@ -352,14 +350,13 @@ private fun NavRail(
 
         Spacer(Modifier.weight(1f))
 
-        // Footer: profile chip + theme quick toggle
+        // Footer: profile chip (centered when collapsed) + theme toggle when open
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = if (expanded) androidx.compose.foundation.layout.Arrangement.Start
-                else androidx.compose.foundation.layout.Arrangement.Center,
+            horizontalArrangement = if (expanded) Arrangement.Start else Arrangement.Center,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+                .padding(horizontal = if (expanded) 12.dp else 0.dp, vertical = 8.dp),
         ) {
             Box(
                 Modifier
