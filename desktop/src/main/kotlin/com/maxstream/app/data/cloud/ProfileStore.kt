@@ -79,6 +79,13 @@ object ProfileStore {
             if (activeProfileId == null || list.none { it.id == activeProfileId }) {
                 setActive(list.first().id)
             }
+        } else if (AppSession.isSignedIn && profiles.isEmpty()) {
+            // Same first-run behavior as mobile ProfileService._createDefaultProfile.
+            create(
+                name = AppSession.user?.displayName?.ifBlank { null } ?: "Profile 1",
+                colorIndex = 0,
+                iconCodePoint = 0xe4ff,
+            )
         }
     }
 
@@ -102,6 +109,7 @@ object ProfileStore {
                 put(url, toJson(profile), token)
             }
             profiles = next
+            if (activeProfileId == null) setActive(id)
             profile
         }
 

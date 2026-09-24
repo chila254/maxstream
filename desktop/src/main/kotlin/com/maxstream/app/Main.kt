@@ -14,11 +14,12 @@ fun main() = application {
     runCatching { VlcRuntime.ensure() }
     AppSession.restore()
     ProfileStore.restoreLocal()
+    val windowState = rememberWindowState(width = 1320.dp, height = 840.dp)
     Window(
         onCloseRequest = ::exitApplication,
-        state = rememberWindowState(width = 1320.dp, height = 840.dp),
+        state = windowState,
         title = "MaxStream",
     ) {
-        Shell()
+        Shell(windowState = windowState)
     }
 }

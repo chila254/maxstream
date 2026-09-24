@@ -276,7 +276,7 @@ fun DetailsScreen(
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 20.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    items(current.cast) { member ->
+                    items(current.cast, key = { it.name }) { member ->
                         Column(
                             Modifier.width(96.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,

@@ -3,6 +3,7 @@ package com.maxstream.app.ui.screens
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,6 +20,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.HighQuality
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -48,9 +51,17 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.text.font.FontWeight
@@ -58,6 +69,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.awt.SwingPanel
+import androidx.compose.ui.window.WindowPlacement
+import androidx.compose.ui.window.WindowState
 import com.maxstream.app.data.WatchStateStore
 import com.maxstream.app.data.model.MediaItem
 import com.maxstream.app.data.model.PlayRequest
@@ -78,10 +91,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Full-screen desktop player. Renders VLC in a Swing surface, with the viewer
- * controls (play/pause/seek/volume, server, quality and subtitle menus) overlaid
- * on top. Playback state is pushed to the shared cloud sync store so progress
- * follows the user across phone/TV/Windows.
+ * Desktop player with VLC-style overlay controls:
+ * - Space / Backspace toggle play-pause (focus stays on Compose, not AWT).
+ * - F toggles window fullscreen; Esc leaves fullscreen first, then goes back.
+ * - Controls stay visible while paused or while a menu is open; auto-hide
+ *   ~1s while playing (VLC fullscreen-controller timeout).
+ * - Entering maximizes the window (unless already fullscreen); leaving
+ *   restores the previous placement via Shell.
  */
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
@@ -89,9 +105,11 @@ fun PlayerScreen(
     request: PlayRequest,
     repository: MediaRepository,
     onBack: () -> Unit,
+    windowState: WindowState? = null,
 ) {
     val controller = remember { PlayerController() }
     val scope = rememberCoroutineScope()
+    val focusRequester = remember { FocusRequester() }
 
     var streams by remember { mutableStateOf<List<ResolvedStream>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
@@ -107,12 +125,27 @@ fun PlayerScreen(
     var volume by remember { mutableIntStateOf(80) }
     var muted by remember { mutableStateOf(false) }
     var lastSaved by remember { mutableLongStateOf(0L) }
-    // Last time the mouse moved / user interacted — drives auto-hide.
+    var menuOpen by remember { mutableStateOf(false) }
     var lastActivityAt by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    var isFullscreen by remember {
+        mutableStateOf(windowState?.placement == WindowPlacement.Fullscreen)
+    }
 
     fun revealControls() {
         lastActivityAt = System.currentTimeMillis()
         controlsVisible = true
+    }
+
+    fun toggleFullscreen() {
+        val state = windowState ?: return
+        if (state.placement == WindowPlacement.Fullscreen) {
+            state.placement = WindowPlacement.Maximized
+            isFullscreen = false
+        } else {
+            state.placement = WindowPlacement.Fullscreen
+            isFullscreen = true
+        }
+        revealControls()
     }
 
     val resume = remember(request.itemId, request.season, request.episode) {
@@ -127,7 +160,6 @@ fun PlayerScreen(
         lengthMs = 0L
         sliderFrac = 0f
         resumeApplied = false
-        // Auto-load the first subtitle track (if advertised) like the TV player.
         stream.subtitles.firstOrNull()?.let { sub ->
             scope.launch {
                 val file = downloadSubtitle(sub.url)
@@ -149,13 +181,39 @@ fun PlayerScreen(
         streams.getOrNull(selectedIndex)?.let { stream -> playUrl(q.url, stream) }
     }
 
-    // ── Resolve sources once per episode ─────────────────────────────────────
+    fun seekBy(deltaMs: Long) {
+        if (lengthMs <= 0L) return
+        val next = (positionMs + deltaMs).coerceIn(0L, lengthMs)
+        controller.setTime(next)
+        positionMs = next
+        sliderFrac = next.toFloat() / lengthMs
+        revealControls()
+    }
+
+    fun adjustVolume(delta: Int) {
+        volume = (volume + delta).coerceIn(0, 100)
+        muted = volume == 0
+        controller.setVolume(volume)
+        controller.setMute(muted)
+        revealControls()
+    }
+
+    fun toggleMute() {
+        muted = !muted
+        controller.setMute(muted)
+        revealControls()
+    }
+
+    fun togglePlayPause() {
+        controller.togglePlayPause()
+        revealControls()
+    }
+
     LaunchedEffect(request.itemId, request.season, request.episode) {
         loading = true
         error = null
         controlsVisible = true
         resumeApplied = false
-        // Spinner for at least a beat so the UI doesn't flash past empty.
         val parsed = withContext(Dispatchers.IO) {
             parseStreams(
                 StreamResolver.resolveAll(
@@ -173,13 +231,12 @@ fun PlayerScreen(
             error = "No playable source could be resolved for this title."
         } else {
             playStream(0)
-            // Keep the overlay until VLC has had a moment to open the media.
             delay(600)
             loading = false
+            runCatching { focusRequester.requestFocus() }
         }
     }
 
-    // ── Telemetry loop (seek bar, position, auto-resume, auto-save) ─────────
     LaunchedEffect(Unit) {
         while (true) {
             if (positionMs <= 0L) positionMs = controller.time()
@@ -203,12 +260,17 @@ fun PlayerScreen(
         }
     }
 
-    // ── Auto-hide after idle mouse (reveal on move; keep up while loading) ──
-    LaunchedEffect(controlsVisible, playing, loading) {
-        if (!controlsVisible || loading) return@LaunchedEffect
-        while (controlsVisible && !loading) {
-            delay(200)
-            if (System.currentTimeMillis() - lastActivityAt >= 3500L) {
+    // Auto-hide only while playing and no menu/seek is open (VLC: ~1s).
+    LaunchedEffect(controlsVisible, playing, loading, menuOpen, seeking) {
+        if (!controlsVisible || loading || menuOpen || seeking) return@LaunchedEffect
+        while (controlsVisible && !loading && !menuOpen && !seeking) {
+            delay(150)
+            if (!playing) {
+                // Paused → keep controls up (browser/mpv pattern).
+                lastActivityAt = System.currentTimeMillis()
+                continue
+            }
+            if (System.currentTimeMillis() - lastActivityAt >= 1000L) {
                 controlsVisible = false
             }
         }
@@ -225,7 +287,66 @@ fun PlayerScreen(
         }
     }
 
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .focusRequester(focusRequester)
+            .focusable()
+            .onKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                when (event.key) {
+                    Key.Spacebar, Key.Backspace -> {
+                        togglePlayPause()
+                        true
+                    }
+                    Key.F -> {
+                        toggleFullscreen()
+                        true
+                    }
+                    Key.Escape -> {
+                        val state = windowState
+                        when {
+                            state?.placement == WindowPlacement.Fullscreen -> {
+                                state.placement = WindowPlacement.Maximized
+                                isFullscreen = false
+                                revealControls()
+                                true
+                            }
+                            else -> {
+                                onBack()
+                                true
+                            }
+                        }
+                    }
+                    Key.M -> {
+                        toggleMute()
+                        true
+                    }
+                    Key.I -> {
+                        revealControls()
+                        true
+                    }
+                    Key.DirectionLeft -> {
+                        if (event.isCtrlPressed) seekBy(-60_000L) else seekBy(-10_000L)
+                        true
+                    }
+                    Key.DirectionRight -> {
+                        if (event.isCtrlPressed) seekBy(60_000L) else seekBy(10_000L)
+                        true
+                    }
+                    Key.DirectionUp -> {
+                        adjustVolume(+5)
+                        true
+                    }
+                    Key.DirectionDown -> {
+                        adjustVolume(-5)
+                        true
+                    }
+                    else -> false
+                }
+            },
+    ) {
         Surface(color = Color.Black, modifier = Modifier.fillMaxSize()) {}
         SwingPanel(
             factory = { controller.component },
@@ -233,19 +354,23 @@ fun PlayerScreen(
             update = {},
         )
 
-        // Mouse move anywhere over the video reveals the chrome; click toggles.
+        // Pointer layer: reveal on move; click toggles controls (not play).
         Box(
             Modifier
                 .fillMaxSize()
                 .onPointerEvent(PointerEventType.Move) { revealControls() }
                 .onPointerEvent(PointerEventType.Enter) { revealControls() }
+                .onPointerEvent(PointerEventType.Press) {
+                    runCatching { focusRequester.requestFocus() }
+                    revealControls()
+                }
                 .clickable(
                     indication = null,
                     interactionSource = remember { MutableInteractionSource() },
                 ) { controlsVisible = !controlsVisible },
         )
 
-        // ── Top chrome: back + metadata ─────────────────────────────────────
+        // ── Top chrome ───────────────────────────────────────────────────────
         AnimatedVisibility(visible = controlsVisible) {
             Surface(color = Color.Transparent, modifier = Modifier.fillMaxWidth()) {
                 Box(
@@ -279,23 +404,32 @@ fun PlayerScreen(
                                 )
                             }
                         }
+                        IconButton(onClick = { toggleFullscreen() }) {
+                            Icon(
+                                if (isFullscreen || windowState?.placement == WindowPlacement.Fullscreen)
+                                    Icons.Default.FullscreenExit
+                                else Icons.Default.Fullscreen,
+                                contentDescription = "Fullscreen",
+                                tint = Color.White,
+                            )
+                        }
                     }
                 }
             }
         }
 
-        // ── Bottom chrome: transport + menus ───────────────────────────────
+        // ── Bottom chrome: seek + transport + menus (VLC order) ─────────────
         AnimatedVisibility(visible = controlsVisible, modifier = Modifier.align(Alignment.BottomCenter)) {
             Column(
                 Modifier
                     .fillMaxWidth()
-                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.8f))))
+                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f))))
                     .onPointerEvent(PointerEventType.Move) { revealControls() }
                     .onPointerEvent(PointerEventType.Enter) { revealControls() }
                     .padding(horizontal = 18.dp, vertical = 12.dp),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = { controller.togglePlayPause() }) {
+                    IconButton(onClick = { togglePlayPause() }) {
                         Icon(
                             if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
                             "Play/Pause",
@@ -307,43 +441,64 @@ fun PlayerScreen(
 
                     Slider(
                         value = sliderFrac,
-                        onValueChange = { seeking = true; sliderFrac = it },
+                        onValueChange = { seeking = true; sliderFrac = it; revealControls() },
                         onValueChangeFinished = {
                             controller.setPosition(sliderFrac)
                             positionMs = (sliderFrac * lengthMs).toLong()
                             seeking = false
+                            revealControls()
                         },
                         modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
                     )
 
                     Text(fmtPlayer(lengthMs), color = Color.White, fontSize = 12.sp)
 
-                    IconButton(onClick = {
-                        muted = !muted
-                        controller.setMute(muted)
-                    }) {
+                    IconButton(onClick = { toggleMute() }) {
                         Icon(
-                            if (muted) Icons.Default.VolumeOff else Icons.Default.VolumeDown,
+                            when {
+                                muted || volume == 0 -> Icons.Default.VolumeOff
+                                volume < 50 -> Icons.Default.VolumeDown
+                                else -> Icons.Default.VolumeUp
+                            },
                             "Mute",
                             tint = Color.White,
                         )
                     }
                     Slider(
                         value = volume.toFloat(),
-                        onValueChange = { volume = it.toInt() },
-                        onValueChangeFinished = { controller.setVolume(volume) },
+                        onValueChange = { volume = it.toInt(); revealControls() },
+                        onValueChangeFinished = {
+                            muted = volume == 0
+                            controller.setVolume(volume)
+                            controller.setMute(muted)
+                        },
                         modifier = Modifier.width(100.dp),
                     )
+                    IconButton(onClick = { toggleFullscreen() }) {
+                        Icon(
+                            if (windowState?.placement == WindowPlacement.Fullscreen)
+                                Icons.Default.FullscreenExit
+                            else Icons.Default.Fullscreen,
+                            contentDescription = "Fullscreen",
+                            tint = Color.White,
+                        )
+                    }
                 }
 
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.padding(top = 4.dp),
                 ) {
+                    val currentStream = streams.getOrNull(selectedIndex)
+                    val qualities = currentStream?.qualityMatch().orEmpty()
+                    val subs = currentStream?.subtitles.orEmpty()
+
                     PlayerMenu(
                         icon = Icons.Default.Dns,
                         label = if (streams.size > 1) "Server (${selectedIndex + 1}/${streams.size})" else "Server",
                         enabled = streams.isNotEmpty(),
+                        onMenuState = { menuOpen = it },
+                        onInteract = { revealControls() },
                     ) {
                         if (streams.isEmpty()) {
                             DropdownMenuItem(
@@ -367,12 +522,12 @@ fun PlayerScreen(
                         }
                     }
 
-                    val currentStream = streams.getOrNull(selectedIndex)
-                    val qualities = currentStream?.qualityMatch().orEmpty()
                     PlayerMenu(
                         icon = Icons.Default.HighQuality,
                         label = if (qualities.size > 1) "Quality (${qualities.size})" else "Quality",
                         enabled = qualities.isNotEmpty(),
+                        onMenuState = { menuOpen = it },
+                        onInteract = { revealControls() },
                     ) {
                         if (qualities.isEmpty()) {
                             DropdownMenuItem(
@@ -388,11 +543,12 @@ fun PlayerScreen(
                         }
                     }
 
-                    val subs = currentStream?.subtitles.orEmpty()
                     PlayerMenu(
                         icon = Icons.Default.ClosedCaption,
                         label = if (subs.isNotEmpty()) "Subtitles (${subs.size})" else "Subtitles",
                         enabled = true,
+                        onMenuState = { menuOpen = it },
+                        onInteract = { revealControls() },
                     ) {
                         DropdownMenuItem(
                             text = { Text("Off", color = Color.White) },
@@ -416,6 +572,14 @@ fun PlayerScreen(
                             )
                         }
                     }
+
+                    Spacer(Modifier.weight(1f))
+                    Text(
+                        "Space / Backspace play-pause  •  F fullscreen  •  Esc back",
+                        color = Color.White.copy(alpha = 0.45f),
+                        fontSize = 11.sp,
+                        modifier = Modifier.align(Alignment.CenterVertically).padding(start = 8.dp),
+                    )
                 }
             }
         }
@@ -488,14 +652,20 @@ private fun PlayerMenu(
     icon: ImageVector,
     label: String,
     enabled: Boolean,
+    onMenuState: (Boolean) -> Unit = {},
+    onInteract: () -> Unit = {},
     content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
 ) {
     var open by remember { mutableStateOf(false) }
+    LaunchedEffect(open) { onMenuState(open) }
     Box {
         Surface(
             color = Color.White.copy(alpha = 0.10f),
             shape = RoundedCornerShape(6.dp),
-            modifier = Modifier.clickable(enabled = enabled) { open = true },
+            modifier = Modifier.clickable(enabled = enabled) {
+                open = true
+                onInteract()
+            },
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,

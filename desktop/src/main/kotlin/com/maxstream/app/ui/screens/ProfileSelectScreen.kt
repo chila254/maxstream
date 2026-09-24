@@ -1,5 +1,7 @@
 package com.maxstream.app.ui.screens
 
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -17,9 +19,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -34,6 +33,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -44,15 +44,21 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil3.compose.AsyncImage
+import com.maxstream.app.data.cloud.AppSession
+import com.maxstream.app.data.cloud.CloudSync
 import com.maxstream.app.data.cloud.ProfileStore
 import com.maxstream.app.data.cloud.UserProfile
+import com.maxstream.app.data.repository.TmdbRepository
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /** MaxStream avatar palette — same order as the mobile ProfileAvatar.palette. */
@@ -66,30 +72,93 @@ private val AvatarIcons = listOf(
     Icons.Default.Person, Icons.Default.Movie, Icons.Default.Star, Icons.Default.Add,
 )
 
+private const val HeroCycleMs = 5_000L
+
+private data class HeroSlide(
+    val url: String,
+    val title: String,
+    val subtitle: String,
+)
+
 /**
- * Who's watching? — mirrors the mobile/TV profile gate: black canvas, logo,
- * profile grid, and add-profile tile. Selecting a profile activates it and
- * continues into the shell.
+ * Who's watching? — mirrors the mobile/TV profile gate: backdrop carousel,
+ * centered title + profile grid, and add-profile tile. Selecting a profile
+ * activates it, syncs cloud data for that profile, and continues into the shell.
  */
 @Composable
 fun ProfileSelectScreen(onSelected: () -> Unit) {
     var loading by remember { mutableStateOf(true) }
     val scope = rememberCoroutineScope()
+    var heroes by remember { mutableStateOf<List<HeroSlide>>(emptyList()) }
+    var heroIndex by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(Unit) {
         ProfileStore.refresh()
         loading = false
     }
 
+    LaunchedEffect(Unit) {
+        heroes = runCatching {
+            val sections = TmdbRepository.homeSections()
+            val picked = (sections.firstOrNull { it.title.contains("Trending movies", true) }?.items.orEmpty() +
+                sections.firstOrNull { it.title.contains("Trending series", true) }?.items.orEmpty())
+                .filter { it.backdropUrl != null }
+                .shuffled()
+                .take(12)
+            picked.map { item ->
+                HeroSlide(
+                    url = item.backdropUrl.orEmpty(),
+                    title = item.title,
+                    subtitle = listOf(item.typeLabel, item.displayYear)
+                        .filter { it.isNotBlank() }
+                        .joinToString("  •  "),
+                )
+            }.filter { it.url.isNotBlank() }
+        }.getOrDefault(emptyList())
+    }
+
+    LaunchedEffect(heroes.size) {
+        if (heroes.size < 2) return@LaunchedEffect
+        while (isActive) {
+            delay(HeroCycleMs)
+            heroIndex = (heroIndex + 1) % heroes.size
+        }
+    }
+
+    val currentHero = heroes.getOrNull(heroIndex)
+
     Box(
         Modifier
             .fillMaxSize()
-            .background(
+            .background(Color.Black),
+    ) {
+        if (currentHero != null) {
+            Crossfade(
+                targetState = currentHero,
+                animationSpec = tween(800),
+                label = "profileHero",
+                modifier = Modifier.fillMaxSize(),
+            ) { slide ->
+                AsyncImage(
+                    model = slide.url,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+        }
+        Box(
+            Modifier.fillMaxSize().background(
                 Brush.verticalGradient(
-                    listOf(Color(0xFF1A0508), Color(0xFF0D0D0F), Color.Black),
+                    listOf(
+                        Color.Black.copy(alpha = 0.72f),
+                        Color.Black.copy(alpha = 0.88f),
+                        Color.Black,
+                    ),
                 ),
             ),
-    ) {
+        )
+
         Column(
             Modifier.fillMaxSize().padding(horizontal = 48.dp, vertical = 36.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -105,61 +174,106 @@ fun ProfileSelectScreen(onSelected: () -> Unit) {
                 color = Color.White,
                 fontSize = 30.sp,
                 fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
             )
             Spacer(Modifier.height(8.dp))
             Text(
                 "Choose a profile to start streaming",
-                color = Color.White.copy(alpha = 0.55f),
+                color = Color.White.copy(alpha = 0.7f),
                 fontSize = 14.sp,
+                textAlign = TextAlign.Center,
             )
-            Spacer(Modifier.height(28.dp))
+
+            Spacer(Modifier.weight(1f))
 
             if (loading) {
-                Spacer(Modifier.weight(1f))
                 CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.weight(1f))
             } else {
                 val profiles = ProfileStore.profiles
-                LazyVerticalGrid(
-                    columns = GridCells.Adaptive(140.dp),
-                    horizontalArrangement = Arrangement.spacedBy(20.dp, Alignment.CenterHorizontally),
-                    verticalArrangement = Arrangement.spacedBy(20.dp),
-                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                val tiles = buildList {
+                    profiles.forEach { add(Tile.ProfileTile(it)) }
+                    if (profiles.size < ProfileStore.MAX_PROFILES) add(Tile.Add)
+                }
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth(),
                 ) {
-                    items(profiles, key = { it.id }) { profile ->
-                        ProfileTile(
-                            profile = profile,
-                            onClick = {
-                                ProfileStore.setActive(profile.id)
-                                onSelected()
-                            },
-                        )
-                    }
-                    if (profiles.size < ProfileStore.MAX_PROFILES) {
-                        item(key = "add") {
-                            AddProfileTile(
-                                onClick = {
-                                    scope.launch {
-                                        ProfileStore.create(
-                                            name = "Profile ${profiles.size + 1}",
-                                            colorIndex = profiles.size % AvatarPalette.size,
-                                            iconCodePoint = 0xe4ff,
-                                        )
-                                    }
-                                },
-                            )
+                    tiles.chunked(3).forEach { row ->
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(28.dp, Alignment.CenterHorizontally),
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),
+                        ) {
+                            row.forEach { tile ->
+                                when (tile) {
+                                    is Tile.ProfileTile -> ProfileTile(
+                                        profile = tile.profile,
+                                        onClick = {
+                                            ProfileStore.setActive(tile.profile.id)
+                                            scope.launch {
+                                                if (AppSession.isSignedIn) {
+                                                    CloudSync.syncWatchHistory()
+                                                    CloudSync.bump()
+                                                }
+                                                onSelected()
+                                            }
+                                        },
+                                    )
+                                    Tile.Add -> AddProfileTile(
+                                        onClick = {
+                                            scope.launch {
+                                                ProfileStore.create(
+                                                    name = "Profile ${profiles.size + 1}",
+                                                    colorIndex = profiles.size % AvatarPalette.size,
+                                                    iconCodePoint = 0xe4ff,
+                                                )
+                                            }
+                                        },
+                                    )
+                                }
+                            }
                         }
                     }
                 }
-                Spacer(Modifier.height(12.dp))
+
+                Spacer(Modifier.weight(1f))
+
+                val slide = currentHero
+                if (slide != null) {
+                    Text(
+                        slide.title,
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth(0.7f),
+                    )
+                    if (slide.subtitle.isNotBlank()) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            slide.subtitle,
+                            color = Color.White.copy(alpha = 0.65f),
+                            fontSize = 13.sp,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                    Spacer(Modifier.height(14.dp))
+                }
                 Text(
                     "Click a profile to start watching",
-                    color = Color.White.copy(alpha = 0.4f),
+                    color = Color.White.copy(alpha = 0.45f),
                     fontSize = 13.sp,
+                    textAlign = TextAlign.Center,
                 )
             }
         }
     }
+}
+
+private sealed interface Tile {
+    data class ProfileTile(val profile: UserProfile) : Tile
+    data object Add : Tile
 }
 
 @Composable

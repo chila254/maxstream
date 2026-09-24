@@ -47,11 +47,14 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
@@ -66,6 +69,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.WindowPlacement
+import androidx.compose.ui.window.WindowState
+import androidx.compose.ui.window.rememberWindowState
 import com.maxstream.app.data.cloud.AppSession
 import com.maxstream.app.data.cloud.CloudSync
 import com.maxstream.app.data.cloud.ProfileStore
@@ -102,7 +108,7 @@ private sealed interface AppPhase {
 }
 
 @Composable
-fun Shell() {
+fun Shell(windowState: WindowState = rememberWindowState()) {
     // Launch phases: splash → auth (if needed) → profile pick → main shell.
     var phase by remember { mutableStateOf<AppPhase>(AppPhase.Splash) }
     // Navigation history: last entry is the current route. Top-level sidebar
@@ -112,6 +118,10 @@ fun Shell() {
     var query by remember { mutableStateOf("") }
     // Dark is the MaxStream default; Settings can force light.
     var darkOverride by remember { mutableStateOf(true) }
+    // Bumped when cloud watch history / profile changes so Home reloads CW.
+    var syncRevision by remember { mutableIntStateOf(CloudSync.dataRevision) }
+    val contentFocus = remember { FocusRequester() }
+    val priorPlacement = remember { mutableStateOf(windowState.placement) }
 
     val useDark = darkOverride
 
@@ -131,12 +141,43 @@ fun Shell() {
     LaunchedEffect(AppSession.isSignedIn) {
         if (AppSession.isSignedIn) {
             CloudSync.syncWatchHistory()
+            syncRevision = CloudSync.dataRevision
         }
     }
 
+    // After profile pick / phase change into Main, pull that profile's data
+    // before (or as) Home loads so Continue Watching isn't empty.
     LaunchedEffect(phase) {
         if (phase == AppPhase.Main && AppSession.isSignedIn) {
             CloudSync.syncWatchHistory()
+            syncRevision = CloudSync.dataRevision
+        }
+    }
+
+    LaunchedEffect(CloudSync.dataRevision) {
+        syncRevision = CloudSync.dataRevision
+    }
+
+    // Maximize while the player is open; restore prior placement on exit.
+    LaunchedEffect(route) {
+        if (route is AppRoute.Player) {
+            if (windowState.placement != WindowPlacement.Fullscreen) {
+                priorPlacement.value = windowState.placement
+            }
+            if (windowState.placement == WindowPlacement.Floating) {
+                windowState.placement = WindowPlacement.Maximized
+            }
+        } else if (windowState.placement == WindowPlacement.Maximized &&
+            priorPlacement.value == WindowPlacement.Floating
+        ) {
+            windowState.placement = priorPlacement.value
+        }
+    }
+
+    // Returning from the player restores keyboard focus to the shell content.
+    LaunchedEffect(route) {
+        if (route !is AppRoute.Player && phase == AppPhase.Main) {
+            runCatching { contentFocus.requestFocus() }
         }
     }
 
@@ -158,11 +199,21 @@ fun Shell() {
                 backStack = backStack,
                 query = query,
                 darkOverride = darkOverride,
+                syncRevision = syncRevision,
+                contentFocus = contentFocus,
+                windowState = windowState,
                 onPush = ::push,
                 onReplaceRoot = ::replaceRoot,
                 onBack = ::back,
                 onQueryChange = { query = it },
                 onThemeChange = { darkOverride = it },
+                onSwitchProfile = {
+                    phase = AppPhase.Profile
+                    priorPlacement.value = WindowPlacement.Floating
+                    if (windowState.placement != WindowPlacement.Fullscreen) {
+                        windowState.placement = WindowPlacement.Floating
+                    }
+                },
             )
         }
     }
@@ -174,11 +225,15 @@ private fun MainShell(
     backStack: List<AppRoute>,
     query: String,
     darkOverride: Boolean,
+    syncRevision: Int,
+    contentFocus: FocusRequester,
+    windowState: WindowState,
     onPush: (AppRoute) -> Unit,
     onReplaceRoot: (AppRoute) -> Unit,
     onBack: () -> Unit,
     onQueryChange: (String) -> Unit,
     onThemeChange: (Boolean) -> Unit,
+    onSwitchProfile: () -> Unit,
 ) {
     fun push(next: AppRoute) {
         if (next != route) onPush(next)
@@ -193,11 +248,14 @@ private fun MainShell(
     }
 
     // Escape / browser-style Back anywhere except the root screen.
+    // Player handles Escape itself (exit fullscreen first) while focused.
     Box(
         Modifier
             .fillMaxSize()
+            .focusRequester(contentFocus)
             .onKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                if (route is AppRoute.Player) return@onKeyEvent false
                 when (event.key) {
                     Key.Escape -> {
                         if (backStack.size > 1) { back(); true } else false
@@ -212,6 +270,7 @@ private fun MainShell(
                 request = player.request,
                 repository = repository,
                 onBack = { back() },
+                windowState = windowState,
             )
             return@Box
         }
@@ -221,6 +280,7 @@ private fun MainShell(
                 onSelectRoot = { replaceRoot(it) },
                 useDarkTheme = darkOverride,
                 onToggleTheme = onThemeChange,
+                onSwitchProfile = onSwitchProfile,
             )
             Column(Modifier.weight(1f).fillMaxHeight()) {
                 TitleBar(
@@ -241,6 +301,7 @@ private fun MainShell(
                         is AppRoute.Home -> HomeScreen(
                             repository = repository,
                             query = query,
+                            syncRevision = syncRevision,
                             onOpen = { push(AppRoute.Detail(it.id, it.mediaType, it.id)) },
                             onPlay = { m ->
                                 push(AppRoute.Player(PlayRequest(m.id, m.mediaType, m.title)))
@@ -261,6 +322,7 @@ private fun MainShell(
                         is AppRoute.Watchlist -> WatchlistScreen(
                             repository = repository,
                             isSignedIn = AppSession.isSignedIn,
+                            syncRevision = syncRevision,
                             onOpen = { push(AppRoute.Detail(it.id, it.mediaType, it.id)) },
                         )
                         is AppRoute.Settings -> SettingsScreen(
@@ -301,6 +363,7 @@ private fun NavRail(
     onSelectRoot: (AppRoute) -> Unit,
     useDarkTheme: Boolean,
     onToggleTheme: (Boolean) -> Unit,
+    onSwitchProfile: () -> Unit,
 ) {
     val items = listOf(
         RailItem("Home", Icons.Default.Home, AppRoute.Home),
@@ -420,14 +483,15 @@ val profile = ProfileStore.activeProfile
 
         Spacer(Modifier.weight(1f))
 
-        // Footer: profile chip (centered when collapsed) + theme toggle when open
+        // Footer: profile chip (click → switch profile) + theme toggle when open
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = if (expanded) Arrangement.Start else Arrangement.Center,
             modifier = Modifier
                 .fillMaxWidth()
+                .clickable { onSwitchProfile() }
                 .padding(horizontal = if (expanded) 12.dp else 0.dp, vertical = 8.dp),
-        ) {
+            ) {
             Box(
                 Modifier
                     .size(30.dp)
@@ -447,9 +511,7 @@ val profile = ProfileStore.activeProfile
                         maxLines = 1,
                     )
                     Text(
-                        profile?.name?.let { name ->
-                            if (user != null) user.email else name
-                        } ?: if (user != null) user.email else "Not signed in",
+                        if (user != null) user.email else "Switch profile",
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,

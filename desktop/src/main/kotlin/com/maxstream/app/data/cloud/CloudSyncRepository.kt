@@ -1,5 +1,8 @@
 package com.maxstream.app.data.cloud
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
 import com.maxstream.app.core.AppConfig
 import com.maxstream.app.data.WatchStateStore
 import com.maxstream.app.data.model.MediaItem
@@ -29,6 +32,18 @@ object CloudSync {
         .build()
 
     val isSynced: Boolean get() = AppSession.isSignedIn
+
+    /**
+     * Bumped after every cloud pull so screens that render watchlist /
+     * continue-watching re-read local state (same pattern as TV's
+     * CloudSyncCoordinator and mobile's historyRevision).
+     */
+    var dataRevision by mutableIntStateOf(0)
+        private set
+
+    fun bump() {
+        dataRevision++
+    }
 
     // ── watchlist ────────────────────────────────────────────────────────────
 
@@ -133,7 +148,7 @@ object CloudSync {
                 rating = o.optDouble("rating", 0.0),
             )
         }
-        WatchStateStore.mergeIncoming(states)
+        WatchStateStore.mergeIncoming(states).also { bump() }
     } ?: 0
 
     suspend fun clearWatchHistory(s: WatchStateStore.WatchState) {
@@ -158,9 +173,11 @@ object CloudSync {
     }
 
     private fun rtdbBase(uid: String): String {
-    val profile = ProfileStore.activeProfileId ?: "default"
-    return "${AppConfig.FIREBASE_RTDB_URL}/users/$uid/profiles/$profile"
-}
+        // Match mobile ProfileScope.currentProfileId: active profile, else UID
+        // (mobile never writes under literal "default").
+        val profile = ProfileStore.activeProfileId ?: uid
+        return "${AppConfig.FIREBASE_RTDB_URL}/users/$uid/profiles/$profile"
+    }
 
     private fun get(url: String, token: String): JSONObject? {
         val request = Request.Builder()

@@ -10,6 +10,20 @@ class PlayerController(remembered: EmbeddedMediaPlayerComponent = EmbeddedMediaP
 
     val component: EmbeddedMediaPlayerComponent = remembered
 
+    init {
+        // Keep AWT/VLC surfaces from stealing Compose keyboard focus so the
+        // overlay can receive Space/Backspace/F/Esc while video plays.
+        runCatching {
+            fun unfocus(c: java.awt.Component) {
+                c.isFocusable = false
+                if (c is java.awt.Container) {
+                    c.components.forEach { unfocus(it) }
+                }
+            }
+            unfocus(component)
+        }
+    }
+
     fun play(url: String, referer: String?, userAgent: String?, origin: String?) {
         val opts = mutableListOf<String>()
         if (!referer.isNullOrBlank()) opts.add(":http-referrer=$referer")

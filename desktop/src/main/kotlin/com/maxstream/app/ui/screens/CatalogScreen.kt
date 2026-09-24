@@ -87,8 +87,9 @@ fun WatchlistScreen(
     repository: MediaRepository,
     isSignedIn: Boolean,
     onOpen: (MediaItem) -> Unit,
+    syncRevision: Int = 0,
 ) {
-    val items by produceState<List<MediaItem>>(emptyList(), repository, isSignedIn) {
+    val items by produceState<List<MediaItem>>(emptyList(), repository, isSignedIn, syncRevision) {
         value = repository.watchlist()
     }
 
@@ -185,7 +186,7 @@ private fun SectionScreen(
                         return@launch
                     }
                     page = nextPage
-                    items = items + next
+                    items = (items + next).distinctBy { "${it.mediaType}:${it.id}" }
                     if (next.isEmpty()) hasMore = false
                     loading = false
                 }

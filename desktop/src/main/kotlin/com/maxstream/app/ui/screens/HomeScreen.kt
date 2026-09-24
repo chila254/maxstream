@@ -59,11 +59,16 @@ fun HomeScreen(
     onPlay: (MediaItem) -> Unit,
     onSeeAllMovies: (MovieSection) -> Unit,
     onSeeAllSeries: (SeriesSection) -> Unit,
+    syncRevision: Int = 0,
 ) {
     val sections by produceState<List<com.maxstream.app.data.model.HomeSection>>(emptyList(), repository) {
         value = repository.homeSections()
     }
-    val continueWatching by produceState<List<com.maxstream.app.data.model.ContinueWatch>>(emptyList(), repository) {
+    val continueWatching by produceState<List<com.maxstream.app.data.model.ContinueWatch>>(
+        emptyList(),
+        repository,
+        syncRevision,
+    ) {
         value = repository.continueWatching()
     }
     val scope = rememberCoroutineScope()
@@ -98,7 +103,7 @@ fun HomeScreen(
                         return@launch
                     }
                     searchPage = nextPage
-                    searchResults = searchResults + next
+                    searchResults = (searchResults + next).distinctBy { "${it.mediaType}:${it.id}" }
                     if (next.isEmpty()) searchHasMore = false
                     searchLoading = false
                 }
@@ -133,10 +138,19 @@ fun HomeScreen(
         }
 
         if (continueWatching.isNotEmpty()) {
+            val cwItems = continueWatching.map { c -> c.item.copy(progress = c.progress) }
+            val cwKeys = continueWatching.map { c ->
+                "${c.item.mediaType}:${c.item.id}:s${c.season}:e${c.episode}"
+            }
             SectionRail(
                 title = "Continue watching",
-                items = continueWatching.map { SectionedContinue(it) },
-                onOpen = { onOpen(it) },
+                items = cwItems,
+                itemKeys = cwKeys,
+                onOpen = { item ->
+                    val idx = cwItems.indexOfFirst { it === item }
+                    val match = continueWatching.getOrNull(idx)
+                    if (match != null) onOpen(match.item.copy(progress = match.progress)) else onOpen(item)
+                },
                 showProgress = true,
             )
             Spacer(Modifier.height(6.dp))
@@ -169,9 +183,6 @@ fun HomeScreen(
     }
 }
 
-private fun SectionedContinue(c: com.maxstream.app.data.model.ContinueWatch): MediaItem =
-    c.item.copy(progress = c.progress)
-
 /** Shared poster grid used by search + catalog screens — scrolls with the
  *  right-edge scrollbar and keyboard keys. When [onLoadMore] is set the grid
  *  keeps paging as you approach the bottom (infinite scroll). */
@@ -195,6 +206,7 @@ fun MediaBrowserGrid(
             }
         }
     }
+    val uniqueItems = remember(items) { items.distinctBy { "${it.mediaType}:${it.id}" } }
     ScrollableGrid(state = gridState) {
         LazyVerticalGrid(
             state = gridState,
@@ -204,7 +216,7 @@ fun MediaBrowserGrid(
             verticalArrangement = Arrangement.spacedBy(16.dp),
             modifier = Modifier.fillMaxSize(),
         ) {
-            items(items, key = { it.id }) { item ->
+            items(uniqueItems, key = { "${it.mediaType}:${it.id}" }) { item ->
                 PosterCard(item, width = 148.dp, onClick = { onOpen(item) })
             }
             if (loading) {
@@ -231,7 +243,7 @@ fun MediaRow(
         contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 20.dp),
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        items(items, key = { it.id }) { item ->
+        items(items, key = { "${it.mediaType}:${it.id}" }) { item ->
             PosterCard(item, width = 132.dp, onClick = { onOpen(item) })
         }
     }

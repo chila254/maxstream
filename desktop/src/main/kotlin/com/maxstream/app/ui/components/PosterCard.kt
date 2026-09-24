@@ -189,6 +189,7 @@ fun SectionRail(
     onOpen: (MediaItem) -> Unit,
     onSeeAll: (() -> Unit)? = null,
     showProgress: Boolean = false,
+    itemKeys: List<String>? = null,
 ) {
     if (items.isEmpty()) return
     Column {
@@ -215,7 +216,14 @@ fun SectionRail(
             contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 20.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            items(items, key = { it.id }) { item ->
+            items(
+                items = items.indices.toList(),
+                key = { i ->
+                    itemKeys?.getOrNull(i)
+                        ?: "${items[i].mediaType}:${items[i].id}"
+                },
+            ) { i ->
+                val item = items[i]
                 PosterCard(
                     item = item,
                     width = if (showProgress) 220.dp else 132.dp,
