@@ -38,15 +38,46 @@ object TmdbRepository : MediaRepository {
 
     override suspend fun continueWatching(): List<ContinueWatch> =
         WatchStateStore.all().map { s ->
+            val stored = MediaItem(
+                id = s.itemId,
+                mediaType = s.mediaType,
+                title = s.title.ifBlank { "Title ${s.itemId}" },
+                overview = "",
+                year = s.year,
+                rating = s.rating,
+                posterPath = s.posterPath,
+                backdropPath = s.backdropPath,
+            )
+            // Hydrate poster/backdrop/rating from TMDB when local state is thin
+            // (cloud entries from other devices often miss them).
+            val needsHydration = stored.rating <= 0.0 || stored.posterPath == null || stored.backdropPath == null
+            val item = if (needsHydration) {
+                runCatching { details(s.itemId, s.mediaType) }.getOrNull()?.item
+                    ?.let { fresh ->
+                        stored.copy(
+                            title = stored.title.ifBlank { fresh.title },
+                            overview = fresh.overview.ifBlank { stored.overview },
+                            year = fresh.year ?: stored.year,
+                            rating = if (stored.rating > 0.0) stored.rating else fresh.rating,
+                            posterPath = fresh.posterPath ?: stored.posterPath,
+                            backdropPath = fresh.backdropPath ?: stored.backdropPath,
+                            genres = fresh.genres,
+                        )
+                    } ?: stored
+            } else stored
+            if (needsHydration && item.rating != s.rating) {
+                WatchStateStore.save(
+                    s.copy(
+                        title = item.title,
+                        year = item.year ?: s.year,
+                        rating = item.rating,
+                        posterPath = item.posterPath,
+                        backdropPath = item.backdropPath,
+                    ),
+                )
+            }
             ContinueWatch(
-                item = MediaItem(
-                    id = s.itemId,
-                    mediaType = s.mediaType,
-                    title = s.title.ifBlank { "Title $s.itemId" },
-                    overview = "",
-                    posterPath = s.posterPath,
-                    backdropPath = s.backdropPath,
-                ),
+                item = item,
                 progress = s.progress,
                 season = s.season,
                 episode = s.episode,
@@ -125,6 +156,8 @@ object TmdbRepository : MediaRepository {
             title = item.title,
             posterPath = item.posterPath,
             backdropPath = item.backdropPath,
+            year = item.year,
+            rating = item.rating,
         )
         if (nearEnd) {
             WatchStateStore.clear(item.id, season, episode)

@@ -63,28 +63,31 @@ fun PosterCard(
     item: MediaItem,
     width: Dp,
     showProgress: Boolean = false,
+    landscape: Boolean = false,
     onClick: () -> Unit,
 ) {
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
-    val shape = RoundedCornerShape(10.dp)
+    val shape = RoundedCornerShape(8.dp)
+    val showRating = item.rating > 0.0
 
     Column(
         Modifier
             .width(width)
-            .scale(if (hovered) 1.03f else 1f)
+            .scale(if (hovered) 1.04f else 1f)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick),
     ) {
         Box(
             Modifier
                 .fillMaxWidth()
-                .aspectRatio(0.7f)
+                .aspectRatio(if (landscape) 16f / 9f else 0.7f)
                 .clip(shape)
                 .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
                 .background(posterBrush(item)),
             contentAlignment = Alignment.Center,
         ) {
-            item.posterUrl?.let { url ->
+            val imageUrl = if (landscape) item.backdropUrl ?: item.posterUrl else item.posterUrl
+            imageUrl?.let { url ->
                 AsyncImage(
                     model = url,
                     contentDescription = item.title,
@@ -93,23 +96,38 @@ fun PosterCard(
                 )
             } ?: Text(
                 item.title.firstOrNull()?.toString().orEmpty(),
-                fontSize = 42.sp,
+                fontSize = 36.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.White.copy(alpha = 0.85f),
             )
-            Box(
-                Modifier.align(Alignment.TopStart).padding(8.dp)
-                    .background(Color.Black.copy(alpha = 0.35f), RoundedCornerShape(6.dp))
-                    .padding(horizontal = 6.dp, vertical = 2.dp),
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Star, null, tint = Color(0xFFF5C518), modifier = Modifier.size(12.dp))
-                    Spacer(Modifier.width(3.dp))
-                    Text(
-                        "%.1f".format(item.rating),
-                        color = Color.White,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
+            if (showRating) {
+                Box(
+                    Modifier.align(Alignment.TopStart).padding(8.dp)
+                        .background(Color.Black.copy(alpha = 0.45f), RoundedCornerShape(6.dp))
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Star, null, tint = Color(0xFFF5C518), modifier = Modifier.size(12.dp))
+                        Spacer(Modifier.width(3.dp))
+                        Text(
+                            "%.1f".format(item.rating),
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
+            }
+            if (item.progress > 0f) {
+                Box(
+                    Modifier.align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .height(3.dp)
+                        .background(Color.Black.copy(alpha = 0.45f)),
+                ) {
+                    Box(
+                        Modifier.fillMaxWidth(item.progress.coerceIn(0f, 1f)).height(3.dp)
+                            .background(MaterialTheme.colorScheme.primary),
                     )
                 }
             }
@@ -122,17 +140,17 @@ fun PosterCard(
                         Icons.Default.PlayArrow,
                         contentDescription = "Play ${item.title}",
                         tint = Color.White,
-                        modifier = Modifier.size(44.dp),
+                        modifier = Modifier.size(40.dp),
                     )
                 }
             }
         }
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(6.dp))
         Text(
             item.title,
             color = MaterialTheme.colorScheme.onSurface,
             fontWeight = FontWeight.Medium,
-            fontSize = 14.sp,
+            fontSize = 13.sp,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -142,20 +160,20 @@ fun PosterCard(
                 add(item.typeLabel)
                 add(item.displayYear)
                 addAll(item.genres.take(2))
-            }.joinToString("  •  "),
+            }.filter { it.isNotBlank() }.joinToString("  •  "),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 12.sp,
+            fontSize = 11.sp,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        if (showProgress) {
-            Spacer(Modifier.height(8.dp))
+        if (showProgress && !landscape) {
+            Spacer(Modifier.height(6.dp))
             Box(
-                Modifier.width(width).height(4.dp)
+                Modifier.width(width).height(3.dp)
                     .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(2.dp)),
             ) {
                 Box(
-                    Modifier.fillMaxWidth(item.progress.coerceIn(0f, 1f)).height(4.dp)
+                    Modifier.fillMaxWidth(item.progress.coerceIn(0f, 1f)).height(3.dp)
                         .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(2.dp)),
                 )
             }
@@ -195,10 +213,16 @@ fun SectionRail(
         }
         LazyRow(
             contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 20.dp),
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             items(items, key = { it.id }) { item ->
-                PosterCard(item, width = 160.dp, showProgress = showProgress, onClick = { onOpen(item) })
+                PosterCard(
+                    item = item,
+                    width = if (showProgress) 220.dp else 132.dp,
+                    showProgress = false,
+                    landscape = showProgress,
+                    onClick = { onOpen(item) },
+                )
             }
         }
         Spacer(Modifier.height(10.dp))
@@ -220,7 +244,7 @@ fun HeroCard(
     Box(
         Modifier
             .fillMaxWidth()
-            .height(300.dp)
+            .height(260.dp)
             .padding(horizontal = 20.dp)
             .scale(if (hovered) 1.01f else 1f),
     ) {
@@ -264,7 +288,11 @@ fun HeroCard(
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "${item.typeLabel}  •  %.1f  •  %s".format(item.rating, item.displayYear), 
+                    if (item.rating > 0.0) {
+                        "${item.typeLabel}  •  %.1f  •  %s".format(item.rating, item.displayYear)
+                    } else {
+                        listOf(item.typeLabel, item.displayYear).filter { it.isNotBlank() }.joinToString("  •  ")
+                    },
                     color = Color.White.copy(alpha = 0.85f),
                     fontSize = 13.sp,
                 )

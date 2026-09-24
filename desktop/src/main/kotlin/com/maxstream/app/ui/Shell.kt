@@ -68,15 +68,19 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.maxstream.app.data.cloud.AppSession
 import com.maxstream.app.data.cloud.CloudSync
+import com.maxstream.app.data.cloud.ProfileStore
 import com.maxstream.app.data.model.PlayRequest
 import com.maxstream.app.data.repository.TmdbRepository
 import com.maxstream.app.ui.navigation.AppRoute
+import com.maxstream.app.ui.screens.AuthScreen
 import com.maxstream.app.ui.screens.DetailsScreen
 import com.maxstream.app.ui.screens.HomeScreen
 import com.maxstream.app.ui.screens.MoviesScreen
 import com.maxstream.app.ui.screens.PlayerScreen
+import com.maxstream.app.ui.screens.ProfileSelectScreen
 import com.maxstream.app.ui.screens.SeriesScreen
 import com.maxstream.app.ui.screens.SettingsScreen
+import com.maxstream.app.ui.screens.SplashScreen
 import com.maxstream.app.ui.screens.WatchlistScreen
 import com.maxstream.app.ui.theme.DesktopTheme
 
@@ -90,8 +94,17 @@ private val topLevels = listOf<AppRoute>(
     AppRoute.Settings,
 )
 
+private sealed interface AppPhase {
+    data object Splash : AppPhase
+    data object Auth : AppPhase
+    data object Profile : AppPhase
+    data object Main : AppPhase
+}
+
 @Composable
 fun Shell() {
+    // Launch phases: splash → auth (if needed) → profile pick → main shell.
+    var phase by remember { mutableStateOf<AppPhase>(AppPhase.Splash) }
     // Navigation history: last entry is the current route. Top-level sidebar
     // selections reset the stack; detail/player push so Back returns.
     var backStack by remember { mutableStateOf(listOf<AppRoute>(AppRoute.Home)) }
@@ -121,93 +134,149 @@ fun Shell() {
         }
     }
 
+    LaunchedEffect(phase) {
+        if (phase == AppPhase.Main && AppSession.isSignedIn) {
+            CloudSync.syncWatchHistory()
+        }
+    }
+
     DesktopTheme(useDarkTheme = useDark) {
-        // Escape / browser-style Back anywhere except the root screen.
-        Box(
-            Modifier
-                .fillMaxSize()
-                .onKeyEvent { event ->
-                    if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
-                    when (event.key) {
-                        Key.Escape -> {
-                            if (backStack.size > 1) { back(); true } else false
-                        }
-                        else -> false
-                    }
+        when (phase) {
+            AppPhase.Splash -> SplashScreen(
+                onDone = {
+                    phase = if (AppSession.isSignedIn) AppPhase.Profile else AppPhase.Auth
                 },
-        ) {
-            if (route is AppRoute.Player) {
-                val player = route as AppRoute.Player
-                PlayerScreen(
-                    request = player.request,
-                    repository = repository,
+            )
+            AppPhase.Auth -> AuthScreen(
+                onSuccess = { phase = AppPhase.Profile },
+            )
+            AppPhase.Profile -> ProfileSelectScreen(
+                onSelected = { phase = AppPhase.Main },
+            )
+            AppPhase.Main -> MainShell(
+                route = route,
+                backStack = backStack,
+                query = query,
+                darkOverride = darkOverride,
+                onPush = ::push,
+                onReplaceRoot = ::replaceRoot,
+                onBack = ::back,
+                onQueryChange = { query = it },
+                onThemeChange = { darkOverride = it },
+            )
+        }
+    }
+}
+
+@Composable
+private fun MainShell(
+    route: AppRoute,
+    backStack: List<AppRoute>,
+    query: String,
+    darkOverride: Boolean,
+    onPush: (AppRoute) -> Unit,
+    onReplaceRoot: (AppRoute) -> Unit,
+    onBack: () -> Unit,
+    onQueryChange: (String) -> Unit,
+    onThemeChange: (Boolean) -> Unit,
+) {
+    fun push(next: AppRoute) {
+        if (next != route) onPush(next)
+    }
+
+    fun replaceRoot(next: AppRoute) {
+        onReplaceRoot(next)
+    }
+
+    fun back() {
+        if (backStack.size > 1) onBack()
+    }
+
+    // Escape / browser-style Back anywhere except the root screen.
+    Box(
+        Modifier
+            .fillMaxSize()
+            .onKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                when (event.key) {
+                    Key.Escape -> {
+                        if (backStack.size > 1) { back(); true } else false
+                    }
+                    else -> false
+                }
+            },
+    ) {
+        if (route is AppRoute.Player) {
+            val player = route as AppRoute.Player
+            PlayerScreen(
+                request = player.request,
+                repository = repository,
+                onBack = { back() },
+            )
+            return@Box
+        }
+        Row(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
+            NavRail(
+                current = route,
+                onSelectRoot = { replaceRoot(it) },
+                useDarkTheme = darkOverride,
+                onToggleTheme = onThemeChange,
+            )
+            Column(Modifier.weight(1f).fillMaxHeight()) {
+                TitleBar(
+                    route = route,
+                    canGoBack = backStack.size > 1,
                     onBack = { back() },
+                    query = query,
+                    onQueryChange = onQueryChange,
                 )
-                return@Box
-            }
-            Row(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
-                NavRail(
-                    current = route,
-                    onSelectRoot = { replaceRoot(it) },
-                    useDarkTheme = useDark,
-                    onToggleTheme = { darkOverride = it },
-                )
-                Column(Modifier.weight(1f).fillMaxHeight()) {
-                    TitleBar(
-                        route = route,
-                        canGoBack = backStack.size > 1,
-                        onBack = { back() },
-                        query = query,
-                        onQueryChange = { query = it },
-                    )
-                    Spacer(Modifier.height(1.dp).fillMaxWidth().background(MaterialTheme.colorScheme.outlineVariant))
-                    AnimatedContent(
-                        targetState = route,
-                        transitionSpec = { fadeIn() togetherWith fadeOut() },
-                        label = "routeContent",
-                        modifier = Modifier.weight(1f).fillMaxWidth(),
-                    ) { target ->
-                        when (target) {
-                            is AppRoute.Home -> HomeScreen(
-                                repository = repository,
-                                query = query,
-                                onOpen = { push(AppRoute.Detail(it.id, it.mediaType, it.id)) },
-                                onPlay = { m ->
-                                    push(AppRoute.Player(PlayRequest(m.id, m.mediaType, m.title)))
-                                },
-                                onSeeAllMovies = { section -> push(AppRoute.Movies(section)) },
-                                onSeeAllSeries = { section -> push(AppRoute.Series(section)) },
-                            )
-                            is AppRoute.Movies -> MoviesScreen(
-                                repository = repository,
-                                initialSection = target.initialSection,
-                                onOpen = { push(AppRoute.Detail(it.id, it.mediaType, it.id)) },
-                            )
-                            is AppRoute.Series -> SeriesScreen(
-                                repository = repository,
-                                initialSection = target.initialSection,
-                                onOpen = { push(AppRoute.Detail(it.id, it.mediaType, it.id)) },
-                            )
-                            is AppRoute.Watchlist -> WatchlistScreen(
-                                repository = repository,
-                                isSignedIn = AppSession.isSignedIn,
-                                onOpen = { push(AppRoute.Detail(it.id, it.mediaType, it.id)) },
-                            )
-                            is AppRoute.Settings -> SettingsScreen(
-                                useDarkTheme = useDark,
-                                onThemeChange = { darkOverride = it },
-                            )
-                            is AppRoute.Detail -> DetailsScreen(
-                                itemId = target.itemId,
-                                mediaType = target.mediaType,
-                                repository = repository,
-                                onBack = { back() },
-                                onPlay = { req: PlayRequest ->
-                                    push(AppRoute.Player(req))
-                                },
-                            )
-                            is AppRoute.Player -> Unit
-                        }
+                Spacer(Modifier.height(1.dp).fillMaxWidth().background(MaterialTheme.colorScheme.outlineVariant))
+                AnimatedContent(
+                    targetState = route,
+                    transitionSpec = { fadeIn() togetherWith fadeOut() },
+                    label = "routeContent",
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                ) { target ->
+                    when (target) {
+                        is AppRoute.Home -> HomeScreen(
+                            repository = repository,
+                            query = query,
+                            onOpen = { push(AppRoute.Detail(it.id, it.mediaType, it.id)) },
+                            onPlay = { m ->
+                                push(AppRoute.Player(PlayRequest(m.id, m.mediaType, m.title)))
+                            },
+                            onSeeAllMovies = { section -> push(AppRoute.Movies(section)) },
+                            onSeeAllSeries = { section -> push(AppRoute.Series(section)) },
+                        )
+                        is AppRoute.Movies -> MoviesScreen(
+                            repository = repository,
+                            initialSection = target.initialSection,
+                            onOpen = { push(AppRoute.Detail(it.id, it.mediaType, it.id)) },
+                        )
+                        is AppRoute.Series -> SeriesScreen(
+                            repository = repository,
+                            initialSection = target.initialSection,
+                            onOpen = { push(AppRoute.Detail(it.id, it.mediaType, it.id)) },
+                        )
+                        is AppRoute.Watchlist -> WatchlistScreen(
+                            repository = repository,
+                            isSignedIn = AppSession.isSignedIn,
+                            onOpen = { push(AppRoute.Detail(it.id, it.mediaType, it.id)) },
+                        )
+                        is AppRoute.Settings -> SettingsScreen(
+                            useDarkTheme = darkOverride,
+                            onThemeChange = onThemeChange,
+                        )
+                        is AppRoute.Detail -> DetailsScreen(
+                            itemId = target.itemId,
+                            mediaType = target.mediaType,
+                            repository = repository,
+                            onBack = { back() },
+                            onPlay = { req: PlayRequest ->
+                                push(AppRoute.Player(req))
+                            },
+                        )
+                        is AppRoute.Player -> Unit
                     }
                 }
             }
@@ -255,9 +324,10 @@ private fun NavRail(
         is AppRoute.Detail -> AppRoute.Home
         else -> current
     }
-    val user = AppSession.user
+val profile = ProfileStore.activeProfile
+        val user = AppSession.user
 
-    Column(
+        Column(
         Modifier
             .width(railWidth)
             .fillMaxHeight()
@@ -370,14 +440,16 @@ private fun NavRail(
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
                     Text(
-                        if (user != null) "You" else "Guest",
+                        profile?.name ?: if (user != null) "You" else "Guest",
                         fontSize = 13.sp,
                         color = MaterialTheme.colorScheme.onSurface,
                         fontWeight = FontWeight.Medium,
                         maxLines = 1,
                     )
                     Text(
-                        if (user != null) user.email else "Not signed in",
+                        profile?.name?.let { name ->
+                            if (user != null) user.email else name
+                        } ?: if (user != null) user.email else "Not signed in",
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,

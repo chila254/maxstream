@@ -25,8 +25,12 @@ object AppConfig {
     const val FIREBASE_TOKEN_BASE = "https://securetoken.googleapis.com/v1/token"
     const val FIREBASE_RTDB_URL = "https://maxstream-8effc-default-rtdb.firebaseio.com"
 
-    fun imageUrl(size: String, path: String?): String? =
-        path?.takeIf { it.isNotBlank() }?.let { "${TMDB_IMAGE_BASE_URL}/$size$it" }
+    fun imageUrl(size: String, path: String?): String? {
+        val p = path?.takeIf { it.isNotBlank() } ?: return null
+        if (p.startsWith("http://") || p.startsWith("https://")) return p
+        return if (p.startsWith("/")) "${TMDB_IMAGE_BASE_URL}/$size$p"
+        else "${TMDB_IMAGE_BASE_URL}/$size/$p"
+    }
 
     fun posterUrl(path: String?) = imageUrl(TMDB_POSTER_SIZE, path)
     fun backdropUrl(path: String?) = imageUrl(TMDB_BACKDROP_SIZE, path)

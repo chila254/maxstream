@@ -23,6 +23,8 @@ object WatchStateStore {
         val title: String = "",
         val posterPath: String? = null,
         val backdropPath: String? = null,
+        val year: Int? = null,
+        val rating: Double = 0.0,
     ) {
         val progress: Float
             get() = if (lengthMs > 0L) (positionMs.toFloat() / lengthMs).coerceIn(0f, 1f) else 0f
@@ -90,6 +92,8 @@ object WatchStateStore {
                         title = o.optString("title", ""),
                         posterPath = o.optString("posterPath").ifBlank { null },
                         backdropPath = o.optString("backdropPath").ifBlank { null },
+                        year = o.optInt("year", 0).takeIf { it > 0 },
+                        rating = o.optDouble("rating", 0.0),
                     )
                 }
             }
@@ -115,7 +119,9 @@ object WatchStateStore {
                         .put("updatedAt", it.updatedAt)
                         .put("title", it.title)
                         .put("posterPath", it.posterPath ?: "")
-                        .put("backdropPath", it.backdropPath ?: ""),
+                        .put("backdropPath", it.backdropPath ?: "")
+                        .put("year", it.year ?: 0)
+                        .put("rating", it.rating),
                 )
             }
             Files.createDirectories(file().parent)

@@ -139,6 +139,7 @@ fun HomeScreen(
                 onOpen = { onOpen(it) },
                 showProgress = true,
             )
+            Spacer(Modifier.height(6.dp))
         }
 
         sections.forEach { section ->
@@ -197,14 +198,14 @@ fun MediaBrowserGrid(
     ScrollableGrid(state = gridState) {
         LazyVerticalGrid(
             state = gridState,
-            columns = GridCells.Adaptive(190.dp),
+            columns = GridCells.Adaptive(148.dp),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
             modifier = Modifier.fillMaxSize(),
         ) {
             items(items, key = { it.id }) { item ->
-                PosterCard(item, width = 190.dp, onClick = { onOpen(item) })
+                PosterCard(item, width = 148.dp, onClick = { onOpen(item) })
             }
             if (loading) {
                 item(key = "loading", span = { GridItemSpan(maxLineSpan) }) {
@@ -231,7 +232,7 @@ fun MediaRow(
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         items(items, key = { it.id }) { item ->
-            PosterCard(item, width = 160.dp, onClick = { onOpen(item) })
+            PosterCard(item, width = 132.dp, onClick = { onOpen(item) })
         }
     }
 }

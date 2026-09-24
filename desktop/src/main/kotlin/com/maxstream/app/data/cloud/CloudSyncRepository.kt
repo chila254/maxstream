@@ -21,7 +21,6 @@ import java.util.concurrent.TimeUnit
  */
 object CloudSync {
 
-    private const val PROFILE = "default"
     private val jsonType = "application/json; charset=utf-8".toMediaType()
 
     private val http = OkHttpClient.Builder()
@@ -45,8 +44,8 @@ object CloudSync {
                 overview = o.optString("overview"),
                 year = o.optInt("year", 0).takeIf { it > 0 },
                 rating = o.optDouble("rating", 0.0),
-                posterPath = o.optString("posterPath").ifBlank { null },
-                backdropPath = o.optString("backdropPath").ifBlank { null },
+                posterPath = o.optString("posterUrl").ifBlank { o.optString("posterPath") }.ifBlank { null },
+                backdropPath = o.optString("backdropUrl").ifBlank { o.optString("backdropPath") }.ifBlank { null },
             )
         }
         out
@@ -105,6 +104,8 @@ object CloudSync {
                     .put("title", s.title)
                     .put("posterPath", s.posterPath ?: "")
                     .put("backdropPath", s.backdropPath ?: "")
+                    .put("year", s.year ?: 0)
+                    .put("rating", s.rating)
                     .put("updatedAt", s.updatedAt),
                 token,
             )
@@ -126,8 +127,10 @@ object CloudSync {
                 lengthMs = o.optLong("lengthMs", 0L),
                 updatedAt = o.optLong("updatedAt", System.currentTimeMillis()),
                 title = o.optString("title"),
-                posterPath = o.optString("posterPath").ifBlank { null },
-                backdropPath = o.optString("backdropPath").ifBlank { null },
+                posterPath = o.optString("posterUrl").ifBlank { o.optString("posterPath") }.ifBlank { null },
+                backdropPath = o.optString("backdropUrl").ifBlank { o.optString("backdropPath") }.ifBlank { null },
+                year = o.optInt("year", 0).takeIf { it > 0 },
+                rating = o.optDouble("rating", 0.0),
             )
         }
         WatchStateStore.mergeIncoming(states)
@@ -154,7 +157,10 @@ object CloudSync {
         }
     }
 
-    private fun rtdbBase(uid: String) = "${AppConfig.FIREBASE_RTDB_URL}/users/$uid/profiles/$PROFILE"
+    private fun rtdbBase(uid: String): String {
+    val profile = ProfileStore.activeProfileId ?: "default"
+    return "${AppConfig.FIREBASE_RTDB_URL}/users/$uid/profiles/$profile"
+}
 
     private fun get(url: String, token: String): JSONObject? {
         val request = Request.Builder()
