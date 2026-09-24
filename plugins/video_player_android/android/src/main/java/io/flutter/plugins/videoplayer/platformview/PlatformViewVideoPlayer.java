@@ -9,6 +9,7 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 import androidx.media3.common.MediaItem;
+import androidx.media3.exoplayer.DefaultLoadControl;
 import androidx.media3.exoplayer.DefaultRenderersFactory;
 import androidx.media3.exoplayer.ExoPlayer;
 import io.flutter.plugins.videoplayer.ExoPlayerEventListener;
@@ -54,13 +55,13 @@ public class PlatformViewVideoPlayer extends VideoPlayer {
         () -> {
           DefaultRenderersFactory renderersFactory =
               new DefaultRenderersFactory(context).setEnableDecoderFallback(true);
+          DefaultLoadControl loadControl = new DefaultLoadControl.Builder()
+              .setBufferDurationsMs(15000, 50000, 2000, 5000)
+              .build();
           ExoPlayer.Builder builder =
               new ExoPlayer.Builder(context, renderersFactory)
                   .setMediaSourceFactory(asset.getMediaSourceFactory(context))
-                  // Tune buffer durations for smoother HLS streaming.
-                  .setMinBufferMs(15000)
-                  .setMaxBufferMs(50000)
-                  .setBufferDurationsMs(15000, 50000, 2000, 5000);
+                  .setLoadControl(loadControl);
           return builder.build();
         });
   }
