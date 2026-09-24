@@ -66,10 +66,10 @@ object AppSession {
     }
 
     suspend fun signIn(email: String, password: String): Result<FirebaseUser> =
-        authRequest("accounts:signInWithPassword", email, password)
+        authRequest("signInWithPassword", email, password)
 
     suspend fun signUp(email: String, password: String): Result<FirebaseUser> =
-        authRequest("accounts:signUp", email, password)
+        authRequest("signUp", email, password)
 
     suspend fun signOut() {
         user = null
@@ -88,12 +88,14 @@ object AppSession {
                 val body = JSONObject()
                     .put("grant_type", "refresh_token")
                     .put("refresh_token", u.refreshToken)
-                val res = post(AppConfig.FIREBASE_TOKEN_BASE, body)
-                if (res.code / 100 == 2) {
-                    JSONObject(res.body?.string().orEmpty())
-                } else {
-                    throw IllegalStateException("token refresh ${res.code}")
+                val res = post(AppConfig.FIREBASE_TOKEN_BASE, body).use { r ->
+                    r.code to (r.body?.string().orEmpty())
                 }
+                val (code, text) = res
+                if (code / 100 != 2) {
+                    throw IllegalStateException(firebaseErrorMessage(code, text, "Token refresh failed"))
+                }
+                parseJsonObject(text, code, "Token refresh failed")
             }.getOrNull()?.let { json ->
                 val now = System.currentTimeMillis()
                 val renewed = u.copy(
@@ -108,7 +110,11 @@ object AppSession {
         }
     }
 
-    private suspend fun authRequest(endpoint: String, email: String, password: String): Result<FirebaseUser> =
+    /**
+     * Firebase Auth REST: POST {AUTH_BASE}:{action} — e.g.
+     * .../v1/accounts:signInWithPassword (same as the TV AuthRepository).
+     */
+    private suspend fun authRequest(action: String, email: String, password: String): Result<FirebaseUser> =
         withContext(Dispatchers.IO) {
             runCatching {
                 if (email.isBlank() || password.length < 6) {
@@ -118,34 +124,94 @@ object AppSession {
                     .put("email", email.trim())
                     .put("password", password)
                     .put("returnSecureToken", true)
-                val url = "${AppConfig.FIREBASE_AUTH_BASE}/$endpoint?key=${AppConfig.FIREBASE_WEB_API_KEY}"
-                val res = post(url, body)
-                val text = res.body?.string().orEmpty()
-                if (res.code / 100 != 2) {
-                    val msg = JSONObject(text).optString("error").let { err ->
-                        try {
-                            JSONObject(err.toString()).optString("message", "Sign-in failed.")
-                        } catch (_: Exception) {
-                            "Sign-in failed (${res.code})."
-                        }
-                    }
-                    throw IllegalArgumentException(msg)
+                val url = "${AppConfig.FIREBASE_AUTH_BASE}:$action?key=${AppConfig.FIREBASE_WEB_API_KEY}"
+                val (code, text) = post(url, body).use { r ->
+                    r.code to (r.body?.string().orEmpty())
                 }
-                val json = JSONObject(text)
+                val json = if (code / 100 == 2) {
+                    parseJsonObject(text, code, "Sign-in failed")
+                } else {
+                    throw IllegalArgumentException(firebaseErrorMessage(code, text, "Sign-in failed"))
+                }
+                val localId = json.optString("localId")
+                val idToken = json.optString("idToken")
+                val refreshToken = json.optString("refreshToken")
+                if (localId.isBlank() || idToken.isBlank()) {
+                    throw IllegalArgumentException("Sign-in failed: the server did not return a session.")
+                }
                 val now = System.currentTimeMillis()
                 val u = FirebaseUser(
-                    localId = json.optString("localId"),
-                    email = json.optString("email"),
+                    localId = localId,
+                    email = json.optString("email").ifBlank { email.trim() },
                     displayName = json.optString("displayName").ifBlank { null },
-                    idToken = json.optString("idToken"),
-                    refreshToken = json.optString("refreshToken"),
+                    idToken = idToken,
+                    refreshToken = refreshToken,
                     expiresAt = now + json.optLong("expiresIn", 3600L) * 1000L,
                 )
                 user = u
                 persist(u)
                 u
+            }.onFailure { e ->
+                // Never surface raw org.json parse failures to the UI.
+                if (e is org.json.JSONException) {
+                    throw IllegalArgumentException(
+                        e.message
+                            ?.takeIf { it.startsWith("A JSON") }
+                            ?.let { "Could not read the sign-in response. Check your connection and try again." }
+                            ?: "Sign-in failed. Check your connection and try again.",
+                    )
+                }
             }
         }
+
+    /** Strips BOM/whitespace and parses a JSON object, or throws a friendly error. */
+    private fun parseJsonObject(raw: String, code: Int, fallback: String): JSONObject {
+        val text = raw
+            .removePrefix("﻿")
+            .trim()
+            .removePrefix("<!DOCTYPE")
+            .removePrefix("<html")
+        if (text.isEmpty() || !text.startsWith("{")) {
+            throw IllegalArgumentException(
+                if (code / 100 == 2) "$fallback. Check your connection and try again."
+                else "$fallback (HTTP $code).",
+            )
+        }
+        return try {
+            JSONObject(text)
+        } catch (e: org.json.JSONException) {
+            throw IllegalArgumentException("$fallback. Check your connection and try again.")
+        }
+    }
+
+    /** Maps Firebase Auth REST error payloads to human-readable messages. */
+    private fun firebaseErrorMessage(code: Int, text: String, fallback: String): String {
+        val message = runCatching {
+            JSONObject(text.removePrefix("﻿").trim())
+                .optJSONObject("error")
+                ?.optString("message")
+                .orEmpty()
+        }.getOrDefault("")
+        if (message.isBlank()) {
+            return if (code == 404) "$fallback: service unavailable (HTTP 404)."
+            else "$fallback (HTTP $code)."
+        }
+        return when {
+            message.contains("EMAIL_NOT_FOUND") ||
+                message.contains("INVALID_LOGIN_CREDENTIALS") ||
+                message.contains("INVALID_PASSWORD") ||
+                message.contains("INVALID_IDP_RESPONSE") -> "Incorrect email or password"
+            message.contains("EMAIL_EXISTS") -> "An account already exists with this email"
+            message.contains("WEAK_PASSWORD") -> "Password is too weak (min 6 characters)"
+            message.contains("INVALID_EMAIL") || message.contains("MISSING_EMAIL") -> "Enter a valid email address"
+            message.contains("MISSING_PASSWORD") -> "Enter your password"
+            message.contains("USER_DISABLED") -> "This account has been disabled"
+            message.contains("TOO_MANY_ATTEMPTS_TRY_LATER") -> "Too many attempts. Try again later"
+            message.contains("OPERATION_NOT_ALLOWED") -> "Email/password sign-in is disabled for this project"
+            message.contains("API_KEY_INVALID") -> "Invalid Firebase API key. Contact support."
+            else -> message
+        }
+    }
 
     private fun post(url: String, body: JSONObject): okhttp3.Response {
         val request = Request.Builder()

@@ -190,14 +190,22 @@ fun AuthScreen(onSuccess: () -> Unit) {
                             busy = true
                             error = null
                             scope.launch {
-                                val result = if (mode == 0) {
-                                    AppSession.signIn(email, password)
-                                } else {
-                                    AppSession.signUp(email, password)
+                                val result = try {
+                                    if (mode == 0) {
+                                        AppSession.signIn(email, password)
+                                    } else {
+                                        AppSession.signUp(email, password)
+                                    }
+                                } catch (e: Exception) {
+                                    Result.failure(e)
                                 }
-                                result.onFailure { error = it.message ?: "Authentication failed." }
-                                if (result.isSuccess) onSuccess()
+                                result.onFailure { e ->
+                                    error = e.message
+                                        ?.takeIf { !it.startsWith("A JSON") && !it.contains("character") }
+                                        ?: "Could not reach MaxStream. Check your connection and try again."
+                                }
                                 busy = false
+                                if (result.isSuccess) onSuccess()
                             }
                         },
                         shape = RoundedCornerShape(10.dp),
