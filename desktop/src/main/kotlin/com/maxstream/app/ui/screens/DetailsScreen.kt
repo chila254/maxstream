@@ -416,53 +416,104 @@ fun DetailsScreen(
                     )
                 } else {
                     episodes.sortedBy { it.number }.forEach { ep ->
+                        val stillUrl = AppConfig.imageUrl("w300", ep.stillPath)
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 20.dp, vertical = 8.dp)
-                                .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(10.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
                                 .clickable {
                                     onPlay(PlayRequest(item.id, item.mediaType, item.title, seasonNumber, ep.number))
                                 }
-                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
                         ) {
-                            Text(
-                                "E${ep.number}",
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp,
-                                modifier = Modifier.width(40.dp),
-                            )
-                            Column(Modifier.width(240.dp)) {
+                            // 16:9 still — larger card so episodes read as real content.
+                            Box(
+                                Modifier
+                                    .width(196.dp)
+                                    .height(110.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(posterBrush(item)),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                if (stillUrl != null) {
+                                    AsyncImage(
+                                        model = stillUrl,
+                                        contentDescription = ep.title,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize(),
+                                    )
+                                } else {
+                                    Icon(
+                                        Icons.Default.PlayArrow,
+                                        null,
+                                        tint = Color.White.copy(alpha = 0.85f),
+                                        modifier = Modifier.size(36.dp),
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.width(16.dp))
+                            Column(Modifier.weight(1f)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        "E${ep.number}",
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 15.sp,
+                                    )
+                                    if (ep.runtimeMinutes != null) {
+                                        Spacer(Modifier.width(10.dp))
+                                        Text(
+                                            "${ep.runtimeMinutes} min",
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            fontSize = 12.sp,
+                                        )
+                                    }
+                                    if (!ep.airDate.isNullOrBlank()) {
+                                        Spacer(Modifier.width(10.dp))
+                                        Text(
+                                            ep.airDate,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            fontSize = 12.sp,
+                                        )
+                                    }
+                                }
+                                Spacer(Modifier.height(4.dp))
                                 Text(
                                     ep.title,
                                     color = MaterialTheme.colorScheme.onSurface,
-                                    fontWeight = FontWeight.Medium,
-                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 16.sp,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
-                                Text(
-                                    "${ep.overview}",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    fontSize = 12.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
+                                if (ep.overview.isNotBlank()) {
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(
+                                        ep.overview,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontSize = 13.sp,
+                                        lineHeight = 18.sp,
+                                        maxLines = 3,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Box(
+                                Modifier
+                                    .size(48.dp)
+                                    .background(MaterialTheme.colorScheme.primary, CircleShape),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    Icons.Default.PlayArrow,
+                                    null,
+                                    tint = MaterialTheme.colorScheme.onPrimary,
+                                    modifier = Modifier.size(28.dp),
                                 )
                             }
-                            Spacer(Modifier.weight(1f))
-                            Text(
-                                ep.overview.ifBlank { "" }.takeIf { it.isNotEmpty() } ?: "Play episode",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 12.sp,
-                            )
-                            Icon(
-                                Icons.Default.PlayArrow,
-                                null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(start = 8.dp),
-                            )
                         }
                     }
                 }

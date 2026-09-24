@@ -37,6 +37,18 @@ class PlayerController(remembered: EmbeddedMediaPlayerComponent = EmbeddedMediaP
         runCatching { component.mediaPlayer().subpictures().setSubTitleFile(java.io.File(path)) }
     }
 
+    /** Turns subtitles off by selecting the "Disabled" SPU track (id -1 / description). */
+    fun disableSubtitles() {
+        runCatching {
+            val api = component.mediaPlayer().subpictures()
+            val disabled = api.trackDescriptions().firstOrNull { t ->
+                t.description()?.equals("Disabled", ignoreCase = true) == true ||
+                    t.description()?.equals("Disable", ignoreCase = true) == true
+            }
+            api.setTrack(disabled?.id() ?: -1)
+        }
+    }
+
     fun togglePlayPause() {
         if (isPlaying) pause() else playControl()
     }

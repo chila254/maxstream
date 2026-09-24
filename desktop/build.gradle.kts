@@ -159,6 +159,9 @@ compose.desktop {
                 shortcut = true
                 menuGroup = "MaxStream"
                 upgradeUuid = "d07b3db8-2e2a-4a27-8e0f-1f0dc37f1f4c"
+                // App icon shown for the installed exe / taskbar / Start Menu
+                // (app_icon.png = M mark only; maxstream_logo.png is the wordmark).
+                iconFile.set(layout.projectDirectory.file("icon.ico"))
             }
         }
     }

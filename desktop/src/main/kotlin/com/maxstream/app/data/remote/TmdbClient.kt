@@ -205,12 +205,16 @@ class TmdbClient {
 
     fun parseEpisode(o: JSONObject, seriesId: String, season: Int): Episode {
         val num = o.optInt("episode_number", 0)
+        val runtime = o.optInt("runtime", 0).takeIf { it > 0 }
         return Episode(
             id = "$seriesId-$season-$num",
             season = season,
             number = num,
             title = o.optString("name").ifBlank { "Episode $num" },
             overview = o.optString("overview"),
+            stillPath = o.optString("still_path").ifBlank { null },
+            runtimeMinutes = runtime,
+            airDate = o.optString("air_date").ifBlank { null },
         )
     }
 

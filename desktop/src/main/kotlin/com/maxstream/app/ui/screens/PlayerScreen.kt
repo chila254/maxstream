@@ -143,7 +143,9 @@ fun PlayerScreen(
     LaunchedEffect(request.itemId, request.season, request.episode) {
         loading = true
         error = null
+        controlsVisible = true
         resumeApplied = false
+        // Spinner for at least a beat so the UI doesn't flash past empty.
         val parsed = withContext(Dispatchers.IO) {
             parseStreams(
                 StreamResolver.resolveAll(
@@ -156,11 +158,14 @@ fun PlayerScreen(
             )
         }
         streams = parsed
-        loading = false
         if (parsed.isEmpty()) {
+            loading = false
             error = "No playable source could be resolved for this title."
         } else {
             playStream(0)
+            // Keep the overlay until VLC has had a moment to open the media.
+            delay(600)
+            loading = false
         }
     }
 
@@ -188,9 +193,11 @@ fun PlayerScreen(
         }
     }
 
-    // ── Auto-hide the controls while playing ────────────────────────────────
-    LaunchedEffect(controlsVisible, playing) {
-        if (controlsVisible) delay(3500)
+    // ── Auto-hide the controls while playing (keep them up while loading) ──
+    LaunchedEffect(controlsVisible, playing, loading) {
+        if (!controlsVisible) return@LaunchedEffect
+        if (loading) return@LaunchedEffect
+        delay(3500)
         controlsVisible = false
     }
 
@@ -307,24 +314,45 @@ fun PlayerScreen(
                 ) {
                     PlayerMenu(
                         icon = Icons.Default.Dns,
-                        label = "Server",
-                        enabled = streams.size > 1,
+                        label = if (streams.size > 1) "Server (${selectedIndex + 1}/${streams.size})" else "Server",
+                        enabled = streams.isNotEmpty(),
                     ) {
+                        if (streams.isEmpty()) {
+                            DropdownMenuItem(
+                                text = { Text("Resolving…", color = Color.White.copy(alpha = 0.6f)) },
+                                onClick = {},
+                            )
+                        }
                         streams.forEachIndexed { index, stream ->
                             DropdownMenuItem(
-                                text = { Text(stream.server, color = Color.White) },
+                                text = {
+                                    Text(
+                                        buildString {
+                                            append(stream.server)
+                                            if (index == selectedIndex) append("  ✓")
+                                        },
+                                        color = Color.White,
+                                    )
+                                },
                                 onClick = { playStream(index) },
                             )
                         }
                     }
 
                     val currentStream = streams.getOrNull(selectedIndex)
+                    val qualities = currentStream?.qualityMatch().orEmpty()
                     PlayerMenu(
                         icon = Icons.Default.HighQuality,
-                        label = "Quality",
-                        enabled = currentStream?.qualityMatch()?.isNotEmpty() == true,
+                        label = if (qualities.size > 1) "Quality (${qualities.size})" else "Quality",
+                        enabled = qualities.isNotEmpty(),
                     ) {
-                        currentStream?.qualityMatch()?.forEach { q ->
+                        if (qualities.isEmpty()) {
+                            DropdownMenuItem(
+                                text = { Text("Default stream", color = Color.White.copy(alpha = 0.6f)) },
+                                onClick = {},
+                            )
+                        }
+                        qualities.forEach { q ->
                             DropdownMenuItem(
                                 text = { Text(q.label.ifBlank { "${q.height}p" }, color = Color.White) },
                                 onClick = { selectQuality(q) },
@@ -332,16 +360,17 @@ fun PlayerScreen(
                         }
                     }
 
+                    val subs = currentStream?.subtitles.orEmpty()
                     PlayerMenu(
                         icon = Icons.Default.ClosedCaption,
-                        label = "Subtitles",
-                        enabled = currentStream?.subtitles?.isNotEmpty() == true,
+                        label = if (subs.isNotEmpty()) "Subtitles (${subs.size})" else "Subtitles",
+                        enabled = true,
                     ) {
                         DropdownMenuItem(
                             text = { Text("Off", color = Color.White) },
-                            onClick = { },
+                            onClick = { controller.disableSubtitles() },
                         )
-                        currentStream?.subtitles?.forEach { sub ->
+                        subs.forEach { sub ->
                             DropdownMenuItem(
                                 text = { Text(sub.label, color = Color.White) },
                                 onClick = {
@@ -350,6 +379,12 @@ fun PlayerScreen(
                                         if (f != null) controller.setSubtitleFile(f)
                                     }
                                 },
+                            )
+                        }
+                        if (subs.isEmpty()) {
+                            DropdownMenuItem(
+                                text = { Text("No tracks for this source", color = Color.White.copy(alpha = 0.55f)) },
+                                onClick = {},
                             )
                         }
                     }
@@ -375,8 +410,28 @@ fun PlayerScreen(
 
         // ── Loading / error overlays ───────────────────────────────────────
         if (loading) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = Color.White)
+            Box(
+                Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator(color = Color.White, strokeWidth = 3.dp)
+                    Spacer(Modifier.height(16.dp))
+                    Text(
+                        "Finding streams…",
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        request.title,
+                        color = Color.White.copy(alpha = 0.7f),
+                        fontSize = 13.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
         if (error != null) {
