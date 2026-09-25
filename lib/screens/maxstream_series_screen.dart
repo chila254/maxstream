@@ -7,6 +7,8 @@ import '../models/series.dart';
 import '../services/media_download_manager.dart';
 import '../services/direct_m3u8_service.dart';
 import '../services/miniplayer_service.dart';
+import '../services/server_list_loader.dart';
+import '../services/stream_audio_helper.dart';
 import '../services/tmdb_api_service.dart';
 import '../services/watch_history_service.dart';
 import '../database/db_helper.dart';
@@ -178,6 +180,17 @@ class _MaxStreamSeriesScreenState extends State<MaxStreamSeriesScreen> {
           isLoadingEpisodes = false;
         });
         _refreshDownloadedStatus();
+        // Warm the server list for the first episode so its download picker
+        // opens instantly.
+        if (episodes.isNotEmpty) {
+          DirectM3u8Service.prefetchAvailableStreams(
+            title: widget.seriesItem.title,
+            tmdbId: widget.seriesItem.id,
+            isMovie: false,
+            season: seasonNumber,
+            episode: episodes.first.episodeNumber,
+          );
+        }
       }
     } catch (e) {
       // Error loading episodes
@@ -1601,10 +1614,13 @@ class _EpisodeQualitySheet extends StatefulWidget {
 
 class _EpisodeQualitySheetState extends State<_EpisodeQualitySheet> {
   bool _loadingStreams = true;
+  bool _refreshing = false;
+  int _resolveGeneration = 0;
   List<Map<String, dynamic>> _availableStreams = [];
   String? _error;
   int? _selectedServerIndex;
   int? _selectedQualityIndex;
+  int? _selectedAudioIndex;
 
   @override
   void initState() {
@@ -1613,33 +1629,58 @@ class _EpisodeQualitySheetState extends State<_EpisodeQualitySheet> {
   }
 
   Future<void> _fetchAvailableStreams() async {
-    try {
-      final streams = await DirectM3u8Service.fetchAvailableStreams(
-        title: widget.title,
-        tmdbId: widget.tmdbId,
-        isMovie: false,
-        season: widget.season,
-        episode: widget.episode,
-      );
-      final available = streams
-          .where((stream) => (stream['url']?.toString() ?? '').isNotEmpty)
-          .toList();
-      if (mounted) {
+    final generation = ++_resolveGeneration;
+    await ServerListLoader.load(
+      title: widget.title,
+      tmdbId: widget.tmdbId,
+      isMovie: false,
+      season: widget.season,
+      episode: widget.episode,
+      isCurrent: () => mounted && generation == _resolveGeneration,
+      onUpdate: (available, loading, refreshing, error) {
+        if (!mounted || generation != _resolveGeneration) return;
         setState(() {
-          _availableStreams = available;
-          _loadingStreams = false;
-          if (available.isNotEmpty) _selectedServerIndex = 0;
+          if (available.isNotEmpty || _availableStreams.isEmpty) {
+            _availableStreams = available;
+            if (available.isNotEmpty && _selectedServerIndex == null) {
+              _selectedServerIndex ??= 0;
+            }
+            _clampSelection();
+          }
+          _loadingStreams = loading;
+          _refreshing = refreshing;
+          if (error != null && _availableStreams.isEmpty) {
+            _error = error.toString();
+          }
         });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _error = e.toString();
-          _loadingStreams = false;
-        });
-      }
+      },
+    );
+  }
+
+  void _clampSelection() {
+    if (_selectedServerIndex != null &&
+        _selectedServerIndex! >= _availableStreams.length) {
+      _selectedServerIndex = _availableStreams.isEmpty ? null : 0;
+      _selectedQualityIndex = null;
+      _selectedAudioIndex = null;
     }
   }
+
+  List<Map<String, dynamic>> get _selectedAudioTracks {
+    if (_selectedServerIndex == null ||
+        _selectedServerIndex! >= _availableStreams.length) {
+      return const [];
+    }
+    return StreamAudioHelper.tracksOf(
+      _availableStreams[_selectedServerIndex!],
+    );
+  }
+
+  Map<String, dynamic>? get _selectedAudio =>
+      _selectedAudioIndex == null ||
+              _selectedAudioIndex! >= _selectedAudioTracks.length
+          ? null
+          : _selectedAudioTracks[_selectedAudioIndex!];
 
   Map<String, dynamic>? get _selectedStream {
     if (_selectedServerIndex == null) return null;
@@ -1649,7 +1690,31 @@ class _EpisodeQualitySheetState extends State<_EpisodeQualitySheet> {
     final isM3u8 =
         server['type'] == 'direct_m3u8' ||
         serverUrl.toLowerCase().contains('.m3u8');
+    final audio = _selectedAudio;
     final qualities = server['qualities'];
+    Map<String, dynamic> base({
+      required String url,
+      required String label,
+      int? maxVariantHeight,
+    }) =>
+        {
+          'url': url,
+          'source': server['source']?.toString() ?? 'Server',
+          'headers': server['headers'],
+          'referer': server['referer']?.toString(),
+          'type': server['type']?.toString() ?? '',
+          'subtitles': server['subtitles'],
+          'audioTracks': server['audioTracks'],
+          'label': label,
+          if (maxVariantHeight != null) 'maxVariantHeight': maxVariantHeight,
+          if (audio != null) ...{
+            'preferredAudioLanguage':
+                StreamAudioHelper.languageOf(audio).isNotEmpty
+                ? StreamAudioHelper.languageOf(audio)
+                : StreamAudioHelper.labelOf(audio),
+            'preferredAudioLabel': StreamAudioHelper.displayName(audio),
+          },
+        };
     if (qualities is List && qualities.isNotEmpty) {
       final idx = _selectedQualityIndex ?? 0;
       if (idx < qualities.length) {
@@ -1662,36 +1727,19 @@ class _EpisodeQualitySheetState extends State<_EpisodeQualitySheet> {
         // Download from the server master with a height ceiling so the audio
         // and subtitle renditions (EXT-X-MEDIA) are included in the file.
         if (isM3u8 && height > 0) {
-          return {
-            'url': serverUrl,
-            'source': server['source']?.toString() ?? 'Server',
-            'headers': server['headers'],
-            'referer': server['referer']?.toString(),
-            'type': server['type']?.toString() ?? '',
-            'subtitles': server['subtitles'],
-            'label': q['label']?.toString() ?? 'Auto',
-            'maxVariantHeight': height,
-          };
+          return base(
+            url: serverUrl,
+            label: q['label']?.toString() ?? 'Auto',
+            maxVariantHeight: height,
+          );
         }
-        return {
-          'url': qUrl.isNotEmpty ? qUrl : serverUrl,
-          'source': server['source']?.toString() ?? 'Server',
-          'headers': server['headers'],
-          'referer': server['referer']?.toString(),
-          'type': server['type']?.toString() ?? '',
-          'subtitles': server['subtitles'],
-          'label': q['label']?.toString() ?? 'Auto',
-        };
+        return base(
+          url: qUrl.isNotEmpty ? qUrl : serverUrl,
+          label: q['label']?.toString() ?? 'Auto',
+        );
       }
     }
-    return {
-      'url': serverUrl,
-      'source': server['source']?.toString() ?? 'Server',
-      'headers': server['headers'],
-      'referer': server['referer']?.toString(),
-      'type': server['type']?.toString() ?? '',
-      'subtitles': server['subtitles'],
-    };
+    return base(url: serverUrl, label: 'Auto');
   }
 
   @override
@@ -1731,6 +1779,26 @@ class _EpisodeQualitySheetState extends State<_EpisodeQualitySheet> {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
+          if (_refreshing && !_loadingStreams) ...[
+            const SizedBox(height: 8),
+            const Row(
+              children: [
+                SizedBox(
+                  width: 12,
+                  height: 12,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.grey,
+                  ),
+                ),
+                SizedBox(width: 8),
+                Text(
+                  'Checking for more servers…',
+                  style: TextStyle(color: Colors.grey, fontSize: 11),
+                ),
+              ],
+            ),
+          ],
           const SizedBox(height: 16),
           if (_loadingStreams)
             const Center(
@@ -1801,6 +1869,7 @@ class _EpisodeQualitySheetState extends State<_EpisodeQualitySheet> {
                   final qualities = server['qualities'];
                   final hasQualities =
                       qualities is List && qualities.isNotEmpty;
+                  final audioBadge = StreamAudioHelper.badgeFor(server);
                   final isServerSelected = _selectedServerIndex == serverIdx;
 
                   return Padding(
@@ -1813,6 +1882,7 @@ class _EpisodeQualitySheetState extends State<_EpisodeQualitySheet> {
                             setState(() {
                               _selectedServerIndex = serverIdx;
                               _selectedQualityIndex = null;
+                              _selectedAudioIndex = null;
                             });
                           },
                           child: Container(
@@ -1857,7 +1927,19 @@ class _EpisodeQualitySheetState extends State<_EpisodeQualitySheet> {
                                       if (hasQualities) ...[
                                         const SizedBox(height: 2),
                                         Text(
-                                          '${qualities.length} quality option(s)',
+                                          '${qualities.length} quality option(s)'
+                                          '${audioBadge.isEmpty ? '' : ' · 🔊 $audioBadge audio'}',
+                                          style: TextStyle(
+                                            color: isServerSelected
+                                                ? Colors.white60
+                                                : Colors.grey,
+                                            fontSize: 11,
+                                          ),
+                                        ),
+                                      ] else if (audioBadge.isNotEmpty) ...[
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          '🔊 $audioBadge audio',
                                           style: TextStyle(
                                             color: isServerSelected
                                                 ? Colors.white60
@@ -1969,6 +2051,82 @@ class _EpisodeQualitySheetState extends State<_EpisodeQualitySheet> {
                             );
                           }),
                         ],
+                        if (isServerSelected &&
+                            _selectedAudioTracks.length > 1) ...[
+                          const SizedBox(height: 8),
+                          const Padding(
+                            padding: EdgeInsets.only(left: 12),
+                            child: Text(
+                              'Audio language',
+                              style: TextStyle(
+                                color: Colors.grey,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Padding(
+                            padding: const EdgeInsets.only(left: 12),
+                            child: Wrap(
+                              spacing: 6,
+                              runSpacing: 6,
+                              children: [
+                                ChoiceChip(
+                                  label: const Text(
+                                    'Default',
+                                    style: TextStyle(fontSize: 12),
+                                  ),
+                                  selected: _selectedAudioIndex == null,
+                                  selectedColor: Colors.red.withValues(
+                                    alpha: 0.25,
+                                  ),
+                                  backgroundColor: const Color(0xFF252525),
+                                  labelStyle: TextStyle(
+                                    color: _selectedAudioIndex == null
+                                        ? Colors.white
+                                        : Colors.white70,
+                                  ),
+                                  onSelected: (_) => setState(
+                                    () => _selectedAudioIndex = null,
+                                  ),
+                                ),
+                                ...List.generate(
+                                  _selectedAudioTracks.length,
+                                  (aIdx) {
+                                    final track =
+                                        _selectedAudioTracks[aIdx];
+                                    final isSelected =
+                                        _selectedAudioIndex == aIdx;
+                                    return ChoiceChip(
+                                      label: Text(
+                                        StreamAudioHelper.displayName(
+                                          track,
+                                        ),
+                                        style: const TextStyle(fontSize: 12),
+                                      ),
+                                      selected: isSelected,
+                                      selectedColor: Colors.red.withValues(
+                                        alpha: 0.25,
+                                      ),
+                                      backgroundColor: const Color(
+                                        0xFF252525,
+                                      ),
+                                      labelStyle: TextStyle(
+                                        color: isSelected
+                                            ? Colors.white
+                                            : Colors.white70,
+                                      ),
+                                      onSelected: (_) => setState(
+                                        () => _selectedAudioIndex = aIdx,
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   );
@@ -2010,6 +2168,7 @@ class _EpisodeQualitySheetState extends State<_EpisodeQualitySheet> {
       onTap: () => setState(() {
         _selectedServerIndex = null;
         _selectedQualityIndex = null;
+        _selectedAudioIndex = null;
       }),
       child: Container(
         padding: const EdgeInsets.all(12),
@@ -2095,6 +2254,8 @@ class _SeasonQualitySheet extends StatefulWidget {
 
 class _SeasonQualitySheetState extends State<_SeasonQualitySheet> {
   bool _loadingStreams = true;
+  bool _refreshing = false;
+  int _resolveGeneration = 0;
   List<Map<String, dynamic>> _availableStreams = [];
   String? _error;
   int? _selectedServerIndex;
@@ -2106,31 +2267,32 @@ class _SeasonQualitySheetState extends State<_SeasonQualitySheet> {
   }
 
   Future<void> _fetchAvailableStreams() async {
-    try {
-      final streams = await DirectM3u8Service.fetchAvailableStreams(
-        title: widget.title,
-        tmdbId: widget.tmdbId,
-        isMovie: false,
-        season: widget.season,
-        episode: widget.episode,
-      );
-      final available = streams
-          .where((stream) => (stream['url']?.toString() ?? '').isNotEmpty)
-          .toList();
-      if (mounted) {
+    final generation = ++_resolveGeneration;
+    await ServerListLoader.load(
+      title: widget.title,
+      tmdbId: widget.tmdbId,
+      isMovie: false,
+      season: widget.season,
+      episode: widget.episode,
+      isCurrent: () => mounted && generation == _resolveGeneration,
+      onUpdate: (available, loading, refreshing, error) {
+        if (!mounted || generation != _resolveGeneration) return;
         setState(() {
-          _availableStreams = available;
-          _loadingStreams = false;
+          if (available.isNotEmpty || _availableStreams.isEmpty) {
+            _availableStreams = available;
+            if (_selectedServerIndex != null &&
+                _selectedServerIndex! >= available.length) {
+              _selectedServerIndex = available.isEmpty ? null : 0;
+            }
+          }
+          _loadingStreams = loading;
+          _refreshing = refreshing;
+          if (error != null && _availableStreams.isEmpty) {
+            _error = error.toString();
+          }
         });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _error = e.toString();
-          _loadingStreams = false;
-        });
-      }
-    }
+      },
+    );
   }
 
   void _start() {
@@ -2182,6 +2344,26 @@ class _SeasonQualitySheetState extends State<_SeasonQualitySheet> {
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
           ),
+          if (_refreshing && !_loadingStreams) ...[
+            const SizedBox(height: 8),
+            const Row(
+              children: [
+                SizedBox(
+                  width: 12,
+                  height: 12,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.grey,
+                  ),
+                ),
+                SizedBox(width: 8),
+                Text(
+                  'Checking for more servers…',
+                  style: TextStyle(color: Colors.grey, fontSize: 11),
+                ),
+              ],
+            ),
+          ],
           const SizedBox(height: 16),
           if (_loadingStreams)
             const Center(

@@ -199,11 +199,12 @@ class MainActivity : AudioServiceActivity() {
                         val season = call.argument<Int>("season") ?: 1
                         val episode = call.argument<Int>("episode") ?: 1
                         val title = call.argument<String>("title") ?: ""
+                        val fast = call.argument<Boolean>("fast") ?: false
 
                         scope.launch {
                             try {
                                 val streams = withContext(Dispatchers.IO) {
-                                    extractor.resolveStreams(tmdbId, isMovie, season, episode, title)
+                                    extractor.resolveStreams(tmdbId, isMovie, season, episode, title, fast)
                                 }
                                 try { result.success(streams) }
                                 catch (_: IllegalStateException) { }

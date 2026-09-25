@@ -74,6 +74,16 @@ class StreamSecurity {
           )
           .toList();
     }
+    if (result['audioTracks'] is List) {
+      // Audio rendition URIs may legitimately be empty (muxed/default track
+      // without a separate URI), so keep every entry and only normalize keys.
+      output['audioTracks'] = (result['audioTracks'] as List)
+          .whereType<Map>()
+          .map(
+            (a) => a.map((key, value) => MapEntry(key.toString(), value)),
+          )
+          .toList();
+    }
     return output;
   }
 

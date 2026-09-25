@@ -10,9 +10,11 @@ import 'package:video_player/video_player.dart';
 import '../database/db_helper.dart';
 import '../services/cast_service.dart';
 import '../services/direct_m3u8_service.dart';
+import '../services/hls_audio_helper.dart';
 import '../services/media_download_manager.dart';
 import '../services/media_session_handler.dart';
 import '../services/native_stream_extractor.dart';
+import '../services/stream_audio_helper.dart';
 import '../services/tmdb_api_service.dart';
 import '../models/subtitle_settings.dart';
 import '../services/cloud_sync_service.dart';
@@ -114,6 +116,9 @@ class _StablePlayerControls extends StatefulWidget {
     required this.onSubtitles,
     required this.subtitleLabel,
     required this.showSubtitles,
+    required this.onAudio,
+    required this.audioLabel,
+    required this.showAudio,
     required this.onAspectRatio,
     required this.aspectRatioLabel,
     required this.onDownload,
@@ -136,6 +141,9 @@ class _StablePlayerControls extends StatefulWidget {
   final VoidCallback onSubtitles;
   final ValueNotifier<String> subtitleLabel;
   final bool showSubtitles;
+  final VoidCallback onAudio;
+  final String audioLabel;
+  final bool showAudio;
   final VoidCallback onAspectRatio;
   final String aspectRatioLabel;
   final VoidCallback onDownload;
@@ -577,6 +585,18 @@ class _StablePlayerControlsState extends State<_StablePlayerControls> {
                                   ),
                                 ),
                               ),
+                            if (widget.showAudio)
+                              TextButton.icon(
+                                onPressed: widget.onAudio,
+                                icon: const Icon(
+                                  Icons.audiotrack,
+                                  color: Colors.white,
+                                ),
+                                label: Text(
+                                  widget.audioLabel,
+                                  style: const TextStyle(color: Colors.white),
+                                ),
+                              ),
                             if (widget.showQuality)
                               TextButton.icon(
                                 onPressed: widget.onQuality,
@@ -666,6 +686,14 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   final ValueNotifier<List<Subtitle>> _activeSubtitles =
       ValueNotifier<List<Subtitle>>(const []);
   final ValueNotifier<String> _selectedSubtitle = ValueNotifier<String>('Off');
+  // Multi-language HLS audio (EXT-X-MEDIA:TYPE=AUDIO). Parsed from the current
+  // server's master playlist; empty when the host serves a single track.
+  List<Map<String, dynamic>> _audioTracks = const [];
+  // Remote master URL backing audio switching (null when playing a pinned
+  // variant or a non-HLS file, where no alternate renditions exist).
+  String? _masterStreamUrl;
+  String? _preferredAudioLanguage;
+  bool _isSwitchingAudio = false;
 
   /// URL of the currently selected subtitle track, used as a stable key
   /// to re-sync the display value when group names change after re-discovery.
@@ -893,6 +921,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         final qualities = _parseQualities(result['qualities']);
         final subtitleTracks = _parseSubtitleTracks(result['subtitles']);
         _separateAudio = result['separateAudio'] == true;
+        _syncAudioFromStream(result);
         _currentSource = source;
         _playbackRetryCount = 0;
         _failedServerKeys.clear();
@@ -1050,6 +1079,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     final fallbackSource = server['source']?.toString() ?? 'Server';
     final fallbackQualities = _parseQualities(server['qualities']);
     _subtitleTracks = _unionSubtitleTracks();
+    _syncAudioFromStream(server);
     _selectedSubtitle.value = 'Off';
     _activeSubtitles.value = const [];
     final ok = await _initializePlayer(
@@ -1124,6 +1154,9 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         _subtitleTracks = subtitleTracks;
         _selectedSubtitle.value = 'Off';
         _activeSubtitles.value = const [];
+        _audioTracks = const [];
+        _masterStreamUrl = null;
+        _preferredAudioLanguage = null;
         _nextEpisodeCancelled = false;
         _selectedServerKey = null;
       });
@@ -1362,15 +1395,18 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
   }) async {
     try {
       _showStatus('Initializing video player...');
+      final resolved = await _resolveAudioUrl(m3u8Url, headers, isHls);
       await _replacePlayer(
-        m3u8Url,
+        resolved.url,
         headers: headers,
         source: source,
         qualities: qualities,
-        selectedQuality: selectedQuality,
+        selectedQuality: resolved.isLocalFile ? 'Auto' : selectedQuality,
         isHls: isHls,
         position: position,
         shouldPlay: true,
+        isLocalFile: resolved.isLocalFile,
+        remoteUrl: m3u8Url,
       );
       _showStatus('Playing from $source');
       return true;
@@ -1381,8 +1417,74 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     }
   }
 
-  List<_StreamQuality> _parseQualities(dynamic value) {
-    if (value is! List) return const [];
+  /// Syncs multi-language audio state from a freshly resolved server map.
+  /// [_masterStreamUrl] is only set when the play URL is the HLS master (so
+  /// alternate renditions actually exist); pinned variants carry no audio
+  /// groups and hide the audio button.
+  void _syncAudioFromStream(Map<String, dynamic> stream) {
+    final tracks = StreamAudioHelper.tracksOf(stream);
+    final url = stream['url']?.toString() ?? '';
+    final separate = stream['separateAudio'] == true;
+    var isMaster = separate;
+    if (!isMaster) {
+      final autoUrl = _parseQualities(
+        stream['qualities'],
+      ).where((q) => q.height == 0).firstOrNull?.url;
+      isMaster = autoUrl != null && autoUrl.isNotEmpty && autoUrl == url;
+    }
+    _audioTracks = tracks;
+    _masterStreamUrl = tracks.length > 1 && isMaster ? url : null;
+  }
+
+  /// Refreshes audio state from the currently selected server after a
+  /// background re-discovery hands it a fresh signed URL.
+  void _resyncAudioFromDiscovery() {
+    final key = _selectedServerKey;
+    if (key == null) return;
+    final current = _availableServers
+        .where((s) => _serverIdentity(s) == key)
+        .firstOrNull;
+    if (current != null) _syncAudioFromStream(current);
+  }
+
+  /// Effective play URL honoring the preferred audio language. Returns the
+  /// original URL unless a rewritten local master could be built.
+  Future<({String url, bool isLocalFile})> _resolveAudioUrl(
+    String url,
+    Map<String, String> headers,
+    bool isHls,
+  ) async {
+    final preferred = _preferredAudioLanguage;
+    final master = _masterStreamUrl;
+    if (preferred == null ||
+        preferred.isEmpty ||
+        !isHls ||
+        _audioTracks.length <= 1 ||
+        master == null ||
+        master.isEmpty) {
+      return (url: url, isLocalFile: false);
+    }
+    final local = await HlsAudioHelper.buildMasterWithPreferredAudio(
+      masterUrl: master,
+      headers: headers,
+      language: preferred,
+    );
+    if (local == null) return (url: url, isLocalFile: false);
+    return (url: local, isLocalFile: true);
+  }
+
+  String get _audioLabel {
+    final preferred = _preferredAudioLanguage;
+    if (preferred == null || preferred.isEmpty) return 'Audio';
+    for (final track in _audioTracks) {
+      if (StreamAudioHelper.matches(track, preferred)) {
+        return StreamAudioHelper.displayName(track);
+      }
+    }
+    return preferred;
+  }
+
+  List<_StreamQuality> _parseQualities(dynamic value) {    if (value is! List) return const [];
     return value
         .whereType<Map>()
         .map((quality) {
@@ -1581,6 +1683,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       // subtitles from other servers stay available after re-discovery.
       _subtitleTracks = _unionSubtitleTracks();
       _resyncSubtitleSelection();
+      _resyncAudioFromDiscovery();
     });
   }
 
@@ -1603,6 +1706,8 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     required bool isHls,
     required Duration position,
     required bool shouldPlay,
+    bool isLocalFile = false,
+    String? remoteUrl,
   }) async {
     // Dispose old player before creating new one to free decoder/surface.
     // Await with short timeout and swallow fvp Bad state race where native
@@ -1621,8 +1726,11 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     }
     if (!mounted) return;
 
+    // A preferred audio language plays through a rewritten local master that
+    // pins the language as DEFAULT. Segments stay remote and keep the stream
+    // headers (cookies/referer), which ExoPlayer applies at its HTTP layer.
     final controller = VideoPlayerController.networkUrl(
-      Uri.parse(url),
+      isLocalFile ? Uri.file(url) : Uri.parse(url),
       httpHeaders: headers,
       formatHint: isHls ? VideoFormat.hls : VideoFormat.other,
       videoPlayerOptions: VideoPlayerOptions(
@@ -1660,7 +1768,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         _isBuffering = controller.value.isBuffering;
         _isSwitchingQuality = false;
         _videoInitialized = true;
-        _currentStreamUrl = url;
+        _currentStreamUrl = remoteUrl ?? url;
         _currentStreamIsHls = isHls;
       });
 
@@ -2037,6 +2145,17 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
               final selected = _serverIdentity(stream) == _selectedServerKey;
               final url = stream['url']?.toString() ?? '';
               final available = url.isNotEmpty;
+              final audioBadge = StreamAudioHelper.badgeFor(stream);
+              final serverSuffix = server == source
+                  ? 'Server ${entry.key + 1}'
+                  : 'Via $server · Server ${entry.key + 1}';
+              final subtitleText = !available
+                  ? 'Unavailable · Tap to retry'
+                  : [
+                      if (method != null) method,
+                      serverSuffix,
+                      if (audioBadge.isNotEmpty) '🔊 $audioBadge',
+                    ].join(' · ');
               return ListTile(
                 leading: Icon(
                   selected
@@ -2055,13 +2174,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
                   style: const TextStyle(color: Colors.white),
                 ),
                 subtitle: Text(
-                  available
-                      ? (method != null
-                            ? '$method · Server ${entry.key + 1}'
-                            : (server == source
-                                  ? 'Server ${entry.key + 1}'
-                                  : 'Via $server · Server ${entry.key + 1}'))
-                      : 'Unavailable · Tap to retry',
+                  subtitleText,
                   style: TextStyle(
                     color: available ? Colors.white54 : Colors.orangeAccent,
                   ),
@@ -2095,6 +2208,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       final headers = _parseStreamHeaders(stream);
       final qualities = _parseQualities(stream['qualities']);
       _separateAudio = stream['separateAudio'] == true;
+      _syncAudioFromStream(stream);
       var selectedQuality = 'Auto';
       for (final q in qualities) if (q.url == url) selectedQuality = q.label;
       final position = _lastStablePosition;
@@ -2131,6 +2245,7 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
     final headers = _parseStreamHeaders(stream);
     final qualities = _parseQualities(stream['qualities']);
     _separateAudio = stream['separateAudio'] == true;
+    _syncAudioFromStream(stream);
     var selectedQuality = 'Auto';
     for (final quality in qualities) {
       if (quality.url == url) selectedQuality = quality.label;
@@ -2146,23 +2261,26 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       _activeSubtitles.value = const [];
     });
     try {
+      final isHls =
+          stream['type'] == 'direct_m3u8' ||
+          url.toLowerCase().contains('.m3u8');
+      final resolved = await _resolveAudioUrl(url, headers, isHls);
       await _replacePlayer(
-        url,
+        resolved.url,
         headers: headers,
         source: stream['source']?.toString() ?? 'Server',
         qualities: qualities,
-        selectedQuality: selectedQuality,
-        isHls:
-            stream['type'] == 'direct_m3u8' ||
-            url.toLowerCase().contains('.m3u8'),
+        selectedQuality: resolved.isLocalFile ? 'Auto' : selectedQuality,
+        isHls: isHls,
         position: position,
         shouldPlay: shouldPlay,
+        isLocalFile: resolved.isLocalFile,
+        remoteUrl: url,
       );
       if (mounted) {
         setState(() => _selectedServerKey = _serverIdentity(stream));
       }
-    } catch (error) {
-      if (!mounted) return;
+    } catch (error) {      if (!mounted) return;
       setState(() {
         _subtitleTracks = oldTracks;
         _selectedSubtitle.value = oldSelectedSubtitle;
@@ -2216,6 +2334,8 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         final resolvedUrl = resolved['url']!.toString();
         final headers = _parseStreamHeaders(resolved);
         final qualities = _parseQualities(resolved['qualities']);
+        _separateAudio = resolved['separateAudio'] == true;
+        _syncAudioFromStream(resolved);
         var selectedQuality = 'Auto';
         for (final quality in qualities) {
           if (quality.url == resolvedUrl) {
@@ -2282,6 +2402,140 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _showAudioPicker() async {
+    if (!mounted || _audioTracks.length <= 1 || _masterStreamUrl == null) {
+      return;
+    }
+    final currentLabel = _audioLabel;
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xff202124),
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const ListTile(
+              leading: Icon(Icons.audiotrack, color: Colors.white),
+              title: Text(
+                'Audio language',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            Flexible(
+              child: ListView(
+                shrinkWrap: true,
+                children: [
+                  RadioListTile<String>(
+                    value: 'Default',
+                    groupValue: _preferredAudioLanguage == null
+                        ? 'Default'
+                        : currentLabel,
+                    activeColor: Colors.red,
+                    title: const Text(
+                      'Default',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                    subtitle: const Text(
+                      'Original audio track',
+                      style: TextStyle(color: Colors.white60, fontSize: 12),
+                    ),
+                    onChanged: (_) {
+                      Navigator.of(sheetContext).pop();
+                      _applyAudioLanguage(null);
+                    },
+                  ),
+                  ..._audioTracks.map(
+                    (track) => RadioListTile<String>(
+                      value: StreamAudioHelper.displayName(track),
+                      groupValue: _preferredAudioLanguage == null
+                          ? 'Default'
+                          : currentLabel,
+                      activeColor: Colors.red,
+                      title: Text(
+                        StreamAudioHelper.displayName(track),
+                        style: const TextStyle(color: Colors.white),
+                      ),
+                      subtitle:
+                          (track['language']?.toString() ?? '').isNotEmpty
+                          ? Text(
+                              track['language'].toString(),
+                              style: const TextStyle(
+                                color: Colors.white60,
+                                fontSize: 12,
+                              ),
+                            )
+                          : null,
+                      onChanged: (_) {
+                        Navigator.of(sheetContext).pop();
+                        final language =
+                            StreamAudioHelper.languageOf(track).isNotEmpty
+                            ? StreamAudioHelper.languageOf(track)
+                            : StreamAudioHelper.labelOf(track);
+                        _applyAudioLanguage(language);
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Switches the audio language by reloading the (rewritten) master at the
+  /// current position. Video quality becomes adaptive while a preference is
+  /// active, since pinned variants carry no alternate renditions.
+  Future<void> _applyAudioLanguage(String? language) async {
+    if (_isSwitchingAudio || language == _preferredAudioLanguage) return;
+    final controller = _videoPlayerController;
+    if (controller == null || _masterStreamUrl == null) {
+      setState(() => _preferredAudioLanguage = language);
+      return;
+    }
+    _isSwitchingAudio = true;
+    final position = controller.value.position;
+    final shouldPlay =
+        controller.value.isPlaying || controller.value.isBuffering;
+    final master = _masterStreamUrl!;
+    setState(() => _preferredAudioLanguage = language);
+    try {
+      _showStatus(
+        language == null ? 'Restoring default audio...' : 'Switching audio...',
+      );
+      final resolved = await _resolveAudioUrl(
+        master,
+        _streamHeaders,
+        _currentStreamIsHls,
+      );
+      if (!mounted) return;
+      await _replacePlayer(
+        resolved.url,
+        headers: _streamHeaders,
+        source: _currentSource ?? 'Unknown',
+        qualities: _qualities,
+        selectedQuality: resolved.isLocalFile ? 'Auto' : _selectedQuality,
+        isHls: _currentStreamIsHls,
+        position: position,
+        shouldPlay: shouldPlay,
+        isLocalFile: resolved.isLocalFile,
+        remoteUrl: master,
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not switch audio: $error')),
+      );
+    } finally {
+      _isSwitchingAudio = false;
+      if (mounted) setState(() {});
+    }
   }
 
   Future<void> _showSubtitlePicker() async {
@@ -3092,15 +3346,24 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
       _videoInitialized = false;
     });
     try {
-      await _replacePlayer(
+      // A preferred audio language forces the (rewritten) master so the
+      // chosen rendition survives; quality then stays adaptive.
+      final resolved = await _resolveAudioUrl(
         playUrl,
+        _streamHeaders,
+        _currentStreamIsHls,
+      );
+      await _replacePlayer(
+        resolved.url,
         headers: _streamHeaders,
         source: _currentSource ?? 'Unknown',
         qualities: _qualities,
-        selectedQuality: quality.label,
+        selectedQuality: resolved.isLocalFile ? 'Auto' : quality.label,
         isHls: _currentStreamIsHls,
         position: position,
         shouldPlay: shouldPlay,
+        isLocalFile: resolved.isLocalFile,
+        remoteUrl: playUrl,
       );
     } catch (error) {
       if (!mounted) return;
@@ -3292,6 +3555,10 @@ class _M3U8VideoPlayerScreenState extends State<M3U8VideoPlayerScreen> {
             onSubtitles: _showSubtitlePicker,
             subtitleLabel: _selectedSubtitle,
             showSubtitles: _subtitleTracks.isNotEmpty,
+            onAudio: _showAudioPicker,
+            audioLabel: _audioLabel,
+            showAudio:
+                _audioTracks.length > 1 && _masterStreamUrl != null,
             onAspectRatio: _cycleAspectRatio,
             aspectRatioLabel: _aspectRatioLabel,
             onDownload: _downloadCurrentStream,

@@ -36,6 +36,12 @@ class NativeStreamExtractor {
           s.forEach((k, v) => normalized[k.toString()] = v);
           return normalized;
         }).toList();
+      } else if (key.toString() == 'audioTracks' && value is List) {
+        map['audioTracks'] = value.whereType<Map>().map((a) {
+          final normalized = <String, dynamic>{};
+          a.forEach((k, v) => normalized[k.toString()] = v);
+          return normalized;
+        }).toList();
       } else {
         map[key.toString()] = value;
       }
@@ -80,12 +86,17 @@ class NativeStreamExtractor {
   /// Resolve every server, including ones that failed extraction/validation.
   /// Failed entries carry an empty `url` and `available: false` so the picker
   /// can still list them and offer a per-server re-fetch.
+  /// When [fast] is true the native side uses shorter per-server budgets and
+  /// master-only HLS validation so the picker paints in seconds; call again
+  /// with fast=false afterwards to correct any false positives in the
+  /// background.
   static Future<List<Map<String, dynamic>>> resolveStreams({
     required String tmdbId,
     required bool isMovie,
     int season = 1,
     int episode = 1,
     String title = '',
+    bool fast = false,
   }) async {
     try {
       final result = await _channel.invokeMethod<List>('resolveStreams', {
@@ -94,6 +105,7 @@ class NativeStreamExtractor {
         'season': season,
         'episode': episode,
         'title': title,
+        'fast': fast,
       });
       return result?.whereType<Map>().map(_normalizeStream).toList() ??
           const [];

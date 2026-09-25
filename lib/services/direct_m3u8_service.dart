@@ -11,6 +11,62 @@ import 'web_stream_service.dart';
 class DirectM3u8Service {
   static const String _tag = 'DirectM3u8Service';
 
+  /// In-memory server-list cache so reopening a picker is instant.
+  /// Key: "$tmdbId|$isMovie|$season|$episode". TTL 5 minutes.
+  static const Duration _cacheTtl = Duration(minutes: 5);
+  static final Map<String, _CachedStreams> _streamsCache = {};
+
+  static String _cacheKey(
+    String tmdbId,
+    bool isMovie,
+    int season,
+    int episode,
+  ) =>
+      '$tmdbId|$isMovie|$season|$episode';
+
+  /// Returns cached server lists (including failed entries) or null.
+  static List<Map<String, dynamic>>? cachedStreams({
+    required String tmdbId,
+    required bool isMovie,
+    int season = 1,
+    int episode = 1,
+  }) {
+    final entry = _streamsCache[_cacheKey(tmdbId, isMovie, season, episode)];
+    if (entry == null) return null;
+    if (DateTime.now().difference(entry.fetchedAt) > _cacheTtl) {
+      _streamsCache.remove(_cacheKey(tmdbId, isMovie, season, episode));
+      return null;
+    }
+    return entry.streams;
+  }
+
+  /// Fire-and-forget warm of the server list (call when a details screen
+  /// loads so the download picker later opens instantly).
+  static void prefetchAvailableStreams({
+    required String title,
+    required String tmdbId,
+    required bool isMovie,
+    int season = 1,
+    int episode = 1,
+  }) {
+    if (cachedStreams(
+      tmdbId: tmdbId,
+      isMovie: isMovie,
+      season: season,
+      episode: episode,
+    ) !=
+        null) {
+      return;
+    }
+    fetchAvailableStreams(
+      title: title,
+      tmdbId: tmdbId,
+      isMovie: isMovie,
+      season: season,
+      episode: episode,
+    ).then((_) {}, onError: (_) {});
+  }
+
   static Future<Map<String, dynamic>?> fetchMovieStreamUrl(
     String title,
     int? year,
@@ -74,6 +130,8 @@ class DirectM3u8Service {
     required bool isMovie,
     int season = 1,
     int episode = 1,
+    bool fast = false,
+    bool useCache = true,
   }) async {
     if (kIsWeb) {
       // On web, return embed sources as available servers
@@ -100,10 +158,11 @@ class DirectM3u8Service {
       season: season,
       episode: episode,
       title: title,
+      fast: fast,
     );
     // Keep every entry, including servers whose extraction failed (empty
     // URL, available: false) so the picker can list them and offer re-fetch.
-    return streams.map((stream) {
+    final result = streams.map((stream) {
       final url = stream['url']?.toString() ?? '';
       if (url.isEmpty) {
         return {
@@ -114,6 +173,11 @@ class DirectM3u8Service {
       }
       return StreamSecurity.sanitizeResolverResult(stream);
     }).whereType<Map<String, dynamic>>().toList();
+    if (useCache && !fast) {
+      _streamsCache[_cacheKey(tmdbId, isMovie, season, episode)] =
+          _CachedStreams(result, DateTime.now());
+    }
+    return result;
   }
 
   /// Re-resolves a single named server on demand (used when the user taps a
@@ -224,4 +288,12 @@ class DirectM3u8Service {
         .replaceAll('{season}', season.toString())
         .replaceAll('{episode}', episode.toString());
   }
+}
+
+/// One cached server-list entry for [DirectM3u8Service._streamsCache].
+class _CachedStreams {
+  const _CachedStreams(this.streams, this.fetchedAt);
+
+  final List<Map<String, dynamic>> streams;
+  final DateTime fetchedAt;
 }
