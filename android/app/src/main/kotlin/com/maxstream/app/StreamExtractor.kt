@@ -4617,7 +4617,7 @@ class StreamExtractor(private val context: Context) {
      * it would add latency to the first playable result.
      */
     private suspend fun enrichHlsAudioTracks(stream: StreamResult): StreamResult {
-        if (stream.audioTracks.isNotEmpty) return stream
+        if (stream.audioTracks.isNotEmpty()) return stream
         if (stream.type != "direct_m3u8" && !stream.url.contains(".m3u8", true)) {
             return stream
         }
