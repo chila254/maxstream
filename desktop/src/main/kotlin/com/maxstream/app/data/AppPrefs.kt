@@ -26,7 +26,8 @@ object AppPrefs {
                 darkTheme = o.optBoolean("darkTheme", true)
                 defaultQuality = o.optString("defaultQuality", "Auto").ifBlank { "Auto" }
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            System.err.println("AppPrefs: could not read preferences, using defaults: $e")
         }
     }
 
@@ -51,16 +52,15 @@ object AppPrefs {
 
     private fun persist() {
         try {
-            val f = file()
-            Files.createDirectories(f.parent)
-            Files.writeString(
-                f,
+            com.maxstream.app.core.AtomicFiles.write(
+                file(),
                 JSONObject()
                     .put("darkTheme", darkTheme)
                     .put("defaultQuality", defaultQuality)
                     .toString(),
             )
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            System.err.println("AppPrefs: failed to persist preferences: $e")
         }
     }
 

@@ -23,7 +23,9 @@ data class Trailer(
     val site: String, // "YouTube"
     val key: String,
 ) {
-    val watchUrl: String get() = if (site.equals("YouTube", true)) "https://www.youtube.com/watch?v=$key" else "https://www.youtube.com/watch?v=$key"
+    // TmdbClient already filters to YouTube-only trailers, so both branches
+    // of the old if/else built the same URL.
+    val watchUrl: String get() = "https://www.youtube.com/watch?v=$key"
 }
 
 data class Season(
@@ -31,8 +33,6 @@ data class Season(
     val name: String = "Season $seasonNumber",
     val episodeCount: Int = 0,
     val overview: String = "",
-    /** Populated lazily from /tv/{id}/season/{n} when the user expands it. */
-    val episodes: List<Episode>? = null,
 )
 
 data class StreamingProvider(

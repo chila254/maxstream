@@ -272,18 +272,3 @@ fun MediaBrowserGrid(
     }
 }
 
-/** Shared horizontal poster row for home/rail content. */
-@Composable
-fun MediaRow(
-    items: List<MediaItem>,
-    onOpen: (MediaItem) -> Unit,
-) {
-    LazyRow(
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 20.dp),
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        items(items, key = { "${it.mediaType}:${it.id}" }) { item ->
-            PosterCard(item, width = 132.dp, onClick = { onOpen(item) })
-        }
-    }
-}

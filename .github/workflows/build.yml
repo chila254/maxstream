@@ -202,6 +202,12 @@ jobs:
             ~/.gradle/compose-compiler
           key: ${{ runner.os }}-gradle-desktop-${{ hashFiles('desktop/**/*.gradle*') }}
 
+      # Bundles libvlc + plugins into the MSI (syncVlcRuntime). The runner has
+      # no VLC by default, and since the guard change a Windows build fails
+      # loudly when the VLC source is missing.
+      - name: Install VLC (bundled into the installer)
+        run: choco install vlc -y --no-progress
+
       - name: Compile + test desktop app
         run: cd desktop; ./gradlew.bat build --no-daemon
 

@@ -47,6 +47,21 @@ class PlayerController(remembered: EmbeddedMediaPlayerComponent = EmbeddedMediaP
     fun setVolume(pct: Int) = component.mediaPlayer().audio().setVolume(pct.coerceIn(0, 100))
     fun setMute(muted: Boolean) = component.mediaPlayer().audio().setMute(muted)
 
+    /** Audio ES tracks VLC currently exposes (id + display name), or empty. */
+    fun audioTrackDescriptions(): List<Pair<Int, String>> = runCatching {
+        component.mediaPlayer().audio().trackDescriptions().map { it.id() to it.description() }
+    }.getOrDefault(emptyList())
+
+    /** Currently selected audio track id (-1/0 = automatic/default). */
+    fun currentAudioTrack(): Int = runCatching {
+        component.mediaPlayer().audio().track()
+    }.getOrDefault(-1)
+
+    /** Selects an audio track by VLC id; no-op when unknown. */
+    fun selectAudioTrack(id: Int) {
+        runCatching { component.mediaPlayer().audio().setTrack(id) }
+    }
+
     fun setSubtitleFile(path: String) {
         runCatching { component.mediaPlayer().subpictures().setSubTitleFile(java.io.File(path)) }
     }

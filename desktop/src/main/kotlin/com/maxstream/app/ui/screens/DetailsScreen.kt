@@ -92,7 +92,9 @@ fun DetailsScreen(
         value = repository.isInWatchlist(itemId)
     }
     var seasonNumber by remember { mutableIntStateOf(1) }
-    val episodes by produceState<List<Episode>>(emptyList(), itemId, seasonNumber) {
+    // `details` must be a key: on first render it's still null, and without
+    // it in the keys the episodes block never re-ran after details loaded.
+    val episodes by produceState<List<Episode>>(emptyList(), itemId, seasonNumber, details) {
         val d = details
         if (d != null && d.item.mediaType == "tv") value = repository.episodes(itemId, seasonNumber)
     }

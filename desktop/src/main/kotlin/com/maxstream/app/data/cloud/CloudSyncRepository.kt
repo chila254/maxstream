@@ -103,27 +103,36 @@ object CloudSync {
 
     // ── watch history / progress ─────────────────────────────────────────────
 
+    /** RTDB child key for one watch-history entry (matches mobile/TV). */
+    internal fun historyKey(s: WatchStateStore.WatchState): String =
+        if (s.mediaType == "tv") "tv_${s.itemId}_${s.season}_${s.episode}" else "movie_${s.itemId}"
+
+    /**
+     * JSON body for one watch-history PUT. Internal so unit tests can assert
+     * `isWatched=false` — database.rules.json denies writes missing it.
+     */
+    internal fun historyPayload(s: WatchStateStore.WatchState): JSONObject = JSONObject()
+        .put("itemId", s.itemId)
+        .put("mediaType", s.mediaType)
+        .put("season", s.season)
+        .put("episode", s.episode)
+        .put("positionMs", s.positionMs)
+        .put("lengthMs", s.lengthMs)
+        .put("progress", s.progress)
+        .put("title", s.title)
+        .put("posterPath", s.posterPath ?: "")
+        .put("backdropPath", s.backdropPath ?: "")
+        .put("year", s.year ?: 0)
+        .put("rating", s.rating)
+        .put("updatedAt", s.updatedAt)
+        // database.rules.json allows watch_history writes only when
+        // isWatched is present and false — without this field every
+        // PUT was silently denied by the RTDB rules.
+        .put("isWatched", false)
+
     suspend fun pushWatchHistory(s: WatchStateStore.WatchState) {
         authed { token, base ->
-            val key = if (s.mediaType == "tv") "tv_${s.itemId}_${s.season}_${s.episode}" else "movie_${s.itemId}"
-            put(
-                "$base/watch_history/$key.json",
-                JSONObject()
-                    .put("itemId", s.itemId)
-                    .put("mediaType", s.mediaType)
-                    .put("season", s.season)
-                    .put("episode", s.episode)
-                    .put("positionMs", s.positionMs)
-                    .put("lengthMs", s.lengthMs)
-                    .put("progress", s.progress)
-                    .put("title", s.title)
-                    .put("posterPath", s.posterPath ?: "")
-                    .put("backdropPath", s.backdropPath ?: "")
-                    .put("year", s.year ?: 0)
-                    .put("rating", s.rating)
-                    .put("updatedAt", s.updatedAt),
-                token,
-            )
+            put("$base/watch_history/${historyKey(s)}.json", historyPayload(s), token)
         }
     }
 
@@ -162,13 +171,24 @@ object CloudSync {
 
     /**
      * Runs [block] with the RTDB base + auth token when signed in; returns
-     * null otherwise so every cloud call is signed-out safe.
+     * null otherwise so every cloud call is signed-out safe. Any network or
+     * parse failure inside [block] is logged and treated as "no data" instead
+     * of propagating — previously an IOException escaped into the callers'
+     * unguarded coroutines and permanently killed the 10s progress-save loop,
+     * the sync pull, and watchlist toggles after a single connection blip.
      */
     private suspend fun <T> authed(block: (token: String, base: String) -> T): T? {
         val token = AppSession.freshToken() ?: return null
         val user = AppSession.user ?: return null
-        return withContext(Dispatchers.IO) {
-            block(token, rtdbBase(user.localId))
+        return try {
+            withContext(Dispatchers.IO) {
+                block(token, rtdbBase(user.localId))
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            System.err.println("CloudSync: request failed: $e")
+            null
         }
     }
 
@@ -179,31 +199,57 @@ object CloudSync {
         return "${AppConfig.FIREBASE_RTDB_URL}/users/$uid/profiles/$profile"
     }
 
-    private fun get(url: String, token: String): JSONObject? {
+    private fun get(url: String, token: String): JSONObject? = try {
         val request = Request.Builder()
             .url("$url?auth=$token")
             .header("Accept", "application/json")
             .build()
-        return http.newCall(request).execute().use { res ->
-            if (res.code == 404) null
-            else if (!res.isSuccessful) null
-            else runCatching { JSONObject(res.body?.string().orEmpty()) }.getOrNull()
+        http.newCall(request).execute().use { res ->
+            when {
+                res.code == 404 -> null
+                !res.isSuccessful -> {
+                    System.err.println("CloudSync: GET $url -> HTTP ${res.code}")
+                    null
+                }
+                else -> runCatching { JSONObject(res.body?.string().orEmpty()) }
+                    .onFailure { System.err.println("CloudSync: GET $url parse error: $it") }
+                    .getOrNull()
+            }
         }
+    } catch (e: Exception) {
+        System.err.println("CloudSync: GET $url failed: $e")
+        null
     }
 
-    private fun put(url: String, body: JSONObject, token: String) {
+    private fun put(url: String, body: JSONObject, token: String) = try {
         val request = Request.Builder()
             .url("$url?auth=$token")
             .put(body.toString().toRequestBody(jsonType))
             .build()
-        http.newCall(request).execute().close()
+        http.newCall(request).execute().use { res ->
+            // Surface denials (e.g. RTDB rule rejections) instead of the old
+            // execute().close() that swallowed every status code.
+            if (!res.isSuccessful) {
+                System.err.println(
+                    "CloudSync: PUT $url -> HTTP ${res.code} ${res.body?.string()?.take(300).orEmpty()}",
+                )
+            }
+        }
+    } catch (e: Exception) {
+        System.err.println("CloudSync: PUT $url failed: $e")
     }
 
-    private fun delete(url: String, token: String) {
+    private fun delete(url: String, token: String) = try {
         val request = Request.Builder()
             .url("$url?auth=$token")
             .delete()
             .build()
-        http.newCall(request).execute().close()
+        http.newCall(request).execute().use { res ->
+            if (!res.isSuccessful && res.code != 404) {
+                System.err.println("CloudSync: DELETE $url -> HTTP ${res.code}")
+            }
+        }
+    } catch (e: Exception) {
+        System.err.println("CloudSync: DELETE $url failed: $e")
     }
 }

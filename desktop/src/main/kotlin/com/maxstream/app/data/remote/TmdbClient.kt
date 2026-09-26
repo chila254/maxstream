@@ -130,11 +130,6 @@ class TmdbClient {
         return out
     }
 
-    fun parseDetails(item: MediaItem): MediaDetails {
-        // Filled in by TmdbRepository.details via parsed JSON (see parseDetailsJson).
-        return MediaDetails(item = item)
-    }
-
     /** Details assembled from a /movie|/tv/{id} JSON document. */
     fun parseDetails(item: MediaItem, root: JSONObject): MediaDetails {
         val credits = root.optJSONObject("credits")

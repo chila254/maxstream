@@ -65,7 +65,14 @@ object TmdbRepository : MediaRepository {
                         )
                     } ?: stored
             } else stored
-            if (needsHydration && item.rating != s.rating) {
+            if (needsHydration && (
+                    item.rating != s.rating ||
+                        item.posterPath != s.posterPath ||
+                        item.backdropPath != s.backdropPath ||
+                        item.year != s.year ||
+                        (s.title.isBlank() && item.title.isNotBlank())
+                    )
+            ) {
                 WatchStateStore.save(
                     s.copy(
                         title = item.title,
@@ -153,6 +160,11 @@ object TmdbRepository : MediaRepository {
 
     override suspend fun saveProgress(item: MediaItem, season: Int, episode: Int, positionMs: Long, lengthMs: Long) {
         val nearEnd = lengthMs > 0L && positionMs >= lengthMs - 10_000L
+        // The player passes a bare MediaItem (id/title/type only). Merge with
+        // whatever is already stored so periodic saves can never wipe
+        // poster/backdrop/year/rating — which previously forced continueWatching()
+        // to re-hydrate every card from TMDB (N+1) on every Home render.
+        val existing = WatchStateStore.resumeFor(item.id, season, episode)
         val state = WatchStateStore.WatchState(
             itemId = item.id,
             mediaType = item.mediaType,
@@ -161,11 +173,11 @@ object TmdbRepository : MediaRepository {
             positionMs = if (nearEnd) 0L else positionMs,
             lengthMs = lengthMs,
             updatedAt = System.currentTimeMillis(),
-            title = item.title,
-            posterPath = item.posterPath,
-            backdropPath = item.backdropPath,
-            year = item.year,
-            rating = item.rating,
+            title = item.title.ifBlank { existing?.title.orEmpty() },
+            posterPath = item.posterPath ?: existing?.posterPath,
+            backdropPath = item.backdropPath ?: existing?.backdropPath,
+            year = item.year ?: existing?.year,
+            rating = item.rating.takeIf { it > 0.0 } ?: existing?.rating ?: 0.0,
         )
         if (nearEnd) {
             WatchStateStore.clear(item.id, season, episode)

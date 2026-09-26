@@ -1,14 +1,21 @@
 package com.maxstream.app.data
 
+import com.maxstream.app.core.AtomicFiles
 import org.json.JSONArray
 import org.json.JSONObject
 import java.nio.file.Files
+import java.nio.file.Path
 import java.nio.file.Paths
 
 /**
  * Local resume memory for the desktop player. Persists last-watched position
  * and enough metadata (title/poster) to render Continue Watching offline, and
  * is the merge target for cloud watch-history pulled from Firebase.
+ *
+ * The in-memory [map] is the single source of truth after the first load:
+ * every mutation updates it and then persists, so a save can never rewrite
+ * the file from a stale snapshot (the previous implementation froze the
+ * startup contents and evicted everything saved later in the session).
  */
 object WatchStateStore {
 
@@ -30,51 +37,78 @@ object WatchStateStore {
             get() = if (lengthMs > 0L) (positionMs.toFloat() / lengthMs).coerceIn(0f, 1f) else 0f
     }
 
+    /** Overridable so tests can point at a temp directory. */
+    @Volatile
+    internal var baseDir: Path = Paths.get(System.getProperty("user.home"), ".maxstream")
+
     /** Resume position for a specific movie/episode, or null when fresh. */
-    fun resumeFor(itemId: String, season: Int, episode: Int): WatchState? =
-        load()[key(itemId, season, episode)]
+    fun resumeFor(itemId: String, season: Int, episode: Int): WatchState? = synchronized(this) {
+        ensureLoaded()
+        map[key(itemId, season, episode)]
+    }
 
     /** Overwrites the stored state for the given movie/episode. */
     fun save(state: WatchState) = synchronized(this) {
-        val all = load().toMutableMap()
-        all[key(state.itemId, state.season, state.episode)] = state
-        write(all)
+        ensureLoaded()
+        map[key(state.itemId, state.season, state.episode)] = state
+        persist()
     }
 
     /** Removes a finished/cleared movie/episode. */
     fun clear(itemId: String, season: Int, episode: Int) = synchronized(this) {
-        val all = load().toMutableMap()
-        all.remove(key(itemId, season, episode))
-        write(all)
+        ensureLoaded()
+        map.remove(key(itemId, season, episode))
+        persist()
+    }
+
+    /**
+     * Wipes every locally stored entry. Used on sign-out so the next account
+     * never sees the previous user's Continue Watching (the cloud path is
+     * per-profile; this local file is process-global).
+     */
+    fun clearAll() = synchronized(this) {
+        map.clear()
+        loaded = true
+        persist()
     }
 
     /** Everything, newest last-played first. */
     fun all(): List<WatchState> = synchronized(this) {
-        load().values.sortedByDescending { it.updatedAt }
+        ensureLoaded()
+        map.values.sortedByDescending { it.updatedAt }
     }
 
     /** Merges cloud entries into the local store (newest per movie/episode wins). */
     fun mergeIncoming(states: List<WatchState>): Int = synchronized(this) {
-        val all = load().toMutableMap()
+        ensureLoaded()
         var merged = 0
         states.forEach { s ->
             val k = key(s.itemId, s.season, s.episode)
-            val existing = all[k]
+            val existing = map[k]
             if (existing == null || s.updatedAt > existing.updatedAt) {
-                all[k] = s
+                map[k] = s
                 merged++
             }
         }
-        write(all)
+        if (merged > 0) persist()
         merged
+    }
+
+    /** Test hook: forget in-memory state so the next call reloads from [baseDir]. */
+    internal fun resetForTesting() = synchronized(this) {
+        map.clear()
+        loaded = false
     }
 
     // ── persistence ──────────────────────────────────────────────────────────
 
     private val map = HashMap<String, WatchState>()
+    private var loaded = false
 
-    private fun load(): Map<String, WatchState> = synchronized(this) {
-        if (map.isNotEmpty()) return HashMap(map)
+    /** Caller must hold this object's monitor. */
+    private fun ensureLoaded() {
+        if (loaded) return
+        loaded = true
         try {
             if (Files.exists(file())) {
                 val root = JSONObject(Files.readString(file()))
@@ -97,16 +131,22 @@ object WatchStateStore {
                     )
                 }
             }
-        } catch (_: Exception) {
-            // Corrupt state file — start fresh.
+        } catch (e: Exception) {
+            // Corrupt state file: keep it aside instead of silently destroying
+            // the user's history on the next write.
+            System.err.println("WatchStateStore: state file unreadable, starting fresh: $e")
+            runCatching {
+                Files.move(file(), file().resolveSibling("watchstate.json.corrupt"))
+            }
+            map.clear()
         }
-        HashMap(map)
     }
 
-    private fun write(all: Map<String, WatchState>) {
+    /** Caller must hold this object's monitor and have called [ensureLoaded]. */
+    private fun persist() {
         try {
             val arr = JSONArray()
-            all.values.forEach {
+            map.values.forEach {
                 arr.put(
                     JSONObject()
                         .put("key", key(it.itemId, it.season, it.episode))
@@ -124,14 +164,13 @@ object WatchStateStore {
                         .put("rating", it.rating),
                 )
             }
-            Files.createDirectories(file().parent)
-            Files.writeString(file(), JSONObject().put("items", arr).toString())
-        } catch (_: Exception) {
+            AtomicFiles.write(file(), JSONObject().put("items", arr).toString())
+        } catch (e: Exception) {
+            System.err.println("WatchStateStore: failed to persist: $e")
         }
     }
 
-    private fun file() =
-        Paths.get(System.getProperty("user.home"), ".maxstream", "watchstate.json")
+    private fun file(): Path = baseDir.resolve("watchstate.json")
 
     private fun key(itemId: String, season: Int, episode: Int) = "$itemId|S$season|E$episode"
 }

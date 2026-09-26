@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Fullscreen
@@ -45,6 +46,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -77,8 +79,11 @@ import com.maxstream.app.data.model.MediaItem
 import com.maxstream.app.data.model.PlayRequest
 import com.maxstream.app.data.repository.MediaRepository
 import com.maxstream.app.player.PlayerController
+import com.maxstream.app.stream.FailedServer
+import com.maxstream.app.stream.ResolvedAudioTrack
 import com.maxstream.app.stream.ResolvedStream
 import com.maxstream.app.stream.StreamResolver
+import com.maxstream.app.stream.parseFailedServers
 import com.maxstream.app.stream.parseStreams
 import java.net.URI
 import java.net.http.HttpClient
@@ -86,10 +91,22 @@ import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.nio.file.Files
 import java.nio.file.Path
+import java.time.Duration
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+/**
+ * Survives composition disposal so the final progress save actually runs —
+ * `rememberCoroutineScope()` is cancelled before onDispose executes, which
+ * silently dropped the last ≤10s of playback on every exit.
+ */
+private val teardownScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
 /**
  * Desktop player with VLC-style overlay controls:
@@ -116,6 +133,10 @@ fun PlayerScreen(
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var selectedIndex by remember { mutableIntStateOf(-1) }
+    var failedServers by remember { mutableStateOf<List<FailedServer>>(emptyList()) }
+    var resolvingAll by remember { mutableStateOf(false) }
+    var selectedAudioLabel by remember { mutableStateOf<String?>(null) }
+    val subtitleFiles = remember { mutableStateListOf<Path>() }
 
     var positionMs by remember { mutableLongStateOf(0L) }
     var lengthMs by remember { mutableLongStateOf(0L) }
@@ -161,16 +182,24 @@ fun PlayerScreen(
         lengthMs = 0L
         sliderFrac = 0f
         resumeApplied = false
-        stream.subtitles.firstOrNull()?.let { sub ->
+        selectedAudioLabel = null
+        val sub = stream.subtitles.firstOrNull { it.isDefault } ?: stream.subtitles.firstOrNull()
+        sub?.let { s ->
             scope.launch {
-                val file = downloadSubtitle(sub.url)
-                if (file != null) controller.setSubtitleFile(file)
+                val file = downloadSubtitle(s.url)
+                if (file != null) {
+                    subtitleFiles.add(Path.of(file))
+                    controller.setSubtitleFile(file)
+                }
             }
         }
     }
 
     /** Settings → Default quality: pick nearest matching rendition (or best). */
     fun preferredQualityUrl(stream: ResolvedStream): String {
+        // Masters pinned for a separate audio rendition must play the master:
+        // their variant URLs don't carry the audio groups.
+        if (stream.separateAudio) return stream.url
         val qualities = stream.qualityMatch()
         val target = AppPrefs.defaultQualityHeight()
         if (target <= 0 || qualities.isEmpty()) return qualities.firstOrNull()?.url ?: stream.url
@@ -190,7 +219,70 @@ fun PlayerScreen(
     }
 
     val selectQuality: (com.maxstream.app.stream.ResolvedQuality) -> Unit = { q ->
-        streams.getOrNull(selectedIndex)?.let { stream -> playUrl(q.url, stream) }
+        streams.getOrNull(selectedIndex)?.let { stream ->
+            playUrl(if (stream.separateAudio) stream.url else q.url, stream)
+        }
+    }
+
+    /**
+     * Merges a freshly-resolved server list while keeping the currently
+     * playing entry selected/playing (the racing pass may have picked a URL
+     * the later pass re-validated differently).
+     */
+    fun applyServerList(list: List<ResolvedStream>, failed: List<FailedServer>) {
+        val current = streams.getOrNull(selectedIndex)
+        var merged = list
+        if (current != null && list.none { it.url == current.url }) {
+            merged = listOf(current) + list.filterNot { it.server.equals(current.server, ignoreCase = true) }
+        }
+        streams = merged
+        failedServers = failed.filter { f -> merged.none { it.server.equals(f.name, ignoreCase = true) } }
+        if (current != null) {
+            val idx = merged.indexOfFirst { it.url == current.url }
+            if (idx >= 0) selectedIndex = idx
+        } else if (selectedIndex < 0 && merged.isNotEmpty()) {
+            selectedIndex = 0
+        }
+    }
+
+    /** Picks a VLC audio ES track matching the chosen HLS rendition. */
+    fun selectAudioTrack(track: ResolvedAudioTrack) {
+        val wanted = track.language.lowercase()
+        val labelWanted = track.label.lowercase()
+        val match = controller.audioTrackDescriptions().firstOrNull { (id, desc) ->
+            if (id <= 0) return@firstOrNull false
+            val d = desc.lowercase()
+            (wanted.isNotBlank() && wanted != "und" && d.contains(wanted)) ||
+                (labelWanted.isNotBlank() && d.contains(labelWanted))
+        }
+        if (match != null) controller.selectAudioTrack(match.first)
+        selectedAudioLabel = track.display()
+        revealControls()
+    }
+
+    /** Re-fetches a server row that failed discovery (picker retry). */
+    fun retryServer(name: String) {
+        scope.launch {
+            val map = withContext(Dispatchers.IO) {
+                StreamResolver.resolveServer(
+                    name,
+                    request.itemId,
+                    request.mediaType == "movie",
+                    request.season,
+                    request.episode,
+                    request.title,
+                )
+            }
+            val parsed = parseStreams(listOfNotNull(map))
+            if (parsed.isNotEmpty()) {
+                applyServerList(
+                    streams + parsed,
+                    failedServers.filterNot { it.name.equals(name, ignoreCase = true) },
+                )
+                val idx = streams.indexOfFirst { it.server.equals(name, ignoreCase = true) }
+                if (idx >= 0) playStream(idx)
+            }
+        }
     }
 
     fun seekBy(deltaMs: Long) {
@@ -226,26 +318,69 @@ fun PlayerScreen(
         error = null
         controlsVisible = true
         resumeApplied = false
-        val parsed = withContext(Dispatchers.IO) {
-            parseStreams(
-                StreamResolver.resolveAll(
-                    request.itemId,
-                    request.mediaType == "movie",
-                    request.season,
-                    request.episode,
-                    request.title,
-                ),
-            )
-        }
-        streams = parsed
-        if (parsed.isEmpty()) {
-            loading = false
-            error = "No playable source could be resolved for this title."
-        } else {
-            playStream(0)
-            delay(600)
-            loading = false
-            runCatching { focusRequester.requestFocus() }
+        streams = emptyList()
+        failedServers = emptyList()
+        selectedIndex = -1
+        selectedAudioLabel = null
+        resolvingAll = true
+
+        val id = request.itemId
+        val isMovie = request.mediaType == "movie"
+        val season = request.season
+        val episode = request.episode
+        val title = request.title
+
+        coroutineScope {
+            // 1) Race: first server to validate wins → playback starts in
+            //    seconds instead of waiting for every server.
+            val race = async(Dispatchers.IO) {
+                runCatching { StreamResolver.resolve(id, isMovie, season, episode, title) }.getOrNull()
+            }
+            // 2) Fast full list in parallel (short budgets, light validation)
+            //    so the server picker paints quickly.
+            val fastPass = async(Dispatchers.IO) {
+                runCatching {
+                    StreamResolver.resolveAll(id, isMovie, season, episode, title, fast = true)
+                }.getOrDefault(emptyList())
+            }
+
+            val first = race.await()
+            val firstParsed = parseStreams(listOfNotNull(first))
+            if (firstParsed.isNotEmpty()) {
+                streams = firstParsed
+                playStream(0)
+                loading = false
+                runCatching { focusRequester.requestFocus() }
+            }
+
+            val fastMaps = fastPass.await()
+            if (fastMaps.isNotEmpty()) {
+                applyServerList(parseStreams(fastMaps), parseFailedServers(fastMaps))
+            }
+            if (loading && streams.isNotEmpty()) {
+                playStream(0)
+                loading = false
+                runCatching { focusRequester.requestFocus() }
+            }
+
+            // 3) Full validated pass in the background hardens the picker;
+            //    the screen stays interactive on whatever the fast passes gave us.
+            val fullMaps = runCatching {
+                StreamResolver.resolveAll(id, isMovie, season, episode, title, fast = false)
+            }.getOrDefault(emptyList())
+            if (fullMaps.isNotEmpty()) {
+                applyServerList(parseStreams(fullMaps), parseFailedServers(fullMaps))
+            }
+            resolvingAll = false
+            if (loading) {
+                loading = false
+                if (streams.isEmpty()) {
+                    error = "No playable source could be resolved for this title."
+                } else {
+                    playStream(0)
+                    runCatching { focusRequester.requestFocus() }
+                }
+            }
         }
     }
 
@@ -266,7 +401,9 @@ fun PlayerScreen(
             }
             if (playing && lengthMs > 0L && positionMs - lastSaved >= 10_000L) {
                 lastSaved = positionMs
-                repository.saveProgress(itemFrom(request), request.season, request.episode, positionMs, lengthMs)
+                runCatching {
+                    repository.saveProgress(itemFrom(request), request.season, request.episode, positionMs, lengthMs)
+                }.onFailure { e -> println("PlayerScreen: progress save failed: $e") }
             }
             delay(600)
         }
@@ -291,10 +428,15 @@ fun PlayerScreen(
     DisposableEffect(Unit) {
         onDispose {
             if (lengthMs > 0L) {
-                scope.launch {
-                    repository.saveProgress(itemFrom(request), request.season, request.episode, positionMs, lengthMs)
+                // teardownScope (not `scope`): rememberCoroutineScope is already
+                // cancelled when onDispose runs, so the final save never landed.
+                teardownScope.launch {
+                    runCatching {
+                        repository.saveProgress(itemFrom(request), request.season, request.episode, positionMs, lengthMs)
+                    }.onFailure { e -> println("PlayerScreen: final progress save failed: $e") }
                 }
             }
+            subtitleFiles.forEach { f -> runCatching { Files.deleteIfExists(f) } }
             controller.release()
         }
     }
@@ -508,11 +650,11 @@ fun PlayerScreen(
                     PlayerMenu(
                         icon = Icons.Default.Dns,
                         label = if (streams.size > 1) "Server (${selectedIndex + 1}/${streams.size})" else "Server",
-                        enabled = streams.isNotEmpty(),
+                        enabled = streams.isNotEmpty() || failedServers.isNotEmpty(),
                         onMenuState = { menuOpen = it },
                         onInteract = { revealControls() },
                     ) {
-                        if (streams.isEmpty()) {
+                        if (streams.isEmpty() && resolvingAll) {
                             DropdownMenuItem(
                                 text = { Text("Resolving…", color = Color.White.copy(alpha = 0.6f)) },
                                 onClick = {},
@@ -532,12 +674,28 @@ fun PlayerScreen(
                                 onClick = { playStream(index) },
                             )
                         }
+                        if (resolvingAll && streams.isNotEmpty()) {
+                            DropdownMenuItem(
+                                text = { Text("Checking more servers…", color = Color.White.copy(alpha = 0.55f)) },
+                                onClick = {},
+                            )
+                        }
+                        failedServers.forEach { f ->
+                            DropdownMenuItem(
+                                text = { Text("${f.name} — unavailable (retry)", color = Color(0xFFFFB74D)) },
+                                onClick = { retryServer(f.name) },
+                            )
+                        }
                     }
 
                     PlayerMenu(
                         icon = Icons.Default.HighQuality,
-                        label = if (qualities.size > 1) "Quality (${qualities.size})" else "Quality",
-                        enabled = qualities.isNotEmpty(),
+                        label = when {
+                            currentStream?.separateAudio == true -> "Quality (adaptive)"
+                            qualities.size > 1 -> "Quality (${qualities.size})"
+                            else -> "Quality"
+                        },
+                        enabled = qualities.isNotEmpty() && currentStream?.separateAudio != true,
                         onMenuState = { menuOpen = it },
                         onInteract = { revealControls() },
                     ) {
@@ -551,6 +709,34 @@ fun PlayerScreen(
                             DropdownMenuItem(
                                 text = { Text(q.label.ifBlank { "${q.height}p" }, color = Color.White) },
                                 onClick = { selectQuality(q) },
+                            )
+                        }
+                    }
+
+                    val audioTracks = currentStream?.audioTracks.orEmpty()
+                    PlayerMenu(
+                        icon = Icons.Default.Audiotrack,
+                        label = when {
+                            selectedAudioLabel != null -> "Audio ($selectedAudioLabel)"
+                            audioTracks.size > 1 -> "Audio (${audioTracks.size})"
+                            else -> "Audio"
+                        },
+                        enabled = audioTracks.isNotEmpty(),
+                        onMenuState = { menuOpen = it },
+                        onInteract = { revealControls() },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Default (auto)", color = Color.White) },
+                            onClick = {
+                                selectedAudioLabel = null
+                                controller.selectAudioTrack(-1)
+                                revealControls()
+                            },
+                        )
+                        audioTracks.forEach { track ->
+                            DropdownMenuItem(
+                                text = { Text(track.display(), color = Color.White) },
+                                onClick = { selectAudioTrack(track) },
                             )
                         }
                     }
@@ -572,7 +758,10 @@ fun PlayerScreen(
                                 onClick = {
                                     scope.launch {
                                         val f = downloadSubtitle(sub.url)
-                                        if (f != null) controller.setSubtitleFile(f)
+                                        if (f != null) {
+                                            subtitleFiles.add(Path.of(f))
+                                            controller.setSubtitleFile(f)
+                                        }
                                     }
                                 },
                             )
@@ -717,22 +906,28 @@ private fun fmtPlayer(ms: Long): String {
     return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%02d:%02d".format(m, s)
 }
 
-private val subHttp: HttpClient by lazy { HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NORMAL).build() }
+private val subHttp: HttpClient by lazy {
+    HttpClient.newBuilder()
+        .followRedirects(HttpClient.Redirect.NORMAL)
+        .connectTimeout(Duration.ofSeconds(10))
+        .build()
+}
 
 /** Downloads a subtitle to a temp file (VLC peels them off URLs we control only). */
 private suspend fun downloadSubtitle(url: String): String? = withContext(Dispatchers.IO) {
     runCatching {
         val req = HttpRequest.newBuilder(URI(url)).GET()
+            .timeout(Duration.ofSeconds(20))
             .header("User-Agent", "Mozilla/5.0").build()
         val resp = subHttp.send(req, HttpResponse.BodyHandlers.ofByteArray())
         if (resp.statusCode() !in 200..299) return@runCatching null
-        val ext = when (url.substringAfterLast('.', "").lowercase()) {
-            "vtt" -> ".vtt"
+        val ext = when (url.substringAfterLast('.', "").substringBefore('?').lowercase()) {
             "srt" -> ".srt"
+            "ass", "ssa" -> ".ass"
             else -> ".vtt"
         }
         val tmp: Path = Files.createTempFile("maxstream-sub", ext)
         Files.write(tmp, resp.body())
         tmp.toString()
-    }.getOrNull()
+    }.onFailure { e -> println("PlayerScreen: subtitle download failed: $e") }.getOrNull()
 }

@@ -6,8 +6,8 @@ import com.maxstream.app.StreamExtractor
 /**
  * The desktop client's view of the shared stream extractor. Everything here is
  * plain JVM code: the Android API surface used by the TV extractor is absorbed
- * by the compatibility shim under desktop/src/.../android so the extractor,
- * goodstream handler and salsa crypto all run unchanged on Windows.
+ * by the compatibility shim under desktop/src/.../android so the extractor and
+ * salsa crypto all run unchanged on Windows.
  *
  * Note: the desktop JVM has no embedded browser engine, so WebView-based
  * extractors are reported as low-RAM and skipped (same guard as cheap TV
@@ -18,9 +18,9 @@ import com.maxstream.app.StreamExtractor
 object DesktopContext : Context
 
 object StreamResolver {
-    private val tvExtractor = StreamExtractor(DesktopContext)
+    private val extractor = StreamExtractor(DesktopContext)
 
-    /** Quick "first playable server wins" resolution, mirroring the TV player. */
+    /** Quick "first playable server wins" resolution — the playback fast path. */
     suspend fun resolve(
         tmdbId: String,
         isMovie: Boolean,
@@ -28,15 +28,31 @@ object StreamResolver {
         episode: Int = 1,
         title: String = "",
     ): Map<String, Any>? =
-        tvExtractor.resolveStream(tmdbId, isMovie, season, episode, title)
+        extractor.resolveStream(tmdbId, isMovie, season, episode, title)
 
-    /** Full multi-server resolution for the player's server picker. */
+    /**
+     * Multi-server resolution for the player's server picker. [fast] uses the
+     * short per-server budgets + light HLS validation so the picker paints in
+     * seconds; the caller follows up with a full pass to harden the list.
+     */
     suspend fun resolveAll(
         tmdbId: String,
         isMovie: Boolean,
         season: Int = 1,
         episode: Int = 1,
         title: String = "",
+        fast: Boolean = false,
     ): List<Map<String, Any>> =
-        tvExtractor.resolveStreams(tmdbId, isMovie, season, episode, title)
+        extractor.resolveStreams(tmdbId, isMovie, season, episode, title, fast)
+
+    /** Re-fetches one named server (picker rows that failed discovery). */
+    suspend fun resolveServer(
+        name: String,
+        tmdbId: String,
+        isMovie: Boolean,
+        season: Int = 1,
+        episode: Int = 1,
+        title: String = "",
+    ): Map<String, Any>? =
+        extractor.resolveServer(name, tmdbId, isMovie, season, episode, title)
 }

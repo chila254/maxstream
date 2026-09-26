@@ -13,6 +13,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -75,6 +76,7 @@ import androidx.compose.ui.window.WindowPlacement
 import androidx.compose.ui.window.WindowState
 import androidx.compose.ui.window.rememberWindowState
 import com.maxstream.app.data.AppPrefs
+import com.maxstream.app.data.WatchStateStore
 import com.maxstream.app.data.cloud.AppSession
 import com.maxstream.app.data.cloud.CloudSync
 import com.maxstream.app.data.cloud.ProfileStore
@@ -227,7 +229,10 @@ fun Shell(windowState: WindowState = rememberWindowState()) {
                     AppPrefs.setDarkTheme(it)
                 },
                 onSignOut = {
-                    // Back to the auth gate; clear CW so the next user doesn't see it.
+                    // Back to the auth gate; clear local CW/watch states so the
+                    // next signed-in user doesn't inherit the previous profile's
+                    // progress (cloud pull only replaces our data when signed in).
+                    WatchStateStore.clearAll()
                     phase = AppPhase.Auth
                     replaceRoot(AppRoute.Home)
                     query = ""
@@ -285,10 +290,14 @@ private fun MainShell(
 
     // Escape / browser-style Back anywhere except the root screen.
     // Player handles Escape itself (exit fullscreen first) while focused.
+    // `.focusable()` matters: without it the focusRequester below targets a
+    // non-focusable node, requestFocus() silently failed (runCatching), and
+    // key events only arrived when some child already had focus.
     Box(
         Modifier
             .fillMaxSize()
             .focusRequester(contentFocus)
+            .focusable()
             .onKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
                 if (route is AppRoute.Player) return@onKeyEvent false

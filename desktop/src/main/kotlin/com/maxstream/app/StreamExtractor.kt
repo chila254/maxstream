@@ -1,6 +1,7 @@
 package com.maxstream.app
 
 import android.annotation.SuppressLint
+import com.maxstream.app.core.AppConfig
 import android.app.ActivityManager
 import android.content.Context
 import android.text.Html
@@ -72,6 +73,13 @@ class StreamExtractor(private val context: Context) {
         private const val HTTP_SERVER_TIMEOUT_MS = 18_000L
         private const val WEBVIEW_SERVER_TIMEOUT_MS = 12_000L
         private const val ALL_SERVERS_TOTAL_TIMEOUT_MS = 75_000L
+        private const val PRIMARY_TIMEOUT_MS = 45_000L
+        // Fast mode (server picker): shorter budgets + light HLS validation so
+        // the first servers appear in ~2-5s instead of waiting for the slowest
+        // host. A full resolve runs in the background afterwards.
+        private const val FAST_HTTP_SERVER_TIMEOUT_MS = 9_000L
+        private const val FAST_WEBVIEW_SERVER_TIMEOUT_MS = 7_000L
+        private const val FAST_ALL_SERVERS_TOTAL_TIMEOUT_MS = 25_000L
     }
 
     /** True on 1GB-class devices (most cheap TV boxes). */
@@ -109,6 +117,7 @@ class StreamExtractor(private val context: Context) {
         val headers: Map<String, String> = emptyMap(),
         val qualities: List<QualityOption> = emptyList(),
         val subtitles: List<SubtitleOption> = emptyList(),
+        val audioTracks: List<AudioOption> = emptyList(),
         val server: String = source,
         val separateAudio: Boolean = false,
         val method: String = "",
@@ -122,6 +131,7 @@ class StreamExtractor(private val context: Context) {
             "referer" to (headers["Referer"] ?: ""),
             "qualities" to qualities.map(QualityOption::toMap),
             "subtitles" to subtitles.map(SubtitleOption::toMap),
+            "audioTracks" to audioTracks.map(AudioOption::toMap),
             "separateAudio" to separateAudio,
             "method" to method,
         )
@@ -137,6 +147,27 @@ class StreamExtractor(private val context: Context) {
             "label" to label,
             "url" to url,
             "default" to isDefault,
+            "source" to source,
+        )
+    }
+
+    /** One `#EXT-X-MEDIA:TYPE=AUDIO` rendition from an HLS master playlist. */
+    data class AudioOption(
+        val label: String,
+        val language: String,
+        val url: String,
+        val groupId: String = "",
+        val isDefault: Boolean = false,
+        val channels: String = "",
+        val source: String = "HLS",
+    ) {
+        fun toMap(): Map<String, Any> = mapOf(
+            "label" to label,
+            "language" to language,
+            "url" to url,
+            "groupId" to groupId,
+            "default" to isDefault,
+            "channels" to channels,
             "source" to source,
         )
     }
@@ -224,19 +255,19 @@ class StreamExtractor(private val context: Context) {
             StaticTmdbProvider(),
             VidrockServerProvider(),
             PrimeSrcServerProvider(),
-            VidukiServerProvider(),
+            // VidukiServerProvider removed: its servers only resolve through a
+            // WebView extractor, which the desktop shim cannot execute.
         )
     }
 
     private val extractorRegistry: List<HostExtractor> by lazy {
         listOf(
             VidLinkExtractor(),
-            VidukiExtractor(),
             Mov2DayExtractor(),
             VixSrcExtractor(),
             VidsrcNetExtractor(),
-            VidsrcRuExtractor(),
             PrimeSrcExtractor(),
+            VidrockExtractor(),
             MultiEmbedExtractor(),
             VidFastExtractor(),
             VideasyExtractor(),
@@ -246,7 +277,6 @@ class StreamExtractor(private val context: Context) {
             VidemExtractor(),
             FilemoonExtractor(),
             StreamWishExtractor(),
-            VidLoveExtractor(),
             DoodLaExtractor(),
             VidMoLyExtractor(),
             LuluVdoExtractor(),
@@ -267,6 +297,7 @@ class StreamExtractor(private val context: Context) {
             VidoraExtractor(),
             VidsonicExtractor(),
             VtubeExtractor(),
+            VidNestExtractor(),
             OkruExtractor(),
             DailymotionExtractor(),
             GenericIframeExtractor(),
@@ -340,49 +371,152 @@ class StreamExtractor(private val context: Context) {
         season: Int = 1,
         episode: Int = 1,
         title: String = "",
+        fast: Boolean = false,
     ): List<Map<String, Any>> = withContext(Dispatchers.IO) {
         require(tmdbId.isNotBlank()) { "TMDB ID is required" }
         val media = MediaRequest(tmdbId, isMovie, season, episode, title)
         val servers = buildServerList(media)
         val httpSlots = Semaphore(4)
         val webViewSlots = Semaphore(1)
-        val collected = CopyOnWriteArrayList<StreamResult>()
+        // Each server is bounded on its own budget so a single slow/hung
+        // source can't drop every other result. Results accumulate as each
+        // server finishes; if the overall cap is hit we still return the
+        // partial list instead of wiping everything.
+        // Fast mode (picker first paint): shorter per-server/total budgets and
+        // light HLS validation (master parse only, no per-variant segment
+        // fetches) so servers appear in seconds.
+        val totalTimeout = if (fast) {
+            FAST_ALL_SERVERS_TOTAL_TIMEOUT_MS
+        } else {
+            ALL_SERVERS_TOTAL_TIMEOUT_MS
+        }
+        val collected = CopyOnWriteArrayList<Map<String, Any>>()
         val jobs = servers.map { server ->
             async(Dispatchers.IO) {
                 val webView = isWebViewServer(server)
                 val slots = if (webView) webViewSlots else httpSlots
                 slots.withPermit {
-                    val timeout = if (webView) WEBVIEW_SERVER_TIMEOUT_MS else HTTP_SERVER_TIMEOUT_MS
-                    withTimeoutOrNull(timeout) {
+                    val perServerTimeout = if (fast) {
+                        if (webView) {
+                            FAST_WEBVIEW_SERVER_TIMEOUT_MS
+                        } else {
+                            FAST_HTTP_SERVER_TIMEOUT_MS
+                        }
+                    } else if (webView) {
+                        WEBVIEW_SERVER_TIMEOUT_MS
+                    } else {
+                        HTTP_SERVER_TIMEOUT_MS
+                    }
+                    val attempt = withTimeoutOrNull(perServerTimeout) {
                         try {
-                            extractServer(server)?.let(collected::add)
+                            val stream = extractServer(server, lightValidation = fast)
+                                ?.let { enrichHlsAudioTracks(it) }
+                            if (stream != null) {
+                                stream.toMap() + mapOf("available" to true)
+                            } else {
+                                failedServerMap(server, "No playable stream extracted")
+                            }
                         } catch (error: Throwable) {
                             if (error is CancellationException) throw error
                             Log.w(tag, "Alternative server ${server.name} failed: ${error.message}")
+                            failedServerMap(server, error.message ?: "Unknown error")
                         }
-                    }
+                    } ?: failedServerMap(server, "Timed out")
+                    collected.add(attempt)
                 }
             }
         }
-        withTimeoutOrNull(ALL_SERVERS_TOTAL_TIMEOUT_MS) {
-            jobs.forEach { it.join() }
+        withTimeoutOrNull(totalTimeout) {
+            coroutineScope { jobs.forEach { it.join() } }
         }
         jobs.forEach { it.cancel() }
-        collected.distinctBy { it.url }.map(StreamResult::toMap)
+        val attempts = collected.toList()
+        // Keep one row per server identity: prefer a successful stream, else
+        // surface the latest failure so every source is listed in the picker
+        // (even dead ones, which the UI can re-fetch on demand).
+        val byName = LinkedHashMap<String, MutableList<Map<String, Any>>>()
+        attempts.forEach { attempt ->
+            val name = attempt["server"]?.toString() ?: return@forEach
+            byName.getOrPut(name) { mutableListOf() }.add(attempt)
+        }
+        val result = mutableListOf<Map<String, Any>>()
+        val seenUrls = mutableSetOf<String>()
+        for ((_, entries) in byName) {
+            val success = entries.firstOrNull { it["available"] == true }
+            if (success != null) {
+                val url = success["url"]?.toString().orEmpty()
+                // Multiple providers can surface the same resolved URL; keep
+                // only the first so the list stays free of duplicates.
+                if (url.isEmpty() || !seenUrls.add(url)) continue
+                result.add(success)
+            } else {
+                result.add(entries.last())
+            }
+        }
+        result
     }
 
-    private var cachedServerListKey: String? = null
+    /** Re-resolves a single named server, used when the user taps a source
+     *  that failed during discovery so they can re-fetch just that one. */
+    suspend fun resolveServer(
+        name: String,
+        tmdbId: String,
+        isMovie: Boolean,
+        season: Int,
+        episode: Int,
+        title: String,
+    ): Map<String, Any>? = withContext(Dispatchers.IO) {
+        require(tmdbId.isNotBlank()) { "TMDB ID is required" }
+        val media = MediaRequest(tmdbId, isMovie, season, episode, title)
+        val server = buildServerList(media).firstOrNull { it.name == name }
+            ?: return@withContext null
+        val slots = if (isWebViewServer(server)) Semaphore(1) else Semaphore(4)
+        slots.withPermit {
+            try {
+                extractServer(server)?.let {
+                    enrichHlsAudioTracks(it).toMap() + mapOf("available" to true)
+                }
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                Log.w(tag, "Server $name retry failed: ${error.message}")
+                null
+            }
+        }
+    }
+
+    private fun failedServerMap(server: StreamServer, error: String): Map<String, Any> = mapOf(
+        "url" to "",
+        "source" to server.name,
+        "server" to server.name,
+        "type" to "",
+        "headers" to emptyMap<String, String>(),
+        "referer" to "",
+        "qualities" to emptyList<Map<String, Any>>(),
+        "subtitles" to emptyList<Map<String, Any>>(),
+        "audioTracks" to emptyList<Map<String, Any>>(),
+        "separateAudio" to false,
+        "available" to false,
+        "error" to error,
+    )
+
     private var cachedServerList: List<StreamServer>? = null
 
     /** Server discovery runs once per media request; the secondary call from
      *  [resolveStreams] (server picker) reuses the list instead of re-hitting
-     *  every provider. */
+     *  every provider. [cachedServerList] is published before the key (see
+     *  below) so a concurrent reader that matches the key always observes a
+     *  fully-written list — the old unsynchronized pair could tear. */
+    @Volatile
+    private var cachedServerListKey: String? = null
+
     private suspend fun buildServerList(media: MediaRequest): List<StreamServer> {
         val key = "${media.tmdbId}|${media.isMovie}|${media.season}|${media.episode}"
-        cachedServerListKey?.let { if (it == key) return cachedServerList.orEmpty() }
+        if (cachedServerListKey == key && cachedServerList != null) {
+            return cachedServerList.orEmpty()
+        }
         val servers = buildServerListUncached(media)
-        cachedServerListKey = key
         cachedServerList = servers
+        cachedServerListKey = key
         return servers
     }
 
@@ -402,53 +536,11 @@ class StreamExtractor(private val context: Context) {
         }.awaitAll().flatten().distinctBy { it.url }
     }
 
-    private suspend fun extractGoodstream(server: StreamServer): StreamResult? {
-        return withContext(Dispatchers.IO) {
-            try {
-                requireSafeOutboundUrl(server.url)
-                val request = Request.Builder()
-                    .url(server.url)
-                    .header("User-Agent", userAgent)
-                    .header("Referer", "https://goodstream.one")
-                    .build()
-
-                val response = client.newCall(request).execute()
-                if (!response.isSuccessful) {
-                    Log.e(tag, "Goodstream HTTP ${response.code}")
-                    return@withContext null
-                }
-
-                val html = response.body?.string() ?: return@withContext null
-                val extractor = GoodstreamExtractor()
-                val result = extractor.extract(html, server.url)
-
-                if (result != null) {
-                    val url = result["url"] as String
-                    val headers = result["headers"] as? Map<String, String> ?: emptyMap()
-                    validateStream(
-                        StreamResult(
-                            url = url,
-                            source = "Goodstream",
-                            type = result["type"] as String? ?: "direct",
-                            headers = headers
-                        )
-                    )
-                } else {
-                    null
-                }
-            } catch (e: Exception) {
-                if (e is CancellationException) throw e
-                Log.e(tag, "Goodstream extraction failed: ${e.message}")
-                null
-            }
-        }
-    }
-
     /** Quick check whether a server will route to a WebView-based extractor. */
     private fun isWebViewServer(server: StreamServer): Boolean =
         extractorRegistry.firstOrNull { it.supports(server) }?.usesWebView == true
 
-    private suspend fun extractServer(initialServer: StreamServer): StreamResult? {
+    private suspend fun extractServer(initialServer: StreamServer, lightValidation: Boolean = false): StreamResult? {
         var server = initialServer
         val visited = mutableSetOf<String>()
 
@@ -456,11 +548,6 @@ class StreamExtractor(private val context: Context) {
             if (!visited.add(server.url)) {
                 Log.w(tag, "Extractor redirect loop for ${server.name}")
                 return null
-            }
-
-            // Handle Goodstream specially
-            if (server.name == "Goodstream") {
-                return extractGoodstream(server)
             }
 
             val extractor = extractorRegistry.firstOrNull { it.supports(server) }
@@ -501,7 +588,7 @@ class StreamExtractor(private val context: Context) {
                         return stream
                     }
                     return try {
-                        validateStream(stream)
+                        if (lightValidation) validateStreamLight(stream) else validateStream(stream)
                     } catch (error: Throwable) {
                         if (error is CancellationException) throw error
                         Log.w(tag, "Validation failed for ${extractor.name}: ${error.message}")
@@ -551,15 +638,6 @@ class StreamExtractor(private val context: Context) {
             )
 
             servers += StreamServer(
-                "VidsrcRu",
-                if (request.isMovie) {
-                    "https://vidsrc.ru/movie/$id"
-                } else {
-                    "https://vidsrc.ru/tv/$id/${request.season}/${request.episode}"
-                },
-            )
-
-            servers += StreamServer(
                 "MultiEmbed",
                 if (request.isMovie) {
                     "https://multiembed.mov/?video_id=$id&tmdb=1"
@@ -595,106 +673,7 @@ class StreamExtractor(private val context: Context) {
                 },
             )
 
-            servers += StreamServer(
-                "VidLove",
-                if (request.isMovie) {
-                    "https://player.vidlove.cc/embed/movie/$id"
-                } else {
-                    "https://player.vidlove.cc/embed/tv/$id/${request.season}/${request.episode}"
-                },
-            )
-
             return servers
-        }
-    }
-
-    private inner class MoflixProvider : ServerProvider {
-        override val name = "Moflix"
-        private val origin = "https://moflix-stream.xyz"
-
-        override suspend fun getServers(request: MediaRequest): List<StreamServer> {
-            val kind = if (request.isMovie) "movie" else "series"
-            val externalId = Base64.encodeToString(
-                "tmdb|$kind|${request.tmdbId}".toByteArray(),
-                Base64.NO_WRAP,
-            )
-            val headers = refererHeaders(origin) + mapOf("Accept" to "application/json")
-            val response = if (request.isMovie) {
-                getJson("$origin/api/v1/titles/${encode(externalId)}?loader=titlePage", headers)
-            } else {
-                val titleResponse = getJson(
-                    "$origin/api/v1/titles/${encode(externalId)}?loader=titlePage",
-                    headers,
-                )
-                val titleId = titleResponse.optJSONObject("title")?.optString("id")
-                    .orEmpty().ifBlank { externalId }
-                getJson(
-                    "$origin/api/v1/titles/${encode(titleId)}/seasons/${request.season}/episodes/${request.episode}?loader=episodePage",
-                    headers,
-                )
-            }
-
-            val videos = response.optJSONArray("videos")
-                ?: response.optJSONObject("title")?.optJSONArray("videos")
-                ?: response.optJSONObject("episode")?.optJSONArray("videos")
-                ?: return emptyList()
-            return (0 until videos.length()).mapNotNull { index ->
-                val video = videos.optJSONObject(index) ?: return@mapNotNull null
-                if (video.optBoolean("premium_locked")) return@mapNotNull null
-                val source = video.optString("src")
-                val playback = video.optString("playback_resolve_url")
-                val url = when {
-                    playback.isNotBlank() -> resolveUrl("$origin/api/v1/", playback)
-                    source.isNotBlank() -> source
-                    else -> return@mapNotNull null
-                }
-                val label = video.optString("name", "Mirror").ifBlank { "Mirror" }
-                StreamServer("Moflix - $label", url, headers)
-            }
-        }
-    }
-
-    private inner class CommunityServerProvider : ServerProvider {
-        override val name = "Community"
-        private val baseUrl = "https://streamingunity.dog"
-
-        override suspend fun getServers(request: MediaRequest): List<StreamServer> {
-            if (request.title.isBlank()) return emptyList()
-            val headers = communityHeaders("$baseUrl/")
-            val searchUrl = "$baseUrl/en/search?q=${encode(request.title)}&page=1&lang=en"
-            val results = getJson(searchUrl, headers).optJSONArray("data") ?: return emptyList()
-            val wantedType = if (request.isMovie) "movie" else "tv"
-            val title = (0 until results.length()).mapNotNull { results.optJSONObject(it) }
-                .firstOrNull {
-                    it.optString("type").equals(wantedType, true) &&
-                        normalizeTitle(it.optString("name")) == normalizeTitle(request.title)
-                } ?: return emptyList()
-
-            val titleId = title.optString("id")
-            if (titleId.isBlank()) return emptyList()
-            var iframeUrl = "$baseUrl/en/iframe/$titleId?language=en"
-            if (!request.isMovie) {
-                val slug = title.optString("slug")
-                val seasonPage = httpGet(
-                    "$baseUrl/en/titles/$titleId-$slug/season-${request.season}",
-                    headers,
-                )
-                val encodedPage = Regex("""data-page=["'](.*?)["']""", RegexOption.DOT_MATCHES_ALL)
-                    .find(seasonPage)?.groupValues?.get(1)
-                    ?: throw IllegalStateException("Community season metadata was not found")
-                val page = JSONObject(
-                    Html.fromHtml(encodedPage, Html.FROM_HTML_MODE_LEGACY).toString(),
-                )
-                val episodes = page.optJSONObject("props")
-                    ?.optJSONObject("loadedSeason")
-                    ?.optJSONArray("episodes")
-                    ?: return emptyList()
-                val episode = (0 until episodes.length()).mapNotNull { episodes.optJSONObject(it) }
-                    .firstOrNull { it.optInt("number") == request.episode }
-                    ?: return emptyList()
-                iframeUrl += "&episode_id=${encode(episode.optString("id"))}&next_episode=1"
-            }
-            return listOf(StreamServer(name, iframeUrl, headers))
         }
     }
 
@@ -714,25 +693,6 @@ class StreamExtractor(private val context: Context) {
                 if (value.optString("url").isBlank()) return@mapNotNull null
                 StreamServer("$serverName (Vidrock)", "$apiUrl#$serverName")
             }.toList()
-        }
-    }
-
-    private inner class VidzeeServerProvider : ServerProvider {
-        override val name = "Vidzee"
-
-        override suspend fun getServers(request: MediaRequest): List<StreamServer> {
-            val names = listOf(
-                "Nflix", "Duke", "Glory", "Nazy", "Atlas", "Drag", "Achilles",
-                "Viet", "Velocita", "Hindi", "Bengali", "Tamil", "Telugu", "Malayalam",
-            )
-            return names.mapIndexed { index, serverName ->
-                val url = if (request.isMovie) {
-                    "https://player.vidzee.wtf/api/server?id=${request.tmdbId}&sr=$index"
-                } else {
-                    "https://player.vidzee.wtf/api/server?id=${request.tmdbId}&ss=${request.season}&ep=${request.episode}&sr=$index"
-                }
-                StreamServer("$serverName (Vidzee)", url)
-            }
         }
     }
 
@@ -759,109 +719,6 @@ class StreamExtractor(private val context: Context) {
                     refererHeaders("https://primesrc.me/"),
                 )
             }
-        }
-    }
-
-    private inner class FrembedServerProvider : ServerProvider {
-        override val name = "Frembed"
-        private val baseUrl = "https://frembed.click"
-
-        override suspend fun getServers(request: MediaRequest): List<StreamServer> {
-            val url = if (request.isMovie) {
-                "$baseUrl/api/films?id=${request.tmdbId}&idType=tmdb"
-            } else {
-                "$baseUrl/api/series?id=${request.tmdbId}&sa=${request.season}&epi=${request.episode}&idType=tmdb"
-            }
-            return try {
-                val json = getJson(url, refererHeaders("$baseUrl/"))
-                val linkFields = listOf(
-                    "link1", "link2", "link3", "link4", "link5", "link6", "link7",
-                    "link1vostfr", "link2vostfr", "link3vostfr", "link4vostfr",
-                    "link5vostfr", "link6vostfr", "link7vostfr",
-                )
-                linkFields.mapNotNull { field ->
-                    val path = json.optString(field).ifBlank { return@mapNotNull null }
-                    val fullUrl = if (path.startsWith("/")) "$baseUrl$path" else path
-                    val lang = when {
-                        field.contains("vostfr") -> "VOSTFR"
-                        else -> "Default"
-                    }
-                    StreamServer(
-                        "Frembed $lang",
-                        fullUrl,
-                        refererHeaders("$baseUrl/"),
-                    )
-                }
-            } catch (e: Exception) {
-                if (e is CancellationException) throw e
-                Log.w(tag, "Frembed provider failed: ${e.message}")
-                emptyList()
-            }
-        }
-    }
-
-    private inner class VidukiServerProvider : ServerProvider {
-        override val name = "Viduki"
-
-        override suspend fun getServers(request: MediaRequest): List<StreamServer> {
-            val id = request.tmdbId
-            val servers = mutableListOf<StreamServer>()
-
-            servers += StreamServer(
-                "Viduki-1",
-                if (request.isMovie) {
-                    "https://www.viduki.net/1/movie/$id"
-                } else {
-                    "https://www.viduki.net/1/tv/$id/${request.season}/${request.episode}"
-                },
-            )
-
-            servers += StreamServer(
-                "Viduki-2",
-                if (request.isMovie) {
-                    "https://www.viduki.net/2/movie/$id"
-                } else {
-                    "https://www.viduki.net/2/tv/$id/${request.season}/${request.episode}"
-                },
-            )
-
-            servers += StreamServer(
-                "Viduki-3",
-                if (request.isMovie) {
-                    "https://www.viduki.net/3/movie/$id"
-                } else {
-                    "https://www.viduki.net/3/tv/$id/${request.season}/${request.episode}"
-                },
-            )
-
-            servers += StreamServer(
-                "Viduki-4",
-                if (request.isMovie) {
-                    "https://www.viduki.net/4/movie/$id"
-                } else {
-                    "https://www.viduki.net/4/tv/$id/${request.season}/${request.episode}"
-                },
-            )
-
-            return servers
-        }
-    }
-
-    private inner class MoflixExtractor : HostExtractor {
-        override val name = "Moflix"
-        private val origin = "https://moflix-stream.xyz"
-
-        override fun supports(server: StreamServer) = host(server.url).endsWith("moflix-stream.xyz")
-
-        override suspend fun extract(server: StreamServer): ExtractionResult {
-            if (!server.url.contains("/playback", true)) {
-                return GenericMediaExtractor().extract(server)
-            }
-            val videoId = server.url.substringAfter("videos/", "").substringBefore('/')
-            val headers = server.headers + refererHeaders("$origin/watch/$videoId")
-            val source = getJson(server.url, headers).optString("src")
-            require(source.isNotBlank()) { "Moflix returned no playback source" }
-            return ExtractionResult.Final(StreamResult(source, name, mediaType(source), headers))
         }
     }
 
@@ -937,7 +794,7 @@ class StreamExtractor(private val context: Context) {
     @SuppressLint("SetJavaScriptEnabled")
     private inner class VidLinkExtractor : HostExtractor {
         override val name = "VidLink"
-        override val usesWebView = true
+        override val usesWebView = false
         override fun supports(server: StreamServer) = host(server.url).endsWith("vidlink.pro")
 
         private val vidLinkKey = hexToBytes(
@@ -952,12 +809,11 @@ class StreamExtractor(private val context: Context) {
             runCatching { extractViaHttp(server) }
                 .getOrNull()
                 ?.let { return it }
-            Log.i(tag, "VidLink Worker/HTTP failed; falling back to hardened WebView hook")
-            return runCatching { extractViaWebView(server) }
-                .getOrElse { e ->
-                    if (e is CancellationException) throw e
-                    throw IllegalStateException("VidLink WebView failed: ${e.message}", e)
-                }
+            // The desktop WebView shim cannot execute JavaScript, so the old
+            // WebView fallback here just hung for 45s and then failed. Give up
+            // immediately instead of burning the server's whole budget.
+            Log.i(tag, "VidLink Worker/HTTP failed; WebView fallback is unavailable on desktop")
+            throw IllegalStateException("VidLink Worker/HTTP extraction failed")
         }
 
         private suspend fun extractViaWorker(server: StreamServer): ExtractionResult = withContext(Dispatchers.IO) {
@@ -969,7 +825,7 @@ class StreamExtractor(private val context: Context) {
             val mediaId = segments.getOrNull(1) ?: throw IllegalStateException("VidLink URL missing media id")
             val season = if (segments.firstOrNull().equals("tv", true)) segments.getOrNull(2) ?: "1" else "1"
             val episode = if (segments.firstOrNull().equals("tv", true)) segments.getOrNull(3) ?: "1" else "1"
-            val workerUrl = "https://maxstream-worker.maxstream123.workers.dev/api/extract?tmdb_id=$mediaId&is_movie=$isMovie&season=$season&episode=$episode&server=vidlink"
+            val workerUrl = "${AppConfig.EXTRACTOR_WORKER_BASE}/api/extract?tmdb_id=$mediaId&is_movie=$isMovie&season=$season&episode=$episode&server=vidlink"
             requireSafeOutboundUrl(workerUrl)
             val request = Request.Builder().url(workerUrl).header("Accept", "application/json").build()
             client.newCall(request).execute().use { response ->
@@ -1179,330 +1035,9 @@ class StreamExtractor(private val context: Context) {
                 url.contains("-h265-", true) ||
                 url.contains("-hevc-", true)
 
-        private suspend fun extractViaWebView(server: StreamServer): ExtractionResult {
-            return withContext(Dispatchers.Main) {
-                withTimeout(45_000) {
-                    suspendCancellableCoroutine { continuation ->
-                        val webView = WebView(context)
-                        webView.settings.javaScriptEnabled = true
-                        webView.settings.loadsImagesAutomatically = false
-                        webView.settings.blockNetworkImage = true
-                        webView.settings.cacheMode = android.webkit.WebSettings.LOAD_NO_CACHE
-                        webView.settings.domStorageEnabled = true
-                        webView.settings.mediaPlaybackRequiresUserGesture = false
-
-                        fun finish(result: Result<StreamResult>) {
-                            if (!continuation.isActive) return
-                            result.fold(
-                                onSuccess = { continuation.resume(ExtractionResult.Final(it)) },
-                                onFailure = { continuation.resumeWithException(it) },
-                            )
-                            webView.post { webView.destroy() }
-                        }
-
-                        webView.addJavascriptInterface(object {
-                            @JavascriptInterface
-                            fun onStreamFound(payload: String) {
-                                val parsed: Result<StreamResult?> = runCatching {
-                                    val json = JSONObject(payload)
-                                    val stream = json.optJSONObject("stream") ?: json
-                                    val playlist = listOf(
-                                        stream.optString("playlist"),
-                                        stream.optString("url"),
-                                        stream.optString("src"),
-                                        stream.optString("file"),
-                                    ).firstOrNull { it.isNotBlank() }
-                                    require(!playlist.isNullOrBlank()) {
-                                        "VidLink stream has no playlist URL"
-                                    }
-                                    if (isH265(playlist)) return@runCatching null
-                                    val captions = stream.optJSONArray("captions")?.let { items ->
-                                        (0 until items.length()).mapNotNull { index ->
-                                            val item = items.optJSONObject(index) ?: return@mapNotNull null
-                                            val rawUrl = item.optString("id").ifBlank {
-                                                item.optString("url")
-                                            }
-                                            if (rawUrl.isBlank()) return@mapNotNull null
-                                            val captionUrl = if (rawUrl.startsWith("http")) rawUrl
-                                                else resolveUrl(server.url, rawUrl)
-                                            SubtitleOption(
-                                                item.optString("language", "Subtitle"),
-                                                captionUrl,
-                                                source = "VidLink",
-                                            )
-                                        }
-                                    }.orEmpty()
-                                    val referer = if (host(playlist).endsWith("hakunaymatata.com")) {
-                                        // hakunaymatata.com CDN rejects Referer — use empty headers.
-                                        ""
-                                    } else {
-                                        "https://vidlink.pro/"
-                                    }
-                                    StreamResult(
-                                        playlist,
-                                        name,
-                                        mediaType(playlist),
-                                        if (referer.isNotEmpty()) refererHeaders(referer) else emptyMap(),
-                                        subtitles = captions,
-                                        method = "WebView",
-                                    )
-                                }
-                                val nonNull = parsed.getOrNull()
-                                if (nonNull != null) {
-                                    finish(Result.success(nonNull))
-                                }
-                            }
-                        }, "NativeBridge")
-
-                        webView.webViewClient = object : WebViewClient() {
-                            override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
-                                val reqUrl = request.url.toString()
-                                // Real JS injection capture: intercept HLS/mp4 directly – mirrors vidlink-extension
-                                if ((reqUrl.contains(".m3u8") || reqUrl.contains(".mp4")) && !reqUrl.contains("noir.suubmon.store")) {
-                                    if (isH265(reqUrl)) return super.shouldInterceptRequest(view, request)
-                                    val isHls = reqUrl.contains(".m3u8")
-                                    val result = runCatching {
-                                        // hakunaymatata.com CDN rejects Referer — send empty headers.
-                                        val hdrs = if (reqUrl.contains("hakunaymatata.com")) emptyMap() else refererHeaders("https://vidlink.pro/")
-                                        StreamResult(reqUrl, name, if (isHls) "hls" else "mp4", hdrs)
-                                    }
-                                    if (result.isSuccess) {
-                                        view.post { finish(result) }
-                                    }
-                                }
-                                val blocked = listOf("googletagmanager", "google-analytics", "yandex", "clarity", "bing", "adscore", "pemsrv", "usrpubtrk", "adexchangerapid", "intellipopup", "cloudflareinsights")
-                                if (blocked.any { reqUrl.contains(it, true) }) {
-                                    return WebResourceResponse("text/plain", "utf-8", java.io.ByteArrayInputStream(ByteArray(0)))
-                                }
-                                return super.shouldInterceptRequest(view, request)
-                            }
-                            override fun onPageFinished(view: WebView, url: String) {
-                                val script = """
-                                    (() => {
-                                      if (window.__nativeStreamHook) return;
-                                      window.__nativeStreamHook = true;
-                                      const send = data => window.NativeBridge.onStreamFound(JSON.stringify(data));
-                                      const isPlayable = s => typeof s === 'string' &&
-                                        !s.includes('noir.suubmon.store') &&
-                                        /\.(m3u8|mp4)([?#]|$)/i.test(s);
-                                      const pickBest = qualities => {
-                                        if (!qualities || typeof qualities !== 'object') return null;
-                                        let best = null;
-                                        let bestH = -1;
-                                        for (const [label, q] of Object.entries(qualities)) {
-                                          if (!q || typeof q !== 'object') continue;
-                                          if (q.type && q.type !== 'mp4') continue;
-                                          const h = parseInt(label, 10) || 0;
-                                          const u = q.url;
-                                          if (!u) continue;
-                                          if (h > bestH) { best = { url: u, captions: qualities.__captions }; bestH = h; }
-                                        }
-                                        return best;
-                                      };
-                                      const extractPlaylist = obj => {
-                                        if (!obj || typeof obj !== 'object') return null;
-                                        if (isPlayable(obj.playlist)) return obj;
-                                        const s = obj.stream;
-                                        if (s && typeof s === 'object') {
-                                          if (s.qualities && typeof s.qualities === 'object') {
-                                            const picked = pickBest(s.qualities);
-                                            if (picked && picked.url) return { stream: { playlist: picked.url, captions: s.captions } };
-                                          }
-                                          const p = s.playlist || s.url || s.src || s.file;
-                                          if (isPlayable(p)) return { stream: { playlist: p, captions: s.captions } };
-                                        }
-                                        const p = obj.url || obj.src || obj.file || obj.hls;
-                                        if (isPlayable(p)) return { stream: { playlist: p } };
-                                        return null;
-                                      };
-                                      const originalFetch = window.fetch.bind(window);
-                                      window.fetch = async (...args) => {
-                                        const response = await originalFetch(...args);
-                                        try {
-                                          const u = response.url || '';
-                                          if (u.includes('/api/b/')) {
-                                            response.clone().text().then(text => {
-                                              try {
-                                                const payload = extractPlaylist(JSON.parse(text));
-                                                if (payload) send(payload);
-                                              } catch (e) {}
-                                            }).catch(() => {});
-                                          }
-                                          if (isPlayable(u)) send({ stream: { playlist: u } });
-                                        } catch (e) {}
-                                        return response;
-                                      };
-                                      const origOpen = XMLHttpRequest.prototype.open;
-                                      XMLHttpRequest.prototype.open = function(method, url, ...rest) {
-                                        this.addEventListener('load', function() {
-                                          try {
-                                            if (isPlayable(url)) send({ stream: { playlist: url } });
-                                            if ((url || '').includes('/api/b/')) {
-                                              const payload = extractPlaylist(JSON.parse(this.responseText));
-                                              if (payload) send(payload);
-                                            }
-                                          } catch (e) {}
-                                        });
-                                        return origOpen.apply(this, [method, url, ...rest]);
-                                      };
-                                      setInterval(() => {
-                                        try {
-                                          const v = document.querySelector('video');
-                                          if (!v) return;
-                                          const src = v.currentSrc || v.src || '';
-                                          if (isPlayable(src) && !src.startsWith('blob:')) {
-                                            send({ stream: { playlist: src } });
-                                          }
-                                        } catch (e) {}
-                                      }, 1500);
-                                    })();
-                                """.trimIndent()
-                                view.evaluateJavascript(script, null)
-                            }
-                        }
-                        webView.loadUrl(server.url)
-                        continuation.invokeOnCancellation {
-                            webView.post {
-                                webView.stopLoading()
-                                webView.destroy()
-                            }
-                        }
-                    }
-                }
-            }
-        }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
-    private inner class VidukiExtractor : HostExtractor {
-        override val name = "Viduki"
-        override val usesWebView = true
-        override fun supports(server: StreamServer) = host(server.url).endsWith("viduki.net")
-
-        override suspend fun extract(server: StreamServer): ExtractionResult {
-            return withContext(Dispatchers.Main) {
-                withTimeout(30_000) {
-                    suspendCancellableCoroutine { continuation ->
-                        val webView = WebView(context)
-                        webView.settings.javaScriptEnabled = true
-                        webView.settings.loadsImagesAutomatically = false
-                        webView.settings.blockNetworkImage = true
-                        webView.settings.cacheMode = android.webkit.WebSettings.LOAD_NO_CACHE
-                        webView.settings.domStorageEnabled = true
-                        webView.settings.mediaPlaybackRequiresUserGesture = false
-
-                        fun finish(result: Result<StreamResult>) {
-                            if (!continuation.isActive) return
-                            result.fold(
-                                onSuccess = { continuation.resume(ExtractionResult.Final(it)) },
-                                onFailure = { continuation.resumeWithException(it) },
-                            )
-                            webView.post { webView.destroy() }
-                        }
-
-                        webView.addJavascriptInterface(object {
-                            @JavascriptInterface
-                            fun onStreamFound(url: String) {
-                                if (url.isNotBlank() && continuation.isActive) {
-                                    val headers = refererHeaders("https://www.viduki.net/")
-                                    finish(Result.success(StreamResult(url, name, mediaType(url), headers, method = "WebView")))
-                                }
-                            }
-                        }, "NativeBridge")
-
-                        webView.webViewClient = object : WebViewClient() {
-                            override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
-                                val reqUrl = request.url.toString()
-                                if ((reqUrl.contains(".m3u8") || reqUrl.contains(".mp4")) &&
-                                    !reqUrl.contains("google") && !reqUrl.contains("cloudflare")
-                                ) {
-                                    if (continuation.isActive) {
-                                        val headers = refererHeaders("https://www.viduki.net/")
-                                        finish(Result.success(StreamResult(reqUrl, name, mediaType(reqUrl), headers)))
-                                    }
-                                }
-                                val blocked = listOf("googletagmanager", "google-analytics", "clarity", "adscore", "cloudflareinsights")
-                                if (blocked.any { reqUrl.contains(it, true) }) {
-                                    return WebResourceResponse("text/plain", "utf-8", java.io.ByteArrayInputStream(ByteArray(0)))
-                                }
-                                return super.shouldInterceptRequest(view, request)
-                            }
-
-                            override fun onPageFinished(view: WebView, url: String) {
-                                val script = """
-                                    (() => {
-                                      if (window.__vidukiHook) return;
-                                      window.__vidukiHook = true;
-                                      const send = u => window.NativeBridge.onStreamFound(u);
-                                      const isPlayable = s => typeof s === 'string' && /\.(m3u8|mp4)([?#]|$)/i.test(s);
-
-                                      const originalFetch = window.fetch.bind(window);
-                                      window.fetch = async (...args) => {
-                                        const response = await originalFetch(...args);
-                                        try {
-                                          const u = response.url || '';
-                                          if (isPlayable(u)) send(u);
-                                          response.clone().text().then(text => {
-                                            try {
-                                              const json = JSON.parse(text);
-                                              const src = json.url || json.src || json.file || json.playlist || (json.stream && json.stream.playlist);
-                                              if (isPlayable(src)) send(src);
-                                            } catch (e) {}
-                                          }).catch(() => {});
-                                        } catch (e) {}
-                                        return response;
-                                      };
-                                      const origOpen = XMLHttpRequest.prototype.open;
-                                      XMLHttpRequest.prototype.open = function(method, url, ...rest) {
-                                        this.addEventListener('load', function() {
-                                          try {
-                                            if (isPlayable(url)) send(url);
-                                            const resp = this.responseText;
-                                            const json = JSON.parse(resp);
-                                            const src = json.url || json.src || json.file || json.playlist || (json.stream && json.stream.playlist);
-                                            if (isPlayable(src)) send(src);
-                                          } catch (e) {}
-                                        });
-                                        return origOpen.apply(this, [method, url, ...rest]);
-                                      };
-                                      setInterval(() => {
-                                        try {
-                                          const v = document.querySelector('video');
-                                          if (v) {
-                                            const src = v.currentSrc || v.src || '';
-                                            if (isPlayable(src) && !src.startsWith('blob:')) send(src);
-                                          }
-                                          const iframes = document.querySelectorAll('iframe');
-                                          iframes.forEach(f => {
-                                            try {
-                                              const s = f.contentDocument && f.contentDocument.querySelector('video');
-                                              if (s) {
-                                                const src = s.currentSrc || s.src || '';
-                                                if (isPlayable(src) && !src.startsWith('blob:')) send(src);
-                                              }
-                                            } catch (e) {}
-                                          });
-                                        } catch (e) {}
-                                      }, 1500);
-                                    })();
-                                """.trimIndent()
-                                view.evaluateJavascript(script, null)
-                            }
-                        }
-
-                        webView.loadUrl(server.url)
-                        continuation.invokeOnCancellation {
-                            webView.post {
-                                webView.stopLoading()
-                                webView.destroy()
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
     private inner class WorkerExtractor : HostExtractor {
         override val name = "Worker"
 
@@ -1523,7 +1058,7 @@ class StreamExtractor(private val context: Context) {
             if (type == "embed") {
                 val source = json.optString("source").ifBlank { "Worker (VidLink)" }
                 return ExtractionResult.Redirect(
-                    StreamServer(source, url, refererHeaders("https://maxstream-worker.maxstream123.workers.dev")),
+                    StreamServer(source, url, refererHeaders(AppConfig.EXTRACTOR_WORKER_BASE)),
                 )
             }
 
@@ -1537,7 +1072,7 @@ class StreamExtractor(private val context: Context) {
                     }
                     map.toMap()
                 } else emptyMap()
-            }.getOrDefault(emptyMap()).ifEmpty { refererHeaders("https://maxstream-worker.maxstream123.workers.dev") }
+            }.getOrDefault(emptyMap()).ifEmpty { refererHeaders(AppConfig.EXTRACTOR_WORKER_BASE) }
 
             val subtitles = runCatching {
                 val subs = json.optJSONArray("subtitles")
@@ -1563,159 +1098,15 @@ class StreamExtractor(private val context: Context) {
     }
 
     @SuppressLint("SetJavaScriptEnabled")
-    private inner class MaxstreamVideoExtractor : HostExtractor {
-        override val name = "MaxstreamVideo"
-        override val usesWebView = true
-        override fun supports(server: StreamServer) = host(server.url).endsWith("maxstream.video")
-
-        override suspend fun extract(server: StreamServer): ExtractionResult {
-            return withContext(Dispatchers.Main) {
-                withTimeout(30_000) {
-                    suspendCancellableCoroutine { continuation ->
-                        val webView = WebView(context)
-                        webView.settings.javaScriptEnabled = true
-                        webView.settings.loadsImagesAutomatically = false
-                        webView.settings.blockNetworkImage = true
-                        webView.settings.cacheMode = android.webkit.WebSettings.LOAD_NO_CACHE
-                        webView.settings.domStorageEnabled = true
-                        webView.settings.mediaPlaybackRequiresUserGesture = false
-
-                        fun finish(result: Result<StreamResult>) {
-                            if (!continuation.isActive) return
-                            result.fold(
-                                onSuccess = { continuation.resume(ExtractionResult.Final(it)) },
-                                onFailure = { continuation.resumeWithException(it) },
-                            )
-                            webView.post { webView.destroy() }
-                        }
-
-                        webView.addJavascriptInterface(object {
-                            @JavascriptInterface
-                            fun onStreamFound(payload: String) {
-                                runCatching {
-                                    val json = JSONObject(payload)
-                                    val streamUrl = json.optString("url").ifBlank {
-                                        json.optString("src")
-                                    }
-                                    require(streamUrl.isNotBlank()) { "No stream URL found" }
-                                    val headers = refererHeaders("https://maxstream.video/")
-                                    StreamResult(streamUrl, name, mediaType(streamUrl), headers)
-                                }.let(::finish)
-                            }
-
-                            @JavascriptInterface
-                            fun onSourceFound(url: String) {
-                                if (url.isNotBlank()) {
-                                    val headers = refererHeaders("https://maxstream.video/")
-                                    finish(Result.success(StreamResult(url, name, mediaType(url), headers)))
-                                }
-                            }
-                        }, "NativeBridge")
-
-                        webView.webViewClient = object : WebViewClient() {
-                            override fun onPageFinished(view: WebView, url: String) {
-                                val script = """
-                                    (() => {
-                                      if (window.__maxstreamHook) return;
-                                      window.__maxstreamHook = true;
-                                      const send = data => window.NativeBridge.onStreamFound(JSON.stringify(data));
-                                      const sendUrl = url => window.NativeBridge.onSourceFound(url);
-
-                                      // Intercept fetch
-                                      const originalFetch = window.fetch.bind(window);
-                                      window.fetch = async (...args) => {
-                                        const response = await originalFetch(...args);
-                                        const u = response.url;
-                                        if (u.includes('.m3u8') || u.includes('.mp4') || u.includes('/stream/') || u.includes('/play/')) {
-                                          sendUrl(u);
-                                        }
-                                        return response;
-                                      };
-
-                                      // Intercept XMLHttpRequest
-                                      const origOpen = XMLHttpRequest.prototype.open;
-                                      XMLHttpRequest.prototype.open = function(method, url, ...rest) {
-                                        this.addEventListener('load', function() {
-                                          if (url.includes('.m3u8') || url.includes('.mp4') || url.includes('/stream/') || url.includes('/play/')) {
-                                            sendUrl(url);
-                                          }
-                                        });
-                                        return origOpen.apply(this, [method, url, ...rest]);
-                                      };
-
-                                      // Check for sources in window/player
-                                      const checkSources = () => {
-                                        if (window.player && window.player.sources) {
-                                          send({ url: window.player.sources });
-                                        }
-                                        if (window.video && window.video.src) {
-                                          sendUrl(window.video.src);
-                                        }
-                                        // Look for sources in scripts
-                                        document.querySelectorAll('script').forEach(s => {
-                                          const text = s.textContent || '';
-                                          const match = text.match(/sources\s*:\s*\[\s*\{\s*[sS]rc\s*:\s*['"]([^'"]+)/);
-                                          if (match) sendUrl(match[1]);
-                                          const match2 = text.match(/file\s*:\s*['"]([^'"]+\.m3u8[^'"]*)/);
-                                          if (match2) sendUrl(match2[1]);
-                                        });
-                                      };
-                                      setTimeout(checkSources, 2000);
-                                      setTimeout(checkSources, 5000);
-                                    })();
-                                """.trimIndent()
-                                view.evaluateJavascript(script, null)
-                            }
-
-                            override fun shouldInterceptRequest(
-                                view: WebView?,
-                                request: WebResourceRequest?,
-                            ): WebResourceResponse? {
-                                val url = request?.url?.toString() ?: ""
-                                if (url.contains(".m3u8") || url.contains(".mp4")) {
-                                    if (continuation.isActive) {
-                                        continuation.resume(
-                                            ExtractionResult.Final(
-                                                StreamResult(url, name, mediaType(url), refererHeaders("https://maxstream.video/")),
-                                            ),
-                                        )
-                                    }
-                                }
-                                return super.shouldInterceptRequest(view, request)
-                            }
-                        }
-
-                        webView.loadUrl(server.url)
-                        continuation.invokeOnCancellation {
-                            webView.post {
-                                webView.stopLoading()
-                                webView.destroy()
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    @SuppressLint("SetJavaScriptEnabled")
     private inner class Mov2DayExtractor : HostExtractor {
         override val name = "Mov2Day"
-        override val usesWebView = true
+        override val usesWebView = false
 
         override fun supports(server: StreamServer): Boolean {
             return host(server.url).endsWith("mov2day.xyz")
         }
 
-        override suspend fun extract(server: StreamServer): ExtractionResult {
-            return try {
-                extractHttp(server)
-            } catch (error: Throwable) {
-                if (error is CancellationException) throw error
-                Log.w(tag, "Mov2Day HTTP route failed (${error.message}); retrying through WebView")
-                extractViaWebView(server)
-            }
-        }
+        override suspend fun extract(server: StreamServer): ExtractionResult = extractHttp(server)
 
         private suspend fun extractHttp(server: StreamServer): ExtractionResult {
             val landingHtml = httpGet(server.url, refererHeaders("https://vidflix.club/"))
@@ -1790,110 +1181,6 @@ class StreamExtractor(private val context: Context) {
             }
             throw IllegalStateException("Alternate Vidflix source returned no playable route")
         }
-
-        private suspend fun extractViaWebView(server: StreamServer): ExtractionResult {
-            return withContext(Dispatchers.Main) {
-                withTimeout(45_000) {
-                    suspendCancellableCoroutine { continuation ->
-                        val webView = WebView(context)
-                        webView.settings.javaScriptEnabled = true
-                        webView.settings.loadsImagesAutomatically = false
-                        webView.settings.blockNetworkImage = true
-                        webView.settings.cacheMode = android.webkit.WebSettings.LOAD_NO_CACHE
-                        webView.settings.domStorageEnabled = true
-                        webView.settings.mediaPlaybackRequiresUserGesture = false
-
-                        fun finish(result: Result<StreamResult>) {
-                            if (!continuation.isActive) return
-                            result.fold(
-                                onSuccess = { continuation.resume(ExtractionResult.Final(it)) },
-                                onFailure = { continuation.resumeWithException(it) },
-                            )
-                            webView.post { webView.destroy() }
-                        }
-
-                        val mediaPath = URI(server.url).rawPath.orEmpty()
-                        webView.addJavascriptInterface(object {
-                            @JavascriptInterface
-                            fun onEmbedBase(base: String) {
-                                if (!continuation.isActive) return
-                                if (base.isBlank() || mediaPath.isBlank()) {
-                                    finish(
-                                        Result.failure(
-                                            IllegalStateException("Mov2Day embed base was not found"),
-                                        ),
-                                    )
-                                    return
-                                }
-                                val embedUrl = "${base.trimEnd('/')}$mediaPath"
-                                webView.post {
-                                    if (continuation.isActive) webView.loadUrl(embedUrl)
-                                }
-                            }
-                        }, "NativeBridge")
-
-                        webView.webViewClient = object : WebViewClient() {
-                            override fun onPageFinished(view: WebView, url: String) {
-                                if (host(url).endsWith("mov2day.xyz") && !url.contains("/embed", true)) {
-                                    val script = """
-                                        (() => {
-                                          const text = [...document.querySelectorAll('script')]
-                                            .map(s => s.textContent || '').join('\n');
-                                          const m = text.match(/EMBED_BASE\s*=\s*['"]([^'"]+)['"]/);
-                                          window.NativeBridge.onEmbedBase(m ? m[1] : '');
-                                        })();
-                                    """.trimIndent()
-                                    view.evaluateJavascript(script, null)
-                                }
-                            }
-
-                            override fun shouldInterceptRequest(
-                                view: WebView?,
-                                request: WebResourceRequest?,
-                            ): WebResourceResponse? {
-                                val url = request?.url?.toString() ?: ""
-                                val isMediaRequest = url.contains(".m3u8", true) ||
-                                    url.contains(".mp4", true) ||
-                                    url.contains(".ts?", true) ||
-                                    url.contains("/playlist", true) ||
-                                    url.contains("/master.", true) ||
-                                    url.contains("videoplayback", true)
-                                if (isMediaRequest && continuation.isActive) {
-                                    val origin = URI(url).let { "${it.scheme}://${it.host}" }
-                                    val cookies = CookieManager.getInstance()
-                                        .getCookie(url).orEmpty()
-                                    val headers = buildMap {
-                                        putAll(refererHeaders(origin))
-                                        put("Origin", origin)
-                                        if (cookies.isNotBlank()) put("Cookie", cookies)
-                                    }
-                                    finish(
-                                        Result.success(
-                                            StreamResult(
-                                                url,
-                                                name,
-                                                mediaType(url),
-                                                headers,
-                                                subtitles = server.subtitles.distinctBy { it.url },
-                                            ),
-                                        ),
-                                    )
-                                }
-                                return super.shouldInterceptRequest(view, request)
-                            }
-                        }
-
-                        webView.loadUrl(server.url)
-                        continuation.invokeOnCancellation {
-                            webView.post {
-                                webView.stopLoading()
-                                webView.destroy()
-                            }
-                        }
-                    }
-                }
-            }
-        }
     }
 
     private inner class VixSrcExtractor : HostExtractor {
@@ -1961,24 +1248,6 @@ class StreamExtractor(private val context: Context) {
             validateFirstHlsSegment(streamUrl, responseHeaders)
             return ExtractionResult.Final(
                 StreamResult(streamUrl, name, "direct_m3u8", responseHeaders),
-            )
-        }
-    }
-
-    private inner class CommunityExtractor : HostExtractor {
-        override val name = "Community"
-
-        override fun supports(server: StreamServer) = host(server.url).endsWith("streamingunity.dog")
-
-        override suspend fun extract(server: StreamServer): ExtractionResult {
-            val html = httpGet(server.url, communityHeaders("https://streamingunity.dog/"))
-            val iframe = Regex(
-                """<iframe[^>]+src=["']([^"']+)["']""",
-                RegexOption.IGNORE_CASE,
-            ).find(html)?.groupValues?.get(1)?.replace("&amp;", "&")
-                ?: throw IllegalStateException("Community player iframe was not found")
-            return ExtractionResult.Redirect(
-                StreamServer(name, resolveUrl(server.url, iframe), mapOf("Referer" to server.url)),
             )
         }
     }
@@ -2235,63 +1504,6 @@ class StreamExtractor(private val context: Context) {
         }
     }
 
-    private inner class VidzeeExtractor : HostExtractor {
-        override val name = "Vidzee"
-        private val player = "https://player.vidzee.wtf"
-        private val staticPass = "4f2a9c7d1e8b3a6f0d5c2e9a7b1f4d8c"
-
-        override fun supports(server: StreamServer) = host(server.url).endsWith("vidzee.wtf")
-
-        override suspend fun extract(server: StreamServer): ExtractionResult {
-            val masterKey = getVidzeeMasterKey()
-            val response = getJson(
-                server.url,
-                refererHeaders("$player/") + mapOf("Origin" to player),
-            )
-            val headers = refererHeaders(player) + mapOf("Origin" to player)
-            val links = response.optJSONArray("url") ?: throw IllegalStateException("Vidzee returned no links")
-            for (index in 0 until links.length()) {
-                val encrypted = links.optJSONObject(index)?.optString("link").orEmpty()
-                if (encrypted.isBlank()) continue
-                try {
-                    val url = decryptVidzeeLink(encrypted, masterKey)
-                    val stream = StreamResult(url, server.name, mediaType(url), headers)
-                    return ExtractionResult.Final(validateStream(stream))
-                } catch (error: Throwable) {
-                    if (error is CancellationException) throw error
-                    Log.w(tag, "Vidzee route $index failed: ${error.message}")
-                }
-            }
-            throw IllegalStateException("Vidzee returned no playable link")
-        }
-
-        private fun getVidzeeMasterKey(): String {
-            val encoded = httpGet("https://core.vidzee.wtf/api-key", refererHeaders("$player/"))
-            val data = Base64.decode(encoded.trim(), Base64.DEFAULT)
-            require(data.size > 28) { "Invalid Vidzee key payload" }
-            val iv = data.copyOfRange(0, 12)
-            val authTag = data.copyOfRange(12, 28)
-            val ciphertext = data.copyOfRange(28, data.size)
-            val key = MessageDigest.getInstance("SHA-256").digest(staticPass.toByteArray())
-            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-            cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, iv))
-            return String(cipher.doFinal(ciphertext + authTag), Charsets.UTF_8)
-        }
-
-        private fun decryptVidzeeLink(encoded: String, masterKey: String): String {
-            val decoded = String(Base64.decode(encoded, Base64.DEFAULT), Charsets.UTF_8)
-            val parts = decoded.split(':', limit = 2)
-            require(parts.size == 2) { "Invalid Vidzee link payload" }
-            val iv = Base64.decode(parts[0], Base64.DEFAULT)
-            val ciphertext = Base64.decode(parts[1], Base64.DEFAULT)
-            val sourceKey = masterKey.toByteArray()
-            val key = ByteArray(32) { index -> sourceKey.getOrElse(index) { 0 } }
-            val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
-            cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), IvParameterSpec(iv))
-            return String(cipher.doFinal(ciphertext), Charsets.UTF_8)
-        }
-    }
-
     private inner class VideasyExtractor : HostExtractor {
         override val name = "Videasy"
         override fun supports(server: StreamServer): Boolean {
@@ -2444,159 +1656,6 @@ class StreamExtractor(private val context: Context) {
         }
     }
 
-    private inner class FrembedExtractor : HostExtractor {
-        override val name = "Frembed"
-        override fun supports(server: StreamServer) = host(server.url).endsWith("frembed.click")
-
-        override suspend fun extract(server: StreamServer): ExtractionResult {
-            requireSafeOutboundUrl(server.url)
-            val response = noRedirectClient.newCall(
-                Request.Builder().url(server.url)
-                    .header("User-Agent", userAgent)
-                    .header("Referer", "https://frembed.click/")
-                    .build()
-            ).execute()
-
-            val location = response.header("Location").orEmpty()
-            response.close()
-
-            if (location.isNotBlank()) {
-                val resolved = resolveUrl(server.url, location)
-                requireSafeOutboundUrl(resolved)
-                Log.d(tag, "Frembed supplied an outbound redirect")
-                return ExtractionResult.Redirect(
-                    StreamServer(server.name, resolved, refererHeaders("https://frembed.click/")),
-                )
-            }
-
-            val pageHtml = httpGet(server.url, refererHeaders("https://frembed.click/"))
-            val mediaUrl = Regex(
-                """https?://[^\s"'<>]+\.(?:m3u8|mp4)(?:[^\s"'<>]*)?""",
-                RegexOption.IGNORE_CASE,
-            ).find(pageHtml)?.value
-                ?.replace("\\/", "/")?.replace("&amp;", "&")
-                ?: throw IllegalStateException("Frembed returned no media URL")
-
-            return ExtractionResult.Final(
-                StreamResult(mediaUrl, name, mediaType(mediaUrl), refererHeaders("https://frembed.click/")),
-            )
-        }
-    }
-
-    private inner class VidsrcRuExtractor : HostExtractor {
-        override val name = "VidsrcRu"
-        override val usesWebView = true
-        override fun supports(server: StreamServer) = host(server.url).endsWith("vidsrc.ru")
-
-        override suspend fun extract(server: StreamServer): ExtractionResult {
-            return withContext(Dispatchers.Main) {
-                withTimeout(30_000) {
-                    suspendCancellableCoroutine { continuation ->
-                        val webView = WebView(context)
-                        webView.settings.javaScriptEnabled = true
-                        webView.settings.loadsImagesAutomatically = false
-                        webView.settings.blockNetworkImage = true
-                        webView.settings.cacheMode = android.webkit.WebSettings.LOAD_NO_CACHE
-                        webView.settings.domStorageEnabled = true
-                        webView.settings.userAgentString =
-                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-
-                        webView.webViewClient = object : WebViewClient() {
-                            override fun shouldInterceptRequest(
-                                view: WebView?,
-                                request: WebResourceRequest?,
-                            ): WebResourceResponse? {
-                                val url = request?.url?.toString() ?: ""
-                                if (url.contains(".m3u8") && !url.contains("analytics") && !url.contains("cloudflare")) {
-                                    if (continuation.isActive) {
-                                        webView.post {
-                                            webView.stopLoading()
-                                            webView.destroy()
-                                        }
-                                        continuation.resume(
-                                            ExtractionResult.Final(
-                                                StreamResult(url, name, "direct_m3u8", refererHeaders(server.url)),
-                                            ),
-                                        )
-                                    }
-                                }
-                                return super.shouldInterceptRequest(view, request)
-                            }
-                        }
-                        webView.loadUrl(server.url)
-                        continuation.invokeOnCancellation {
-                            webView.post {
-                                webView.stopLoading()
-                                webView.destroy()
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private inner class VidsrcToExtractor : HostExtractor {
-        override val name = "VidsrcTo"
-        override fun supports(server: StreamServer) = host(server.url).endsWith("vidsrc.to")
-
-        override suspend fun extract(server: StreamServer): ExtractionResult {
-            val html = httpGet(server.url)
-            val mediaId = Regex("""data-id=["']([^"']+)["']""")
-                .find(html)?.groupValues?.get(1)
-                ?: throw IllegalStateException("VidsrcTo media ID not found")
-
-            val keysUrl = "https://raw.githubusercontent.com/Ciarands/vidsrc-keys/main/keys.json"
-            val keysJson = getJson(keysUrl)
-            val decryptKey = keysJson.getJSONArray("decrypt").getString(0)
-
-            val sourcesUrl = "https://vidsrc.to/ajax/embed/episode/$mediaId/sources"
-            val sourcesJson = getJson(sourcesUrl)
-            val sources = sourcesJson.optJSONArray("result")
-                ?: throw IllegalStateException("VidsrcTo no sources")
-
-            for (i in 0 until sources.length()) {
-                val source = sources.optJSONObject(i) ?: continue
-                val sourceId = source.optString("id")
-                if (sourceId.isBlank()) continue
-
-                val embedUrl = "https://vidsrc.to/ajax/embed/source/$sourceId"
-                val embedJson = getJson(embedUrl)
-                val encUrl = embedJson.optJSONObject("result")?.optString("url").orEmpty()
-                if (encUrl.isBlank()) continue
-
-                val decryptedUrl = decryptRc4(decryptKey, encUrl)
-                if (decryptedUrl.isNotBlank() && decryptedUrl != encUrl) {
-                    return ExtractionResult.Redirect(
-                        StreamServer(name, decryptedUrl, server.headers),
-                    )
-                }
-            }
-            throw IllegalStateException("VidsrcTo returned no playable source")
-        }
-
-        private fun decryptRc4(key: String, encUrl: String): String {
-            val keyBytes = key.toByteArray(Charsets.UTF_8)
-            val s = IntArray(256) { it }
-            var j = 0
-            for (i in 0 until 256) {
-                j = (j + s[i] + keyBytes[i % keyBytes.size].toInt()) and 0xff
-                s[i] = s[j].also { s[j] = s[i] }
-            }
-            var data = Base64.decode(encUrl, Base64.URL_SAFE)
-            val result = ByteArray(data.size)
-            var ci = 0; var ck = 0
-            for (index in data.indices) {
-                ci = (ci + 1) and 0xff
-                ck = (ck + s[ci]) and 0xff
-                s[ci] = s[ck].also { s[ck] = s[ci] }
-                val t = (s[ci] + s[ck]) and 0xff
-                result[index] = (data[index].toInt() xor s[t]).toByte()
-            }
-            return java.net.URLDecoder.decode(String(result, Charsets.UTF_8), "utf-8")
-        }
-    }
-
     private inner class VoeExtractor : HostExtractor {
         override val name = "VOE"
         private val aliases = setOf(
@@ -2740,29 +1799,6 @@ class StreamExtractor(private val context: Context) {
         }
     }
 
-    private inner class SeapiLinkExtractor : HostExtractor {
-        override val name = "SeapiLink"
-        override fun supports(server: StreamServer) = host(server.url).contains("seapi.link")
-
-        override suspend fun extract(server: StreamServer): ExtractionResult {
-            val json = getJson(server.url, refererHeaders("https://multiembed.mov"))
-            val results = json.optJSONArray("result") ?: json.optJSONArray("results")
-            require(results != null && results.length() > 0) { "SeapiLink returned no results" }
-            val first = results.getJSONObject(0)
-            val streamUrl = first.optString("url").ifBlank {
-                first.optString("stream").ifBlank {
-                    first.optString("link").ifBlank {
-                        first.optString("video_url")
-                    }
-                }
-            }
-            require(streamUrl.isNotBlank()) { "SeapiLink result has no URL" }
-            return ExtractionResult.Final(
-                StreamResult(streamUrl, name, mediaType(streamUrl), refererHeaders("https://multiembed.mov")),
-            )
-        }
-    }
-
     private inner class VidNestExtractor : HostExtractor {
         override val name = "VidNest"
         override fun supports(server: StreamServer) = host(server.url).contains("vidnest.fun")
@@ -2822,67 +1858,6 @@ class StreamExtractor(private val context: Context) {
         }
     }
 
-    private inner class VidLoveExtractor : HostExtractor {
-        override val name = "VidLove"
-        override val usesWebView = true
-        override fun supports(server: StreamServer) = host(server.url).contains("vidlove.cc")
-
-        override suspend fun extract(server: StreamServer): ExtractionResult {
-            return withContext(Dispatchers.Main) {
-                withTimeout(30_000) {
-                    suspendCancellableCoroutine { continuation ->
-                        val webView = WebView(context)
-                        webView.settings.javaScriptEnabled = true
-                        webView.settings.loadsImagesAutomatically = false
-                        webView.settings.blockNetworkImage = true
-                        webView.settings.cacheMode = android.webkit.WebSettings.LOAD_NO_CACHE
-                        webView.settings.domStorageEnabled = true
-
-                        webView.webViewClient = object : WebViewClient() {
-                            override fun shouldInterceptRequest(
-                                view: WebView?,
-                                request: WebResourceRequest?,
-                            ): WebResourceResponse? {
-                                val url = request?.url?.toString() ?: ""
-                                if (url.endsWith(".m3u8") && !url.contains("master")) {
-                                    if (continuation.isActive) {
-                                        continuation.resume(
-                                            ExtractionResult.Final(
-                                                StreamResult(url, name, "direct_m3u8", refererHeaders(server.url)),
-                                            ),
-                                        )
-                                    }
-                                }
-                                return super.shouldInterceptRequest(view, request)
-                            }
-                        }
-                        webView.loadUrl(server.url)
-                        continuation.invokeOnCancellation {
-                            webView.post {
-                                webView.stopLoading()
-                                webView.destroy()
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private inner class AutoEmbedExtractor : HostExtractor {
-        override val name = "AutoEmbed"
-        override fun supports(server: StreamServer) = host(server.url).contains("autoembed")
-
-        override suspend fun extract(server: StreamServer): ExtractionResult {
-            val html = httpGet(server.url)
-            val iframe = Regex("""<iframe[^>]+src=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
-                .find(html)?.groupValues?.get(1)
-                ?: throw IllegalStateException("AutoEmbed iframe not found")
-            val absolute = resolveUrl(server.url, iframe)
-            return ExtractionResult.Redirect(StreamServer("AutoEmbed host", absolute, refererHeaders(server.url)))
-        }
-    }
-
     private inner class MultiEmbedExtractor : HostExtractor {
         override val name = "MultiEmbed"
         override fun supports(server: StreamServer) = host(server.url).contains("multiembed.mov")
@@ -2894,20 +1869,6 @@ class StreamExtractor(private val context: Context) {
                 ?: throw IllegalStateException("MultiEmbed iframe not found")
             val absolute = resolveUrl(server.url, iframe)
             return ExtractionResult.Redirect(StreamServer("MultiEmbed host", absolute, refererHeaders(server.url)))
-        }
-    }
-
-    private inner class EmbedSuExtractor : HostExtractor {
-        override val name = "EmbedSu"
-        override fun supports(server: StreamServer) = host(server.url).contains("embed.su")
-
-        override suspend fun extract(server: StreamServer): ExtractionResult {
-            val html = httpGet(server.url)
-            val iframe = Regex("""<iframe[^>]+src=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
-                .find(html)?.groupValues?.get(1)
-                ?: throw IllegalStateException("Embed.su iframe not found")
-            val absolute = resolveUrl(server.url, iframe)
-            return ExtractionResult.Redirect(StreamServer("EmbedSu host", absolute, refererHeaders(server.url)))
         }
     }
 
@@ -3215,7 +2176,7 @@ class StreamExtractor(private val context: Context) {
     @SuppressLint("SetJavaScriptEnabled")
     private inner class StreamWishExtractor : HostExtractor {
         override val name = "StreamWish"
-        override val usesWebView = true
+        override val usesWebView = false
         private val aliases = setOf(
             "streamwish.to", "streamwish.com", "streamwish.site", "streamwish.club",
             "streamwish.cc", "streamwish.biz", "streamwish.info", "streamwish.net",
@@ -3249,7 +2210,7 @@ class StreamExtractor(private val context: Context) {
         override suspend fun extract(server: StreamServer): ExtractionResult {
             val uri = URI(server.url)
             val referer = "${uri.scheme}://${uri.host}/"
-            val resolved = resolveStreamWishRedirect(server.url, uri.host ?: "")
+            val resolved = server.url
             val html = httpGet(resolved, refererHeaders(referer))
             val script = unpackPackedScript(html, requiresM3u8 = true)
                 ?: throw IllegalStateException("StreamWish player script was not found")
@@ -3289,52 +2250,6 @@ class StreamExtractor(private val context: Context) {
             return ExtractionResult.Final(
                 StreamResult(finalSource, name, "direct_m3u8", headers, subtitles = subtitles),
             )
-        }
-
-        @SuppressLint("SetJavaScriptEnabled")
-        private suspend fun resolveStreamWishRedirect(url: String, hostName: String): String {
-            return withContext(Dispatchers.Main) {
-                withTimeoutOrNull(30_000) {
-                    suspendCancellableCoroutine { continuation ->
-                        val webView = WebView(context)
-                        webView.settings.javaScriptEnabled = true
-                        webView.settings.loadsImagesAutomatically = false
-                        webView.settings.blockNetworkImage = true
-                        webView.settings.cacheMode = android.webkit.WebSettings.LOAD_NO_CACHE
-                        webView.settings.domStorageEnabled = true
-                        webView.webViewClient = object : WebViewClient() {
-                            override fun shouldOverrideUrlLoading(
-                                view: WebView?,
-                                request: WebResourceRequest?,
-                            ): Boolean {
-                                val newUrl = request?.url.toString()
-                                if (newUrl.contains(hostName) || newUrl.contains("/e/")) {
-                                    if (continuation.isActive) continuation.resume(newUrl)
-                                    webView.post { webView.destroy() }
-                                    return true
-                                }
-                                return false
-                            }
-
-                            override fun onPageFinished(view: WebView?, url: String?) {
-                                if (url != null &&
-                                    (url.contains(hostName) || url.contains("/e/") || !url.contains("about:blank"))
-                                ) {
-                                    if (continuation.isActive) continuation.resume(url)
-                                    webView.post { webView.destroy() }
-                                }
-                            }
-                        }
-                        webView.loadUrl(url)
-                        continuation.invokeOnCancellation {
-                            webView.post {
-                                webView.stopLoading()
-                                webView.destroy()
-                            }
-                        }
-                    }
-                } ?: url
-            }
         }
     }
 
@@ -4447,6 +3362,31 @@ class StreamExtractor(private val context: Context) {
             url = validation.playbackUrl,
             qualities = validation.qualities,
             subtitles = (sanitizedStream.subtitles + validation.subtitles).distinctBy { it.url },
+            audioTracks = (sanitizedStream.audioTracks + validation.audioTracks)
+                .distinctBy { it.url.ifBlank { it.label } },
+            separateAudio = validation.separateAudio,
+        )
+    }
+
+    /**
+     * Light HLS check for fast picker mode: fetches the master playlist once
+     * and parses variants/subtitles/audio from its text without downloading
+     * any variant playlist or media segment. Fast but may list a server whose
+     * segments are dead; the full background resolve corrects that.
+     */
+    private suspend fun validateStreamLight(stream: StreamResult): StreamResult {
+        requireSafeOutboundUrl(stream.url)
+        val sanitizedStream = stream.copy(headers = safeHeaders(stream.headers))
+        if (stream.type != "direct_m3u8" && !stream.url.contains(".m3u8", true)) {
+            return sanitizedStream
+        }
+        val validation = validateHlsLight(sanitizedStream.url, sanitizedStream.headers)
+        return sanitizedStream.copy(
+            url = validation.playbackUrl,
+            qualities = validation.qualities,
+            subtitles = (sanitizedStream.subtitles + validation.subtitles).distinctBy { it.url },
+            audioTracks = (sanitizedStream.audioTracks + validation.audioTracks)
+                .distinctBy { it.url.ifBlank { it.label } },
             separateAudio = validation.separateAudio,
         )
     }
@@ -4455,6 +3395,7 @@ class StreamExtractor(private val context: Context) {
         val playbackUrl: String,
         val qualities: List<QualityOption>,
         val subtitles: List<SubtitleOption>,
+        val audioTracks: List<AudioOption> = emptyList(),
         val separateAudio: Boolean = false,
     )
 
@@ -4468,9 +3409,10 @@ class StreamExtractor(private val context: Context) {
 
         val variants = parseHlsVariants(master.url, master.body)
         val subtitles = parseHlsSubtitles(master.url, master.body)
+        val audioTracks = parseHlsAudio(master.url, master.body)
         if (variants.isEmpty()) {
             validateMediaPlaylist(master.url, master.body, headers)
-            return HlsValidation(master.url, emptyList(), subtitles)
+            return HlsValidation(master.url, emptyList(), subtitles, audioTracks)
         }
 
         // A playlist can remain reachable after its signed media segments expire.
@@ -4520,7 +3462,37 @@ class StreamExtractor(private val context: Context) {
             allPlayable -> master.url
             else -> playableVariants.minByOrNull { it.height }?.url ?: master.url
         }
-        return HlsValidation(pinnedUrl, qualities, subtitles, separateAudio = separateAudio)
+        return HlsValidation(pinnedUrl, qualities, subtitles, audioTracks, separateAudio = separateAudio)
+    }
+
+    /**
+     * Master-only HLS parse for fast picker mode. No variant/segment fetches:
+     * qualities come straight from `#EXT-X-STREAM-INF` lines (height may be 0
+     * when the master omits RESOLUTION; the full resolve fills those in).
+     */
+    private suspend fun validateHlsLight(url: String, headers: Map<String, String>): HlsValidation {
+        val master = getValidationResponse(url, headers)
+        require(master.body.startsWith("#EXTM3U")) {
+            "HLS endpoint did not return a playlist (${master.contentType})"
+        }
+        val variants = parseHlsVariants(master.url, master.body)
+        val subtitles = parseHlsSubtitles(master.url, master.body)
+        val audioTracks = parseHlsAudio(master.url, master.body)
+        val separateAudio = hasSeparateAudioGroups(master.body)
+        val qualities = buildList {
+            add(QualityOption("Auto", master.url, 0))
+            addAll(
+                variants.distinctBy { it.height }.sortedByDescending { it.height }.map {
+                    QualityOption(
+                        if (it.height > 0) "${it.height}p" else "Source",
+                        it.url,
+                        it.height,
+                        it.codec,
+                    )
+                },
+            )
+        }
+        return HlsValidation(master.url, qualities, subtitles, audioTracks, separateAudio = separateAudio)
     }
 
     private fun validateMediaPlaylist(
@@ -4600,6 +3572,72 @@ class StreamExtractor(private val context: Context) {
     }
 
     /**
+     * Fills in HLS audio/subtitle tracks for extractors that return a master
+     * URL without running it through [validateHls] (VidLink/2Embed early
+     * return). Single cheap master GET; failures keep the original stream.
+     * Used in the list/retry paths only — never in the playback race, where
+     * it would add latency to the first playable result.
+     */
+    private suspend fun enrichHlsAudioTracks(stream: StreamResult): StreamResult {
+        if (stream.audioTracks.isNotEmpty()) return stream
+        if (stream.type != "direct_m3u8" && !stream.url.contains(".m3u8", true)) {
+            return stream
+        }
+        return try {
+            val master = getValidationResponse(stream.url, safeHeaders(stream.headers))
+            if (!master.body.startsWith("#EXTM3U")) return stream
+            stream.copy(
+                audioTracks = parseHlsAudio(master.url, master.body),
+                subtitles = if (stream.subtitles.isEmpty()) {
+                    parseHlsSubtitles(master.url, master.body)
+                } else {
+                    stream.subtitles
+                },
+            )
+        } catch (error: Throwable) {
+            if (error is CancellationException) throw error
+            stream
+        }
+    }
+
+    /**
+     * Parses `#EXT-X-MEDIA:TYPE=AUDIO` renditions (multi-language audio) from
+     * an HLS master playlist. Dialects vary: some hosts set LANGUAGE only,
+     * some NAME only, some neither (single default track).
+     */
+    private fun parseHlsAudio(masterUrl: String, body: String): List<AudioOption> {
+        fun attribute(line: String, name: String): String? {
+            val match = Regex("""(?:^|,)$name=(?:"([^"]*)"|([^,]*))""", RegexOption.IGNORE_CASE)
+                .find(line) ?: return null
+            return match.groupValues[1].ifBlank { match.groupValues[2] }.ifBlank { null }
+        }
+
+        return body.lineSequence().mapNotNull { line ->
+            if (!line.startsWith("#EXT-X-MEDIA", true) ||
+                !line.contains("TYPE=AUDIO", true)
+            ) {
+                return@mapNotNull null
+            }
+            val language = attribute(line, "LANGUAGE")
+                ?: attribute(line, "NAME")
+                ?: "und"
+            val label = attribute(line, "NAME")
+                ?: attribute(line, "LANGUAGE")
+                ?: "Audio"
+            val uri = attribute(line, "URI")
+            AudioOption(
+                label,
+                language,
+                uri?.let { resolveUrl(masterUrl, it) } ?: "",
+                attribute(line, "GROUP-ID") ?: "",
+                attribute(line, "DEFAULT").equals("YES", true),
+                attribute(line, "CHANNELS") ?: "",
+                source = "HLS",
+            )
+        }.distinctBy { it.url.ifBlank { it.label + it.language } }.toList()
+    }
+
+    /**
      * Returns `true` when the HLS master playlist declares at least one
      * `#EXT-X-MEDIA:TYPE=AUDIO` entry with a URI, meaning audio is served
      * on a separate rendition.  In this case pinning to a single video
@@ -4672,6 +3710,9 @@ class StreamExtractor(private val context: Context) {
         }
     }
 
+    /** hostname → is-public verdict; avoids re-resolving on every request. */
+    private val safeHostCache = ConcurrentHashMap<String, Boolean>()
+
     private fun requireSafeOutboundUrl(url: String) {
         val uri = try {
             URI(url.substringBefore('#'))
@@ -4693,13 +3734,48 @@ class StreamExtractor(private val context: Context) {
         if (isIpv4Literal || isIpv6Literal) {
             val address = runCatching { InetAddress.getByName(hostname) }
                 .getOrElse { throw IllegalArgumentException("Invalid IP literal") }
-            val bytes = address.address
-            val uniqueLocalV6 = bytes.size == 16 && (bytes[0].toInt() and 0xfe) == 0xfc
-            require(!address.isAnyLocalAddress && !address.isLoopbackAddress &&
-                !address.isLinkLocalAddress && !address.isSiteLocalAddress && !uniqueLocalV6) {
-                "Non-public IP literals are not allowed"
-            }
+            require(isPublicAddress(address)) { "Non-public IP literals are not allowed" }
+            return
         }
+
+        // Hostnames are attacker-influenced here (they come from foreign embed
+        // sites), so resolve them and reject private ranges — an IP-literal-only
+        // check lets e.g. "localhost.attacker.tld" → 127.0.0.1 straight through
+        // and the client can be steered into probing LAN services.
+        val verdict = safeHostCache.getOrPut(hostname) {
+            val addresses = runCatching { InetAddress.getAllByName(hostname) }
+                .getOrElse {
+                    // Resolution failure: OkHttp will re-resolve at connect time;
+                    // we can't prove the target unsafe, so fail open.
+                    return@getOrPut true
+                }
+            addresses.all(::isPublicAddress)
+        }
+        require(verdict) { "Non-public outbound hostnames are not allowed" }
+    }
+
+    /** True when every byte pattern of [address] is routable public space. */
+    private fun isPublicAddress(address: InetAddress): Boolean {
+        if (address.isAnyLocalAddress || address.isLoopbackAddress ||
+            address.isLinkLocalAddress || address.isSiteLocalAddress || address.isMulticastAddress
+        ) {
+            return false
+        }
+        val bytes = address.address
+        if (bytes.size == 16) {
+            // Unique local fc00::/7 (covers IPv4-mapped forms Java may hand back).
+            if ((bytes[0].toInt() and 0xfe) == 0xfc) return false
+        }
+        if (bytes.size == 4) {
+            val b0 = bytes[0].toInt() and 0xff
+            val b1 = bytes[1].toInt() and 0xff
+            val b2 = bytes[2].toInt() and 0xff
+            if (b0 == 0) return false                                // 0.0.0.0/8
+            if (b0 == 100 && (b1 and 0xc0) == 0x80) return false     // 100.64.0.0/10 CGNAT
+            if (b0 == 192 && b1 == 0 && b2 == 0) return false        // 192.0.0.0/24
+            if (b0 == 198 && (b1 == 18 || b1 == 19)) return false    // 198.18.0.0/15
+        }
+        return true
     }
 
     private fun normalizeTitle(value: String) = value.lowercase().filter(Char::isLetterOrDigit)

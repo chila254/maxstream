@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.maxstream.app.core.AppConfig
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -102,33 +103,49 @@ object AppSession {
             }
         }
 
-    /** Returns a valid idToken, refreshing if near/expired. */
+    private val refreshMutex = kotlinx.coroutines.sync.Mutex()
+
+    /**
+     * Returns a valid idToken, refreshing if near/expired. The refresh runs
+     * under a mutex and re-checks expiry after acquiring it, so parallel
+     * callers (progress loop + sync loop + watchlist) can no longer fire
+     * concurrent refreshes where the later response overwrites the earlier
+     * one and leaves a stale idToken behind.
+     */
     suspend fun freshToken(): String? {
         val u = user ?: return null
         if (System.currentTimeMillis() < u.expiresAt - 30_000L) return u.idToken
-        return withContext(Dispatchers.IO) {
-            runCatching {
-                val body = JSONObject()
-                    .put("grant_type", "refresh_token")
-                    .put("refresh_token", u.refreshToken)
-                val res = post(AppConfig.FIREBASE_TOKEN_BASE, body).use { r ->
-                    r.code to (r.body?.string().orEmpty())
+        return refreshMutex.withLock {
+            val current = user ?: return@withLock null
+            if (System.currentTimeMillis() < current.expiresAt - 30_000L) {
+                return@withLock current.idToken
+            }
+            withContext(Dispatchers.IO) {
+                runCatching {
+                    val body = JSONObject()
+                        .put("grant_type", "refresh_token")
+                        .put("refresh_token", current.refreshToken)
+                    val res = post(AppConfig.FIREBASE_TOKEN_BASE, body).use { r ->
+                        r.code to (r.body?.string().orEmpty())
+                    }
+                    val (code, text) = res
+                    if (code / 100 != 2) {
+                        throw IllegalStateException(firebaseErrorMessage(code, text, "Token refresh failed"))
+                    }
+                    parseJsonObject(text, code, "Token refresh failed")
+                }.onFailure { e ->
+                    System.err.println("AppSession: token refresh failed: $e")
+                }.getOrNull()?.let { json ->
+                    val now = System.currentTimeMillis()
+                    val renewed = current.copy(
+                        idToken = json.optString("access_token").ifBlank { current.idToken },
+                        refreshToken = json.optString("refresh_token").ifBlank { current.refreshToken },
+                        expiresAt = now + json.optLong("expires_in", 3600L) * 1000L,
+                    )
+                    user = renewed
+                    persist(renewed)
+                    renewed.idToken
                 }
-                val (code, text) = res
-                if (code / 100 != 2) {
-                    throw IllegalStateException(firebaseErrorMessage(code, text, "Token refresh failed"))
-                }
-                parseJsonObject(text, code, "Token refresh failed")
-            }.getOrNull()?.let { json ->
-                val now = System.currentTimeMillis()
-                val renewed = u.copy(
-                    idToken = json.optString("access_token").ifBlank { u.idToken },
-                    refreshToken = json.optString("refresh_token").ifBlank { u.refreshToken },
-                    expiresAt = now + json.optLong("expires_in", 3600L) * 1000L,
-                )
-                user = renewed
-                persist(renewed)
-                renewed.idToken
             }
         }
     }
@@ -247,8 +264,7 @@ object AppSession {
 
     private fun persist(u: FirebaseUser) {
         try {
-            Files.createDirectories(sessionFile().parent)
-            Files.writeString(
+            com.maxstream.app.core.AtomicFiles.write(
                 sessionFile(),
                 JSONObject()
                     .put("localId", u.localId)
@@ -259,7 +275,8 @@ object AppSession {
                     .put("expiresAt", u.expiresAt)
                     .toString(),
             )
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            System.err.println("AppSession: failed to persist session: $e")
         }
     }
 

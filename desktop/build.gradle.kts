@@ -8,7 +8,9 @@ plugins {
 }
 
 group = "com.maxstream"
-version = "0.1.0"
+// Keep in sync with nativeDistributions.packageVersion below (they drifted:
+// gradle said 0.1.0 while the installer said 1.0.1).
+version = "1.0.1"
 
 // Windows laptop app — its own desktop UX. Shares the com.maxstream.app package
 // with the TV/mobile clients but does NOT use Google services (unavailable on
@@ -48,6 +50,9 @@ dependencies {
     // Kotlin 2.2 compiler here cannot read.
     implementation("io.coil-kt.coil3:coil-compose:3.2.0")
     implementation("io.coil-kt.coil3:coil-network-okhttp:3.2.0")
+
+    // Unit tests (kotlin.test on the default JUnit 4 runner — no extra config).
+    testImplementation(kotlin("test"))
 }
 
 // Copies the local VLC runtime (libvlc + plugins) into the app resources so the
@@ -56,6 +61,7 @@ dependencies {
 // Skips locale/skins/exes (translations & GUI — irrelevant to embedded playback).
 val vlcSourceDir = providers.gradleProperty("vlcSource")
     .orElse("C:\\Program Files\\VideoLAN\\VLC")
+val allowMissingVlc = providers.gradleProperty("allowMissingVlc").map { it == "true" }.orElse(false)
 tasks.register<Sync>("syncVlcRuntime") {
     group = "maxstream"
     description = "Bundles the local VLC runtime (libvlc + plugins) into app resources."
@@ -67,7 +73,17 @@ tasks.register<Sync>("syncVlcRuntime") {
     into(layout.projectDirectory.dir("src/main/resources/vlc"))
     doFirst {
         if (!src.exists()) {
-            logger.warn("VLC source not found at $src — bundled player will be empty (app falls back to installed VLC).")
+            val isWindows = System.getProperty("os.name").startsWith("Windows", ignoreCase = true)
+            if (isWindows && !allowMissingVlc.get()) {
+                // Previously a silent `logger.warn` — the MSI then shipped with an
+                // empty player and no VLC installed on the target machine.
+                throw GradleException(
+                    "VLC not found at $src — refusing to build without a bundled player. " +
+                        "Install VLC, set -PvlcSource=\"D:\\path\\to\\VLC\", or pass " +
+                        "-PallowMissingVlc=true to package deliberately without it.",
+                )
+            }
+            logger.warn("VLC source not found at $src — bundled player will be empty (non-Windows host; app falls back to installed VLC).")
         }
     }
     doLast {
